@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Ceres-ASM.vcxproj" Id="0f9f1c73-885a-49f3-8b6e-829e4601ec17" />
+</Solution>

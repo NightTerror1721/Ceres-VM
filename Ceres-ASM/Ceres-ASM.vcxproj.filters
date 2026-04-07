@@ -1,0 +1,99 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Archivos de origen">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Archivos de encabezado">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="Archivos de recursos">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Archivos de encabezado\common">
+      <UniqueIdentifier>{bfbbbfd3-ebc0-4669-920a-162e78ecb8fa}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Archivos de encabezado\assembler">
+      <UniqueIdentifier>{efaecfb2-1016-41fa-9489-bc7ea061d663}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Archivos de encabezado\vm">
+      <UniqueIdentifier>{a19cec3a-c718-4f95-ac93-aa8eda112dac}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Archivos de origen\common">
+      <UniqueIdentifier>{1f75ac6d-2030-4f48-b877-bb28480056bd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Archivos de origen\assembler">
+      <UniqueIdentifier>{8f90270d-5113-4632-a313-1abc8a5b4b61}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Archivos de origen\vm">
+      <UniqueIdentifier>{5c339aa7-9c33-4481-94fd-2b8399ed80c6}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vm\program.cpp">
+      <Filter>Archivos de origen\vm</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vm\execution_engine.cpp">
+      <Filter>Archivos de origen\vm</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vm\ceresvm.cpp">
+      <Filter>Archivos de origen\vm</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\common\types.h">
+      <Filter>Archivos de encabezado\common</Filter>
+    </ClInclude>
+    <ClInclude Include="src\common\logs.h">
+      <Filter>Archivos de encabezado\common</Filter>
+    </ClInclude>
+    <ClInclude Include="src\common\config.h">
+      <Filter>Archivos de encabezado\common</Filter>
+    </ClInclude>
+    <ClInclude Include="src\common\assert.h">
+      <Filter>Archivos de encabezado\common</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\registers.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\opcodes.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\instructions.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\address.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\memory.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\program.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\execution_engine.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\interrupts.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\io_ports.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\bios.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\ceresvm.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\devices.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
