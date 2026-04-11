@@ -139,14 +139,21 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\assembler\lexer.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\vm\ceresvm.cpp" />
     <ClCompile Include="src\vm\execution_engine.cpp" />
     <ClCompile Include="src\vm\program.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\assembler\common_defs.h" />
+    <ClInclude Include="src\assembler\lexer.h" />
+    <ClInclude Include="src\assembler\operand.h" />
+    <ClInclude Include="src\assembler\statement.h" />
+    <ClInclude Include="src\assembler\token.h" />
     <ClInclude Include="src\common\assert.h" />
     <ClInclude Include="src\common\config.h" />
+    <ClInclude Include="src\common\int24.h" />
     <ClInclude Include="src\common\logs.h" />
     <ClInclude Include="src\common\types.h" />
     <ClInclude Include="src\vm\address.h" />

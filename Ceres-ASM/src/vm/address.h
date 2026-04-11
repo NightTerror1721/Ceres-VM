@@ -36,6 +36,9 @@ namespace ceres::vm
 		template <Integral T> requires (sizeof(T) <= Size)
 		explicit (SignedIntegral<T>) forceinline constexpr Address(T value) noexcept : _value(static_cast<ValueType>(value)) {}
 
+		forceinline explicit constexpr Address(u24 value) noexcept : _value(static_cast<ValueType>(value)) {}
+		forceinline explicit constexpr Address(i24 value) noexcept : _value(static_cast<ValueType>(value)) {}
+
 		forceinline explicit constexpr Address(Register reg) noexcept : _value(reg.value()) {}
 
 		forceinline constexpr ValueType value() const noexcept { return _value; }

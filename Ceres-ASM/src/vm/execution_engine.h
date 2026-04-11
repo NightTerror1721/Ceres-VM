@@ -374,7 +374,16 @@ namespace ceres::vm
 		forceinline void executeJumpIfFlag(const Instruction inst) noexcept
 		{
 			if (flag<Flag>())
-				_pc = Address(getReg(inst.rs()) + inst.imm16());
+				_pc += inst.simm24().signedValue();
+			else
+				advancePC();
+		}
+
+		template <ExecutionFlag Flag>
+		forceinline void executeJumpRegIfFlag(const Instruction inst) noexcept
+		{
+			if (flag<Flag>())
+				_pc = Address(getReg(inst.rs()));
 			else
 				advancePC();
 		}
@@ -383,7 +392,16 @@ namespace ceres::vm
 		forceinline void executeJumpIfNotFlag(const Instruction inst) noexcept
 		{
 			if (!flag<Flag>())
-				_pc = Address(getReg(inst.rs()) + inst.imm16());
+				_pc += inst.simm24().signedValue();
+			else
+				advancePC();
+		}
+
+		template <ExecutionFlag Flag>
+		forceinline void executeJumpRegIfNotFlag(const Instruction inst) noexcept
+		{
+			if (!flag<Flag>())
+				_pc = Address(getReg(inst.rs()));
 			else
 				advancePC();
 		}
@@ -442,9 +460,8 @@ namespace ceres::vm
 		forceinline void SARI(const Instruction inst) noexcept { executeSar(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 
 		forceinline void MOV(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs())); advancePC(); }
-		forceinline void MOVIL(const Instruction inst) noexcept { setReg(inst.rd(), inst.imm16()); advancePC(); }
+		forceinline void MOVI(const Instruction inst) noexcept { setReg(inst.rd(), inst.imm16()); advancePC(); }
 		forceinline void MOVIH(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(inst.imm16()) << 16u); advancePC(); }
-		forceinline void MOVI(const Instruction inst) noexcept { setReg(inst.rd(), inst.imm24()); advancePC(); }
 		forceinline void LDRB(const Instruction inst) noexcept { setReg(inst.rd(), read<u8>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
 		forceinline void ILDRB(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
 		forceinline void LDRW(const Instruction inst) noexcept { setReg(inst.rd(), read<u16>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
@@ -455,7 +472,7 @@ namespace ceres::vm
 		forceinline void STRW(const Instruction inst) noexcept { write<u16>(getReg(inst.rs()) + inst.imm16(), static_cast<u16>(getReg(inst.rt()))); advancePC(); }
 		forceinline void STRD(const Instruction inst) noexcept { write<u32>(getReg(inst.rs()) + inst.imm16(), getReg(inst.rt())); advancePC(); }
 
-		forceinline void JP(const Instruction inst) noexcept { _pc += Address(inst.simm24()); }
+		forceinline void JP(const Instruction inst) noexcept { _pc += inst.simm24().signedValue(); }
 		forceinline void JPR(const Instruction inst) noexcept { _pc = Address(getReg(inst.rs())); }
 		forceinline void CMP(const Instruction inst) noexcept
 		{
@@ -470,11 +487,17 @@ namespace ceres::vm
 			advancePC();
 		}
 		forceinline void JZ(const Instruction inst) noexcept { executeJumpIfFlag<ExecutionFlag::Zero>(inst); }
+		forceinline void JZR(const Instruction inst) noexcept { executeJumpRegIfFlag<ExecutionFlag::Zero>(inst); }
 		forceinline void JNZ(const Instruction inst) noexcept { executeJumpIfNotFlag<ExecutionFlag::Zero>(inst); }
+		forceinline void JNZR(const Instruction inst) noexcept { executeJumpRegIfNotFlag<ExecutionFlag::Zero>(inst); }
 		forceinline void JC(const Instruction inst) noexcept { executeJumpIfFlag<ExecutionFlag::Carry>(inst); }
+		forceinline void JCR(const Instruction inst) noexcept { executeJumpRegIfFlag<ExecutionFlag::Carry>(inst); }
 		forceinline void JNC(const Instruction inst) noexcept { executeJumpIfNotFlag<ExecutionFlag::Carry>(inst); }
+		forceinline void JNCR(const Instruction inst) noexcept { executeJumpRegIfNotFlag<ExecutionFlag::Carry>(inst); }
 		forceinline void JS(const Instruction inst) noexcept { executeJumpIfFlag<ExecutionFlag::Sign>(inst); }
+		forceinline void JSR(const Instruction inst) noexcept { executeJumpRegIfFlag<ExecutionFlag::Sign>(inst); }
 		forceinline void JNS(const Instruction inst) noexcept { executeJumpIfNotFlag<ExecutionFlag::Sign>(inst); }
+		forceinline void JNSR(const Instruction inst) noexcept { executeJumpRegIfNotFlag<ExecutionFlag::Sign>(inst); }
 		forceinline void CALL(const Instruction inst) noexcept
 		{
 			push<u32>((_pc + Instruction::SizeInBytes).value()); // Push return address onto the stack
@@ -574,9 +597,8 @@ namespace ceres::vm
 
 				// Moves / Loads / Stores
 				handlers[static_cast<u8>(Opcode::MOV)] = &ExecutionEngine::MOV;
-				handlers[static_cast<u8>(Opcode::MOVIL)] = &ExecutionEngine::MOVIL;
-				handlers[static_cast<u8>(Opcode::MOVIH)] = &ExecutionEngine::MOVIH;
 				handlers[static_cast<u8>(Opcode::MOVI)] = &ExecutionEngine::MOVI;
+				handlers[static_cast<u8>(Opcode::MOVIH)] = &ExecutionEngine::MOVIH;
 				handlers[static_cast<u8>(Opcode::LDRB)] = &ExecutionEngine::LDRB;
 				handlers[static_cast<u8>(Opcode::ILDRB)] = &ExecutionEngine::ILDRB;
 				handlers[static_cast<u8>(Opcode::LDRW)] = &ExecutionEngine::LDRW;
@@ -592,11 +614,17 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::JPR)] = &ExecutionEngine::JPR;
 				handlers[static_cast<u8>(Opcode::CMP)] = &ExecutionEngine::CMP;
 				handlers[static_cast<u8>(Opcode::JZ)] = &ExecutionEngine::JZ;
+				handlers[static_cast<u8>(Opcode::JZR)] = &ExecutionEngine::JZR;
 				handlers[static_cast<u8>(Opcode::JNZ)] = &ExecutionEngine::JNZ;
+				handlers[static_cast<u8>(Opcode::JNZR)] = &ExecutionEngine::JNZR;
 				handlers[static_cast<u8>(Opcode::JC)] = &ExecutionEngine::JC;
+				handlers[static_cast<u8>(Opcode::JCR)] = &ExecutionEngine::JCR;
 				handlers[static_cast<u8>(Opcode::JNC)] = &ExecutionEngine::JNC;
+				handlers[static_cast<u8>(Opcode::JNCR)] = &ExecutionEngine::JNCR;
 				handlers[static_cast<u8>(Opcode::JS)] = &ExecutionEngine::JS;
+				handlers[static_cast<u8>(Opcode::JSR)] = &ExecutionEngine::JSR;
 				handlers[static_cast<u8>(Opcode::JNS)] = &ExecutionEngine::JNS;
+				handlers[static_cast<u8>(Opcode::JNSR)] = &ExecutionEngine::JNSR;
 				handlers[static_cast<u8>(Opcode::CALL)] = &ExecutionEngine::CALL;
 				handlers[static_cast<u8>(Opcode::CALLR)] = &ExecutionEngine::CALLR;
 				handlers[static_cast<u8>(Opcode::RET)] = &ExecutionEngine::RET;

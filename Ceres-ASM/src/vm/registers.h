@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/types.h"
+#include "common/int24.h"
 #include <compare>
 #include <array>
 
@@ -40,6 +41,9 @@ namespace ceres::vm
 		explicit (SignedIntegral<T> && sizeof(T) == Size) 
 		forceinline constexpr Register(T value) noexcept : _value(static_cast<ValueType>(value)) {}
 
+		forceinline constexpr Register(u24 value) noexcept : _value(static_cast<ValueType>(value)) {}
+		forceinline constexpr Register(i24 value) noexcept : _value(static_cast<ValueType>(value)) {}
+
 		forceinline constexpr ValueType value() const noexcept { return _value; }
 
 		template <Integral T> requires (sizeof(T) <= Size)
@@ -49,6 +53,9 @@ namespace ceres::vm
 
 		template <Integral T> requires (sizeof(T) <= Size)
 		forceinline constexpr void set(T value) noexcept { _value = static_cast<ValueType>(value); }
+
+		forceinline constexpr void set(u24 value) noexcept { _value = static_cast<ValueType>(value); }
+		forceinline constexpr void set(i24 value) noexcept { _value = static_cast<ValueType>(value); }
 
 	public:
 		constexpr explicit operator bool() const noexcept { return _value != 0; }

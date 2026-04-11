@@ -3,6 +3,7 @@
 #include "opcodes.h"
 #include "address.h"
 #include <compare>
+#include <span>
 
 namespace ceres::vm
 {
@@ -49,8 +50,8 @@ namespace ceres::vm
 		forceinline constexpr RawType raw() const noexcept { return _raw; }
 
 		forceinline constexpr Opcode opcode() const noexcept { return static_cast<Opcode>((_raw & OpcodeMask) >> OpcodeShift); }
-		forceinline constexpr u32 imm24() const noexcept { return _raw & Imm24Mask; }
-		forceinline constexpr i32 simm24() const noexcept { return static_cast<i32>(_raw & Imm24Mask); }
+		forceinline constexpr u24 imm24() const noexcept { return static_cast<u24>(_raw & Imm24Mask); }
+        forceinline constexpr i24 simm24() const noexcept { return static_cast<i24>(_raw & Imm24Mask); }
 		forceinline constexpr u16 imm16() const noexcept { return _raw & Imm16Mask; }
 		forceinline constexpr i16 simm16() const noexcept { return static_cast<i16>(_raw & Imm16Mask); }
 		forceinline constexpr u8 imm8() const noexcept { return _raw & Imm8Mask; }
@@ -67,9 +68,13 @@ namespace ceres::vm
 			return Instruction(static_cast<RawType>(opcode) << OpcodeShift);
 		}
 
-		static constexpr Instruction make(Opcode opcode, u32 imm24) noexcept
+		static constexpr Instruction make(Opcode opcode, u24 imm24) noexcept
 		{
-			return Instruction((static_cast<RawType>(opcode) << OpcodeShift) | (imm24 & Imm24Mask));
+			return Instruction((static_cast<RawType>(opcode) << OpcodeShift) | (static_cast<u32>(imm24) & Imm24Mask));
+		}
+		static constexpr Instruction make(Opcode opcode, i24 simm24) noexcept
+		{
+			return Instruction((static_cast<RawType>(opcode) << OpcodeShift) | (static_cast<u32>(simm24) & Imm24Mask));
 		}
 
 		static constexpr Instruction make(Opcode opcode, u8 imm8) noexcept
@@ -92,6 +97,11 @@ namespace ceres::vm
 				((rs & RegisterMask) << RsShift) |
 				((rt & RegisterMask) << RtShift) |
 				((imm8 & Imm8Mask)));
+		}
+
+		static constexpr std::span<const u8> asBytes(std::span<const Instruction> instructions) noexcept
+		{
+			return std::span<const u8>(reinterpret_cast<const u8*>(instructions.data()), instructions.size() * Size);
 		}
 
 	public:
@@ -143,9 +153,8 @@ namespace ceres::vm
 
 		// Memory Access
 		static constexpr Instruction MOV(u8 rd, u8 rs) noexcept { return make(Opcode::MOV, rd, rs); }
-		static constexpr Instruction MOVIL(u8 rd, u16 imm16) noexcept { return make(Opcode::MOVIL, rd, 0, imm16); }
+		static constexpr Instruction MOVI(u8 rd, u16 imm16) noexcept { return make(Opcode::MOVI, rd, 0, imm16); }
 		static constexpr Instruction MOVIH(u8 rd, u16 imm16) noexcept { return make(Opcode::MOVIH, rd, 0, imm16); }
-		static constexpr Instruction MOVI(u8 rd, u8 imm8) noexcept { return make(Opcode::MOVI, rd, 0, 0, imm8); }
 		static constexpr Instruction LDRB(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDRB, rd, rs, imm16); }
 		static constexpr Instruction ILDRB(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::ILDRB, rd, rs, imm16); }
 		static constexpr Instruction LDRW(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDRW, rd, rs, imm16); }
@@ -157,22 +166,22 @@ namespace ceres::vm
 		static constexpr Instruction STRD(u8 rs, u8 rt, u16 imm16) noexcept { return make(Opcode::STRD, rs, rt, imm16); }
 
 		// Control Flow
-		static constexpr Instruction JP(i32 simm24) noexcept { return make(Opcode::JP, static_cast<u32>(simm24)); }
+		static constexpr Instruction JP(i24 simm24) noexcept { return make(Opcode::JP, simm24); }
 		static constexpr Instruction JPR(u8 rs) noexcept { return make(Opcode::JPR, 0, rs); }
 		static constexpr Instruction CMP(u8 rs, u8 rt) noexcept { return make(Opcode::CMP, 0, rs, rt); }
-		static constexpr Instruction JZ(i32 simm24) noexcept { return make(Opcode::JZ, static_cast<u32>(simm24)); }
+		static constexpr Instruction JZ(i24 simm24) noexcept { return make(Opcode::JZ, simm24); }
 		static constexpr Instruction JZR(u8 rs) noexcept { return make(Opcode::JZR, 0, rs); }
-		static constexpr Instruction JNZ(i32 simm24) noexcept { return make(Opcode::JNZ, static_cast<u32>(simm24)); }
+		static constexpr Instruction JNZ(i24 simm24) noexcept { return make(Opcode::JNZ, simm24); }
 		static constexpr Instruction JNZR(u8 rs) noexcept { return make(Opcode::JNZR, 0, rs); }
-		static constexpr Instruction JC(i32 simm24) noexcept { return make(Opcode::JC, static_cast<u32>(simm24)); }
+		static constexpr Instruction JC(i24 simm24) noexcept { return make(Opcode::JC, simm24); }
 		static constexpr Instruction JCR(u8 rs) noexcept { return make(Opcode::JCR, 0, rs); }
-		static constexpr Instruction JNC(i32 simm24) noexcept { return make(Opcode::JNC, static_cast<u32>(simm24)); }
+		static constexpr Instruction JNC(i24 simm24) noexcept { return make(Opcode::JNC, simm24); }
 		static constexpr Instruction JNCR(u8 rs) noexcept { return make(Opcode::JNCR, 0, rs); }
-		static constexpr Instruction JS(i32 simm24) noexcept { return make(Opcode::JS, static_cast<u32>(simm24)); }
+		static constexpr Instruction JS(i24 simm24) noexcept { return make(Opcode::JS, simm24); }
 		static constexpr Instruction JSR(u8 rs) noexcept { return make(Opcode::JSR, 0, rs); }
-		static constexpr Instruction JNS(i32 simm24) noexcept { return make(Opcode::JNS, static_cast<u32>(simm24)); }
+		static constexpr Instruction JNS(i24 simm24) noexcept { return make(Opcode::JNS, simm24); }
 		static constexpr Instruction JNSR(u8 rs) noexcept { return make(Opcode::JNSR, 0, rs); }
-		static constexpr Instruction CALL(i32 simm24) noexcept { return make(Opcode::CALL, static_cast<u32>(simm24)); }
+		static constexpr Instruction CALL(i24 simm24) noexcept { return make(Opcode::CALL, simm24); }
 		static constexpr Instruction CALLR(u8 rs) noexcept { return make(Opcode::CALLR, 0, rs); }
 		static constexpr Instruction RET() noexcept { return make(Opcode::RET); }
 

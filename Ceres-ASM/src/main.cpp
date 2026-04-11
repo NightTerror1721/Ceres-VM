@@ -38,7 +38,7 @@ int main()
 		Instruction::MOVI(0, 0x01), Instruction::OUT(0, default_ports::SYS_CONTROL) // Send shutdown command to system control port to halt the VM.
 	};
 
-	std::span<const u8> programBytes(reinterpret_cast<const u8*>(programInstructions.data()), programInstructions.size() * sizeof(Instruction));
+	std::span<const u8> programBytes = Instruction::asBytes(programInstructions);
 
 	ProgramHeader header{};
 	header.magic = ProgramHeader::MagicNumber;

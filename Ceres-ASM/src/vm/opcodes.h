@@ -53,18 +53,17 @@ namespace ceres::vm
 
 		// Memory Access //
 		MOV = 0x40, // [rd, rs] - rd = rs
-		MOVIL = 0x41, // [rd, imm16] - rd = imm16
+		MOVI = 0x41, // [rd, imm16] - rd = imm16
 		MOVIH = 0x42, // [rd, imm16] - rd = (imm16 << 16)
-		MOVI = 0x43, // [rd, imm8] - rd = imm8
-		LDRB = 0x44, // [rd, rs, imm16] - rd = *(u8*)(rs + imm16)
-		ILDRB = 0x45, // [rd, rs, imm16] - rd = *(i8*)(rs + imm16)
-		LDRW = 0x46, // [rd, rs, imm16] - rd = *(u16*)(rs + imm16)
-		ILDRW = 0x47, // [rd, rs, imm16] - rd = *(i16*)(rs + imm16)
-		LDRD = 0x48, // [rd, rs, imm16] - rd = *(u32*)(rs + imm16)
-		LEA = 0x49, // [rd, rs, imm16] - rd = rs + imm16 (load effective address)
-		STRB = 0x4A, // [rs, rt, imm16] - *(u8*)(rs + imm16) = rt
-		STRW = 0x4B, // [rs, rt, imm16] - *(u16*)(rs + imm16) = rt
-		STRD = 0x4C, // [rs, rt, imm16] - *(u32*)(rs + imm16) = rt
+		LDRB = 0x43, // [rd, rs, imm16] - rd = *(u8*)(rs + imm16)
+		ILDRB = 0x44, // [rd, rs, imm16] - rd = *(i8*)(rs + imm16)
+		LDRW = 0x45, // [rd, rs, imm16] - rd = *(u16*)(rs + imm16)
+		ILDRW = 0x46, // [rd, rs, imm16] - rd = *(i16*)(rs + imm16)
+		LDRD = 0x47, // [rd, rs, imm16] - rd = *(u32*)(rs + imm16)
+		LEA = 0x48, // [rd, rs, imm16] - rd = rs + imm16 (load effective address)
+		STRB = 0x49, // [rs, rt, imm16] - *(u8*)(rs + imm16) = rt
+		STRW = 0x4A, // [rs, rt, imm16] - *(u16*)(rs + imm16) = rt
+		STRD = 0x4B, // [rs, rt, imm16] - *(u32*)(rs + imm16) = rt
 
 		// Control Flow //
 		JP = 0x50, // [simm24] - PC = (PC + simm24): Jump to the instruction at the given relative address.
