@@ -1,11 +1,13 @@
 #pragma once
 
 #include "address.h"
+#include "fregisters.h"
 #include "memory.h"
 #include "instructions.h"
 #include "interrupts.h"
 #include "io_ports.h"
 #include <limits>
+#include <cmath>
 
 namespace ceres::vm
 {
@@ -13,6 +15,7 @@ namespace ceres::vm
 	{
 	private:
 		GeneralPurposeRegisterPool _registers;
+		FloatingPointRegisterPool _fregisters;
 		Address _pc; // Program Counter (PC)
 		FlagRegister _flags; // Flags register
 		Memory& _memory;
@@ -51,6 +54,9 @@ namespace ceres::vm
 		forceinline u32 getReg(u8 index) const noexcept { return _registers.getValue(index); }
 		forceinline void setReg(u8 index, u32 value) noexcept { _registers.setValue(index, value); }
 
+		forceinline f32 getFloatReg(u8 index) const noexcept { return _fregisters.getValue(index); }
+		forceinline void setFloatReg(u8 index, f32 value) noexcept { _fregisters.setValue(index, value); }
+
 		forceinline u32 sp() const noexcept { return _registers.getValue<GeneralPurposeRegisterPool::StackPointerIndex>(); }
 		forceinline void sp(u32 value) noexcept { _registers.setValue<GeneralPurposeRegisterPool::StackPointerIndex>(value); }
 
@@ -60,11 +66,23 @@ namespace ceres::vm
 		forceinline u32 lr() const noexcept { return _registers.getValue<GeneralPurposeRegisterPool::LinkRegisterIndex>(); }
 		forceinline void lr(u32 value) noexcept { _registers.setValue<GeneralPurposeRegisterPool::LinkRegisterIndex>(value); }
 
-		template <Integral T> requires (sizeof(T) <= sizeof(u32))
-		forceinline T read(Address address) const noexcept { return _memory.read<T>(address); }
+		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
+		forceinline T read(Address address) const noexcept
+		{
+			if constexpr (FloatingPoint<T>)
+				return _memory.readFloat(address);
+			else
+				return _memory.read<T>(address);
+		}
 
-		template <Integral T> requires (sizeof(T) <= sizeof(u32))
-		forceinline void write(Address address, T value) noexcept { _memory.write<T>(address, value); }
+		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
+		forceinline void write(Address address, T value) noexcept
+		{
+			if constexpr (FloatingPoint<T>)
+				_memory.writeFloat(address, value);
+			else
+				_memory.write(address, value);
+		}
 
 		template <ExecutionFlag Flag>
 		forceinline void flag(bool value) noexcept { _flags.setFlag<Flag>(value); }
@@ -86,19 +104,31 @@ namespace ceres::vm
 		forceinline bool halting() noexcept { return _flags.halting(); }
 		forceinline bool trap() noexcept { return _flags.trap(); }
 
-		template <Integral T> requires (sizeof(T) <= sizeof(u32))
+		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
 		forceinline void push(T value) noexcept
 		{
 			sp(sp() - sizeof(T));
-			write(Address(sp()), value);
+			if constexpr (FloatingPoint<T>)
+				write<u32>(Address(sp()), std::bit_cast<u32>(value));
+			else
+				write(Address(sp()), value);
 		}
 
-		template <Integral T> requires (sizeof(T) <= sizeof(u32))
+		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
 		forceinline T pop() noexcept
 		{
-			const T value = read<T>(Address(sp()));
-			sp(sp() + sizeof(T));
-			return value;
+			if constexpr (FloatingPoint<T>)
+			{
+				const T value = std::bit_cast<T>(read<u32>(Address(sp())));
+				sp(sp() + sizeof(T));
+				return value;
+			}
+			else
+			{
+				const T value = read<T>(Address(sp()));
+				sp(sp() + sizeof(T));
+				return value;
+			}
 		}
 
 		forceinline void executeAdd(const u8 regDest, const u32 a, const u32 b) noexcept
@@ -114,6 +144,20 @@ namespace ceres::vm
 			advancePC();
 		}
 
+		forceinline void executeFloatAdd(const u8 regDest, const f32 a, const f32 b) noexcept
+		{
+			const f32 result = a + b;
+			const auto resultClass = std::fpclassify(result);
+
+			zero(resultClass == FP_ZERO);
+			sign(std::signbit(result));
+			carry(false);
+			overflow(resultClass == FP_INFINITE && std::fpclassify(a) != FP_INFINITE && std::fpclassify(b) != FP_INFINITE);
+
+			setFloatReg(regDest, result);
+			advancePC();
+		}
+
 		forceinline void executeSub(const u8 regDest, const u32 a, const u32 b) noexcept
 		{
 			const u64 result = static_cast<u64>(a) - static_cast<u64>(b);
@@ -124,6 +168,20 @@ namespace ceres::vm
 			overflow(((a ^ b) & (a ^ static_cast<u32>(result))) & 0x80000000);
 
 			setReg(regDest, static_cast<u32>(result));
+			advancePC();
+		}
+
+		forceinline void executeFloatSub(const u8 regDest, const f32 a, const f32 b) noexcept
+		{
+			const f32 result = a - b;
+			const auto resultClass = std::fpclassify(result);
+
+			zero(resultClass == FP_ZERO);
+			sign(std::signbit(result));
+			carry(false);
+			overflow(resultClass == FP_INFINITE && std::fpclassify(a) != FP_INFINITE && std::fpclassify(b) != FP_INFINITE);
+
+			setFloatReg(regDest, result);
 			advancePC();
 		}
 
@@ -157,6 +215,20 @@ namespace ceres::vm
 			overflow(didCarry);
 
 			setReg(regDest, result32);
+			advancePC();
+		}
+
+		forceinline void executeFloatMul(const u8 regDest, const f32 a, const f32 b) noexcept
+		{
+			const f32 result = a * b;
+			const auto resultClass = std::fpclassify(result);
+
+			zero(resultClass == FP_ZERO);
+			sign(std::signbit(result));
+			carry(false);
+			overflow(resultClass == FP_INFINITE && std::fpclassify(a) != FP_INFINITE && std::fpclassify(b) != FP_INFINITE);
+
+			setFloatReg(regDest, result);
 			advancePC();
 		}
 
@@ -206,6 +278,27 @@ namespace ceres::vm
 			advancePC();
 		}
 
+		forceinline void executeFloatDiv(const u8 regDest, const f32 a, const f32 b) noexcept
+		{
+			if (b == 0.0f)
+			{
+				trap(true);
+				advancePC();
+				return;
+			}
+
+			const f32 result = a / b;
+			const auto resultClass = std::fpclassify(result);
+
+			zero(resultClass == FP_ZERO);
+			sign(std::signbit(result));
+			carry(false);
+			overflow(resultClass == FP_INFINITE && std::fpclassify(a) != FP_INFINITE && std::fpclassify(b) != FP_INFINITE);
+
+			setFloatReg(regDest, result);
+			advancePC();
+		}
+
 		forceinline void executeSignedMod(const u8 regDest, const u32 a, const u32 b) noexcept
 		{
 			if (b == 0)
@@ -248,6 +341,20 @@ namespace ceres::vm
 			overflow(false);
 
 			setReg(regDest, result);
+			advancePC();
+		}
+
+		forceinline void executeFloatNeg(const u8 regDest, const f32 a) noexcept
+		{
+			const f32 result = -a;
+			const auto resultClass = std::fpclassify(result);
+
+			zero(resultClass == FP_ZERO);
+			sign(std::signbit(result));
+			carry(false);
+			overflow(resultClass == FP_INFINITE && std::fpclassify(a) != FP_INFINITE);
+
+			setFloatReg(regDest, result);
 			advancePC();
 		}
 
@@ -428,22 +535,27 @@ namespace ceres::vm
 		forceinline void ADDI(const Instruction inst) noexcept { executeAdd(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 		forceinline void ADDC(const Instruction inst) noexcept { executeAdd(inst.rd(), getReg(inst.rs()), getReg(inst.rt()) + (carry() ? 1 : 0)); }
 		forceinline void ADDCI(const Instruction inst) noexcept { executeAdd(inst.rd(), getReg(inst.rs()), inst.imm16() + (carry() ? 1 : 0)); }
+		forceinline void FADD(const Instruction inst) noexcept { executeFloatAdd(inst.fd(), getFloatReg(inst.fs()), getFloatReg(inst.ft())); }
 		forceinline void SUB(const Instruction inst) noexcept { executeSub(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void SUBI(const Instruction inst) noexcept { executeSub(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 		forceinline void SUBC(const Instruction inst) noexcept { executeSub(inst.rd(), getReg(inst.rs()), getReg(inst.rt()) + (carry() ? 1 : 0)); }
 		forceinline void SUBCI(const Instruction inst) noexcept { executeSub(inst.rd(), getReg(inst.rs()), inst.imm16() + (carry() ? 1 : 0)); }
+		forceinline void FSUB(const Instruction inst) noexcept { executeFloatSub(inst.fd(), getFloatReg(inst.fs()), getFloatReg(inst.ft())); }
 		forceinline void MUL(const Instruction inst) noexcept { executeUnsignedMul(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void MULI(const Instruction inst) noexcept { executeUnsignedMul(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 		forceinline void IMUL(const Instruction inst) noexcept { executeSignedMul(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void IMULI(const Instruction inst) noexcept { executeSignedMul(inst.rd(), getReg(inst.rs()), inst.imm16()); }
+		forceinline void FMUL(const Instruction inst) noexcept { executeFloatMul(inst.fd(), getFloatReg(inst.fs()), getFloatReg(inst.ft())); }
 		forceinline void DIV(const Instruction inst) noexcept { executeUnsignedDiv(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void DIVI(const Instruction inst) noexcept { executeUnsignedDiv(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 		forceinline void IDIV(const Instruction inst) noexcept { executeSignedDiv(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void IDIVI(const Instruction inst) noexcept { executeSignedDiv(inst.rd(), getReg(inst.rs()), inst.imm16()); }
+		forceinline void FDIV(const Instruction inst) noexcept { executeFloatDiv(inst.fd(), getFloatReg(inst.fs()), getFloatReg(inst.ft())); }
 		forceinline void MOD(const Instruction inst) noexcept { executeUnsignedMod(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void MODI(const Instruction inst) noexcept { executeUnsignedMod(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 		forceinline void IMOD(const Instruction inst) noexcept { executeSignedMod(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void IMODI(const Instruction inst) noexcept { executeSignedMod(inst.rd(), getReg(inst.rs()), inst.imm16()); }
+		forceinline void FNEG(const Instruction inst) noexcept { executeFloatNeg(inst.fd(), getFloatReg(inst.fs())); }
 
 		forceinline void AND(const Instruction inst) noexcept { executeAnd(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void ANDI(const Instruction inst) noexcept { executeAnd(inst.rd(), getReg(inst.rs()), inst.imm16()); }
@@ -462,15 +574,18 @@ namespace ceres::vm
 		forceinline void MOV(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs())); advancePC(); }
 		forceinline void MOVI(const Instruction inst) noexcept { setReg(inst.rd(), inst.imm16()); advancePC(); }
 		forceinline void MOVIH(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(inst.imm16()) << 16u); advancePC(); }
+		forceinline void FMOV(const Instruction inst) noexcept { setFloatReg(inst.fd(), getFloatReg(inst.fs())); advancePC(); }
 		forceinline void LDRB(const Instruction inst) noexcept { setReg(inst.rd(), read<u8>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
 		forceinline void ILDRB(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
 		forceinline void LDRW(const Instruction inst) noexcept { setReg(inst.rd(), read<u16>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
 		forceinline void ILDRW(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i16>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
 		forceinline void LDRD(const Instruction inst) noexcept { setReg(inst.rd(), read<u32>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
+		forceinline void FLDR(const Instruction inst) noexcept { setFloatReg(inst.fd(), read<f32>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
 		forceinline void LEA(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs()) + inst.imm16()); advancePC(); }
 		forceinline void STRB(const Instruction inst) noexcept { write<u8>(getReg(inst.rs()) + inst.imm16(), static_cast<u8>(getReg(inst.rt()))); advancePC(); }
 		forceinline void STRW(const Instruction inst) noexcept { write<u16>(getReg(inst.rs()) + inst.imm16(), static_cast<u16>(getReg(inst.rt()))); advancePC(); }
 		forceinline void STRD(const Instruction inst) noexcept { write<u32>(getReg(inst.rs()) + inst.imm16(), getReg(inst.rt())); advancePC(); }
+		forceinline void FSTR(const Instruction inst) noexcept { write<f32>(getReg(inst.rs()) + inst.imm16(), getFloatReg(inst.ft())); advancePC(); }
 
 		forceinline void JP(const Instruction inst) noexcept { _pc += inst.simm24().signedValue(); }
 		forceinline void JPR(const Instruction inst) noexcept { _pc = Address(getReg(inst.rs())); }
@@ -483,6 +598,30 @@ namespace ceres::vm
 			sign((static_cast<i32>(a) - static_cast<i32>(b)) < 0);
 			carry(a < b);
 			overflow(((a ^ b) & (a ^ (a - b))) & 0x80000000);
+
+			advancePC();
+		}
+		forceinline void CMPI(const Instruction inst) noexcept
+		{
+			const u32 a = getReg(inst.rs());
+			const u32 b = inst.imm16();
+
+			zero(a == b);
+			sign((static_cast<i32>(a) - static_cast<i32>(b)) < 0);
+			carry(a < b);
+			overflow(((a ^ b) & (a ^ (a - b))) & 0x80000000);
+
+			advancePC();
+		}
+		forceinline void FCMP(const Instruction inst) noexcept
+		{
+			const f32 a = getFloatReg(inst.fs());
+			const f32 b = getFloatReg(inst.ft());
+
+			zero(a == b);
+			sign(std::signbit(a - b));
+			carry(a < b);
+			overflow(false); // Overflow doesn't really make sense for floating-point comparisons
 
 			advancePC();
 		}
@@ -514,8 +653,15 @@ namespace ceres::vm
 		forceinline void POP(const Instruction inst) noexcept { setReg(inst.rs(), pop<u32>()); advancePC(); }
 		forceinline void PUSHF(const Instruction inst) noexcept { push<u32>(_flags.value()); advancePC(); }
 		forceinline void POPF(const Instruction inst) noexcept { _flags = pop<u32>(); advancePC(); }
+		forceinline void FPUSH(const Instruction inst) noexcept { push<f32>(getFloatReg(inst.fs())); advancePC(); }
+		forceinline void FPOP(const Instruction inst) noexcept { setFloatReg(inst.fs(), pop<f32>()); advancePC(); }
 
-		forceinline void INVALID(const Instruction inst) noexcept { triggerInterrupt(InterruptNumber::IllegalInstruction); }
+		forceinline void ITOF(const Instruction inst) noexcept { setFloatReg(inst.fd(), static_cast<f32>(getReg(inst.rs()))); advancePC(); }
+		forceinline void IITOF(const Instruction inst) noexcept { setFloatReg(inst.fd(), static_cast<f32>(static_cast<i32>(getReg(inst.rs())))); advancePC(); }
+		forceinline void FTOI(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(getFloatReg(inst.fs()))); advancePC(); }
+		forceinline void FTOII(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(static_cast<i32>(getFloatReg(inst.fs())))); advancePC(); }
+		forceinline void MTF(const Instruction inst) noexcept { _fregisters[inst.fd()].setBitsFromRegister(_registers[inst.rs()]); advancePC(); }
+		forceinline void MFF(const Instruction inst) noexcept { _registers.set(inst.rd(), _fregisters[inst.fs()].bitsAsRegister()); advancePC(); }
 
 		forceinline void IN(const Instruction inst) noexcept
 		{
@@ -542,6 +688,8 @@ namespace ceres::vm
 			advancePC();
 		}
 
+		forceinline void INVALID(const Instruction inst) noexcept { triggerInterrupt(InterruptNumber::IllegalInstruction); }
+
 	private:
 		using InstructionHandler = void (ExecutionEngine::*)(const Instruction) noexcept;
 		static inline constexpr std::array<InstructionHandler, 256> InstructionHandlers = []() consteval noexcept -> std::array<InstructionHandler, 256>
@@ -561,18 +709,22 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::ADDI)] = &ExecutionEngine::ADDI;
 				handlers[static_cast<u8>(Opcode::ADDC)] = &ExecutionEngine::ADDC;
 				handlers[static_cast<u8>(Opcode::ADDCI)] = &ExecutionEngine::ADDCI;
+				handlers[static_cast<u8>(Opcode::FADD)] = &ExecutionEngine::FADD;
 				handlers[static_cast<u8>(Opcode::SUB)] = &ExecutionEngine::SUB;
 				handlers[static_cast<u8>(Opcode::SUBI)] = &ExecutionEngine::SUBI;
 				handlers[static_cast<u8>(Opcode::SUBC)] = &ExecutionEngine::SUBC;
 				handlers[static_cast<u8>(Opcode::SUBCI)] = &ExecutionEngine::SUBCI;
+				handlers[static_cast<u8>(Opcode::FSUB)] = &ExecutionEngine::FSUB;
 				handlers[static_cast<u8>(Opcode::MUL)] = &ExecutionEngine::MUL;
 				handlers[static_cast<u8>(Opcode::MULI)] = &ExecutionEngine::MULI;
 				handlers[static_cast<u8>(Opcode::IMUL)] = &ExecutionEngine::IMUL;
 				handlers[static_cast<u8>(Opcode::IMULI)] = &ExecutionEngine::IMULI;
+				handlers[static_cast<u8>(Opcode::FMUL)] = &ExecutionEngine::FMUL;
 				handlers[static_cast<u8>(Opcode::DIV)] = &ExecutionEngine::DIV;
 				handlers[static_cast<u8>(Opcode::DIVI)] = &ExecutionEngine::DIVI;
 				handlers[static_cast<u8>(Opcode::IDIV)] = &ExecutionEngine::IDIV;
 				handlers[static_cast<u8>(Opcode::IDIVI)] = &ExecutionEngine::IDIVI;
+				handlers[static_cast<u8>(Opcode::FDIV)] = &ExecutionEngine::FDIV;
 				handlers[static_cast<u8>(Opcode::MOD)] = &ExecutionEngine::MOD;
 				handlers[static_cast<u8>(Opcode::MODI)] = &ExecutionEngine::MODI;
 				handlers[static_cast<u8>(Opcode::IMOD)] = &ExecutionEngine::IMOD;
@@ -599,20 +751,25 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::MOV)] = &ExecutionEngine::MOV;
 				handlers[static_cast<u8>(Opcode::MOVI)] = &ExecutionEngine::MOVI;
 				handlers[static_cast<u8>(Opcode::MOVIH)] = &ExecutionEngine::MOVIH;
+				handlers[static_cast<u8>(Opcode::FMOV)] = &ExecutionEngine::FMOV;
 				handlers[static_cast<u8>(Opcode::LDRB)] = &ExecutionEngine::LDRB;
 				handlers[static_cast<u8>(Opcode::ILDRB)] = &ExecutionEngine::ILDRB;
 				handlers[static_cast<u8>(Opcode::LDRW)] = &ExecutionEngine::LDRW;
 				handlers[static_cast<u8>(Opcode::ILDRW)] = &ExecutionEngine::ILDRW;
 				handlers[static_cast<u8>(Opcode::LDRD)] = &ExecutionEngine::LDRD;
+				handlers[static_cast<u8>(Opcode::FLDR)] = &ExecutionEngine::FLDR;
 				handlers[static_cast<u8>(Opcode::LEA)] = &ExecutionEngine::LEA;
 				handlers[static_cast<u8>(Opcode::STRB)] = &ExecutionEngine::STRB;
 				handlers[static_cast<u8>(Opcode::STRW)] = &ExecutionEngine::STRW;
 				handlers[static_cast<u8>(Opcode::STRD)] = &ExecutionEngine::STRD;
+				handlers[static_cast<u8>(Opcode::FSTR)] = &ExecutionEngine::FSTR;
 
 				// Jumps / Branches / Calls
 				handlers[static_cast<u8>(Opcode::JP)] = &ExecutionEngine::JP;
 				handlers[static_cast<u8>(Opcode::JPR)] = &ExecutionEngine::JPR;
 				handlers[static_cast<u8>(Opcode::CMP)] = &ExecutionEngine::CMP;
+				handlers[static_cast<u8>(Opcode::CMPI)] = &ExecutionEngine::CMPI;
+				handlers[static_cast<u8>(Opcode::FCMP)] = &ExecutionEngine::FCMP;
 				handlers[static_cast<u8>(Opcode::JZ)] = &ExecutionEngine::JZ;
 				handlers[static_cast<u8>(Opcode::JZR)] = &ExecutionEngine::JZR;
 				handlers[static_cast<u8>(Opcode::JNZ)] = &ExecutionEngine::JNZ;
@@ -634,6 +791,16 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::POP)] = &ExecutionEngine::POP;
 				handlers[static_cast<u8>(Opcode::PUSHF)] = &ExecutionEngine::PUSHF;
 				handlers[static_cast<u8>(Opcode::POPF)] = &ExecutionEngine::POPF;
+				handlers[static_cast<u8>(Opcode::FPUSH)] = &ExecutionEngine::FPUSH;
+				handlers[static_cast<u8>(Opcode::FPOP)] = &ExecutionEngine::FPOP;
+
+				// Conversions
+				handlers[static_cast<u8>(Opcode::ITOF)] = &ExecutionEngine::ITOF;
+				handlers[static_cast<u8>(Opcode::IITOF)] = &ExecutionEngine::IITOF;
+				handlers[static_cast<u8>(Opcode::FTOI)] = &ExecutionEngine::FTOI;
+				handlers[static_cast<u8>(Opcode::FTOII)] = &ExecutionEngine::FTOII;
+				handlers[static_cast<u8>(Opcode::MTF)] = &ExecutionEngine::MTF;
+				handlers[static_cast<u8>(Opcode::MFF)] = &ExecutionEngine::MFF;
 
 				// I/O
 				handlers[static_cast<u8>(Opcode::IN)] = &ExecutionEngine::IN;

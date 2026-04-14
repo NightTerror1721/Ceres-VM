@@ -92,6 +92,7 @@ namespace ceres::vm
 		constexpr Register& operator<<=(Register other) noexcept { _value <<= other._value; return *this; }
 		constexpr Register& operator>>=(Register other) noexcept { _value >>= other._value; return *this; }
 
+		constexpr Register operator+() const noexcept { return *this; }
         constexpr Register operator-() const noexcept { return Register(static_cast<ValueType>(~_value + 1)); }
 
 		constexpr Register operator++() noexcept { ++_value; return *this; }
@@ -105,6 +106,32 @@ namespace ceres::vm
 
 		constexpr Address toAddress() const noexcept;
 	};
+
+	enum class RIndex : u8
+	{
+		R0 = 0,
+		R1 = 1,
+		R2 = 2,
+		R3 = 3,
+		R4 = 4,
+		R5 = 5,
+		R6 = 6,
+		R7 = 7,
+		R8 = 8,
+		R9 = 9,
+		R10 = 10,
+		R11 = 11,
+		R12 = 12,
+		R13 = 13, // Link Register
+		R14 = 14, // Frame Pointer
+		R15 = 15, // Stack Pointer
+
+		LR = R13, // Link Register
+		FP = R14, // Frame Pointer
+		SP = R15  // Stack Pointer
+	};
+	forceinline constexpr u8 toRawIndex(RIndex index) noexcept { return static_cast<u8>(index); }
+	forceinline constexpr RIndex toRIndex(u8 regIndex) noexcept { return static_cast<RIndex>(regIndex); }
 
 	class GeneralPurposeRegisterPool
 	{
@@ -136,15 +163,24 @@ namespace ceres::vm
 		template <usize Index> requires (Index < Count)
 		forceinline constexpr Register get() const noexcept { return _registers[Index]; }
 
+		template <RIndex Index> requires (static_cast<usize>(Index) < Count)
+		forceinline constexpr Register get() const noexcept { return _registers[static_cast<usize>(Index)]; }
+
 		forceinline constexpr void set(usize index, Register value) noexcept { _registers[index] = value; }
 
 		template <usize Index> requires (Index < Count)
 		forceinline constexpr void set(Register value) noexcept { _registers[Index] = value; }
 
+		template <RIndex Index> requires (static_cast<usize>(Index) < Count)
+		forceinline constexpr void set(Register value) noexcept { _registers[static_cast<usize>(Index)] = value; }
+
 		forceinline constexpr Register::ValueType getValue(usize index) const noexcept { return _registers[index].value(); }
 
 		template <usize Index> requires (Index < Count)
 		forceinline constexpr Register::ValueType getValue() const noexcept { return _registers[Index].value(); }
+
+		template <RIndex Index> requires (static_cast<usize>(Index) < Count)
+		forceinline constexpr Register::ValueType getValue() const noexcept { return _registers[static_cast<usize>(Index)].value(); }
 
 		template <Integral T> requires (sizeof(T) <= sizeof(Register::ValueType))
 		forceinline constexpr T getValue(usize index) const noexcept { return _registers[index].template value<T>(); }
@@ -152,16 +188,25 @@ namespace ceres::vm
 		template <Integral T, usize Index> requires (Index < Count && sizeof(T) <= sizeof(Register::ValueType))
 		forceinline constexpr T getValue() const noexcept { return _registers[Index].template value<T>(); }
 
+		template <Integral T, RIndex Index> requires (static_cast<usize>(Index) < Count && sizeof(T) <= sizeof(Register::ValueType))
+		forceinline constexpr T getValue() const noexcept { return _registers[static_cast<usize>(Index)].template value<T>(); }
+
 		forceinline constexpr void setValue(usize index, Register::ValueType value) noexcept { _registers[index].set(value); }
 
 		template <usize Index> requires (Index < Count)
 		forceinline constexpr void setValue(Register::ValueType value) noexcept { _registers[Index].set(value); }
+
+		template <RIndex Index> requires (static_cast<usize>(Index) < Count)
+		forceinline constexpr void setValue(Register::ValueType value) noexcept { _registers[static_cast<usize>(Index)].set(value); }
 
 		template <Integral T> requires (sizeof(T) <= sizeof(Register::ValueType))
 		forceinline constexpr void setValue(usize index, T value) noexcept { _registers[index].template set<T>(value); }
 
 		template <Integral T, usize Index> requires (Index < Count && sizeof(T) <= sizeof(Register::ValueType))
 		forceinline constexpr void setValue(T value) noexcept { _registers[Index].template set<T>(value); }
+
+		template <Integral T, RIndex Index> requires (static_cast<usize>(Index) < Count && sizeof(T) <= sizeof(Register::ValueType))
+		forceinline constexpr void setValue(T value) noexcept { _registers[static_cast<usize>(Index)].template set<T>(value); }
 
 		forceinline constexpr Register& r0() noexcept { return _registers[0]; }
 		forceinline constexpr Register& r1() noexcept { return _registers[1]; }
@@ -208,9 +253,12 @@ namespace ceres::vm
 	public:
 		forceinline constexpr Register& operator[](usize index) noexcept { return _registers[index]; }
 		forceinline constexpr Register operator[](usize index) const noexcept { return _registers[index]; }
+
+		forceinline constexpr Register& operator[](RIndex index) noexcept { return _registers[static_cast<usize>(index)]; }
+		forceinline constexpr Register operator[](RIndex index) const noexcept { return _registers[static_cast<usize>(index)]; }
 	};
 
-	forceinline consteval Register operator""_reg(unsigned long long value) noexcept
+	inline consteval Register operator""_reg(unsigned long long value) noexcept
 	{
 		return Register(static_cast<Register::ValueType>(value));
 	}

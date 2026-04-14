@@ -64,7 +64,7 @@ namespace ceres
 			std::fprintf(stderr, "[%s] ", to_string(level));
 			try
 			{
-				auto msg = std::vformat(fmt, std::make_format_args(std::forward<Args>(args)...));
+            auto msg = std::vformat(fmt, std::make_format_args(args...));
 				std::fputs(msg.c_str(), stderr);
 			}
 			catch (const std::format_error&)

@@ -48,6 +48,15 @@
     <ClCompile Include="src\assembler\lexer.cpp">
       <Filter>Archivos de origen\assembler</Filter>
     </ClCompile>
+    <ClCompile Include="src\assembler\parser.cpp">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\assembler\mnemonic.cpp">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\assembler\operand.cpp">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\common\types.h">
@@ -115,6 +124,27 @@
     </ClInclude>
     <ClInclude Include="src\common\int24.h">
       <Filter>Archivos de encabezado\common</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vm\fregisters.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\parser.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\identifier.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\literal_value.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\datatype_info.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\mnemonic.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\errors.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

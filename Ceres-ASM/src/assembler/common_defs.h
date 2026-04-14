@@ -1,9 +1,18 @@
 #pragma once
 
 #include "common/types.h"
+#include "identifier.h"
+#include <string>
+#include <optional>
 
 namespace ceres::casm
 {
+	using LiteralIntegerType = u32; // Using u32 for integer literals, can be adjusted as needed
+	using LiteralFloatType = f32; // Using float for floating-point literals
+	using LiteralCharType = u8; // Using u8 for character literals, can be adjusted as needed
+	using LiteralBoolType = bool; // Using bool for boolean literals
+	using LiteralStringType = std::string; // Using std::string for string literals, can be adjusted as needed
+
 	enum class SectionType : u8
 	{
 		Text, // Code section containing executable instructions.
@@ -17,7 +26,13 @@ namespace ceres::casm
 		U8, // Unsigned 8-bit integer data type.
 		U16, // Unsigned 16-bit integer data type.
 		U32, // Unsigned 32-bit integer data type.
-		String, // String data type.
+		I8, // Signed 8-bit integer data type.
+		I16, // Signed 16-bit integer data type.
+		I32, // Signed 32-bit integer data type.
+		F32, // 32-bit floating-point data type.
+		Char, // Character data type (Alias for u8).
+		Bool, // Boolean data type (Alias for u8, where 0 represents false and any non-zero value represents true).
+		String, // String data type (Alias for a null-terminated u8[]). Used for defining string literals and string variables.
 	};
 
 	enum class KeywordType : u8
@@ -27,57 +42,56 @@ namespace ceres::casm
 		Global, // 'global' keyword for defining global symbols.
 	};
 
-	enum class Mnemonic : u8
+	forceinline constexpr bool isIntegerDataType(DataType type) noexcept
 	{
-		NOP, // NOP
-		HALT, // HALT
-		TRAP, // TRAP
-		RESET, // RESET
-		INT, // INT
-		IRET, // IRET
+		switch (type)
+		{
+			case DataType::U8:
+			case DataType::U16:
+			case DataType::U32:
+			case DataType::I8:
+			case DataType::I16:
+			case DataType::I32:
+				return true;
+			default:
+				return false;
+		}
+	}
 
-		ADD, // ADD, ADDI
-		ADC, // ADDC, ADDCI
-		SUB, // SUB, SUBI
-		SBC, // SUBC, SUBCI
-		MUL, // MUL, MULI
-		IMUL, // IMUL, IMULI
-		DIV, // DIV, DIVI
-		IDIV, // IDIV, IDIVI
-		MOD, // MOD, MODI
-		IMOD, // IMOD, IMODI
+	forceinline constexpr bool isScalarDataType(DataType type) noexcept
+	{
+		switch (type)
+		{
+			case DataType::U8:
+			case DataType::U16:
+			case DataType::U32:
+			case DataType::I8:
+			case DataType::I16:
+			case DataType::I32:
+			case DataType::F32:
+			case DataType::Char:
+			case DataType::Bool:
+				return true;
+			default:
+				return false;
+		}
+	}
 
-		AND, // AND, ANDI
-		OR, // OR, ORI
-		XOR, // XOR, XORI
-		NOT, // NOT
-		SHL, // SHL, SHLI
-		SHR, // SHR, SHRI
-		SAR, // SAR, SARI
-
-		MOV, // MOV, MOVI, LD
-		MOVH,
-		MOVB,
-		MOVW,
-		LEA,
-
-		JP,
-		CMP,
-		JZ,
-		JNZ,
-		JC,
-		JNC,
-		JS,
-		JNS,
-		CALL,
-		RET,
-
-		PUSH,
-		POP,
-		PUSHF,
-		POPF,
-
-		IN,
-		OUT
-	};
+	inline constexpr std::string_view dataTypeToString(DataType type) noexcept
+	{
+		switch (type)
+		{
+			case DataType::U8: return "u8";
+			case DataType::U16: return "u16";
+			case DataType::U32: return "u32";
+			case DataType::I8: return "i8";
+			case DataType::I16: return "i16";
+			case DataType::I32: return "i32";
+			case DataType::F32: return "f32";
+			case DataType::Char: return "char";
+			case DataType::Bool: return "bool";
+			case DataType::String: return "string";
+			default: return "unknown";
+		}
+	}
 }

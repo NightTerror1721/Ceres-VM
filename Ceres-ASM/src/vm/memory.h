@@ -67,6 +67,12 @@ namespace ceres::vm
 		template <Integral T> requires (sizeof(T) <= Register::Size)
 		forceinline T read(Address address) const noexcept { return readRaw<T, UnrestrictedSegmentStartValue>(address); }
 
+		forceinline f32 readFloat(Address address) const noexcept
+		{
+			const u32 rawValue = read<u32>(address);
+			return std::bit_cast<f32>(rawValue);
+		}
+
 		template <Integral T> requires (sizeof(T) <= Register::Size)
 		forceinline T readUnchecked(Address address) const noexcept
 		{
@@ -75,6 +81,12 @@ namespace ceres::vm
 
 		template <Integral T> requires (sizeof(T) <= Register::Size)
 		forceinline void write(Address address, T value) noexcept { writeRaw<T, UnrestrictedSegmentStartValue>(address, value); }
+
+		forceinline void writeFloat(Address address, f32 value) noexcept
+		{
+			const u32 rawValue = std::bit_cast<u32>(value);
+			write<u32>(address, rawValue);
+		}
 
 		template <Integral T> requires (sizeof(T) <= Register::Size)
 		forceinline void writeUnchecked(Address address, T value) noexcept

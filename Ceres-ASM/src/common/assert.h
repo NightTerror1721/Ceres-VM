@@ -35,7 +35,7 @@ namespace ceres::detail
 	{
 		try
 		{
-			std::string message = std::vformat(format, std::make_format_args(std::forward<Args>(args)...));
+            std::string message = std::vformat(format, std::make_format_args(args...));
 			assert_failed(expression, file, line, function, message.c_str());
 		}
 		catch (const std::format_error&)

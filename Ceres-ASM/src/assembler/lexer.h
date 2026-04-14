@@ -156,12 +156,16 @@ namespace ceres::casm
 
 		Token nextToken();
 
+	public:
+		inline bool isAtEnd() const noexcept { return _source.isAtEnd(); }
+
 	private:
 		void skipWhitespaceAndComments() noexcept;
 
 		Token scanIdentifierOrKeyword(usize startPosition, u32 startColumn) noexcept;
-		Token scanIntegerLiteral(usize startPosition, u32 startColumn) noexcept;
+		Token scanNumberLiteral(usize startPosition, u32 startColumn) noexcept;
 		Token scanStringLiteral(usize startPosition, u32 startColumn) noexcept;
+		Token scanCharLiteral(usize startPosition, u32 startColumn) noexcept;
 
 		static std::optional<KeywordType> checkKeyword(std::string_view identifier) noexcept;
 		static std::optional<DataType> checkDataType(std::string_view identifier) noexcept;
@@ -175,6 +179,14 @@ namespace ceres::casm
 			if (ch >= 'a' && ch <= 'f') return true;
 			if (ch >= 'A' && ch <= 'F') return true;
 			return false;
+		};
+
+		static constexpr int hexValue(unsigned char ch) noexcept
+		{
+			if (ch >= '0' && ch <= '9') return ch - '0';
+			if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+			if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+			return -1;
 		};
 	};
 }

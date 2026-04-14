@@ -17,7 +17,10 @@ namespace ceres::casm
 
 		// Literals
 		LiteralInteger, // e.g., 123, 0x7B, 0b1111011
+		LiteralFloat,   // e.g., 1.23, .5, 1e-3
 		LiteralString,  // e.g., "Hello, World!", 'A'
+		LiteralChar,    // e.g., 'A', 'B', etc.
+		LiteralBool,    // e.g., true, false
 
 		// Keywords
 		Keyword,		// e.g., let, const, global
@@ -39,13 +42,24 @@ namespace ceres::casm
 		BracketClose,	// ] (used for memory access)
 
 		// Control
+		EndOfLine,		// End of line
 		EndOfFile,		// End of file/input
 	};
 
 	class TokenPayload
 	{
 	private:
-		std::variant<std::monostate, u32, std::string, SectionType, DataType, KeywordType> _value;
+		std::variant<
+			std::monostate,
+			LiteralIntegerType,
+			LiteralFloatType,
+			LiteralStringType,
+			LiteralCharType,
+			LiteralBoolType,
+			SectionType,
+			DataType,
+			KeywordType
+		> _value;
 
 	public:
 		TokenPayload() noexcept = default;
@@ -56,23 +70,35 @@ namespace ceres::casm
 		TokenPayload& operator=(const TokenPayload&) noexcept = default;
 		TokenPayload& operator=(TokenPayload&&) noexcept = default;
 
-		bool operator==(const TokenPayload& other) const noexcept = default;
+		bool operator==(const TokenPayload&) const noexcept = default;
 
 	public:
-		TokenPayload(u32 intValue) noexcept : _value(intValue) {}
-		TokenPayload(const std::string& strValue) noexcept : _value(strValue) {}
-		TokenPayload(std::string&& strValue) noexcept : _value(std::move(strValue)) {}
-		TokenPayload(std::string_view strValue) noexcept : _value(std::string(strValue)) {}
-		TokenPayload(SectionType sectionType) noexcept : _value(sectionType) {}
+		TokenPayload(LiteralIntegerType intValue) noexcept : _value(intValue) {}
+		TokenPayload(LiteralFloatType floatValue) noexcept : _value(floatValue) {}
+		TokenPayload(LiteralCharType charValue) noexcept : _value(charValue) {}
+		TokenPayload(LiteralBoolType boolValue) noexcept : _value(boolValue) {}
+		TokenPayload(const LiteralStringType& strValue) noexcept : _value(strValue) {}
+		TokenPayload(LiteralStringType&& strValue) noexcept : _value(std::move(strValue)) {}
+		TokenPayload(std::string_view strValue) noexcept : _value(LiteralStringType(strValue)) {}
 		TokenPayload(DataType dataType) noexcept : _value(dataType) {}
 		TokenPayload(KeywordType keywordType) noexcept : _value(keywordType) {}
 
 		bool hasValue() const noexcept { return !_value.valueless_by_exception() && !std::holds_alternative<std::monostate>(_value); }
-		bool isInteger() const noexcept { return std::holds_alternative<u32>(_value); }
-		bool isString() const noexcept { return std::holds_alternative<std::string>(_value); }
+		bool isInteger() const noexcept { return std::holds_alternative<LiteralIntegerType>(_value); }
+        bool isFloat() const noexcept { return std::holds_alternative<LiteralFloatType>(_value); }
+		bool isString() const noexcept { return std::holds_alternative<LiteralStringType>(_value); }
+		bool isChar() const noexcept { return std::holds_alternative<LiteralCharType>(_value); }
+		bool isBool() const noexcept { return std::holds_alternative<LiteralBoolType>(_value); }
+		bool isDataType() const noexcept { return std::holds_alternative<DataType>(_value); }
+		bool isKeywordType() const noexcept { return std::holds_alternative<KeywordType>(_value); }
 
-		u32 asInteger() const noexcept { return std::get<u32>(_value); }
-		const std::string& asString() const noexcept { return std::get<std::string>(_value); }
+		LiteralIntegerType asInteger() const noexcept { return std::get<LiteralIntegerType>(_value); }
+		LiteralFloatType asFloat() const noexcept { return std::get<LiteralFloatType>(_value); }
+		const LiteralStringType& asString() const noexcept { return std::get<LiteralStringType>(_value); }
+		LiteralCharType asChar() const noexcept { return std::get<LiteralCharType>(_value); }
+		LiteralBoolType asBool() const noexcept { return std::get<LiteralBoolType>(_value); }
+		DataType asDataType() const noexcept { return std::get<DataType>(_value); }
+		KeywordType asKeywordType() const noexcept { return std::get<KeywordType>(_value); }
 	};
 
 	class Token
@@ -106,8 +132,13 @@ namespace ceres::casm
 		constexpr u32 line() const noexcept { return _line; }
 		constexpr u32 column() const noexcept { return _column; }
 
-		u32 integerValue() const noexcept { return _payload.isInteger() ? _payload.asInteger() : 0; }
-		std::string_view stringValue() const noexcept { return _payload.isString() ? _payload.asString() : std::string_view{}; }
+		inline u32 integerValue() const noexcept { return _payload.isInteger() ? _payload.asInteger() : 0; }
+		inline float floatValue() const noexcept { return _payload.isFloat() ? _payload.asFloat() : 0.0f; }
+		inline u8 charValue() const noexcept { return _payload.isChar() ? _payload.asChar() : 0; }
+		inline bool boolValue() const noexcept { return _payload.isBool() ? _payload.asBool() : false; }
+		inline std::string_view stringValue() const noexcept { return _payload.isString() ? _payload.asString() : std::string_view{}; }
+		inline DataType dataTypeValue() const noexcept { return _payload.isDataType() ? _payload.asDataType() : static_cast<DataType>(-1); }
+		inline KeywordType keywordTypeValue() const noexcept { return _payload.isKeywordType() ? _payload.asKeywordType() : static_cast<KeywordType>(-1); }
 
 		constexpr bool is(TokenType expectedType) const noexcept { return _type == expectedType; }
 
@@ -116,9 +147,12 @@ namespace ceres::casm
 
 		constexpr bool isIdentifier() const noexcept { return _type == TokenType::Identifier; }
 
-		constexpr bool isLiteral() const noexcept { return _type == TokenType::LiteralInteger || _type == TokenType::LiteralString; }
+        constexpr bool isLiteral() const noexcept { return _type == TokenType::LiteralInteger || _type == TokenType::LiteralFloat || _type == TokenType::LiteralString; }
 		constexpr bool isLiteralInteger() const noexcept { return _type == TokenType::LiteralInteger; }
+        constexpr bool isLiteralFloat() const noexcept { return _type == TokenType::LiteralFloat; }
 		constexpr bool isLiteralString() const noexcept { return _type == TokenType::LiteralString; }
+		constexpr bool isLiteralChar() const noexcept { return _type == TokenType::LiteralChar; }
+		constexpr bool isLiteralBool() const noexcept { return _type == TokenType::LiteralBool; }
 
 		constexpr bool isPunctuation() const noexcept
 		{
@@ -148,7 +182,9 @@ namespace ceres::casm
 
 		constexpr bool isDataType() const noexcept { return _type == TokenType::DataType; }
 
+		constexpr bool isEndOfLine() const noexcept { return _type == TokenType::EndOfLine; }
 		constexpr bool isEndOfFile() const noexcept { return _type == TokenType::EndOfFile; }
+		constexpr bool isEndOfInput() const noexcept { return _type == TokenType::EndOfLine || _type == TokenType::EndOfFile; }
 
 	public:
 		static Token makeInvalid(u32 line, u32 column) noexcept { return Token{ TokenType::Invalid, {}, {}, line, column }; }
@@ -163,6 +199,18 @@ namespace ceres::casm
 		static Token makeLiteralString(std::string_view lexeme, std::string&& value, u32 line, u32 column) noexcept
 		{
 			return Token{ TokenType::LiteralString, lexeme, std::move(value), line, column };
+		}
+		static Token makeLiteralFloat(std::string_view lexeme, float value, u32 line, u32 column) noexcept
+		{
+			return Token{ TokenType::LiteralFloat, lexeme, value, line, column };
+		}
+		static Token makeLiteralChar(std::string_view lexeme, u8 value, u32 line, u32 column) noexcept
+		{
+			return Token{ TokenType::LiteralChar, lexeme, value, line, column };
+		}
+		static Token makeLiteralBool(std::string_view lexeme, bool value, u32 line, u32 column) noexcept
+		{
+			return Token{ TokenType::LiteralBool, lexeme, value, line, column };
 		}
 		static Token makeKeyword(std::string_view lexeme, KeywordType keyword, u32 line, u32 column) noexcept
 		{
@@ -183,6 +231,7 @@ namespace ceres::casm
 		static Token makeSlash(u32 line, u32 column) noexcept { return Token{ TokenType::Slash, "/", {}, line, column }; }
 		static Token makeBracketOpen(u32 line, u32 column) noexcept { return Token{ TokenType::BracketOpen, "[", {}, line, column }; }
 		static Token makeBracketClose(u32 line, u32 column) noexcept { return Token{ TokenType::BracketClose, "]", {}, line, column }; }
+		static Token makeEndOfLine(u32 line, u32 column) noexcept { return Token{ TokenType::EndOfLine, {}, {}, line, column }; }
 		static Token makeEndOfFile(u32 line, u32 column) noexcept { return Token{ TokenType::EndOfFile, {}, {}, line, column }; }
 	};
 }
