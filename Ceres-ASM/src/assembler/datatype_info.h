@@ -6,6 +6,8 @@
 
 namespace ceres::casm
 {
+
+
 	enum class DataTypeCategory : u8
 	{
 		Scalar, // Scalar data types (u8, u16, u32, i8, i16, i32, f32, char, bool)
@@ -56,7 +58,13 @@ namespace ceres::casm
 		constexpr bool hasIdentifierArraySize() const noexcept { return std::holds_alternative<Identifier>(_arraySize); }
 
 		constexpr LiteralIntegerType integerArraySize() const noexcept { return std::holds_alternative<LiteralIntegerType>(_arraySize) ? std::get<LiteralIntegerType>(_arraySize) : 0; }
-		constexpr const Identifier& identifierArraySize() const noexcept { return std::holds_alternative<Identifier>(_arraySize) ? std::get<Identifier>(_arraySize) : Identifier{}; }
+		constexpr const Identifier& identifierArraySize() const noexcept { return std::get<Identifier>(_arraySize); }
+
+		constexpr void setArraySize(LiteralIntegerType size) noexcept
+		{
+			if (_category == DataTypeCategory::SizedArray)
+				_arraySize = size;
+		}
 
 		constexpr bool isValid() const noexcept
 		{
@@ -114,7 +122,8 @@ namespace ceres::casm
 					if (_type == DataType::String)
 						return value.isString(); // Unsized array of type string matches string literal
 
-					return value.isArray() && value.checkArrayElementTypes(_type, permitIdentifiers); // Unsized array of other types matches array literal with matching element types
+					// Unsized array of other types matches array literal with matching element types
+					return value.isArray() && value.checkArrayElementTypes(_type, permitIdentifiers);
 
 				case DataTypeCategory::SizedArray:
 					if (std::holds_alternative<LiteralIntegerType>(_arraySize))
@@ -138,6 +147,32 @@ namespace ceres::casm
 
 				default:
 					return false;
+			}
+		}
+
+		constexpr u32 sizeInBytes() const noexcept
+		{
+			if (!isValid())
+				return 0;
+
+			switch (_category)
+			{
+			case DataTypeCategory::Scalar:
+				return dataTypeSizeInBytes(_type);
+
+			case DataTypeCategory::UnsizedArray:
+				return 0; // Unsized arrays have no fixed size
+
+			case DataTypeCategory::SizedArray:
+				if (std::holds_alternative<LiteralIntegerType>(_arraySize))
+					return dataTypeSizeInBytes(_type) * std::get<LiteralIntegerType>(_arraySize);
+				else if (std::holds_alternative<Identifier>(_arraySize))
+					return 0; // Size is determined at runtime, so we cannot calculate the size in bytes at compile time
+				else
+					return 0; // Invalid array size
+
+			default:
+				return 0; // Invalid category
 			}
 		}
 

@@ -143,6 +143,8 @@
     <ClCompile Include="src\assembler\mnemonic.cpp" />
     <ClCompile Include="src\assembler\operand.cpp" />
     <ClCompile Include="src\assembler\parser.cpp" />
+    <ClCompile Include="src\assembler\symbol_table.cpp" />
+    <ClCompile Include="src\assembler\translation_unit.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\vm\ceresvm.cpp" />
     <ClCompile Include="src\vm\execution_engine.cpp" />
@@ -158,8 +160,11 @@
     <ClInclude Include="src\assembler\mnemonic.h" />
     <ClInclude Include="src\assembler\operand.h" />
     <ClInclude Include="src\assembler\parser.h" />
+    <ClInclude Include="src\assembler\size.h" />
     <ClInclude Include="src\assembler\statement.h" />
+    <ClInclude Include="src\assembler\symbol_table.h" />
     <ClInclude Include="src\assembler\token.h" />
+    <ClInclude Include="src\assembler\translation_unit.h" />
     <ClInclude Include="src\common\assert.h" />
     <ClInclude Include="src\common\config.h" />
     <ClInclude Include="src\common\int24.h" />

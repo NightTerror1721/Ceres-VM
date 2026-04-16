@@ -39,11 +39,11 @@ namespace ceres::casm
 
 	public:
 		LiteralValue() noexcept : _type(LiteralValueType::Integer), _value(LiteralIntegerType{ 0 }) {}
-		LiteralValue(const LiteralValue&) noexcept = default;
+		LiteralValue(const LiteralValue& other) noexcept : _type(other._type), _value() { _copyFrom<true>(other); }
 		LiteralValue(LiteralValue&&) noexcept = default;
 		~LiteralValue() noexcept = default;
 
-		LiteralValue& operator=(const LiteralValue&) noexcept = default;
+		LiteralValue& operator=(const LiteralValue& other) noexcept { _copyFrom<false>(other); return *this; }
 		LiteralValue& operator=(LiteralValue&&) noexcept = default;
 
 		bool operator==(const LiteralValue& other) const noexcept
@@ -86,6 +86,10 @@ namespace ceres::casm
 			return std::span<const LiteralValue>(arrayPtr->begin(), arrayPtr->end());
 		}
 		constexpr const Identifier& identifierValue() const noexcept { return std::get<Identifier>(_value); }
+
+		constexpr std::vector<LiteralValue>& arrayValueMutable() noexcept { return *std::get<LiteralArrayTypePtr>(_value); }
+
+		constexpr void setValue(const LiteralValue& value) noexcept { *this = value; }
 
 		constexpr bool isValid() const noexcept
 		{
@@ -186,6 +190,54 @@ namespace ceres::casm
 				}
 			}
 			return true;
+		}
+
+	private:
+		template <bool IsConstructor>
+		void _copyFrom(const LiteralValue& other) noexcept
+		{
+			if constexpr (IsConstructor)
+			{
+				_type = other._type;
+				switch (_type)
+				{
+					case LiteralValueType::Integer:
+						_value = other.integerValue();
+						break;
+
+					case LiteralValueType::Float:
+						_value = other.floatValue();
+						break;
+
+					case LiteralValueType::Char:
+						_value = other.charValue();
+						break;
+
+					case LiteralValueType::Bool:
+						_value = other.boolValue();
+						break;
+
+					case LiteralValueType::String:
+						_value = std::make_unique<LiteralStringType>(other.stringValue());
+						break;
+
+					case LiteralValueType::Array:
+						_value = std::make_unique<std::vector<LiteralValue>>(other.arrayValue().begin(), other.arrayValue().end());
+						break;
+
+					case LiteralValueType::Identifier:
+						_value = other.identifierValue();
+						break;
+				}
+			}
+			else
+			{
+				if (this != &other)
+				{
+					this->~LiteralValue(); // Destroy current value
+					new (this) LiteralValue(other); // Placement new to copy construct
+				}
+			}
 		}
 
 	public:

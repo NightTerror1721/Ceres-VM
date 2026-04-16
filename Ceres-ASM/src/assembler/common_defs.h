@@ -42,6 +42,13 @@ namespace ceres::casm
 		Global, // 'global' keyword for defining global symbols.
 	};
 
+	enum class LabelLevel : u8
+	{
+		Global, // Global label level, accessible from any scope.
+		File, // File-level label level, accessible within the same source file.
+		Local, // Local label level, accessible only within the current global or file-level label scope.
+	};
+
 	forceinline constexpr bool isIntegerDataType(DataType type) noexcept
 	{
 		switch (type)
@@ -92,6 +99,27 @@ namespace ceres::casm
 			case DataType::Bool: return "bool";
 			case DataType::String: return "string";
 			default: return "unknown";
+		}
+	}
+
+	forceinline constexpr u32 dataTypeSizeInBytes(DataType type) noexcept
+	{
+		switch (type)
+		{
+			case DataType::U8:
+			case DataType::I8:
+			case DataType::Char:
+			case DataType::Bool:
+				return 1;
+			case DataType::U16:
+			case DataType::I16:
+				return 2;
+			case DataType::U32:
+			case DataType::I32:
+			case DataType::F32:
+				return 4;
+			default:
+				return 0; // Unknown or unsupported data type
 		}
 	}
 }

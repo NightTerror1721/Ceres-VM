@@ -57,18 +57,18 @@ namespace ceres::casm
 
 	Statement Parser::parseSection()
 	{
-		_cursor.consume(TokenType::At, "Expected '@' for section declaration");
+		u32 line = _cursor.consume(TokenType::At, "Expected '@' for section declaration").line();
 		const Token& sectionToken = _cursor.consume(TokenType::Identifier, "Expected section name after '@'");
 
 		std::string_view sectionName = sectionToken.lexeme();
 		if (sectionName == "text") 
-			return Statement::makeSection(SectionType::Text);
+			return Statement::makeSection(line, SectionType::Text);
 		else if (sectionName == "data") 
-			return Statement::makeSection(SectionType::Data);
+			return Statement::makeSection(line, SectionType::Data);
 		else if (sectionName == "rodata")
-			return Statement::makeSection(SectionType::Rodata);
+			return Statement::makeSection(line, SectionType::Rodata);
 		else if (sectionName == "bss") 
-			return Statement::makeSection(SectionType::BSS);
+			return Statement::makeSection(line, SectionType::BSS);
 		else
 			error("Unknown section name '{}'", sectionName);
 
@@ -77,6 +77,7 @@ namespace ceres::casm
 
 	Statement Parser::parseDataDeclaration()
 	{
+		u32 line = _cursor.current().line();
 		KeywordType keyword = _cursor.current().keywordTypeValue();
 		_cursor.next(); // Consume 'let' or 'const'
 
@@ -107,31 +108,33 @@ namespace ceres::casm
 		else if (isConstant)
 			error("Expected '=' and initializer for constant data declaration");
 
-		return Statement::makeData(isConstant, Identifier::make(name), std::move(dataTypeInfo), std::move(initialValue));
+		return Statement::makeData(line, isConstant, Identifier::make(name), std::move(dataTypeInfo), std::move(initialValue));
 	}
 
 	Statement Parser::parseLabelOrInstruction()
 	{
-		bool isGlobalLabel = _cursor.match(KeywordType::Global);
-		if (isGlobalLabel)
-			_cursor.next(); // Consume 'global' keyword)
-
-		bool isLocalLabel = _cursor.match(TokenType::Dot);
-		if (isLocalLabel)
+		u32 line = _cursor.current().line();
+		LabelLevel labelLevel = LabelLevel::File;
+		if (_cursor.match(KeywordType::Global))
+		{
+			labelLevel = LabelLevel::Global;
+			_cursor.next(); // Consume 'global' keyword
+		}
+		else if (_cursor.match(TokenType::Dot))
+		{
+			labelLevel = LabelLevel::Local;
 			_cursor.next(); // Consume '.' for local label
-
-		if (isGlobalLabel && isLocalLabel)
-			error("A label cannot be both global and local");
+		}
 
 		const Token& identifierToken = _cursor.consume(TokenType::Identifier, "Expected identifier for label or instruction");
 
 		if (_cursor.match(TokenType::Colon))
 		{
 			_cursor.next(); // Consume ':'
-			return Statement::makeLabel(Identifier::make(identifierToken.lexeme()), isLocalLabel, isGlobalLabel);
+			return Statement::makeLabel(line, Identifier::make(identifierToken.lexeme()), labelLevel);
 		}
 
-		if (isGlobalLabel || isLocalLabel)
+		if (labelLevel != LabelLevel::File)
 			error("Global or local label specifier must be followed by a label declaration");
 
 		std::optional<Mnemonic> mnemonic = stringToMnemonic(identifierToken.lexeme(), false);
@@ -150,7 +153,7 @@ namespace ceres::casm
 
 		_cursor.consumeEndOfLineOrEndOfFile("Expected end of line or end of file after instruction");
 
-		return Statement::makeInstruction(*mnemonic, std::move(operands));
+		return Statement::makeInstruction(line, *mnemonic, std::move(operands));
 	}
 
 	DataTypeInfo Parser::parseDataType()

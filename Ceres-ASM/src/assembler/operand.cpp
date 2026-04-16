@@ -4,6 +4,36 @@
 
 namespace ceres::casm
 {
+	std::expected<Operand, std::string_view> Operand::makeFromLiteralValue(const LiteralValue& value) noexcept
+	{
+		switch (value.type())
+		{
+			case LiteralValueType::Integer:
+				return Operand::makeImmediate(value.integerValue());
+
+			case LiteralValueType::Float:
+				return std::unexpected("Floating-point literals are not directly supported as operands");
+
+			case LiteralValueType::Char:
+				return Operand::makeImmediate(static_cast<u32>(value.charValue()));
+
+			case LiteralValueType::Bool:
+				return Operand::makeImmediate(static_cast<u32>(value.boolValue() ? 1 : 0));
+
+			case LiteralValueType::String:
+				return std::unexpected("String literals are not directly supported as operands");
+
+			case LiteralValueType::Array:
+				return std::unexpected("Array literals are not directly supported as operands");
+
+			case LiteralValueType::Identifier:
+				return std::unexpected("Identifiers are not directly supported as operands");
+
+			default:
+				return std::unexpected("Unsupported literal value type");
+		}
+	}
+
 	std::optional<RegisterInfo> RegisterInfo::get(std::string_view name) noexcept
 	{
 		constexpr int maxRegisterIndex = vm::GeneralPurposeRegisterPool::Count - 1; // Maximum register index (15 for 16 registers)

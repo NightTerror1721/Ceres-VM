@@ -43,11 +43,11 @@ namespace ceres::casm
 	public:
 		AssemblerErrorHandler() noexcept = default;
 		AssemblerErrorHandler(const AssemblerErrorHandler&) noexcept = delete;
-		AssemblerErrorHandler(AssemblerErrorHandler&&) noexcept = delete;
+		AssemblerErrorHandler(AssemblerErrorHandler&&) noexcept = default;
 		~AssemblerErrorHandler() noexcept = default;
 
 		AssemblerErrorHandler& operator=(const AssemblerErrorHandler&) noexcept = delete;
-		AssemblerErrorHandler& operator=(AssemblerErrorHandler&&) noexcept = delete;
+		AssemblerErrorHandler& operator=(AssemblerErrorHandler&&) noexcept = default;
 
 	public:
 		constexpr bool hasErrors() const noexcept { return !_errors.empty(); }

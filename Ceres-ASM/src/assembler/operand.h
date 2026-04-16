@@ -1,8 +1,10 @@
 #pragma once
 
 #include "common_defs.h"
+#include "literal_value.h"
 #include <variant>
 #include <string>
+#include <expected>
 
 namespace ceres::casm
 {
@@ -100,6 +102,9 @@ namespace ceres::casm
 		{
 			return Operand{ MemoryOperand{ baseRegIndex, IdentifierOperand{ std::move(identifierOffset) } } };
 		}
+
+	public:
+		static std::expected<Operand, std::string_view> makeFromLiteralValue(const LiteralValue& value) noexcept;
 	};
 
 	struct RegisterInfo

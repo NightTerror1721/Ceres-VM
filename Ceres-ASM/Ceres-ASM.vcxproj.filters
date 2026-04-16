@@ -48,14 +48,20 @@
     <ClCompile Include="src\assembler\lexer.cpp">
       <Filter>Archivos de origen\assembler</Filter>
     </ClCompile>
-    <ClCompile Include="src\assembler\parser.cpp">
-      <Filter>Archivos de encabezado\assembler</Filter>
-    </ClCompile>
     <ClCompile Include="src\assembler\mnemonic.cpp">
-      <Filter>Archivos de encabezado\assembler</Filter>
+      <Filter>Archivos de origen\assembler</Filter>
     </ClCompile>
     <ClCompile Include="src\assembler\operand.cpp">
-      <Filter>Archivos de encabezado\assembler</Filter>
+      <Filter>Archivos de origen\assembler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\assembler\parser.cpp">
+      <Filter>Archivos de origen\assembler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\assembler\symbol_table.cpp">
+      <Filter>Archivos de origen\assembler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\assembler\translation_unit.cpp">
+      <Filter>Archivos de origen\assembler</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -144,6 +150,15 @@
       <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>
     <ClInclude Include="src\assembler\errors.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\symbol_table.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\translation_unit.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\size.h">
       <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>
   </ItemGroup>
