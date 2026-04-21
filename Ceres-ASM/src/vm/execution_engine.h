@@ -185,12 +185,12 @@ namespace ceres::vm
 			advancePC();
 		}
 
-        forceinline void executeSignedMul(const u8 regDest, const u32 a, const u32 b) noexcept
+        forceinline void executeSignedMul(const u8 regDest, const i32 a, const i32 b) noexcept
 		{
 			constexpr i64 max32 = static_cast<i64>(std::numeric_limits<i32>::max());
 			constexpr i64 min32 = static_cast<i64>(std::numeric_limits<i32>::min());
 
-			const i64 result = static_cast<i64>(static_cast<i32>(a)) * static_cast<i64>(static_cast<i32>(b));
+			const i64 result = static_cast<i64>(a) * static_cast<i64>(b);
 			const i32 result32 = static_cast<i32>(result);
 			const bool didOverflow = (result > max32 || result < min32);
 
@@ -232,7 +232,7 @@ namespace ceres::vm
 			advancePC();
 		}
 
-		forceinline void executeSignedDiv(const u8 regDest, const u32 a, const u32 b) noexcept
+		forceinline void executeSignedDiv(const u8 regDest, const i32 a, const i32 b) noexcept
 		{
 			if (b == 0)
 			{
@@ -241,17 +241,14 @@ namespace ceres::vm
 				return;
 			}
 
-			const i32 ia = static_cast<i32>(a);
-			const i32 ib = static_cast<i32>(b);
-
-			const i64 result = static_cast<i64>(ia) / static_cast<i64>(ib);
+			const i64 result = static_cast<i64>(a) / static_cast<i64>(b);
 			const i32 result32 = static_cast<i32>(result);
 
 			zero(result32 == 0);
 			sign(result32 < 0);
 			carry(false);
 
-			const bool didOverflow = (ib == -1 && ia == std::numeric_limits<i32>::min());
+			const bool didOverflow = (b == -1 && a == std::numeric_limits<i32>::min());
 			overflow(didOverflow);
 
 			setReg(regDest, static_cast<u32>(result32));
@@ -299,7 +296,7 @@ namespace ceres::vm
 			advancePC();
 		}
 
-		forceinline void executeSignedMod(const u8 regDest, const u32 a, const u32 b) noexcept
+		forceinline void executeSignedMod(const u8 regDest, const i32 a, const i32 b) noexcept
 		{
 			if (b == 0)
 			{
@@ -308,11 +305,8 @@ namespace ceres::vm
 				return;
 			}
 
-			const i32 ia = static_cast<i32>(a);
-			const i32 ib = static_cast<i32>(b);
-
 			// remainder computed in wider type to avoid UB
-			const i64 result = static_cast<i64>(ia) % static_cast<i64>(ib);
+			const i64 result = static_cast<i64>(a) % static_cast<i64>(b);
 			const i32 result32 = static_cast<i32>(result);
 
 			zero(result32 == 0);
@@ -544,17 +538,17 @@ namespace ceres::vm
 		forceinline void MUL(const Instruction inst) noexcept { executeUnsignedMul(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void MULI(const Instruction inst) noexcept { executeUnsignedMul(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 		forceinline void IMUL(const Instruction inst) noexcept { executeSignedMul(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
-		forceinline void IMULI(const Instruction inst) noexcept { executeSignedMul(inst.rd(), getReg(inst.rs()), inst.imm16()); }
+		forceinline void IMULI(const Instruction inst) noexcept { executeSignedMul(inst.rd(), getReg(inst.rs()), inst.simm16()); }
 		forceinline void FMUL(const Instruction inst) noexcept { executeFloatMul(inst.fd(), getFloatReg(inst.fs()), getFloatReg(inst.ft())); }
 		forceinline void DIV(const Instruction inst) noexcept { executeUnsignedDiv(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void DIVI(const Instruction inst) noexcept { executeUnsignedDiv(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 		forceinline void IDIV(const Instruction inst) noexcept { executeSignedDiv(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
-		forceinline void IDIVI(const Instruction inst) noexcept { executeSignedDiv(inst.rd(), getReg(inst.rs()), inst.imm16()); }
+		forceinline void IDIVI(const Instruction inst) noexcept { executeSignedDiv(inst.rd(), getReg(inst.rs()), inst.simm16()); }
 		forceinline void FDIV(const Instruction inst) noexcept { executeFloatDiv(inst.fd(), getFloatReg(inst.fs()), getFloatReg(inst.ft())); }
 		forceinline void MOD(const Instruction inst) noexcept { executeUnsignedMod(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void MODI(const Instruction inst) noexcept { executeUnsignedMod(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 		forceinline void IMOD(const Instruction inst) noexcept { executeSignedMod(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
-		forceinline void IMODI(const Instruction inst) noexcept { executeSignedMod(inst.rd(), getReg(inst.rs()), inst.imm16()); }
+		forceinline void IMODI(const Instruction inst) noexcept { executeSignedMod(inst.rd(), getReg(inst.rs()), inst.simm16()); }
 		forceinline void FNEG(const Instruction inst) noexcept { executeFloatNeg(inst.fd(), getFloatReg(inst.fs())); }
 
 		forceinline void AND(const Instruction inst) noexcept { executeAnd(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
@@ -572,20 +566,20 @@ namespace ceres::vm
 		forceinline void SARI(const Instruction inst) noexcept { executeSar(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 
 		forceinline void MOV(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs())); advancePC(); }
-		forceinline void MOVI(const Instruction inst) noexcept { setReg(inst.rd(), inst.imm16()); advancePC(); }
-		forceinline void MOVIH(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(inst.imm16()) << 16u); advancePC(); }
 		forceinline void FMOV(const Instruction inst) noexcept { setFloatReg(inst.fd(), getFloatReg(inst.fs())); advancePC(); }
+		forceinline void LI(const Instruction inst) noexcept { setReg(inst.rd(), inst.imm16()); advancePC(); }
+		forceinline void LUI(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(inst.imm16()) << 16u); advancePC(); }
+		forceinline void LDR(const Instruction inst) noexcept { setReg(inst.rd(), read<u32>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
 		forceinline void LDRB(const Instruction inst) noexcept { setReg(inst.rd(), read<u8>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
-		forceinline void ILDRB(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
-		forceinline void LDRW(const Instruction inst) noexcept { setReg(inst.rd(), read<u16>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
-		forceinline void ILDRW(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i16>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
-		forceinline void LDRD(const Instruction inst) noexcept { setReg(inst.rd(), read<u32>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
+		forceinline void LDRH(const Instruction inst) noexcept { setReg(inst.rd(), read<u16>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
+		forceinline void LDRSB(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
+		forceinline void LDRSH(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i16>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
 		forceinline void FLDR(const Instruction inst) noexcept { setFloatReg(inst.fd(), read<f32>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
-		forceinline void LEA(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs()) + inst.imm16()); advancePC(); }
+		forceinline void STR(const Instruction inst) noexcept { write<u32>(getReg(inst.rs()) + inst.imm16(), getReg(inst.rt())); advancePC(); }
 		forceinline void STRB(const Instruction inst) noexcept { write<u8>(getReg(inst.rs()) + inst.imm16(), static_cast<u8>(getReg(inst.rt()))); advancePC(); }
-		forceinline void STRW(const Instruction inst) noexcept { write<u16>(getReg(inst.rs()) + inst.imm16(), static_cast<u16>(getReg(inst.rt()))); advancePC(); }
-		forceinline void STRD(const Instruction inst) noexcept { write<u32>(getReg(inst.rs()) + inst.imm16(), getReg(inst.rt())); advancePC(); }
+		forceinline void STRH(const Instruction inst) noexcept { write<u16>(getReg(inst.rs()) + inst.imm16(), static_cast<u16>(getReg(inst.rt()))); advancePC(); }
 		forceinline void FSTR(const Instruction inst) noexcept { write<f32>(getReg(inst.rs()) + inst.imm16(), getFloatReg(inst.ft())); advancePC(); }
+		forceinline void LEA(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs()) + inst.imm16()); advancePC(); }
 
 		forceinline void JP(const Instruction inst) noexcept { _pc += inst.simm24().signedValue(); }
 		forceinline void JPR(const Instruction inst) noexcept { _pc = Address(getReg(inst.rs())); }
@@ -604,7 +598,7 @@ namespace ceres::vm
 		forceinline void CMPI(const Instruction inst) noexcept
 		{
 			const u32 a = getReg(inst.rs());
-			const u32 b = inst.imm16();
+			const u32 b = static_cast<u32>(inst.simm16());
 
 			zero(a == b);
 			sign((static_cast<i32>(a) - static_cast<i32>(b)) < 0);
@@ -749,20 +743,20 @@ namespace ceres::vm
 
 				// Moves / Loads / Stores
 				handlers[static_cast<u8>(Opcode::MOV)] = &ExecutionEngine::MOV;
-				handlers[static_cast<u8>(Opcode::MOVI)] = &ExecutionEngine::MOVI;
-				handlers[static_cast<u8>(Opcode::MOVIH)] = &ExecutionEngine::MOVIH;
 				handlers[static_cast<u8>(Opcode::FMOV)] = &ExecutionEngine::FMOV;
+				handlers[static_cast<u8>(Opcode::LI)] = &ExecutionEngine::LI;
+				handlers[static_cast<u8>(Opcode::LUI)] = &ExecutionEngine::LUI;
+				handlers[static_cast<u8>(Opcode::LDR)] = &ExecutionEngine::LDR;
 				handlers[static_cast<u8>(Opcode::LDRB)] = &ExecutionEngine::LDRB;
-				handlers[static_cast<u8>(Opcode::ILDRB)] = &ExecutionEngine::ILDRB;
-				handlers[static_cast<u8>(Opcode::LDRW)] = &ExecutionEngine::LDRW;
-				handlers[static_cast<u8>(Opcode::ILDRW)] = &ExecutionEngine::ILDRW;
-				handlers[static_cast<u8>(Opcode::LDRD)] = &ExecutionEngine::LDRD;
+				handlers[static_cast<u8>(Opcode::LDRH)] = &ExecutionEngine::LDRH;
+				handlers[static_cast<u8>(Opcode::LDRSB)] = &ExecutionEngine::LDRSB;
+				handlers[static_cast<u8>(Opcode::LDRSH)] = &ExecutionEngine::LDRSH;
 				handlers[static_cast<u8>(Opcode::FLDR)] = &ExecutionEngine::FLDR;
-				handlers[static_cast<u8>(Opcode::LEA)] = &ExecutionEngine::LEA;
+				handlers[static_cast<u8>(Opcode::STR)] = &ExecutionEngine::STR;
 				handlers[static_cast<u8>(Opcode::STRB)] = &ExecutionEngine::STRB;
-				handlers[static_cast<u8>(Opcode::STRW)] = &ExecutionEngine::STRW;
-				handlers[static_cast<u8>(Opcode::STRD)] = &ExecutionEngine::STRD;
+				handlers[static_cast<u8>(Opcode::STRH)] = &ExecutionEngine::STRH;
 				handlers[static_cast<u8>(Opcode::FSTR)] = &ExecutionEngine::FSTR;
+				handlers[static_cast<u8>(Opcode::LEA)] = &ExecutionEngine::LEA;
 
 				// Jumps / Branches / Calls
 				handlers[static_cast<u8>(Opcode::JP)] = &ExecutionEngine::JP;

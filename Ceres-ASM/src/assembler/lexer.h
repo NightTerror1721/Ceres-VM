@@ -168,7 +168,6 @@ namespace ceres::casm
 		Token scanCharLiteral(usize startPosition, u32 startColumn) noexcept;
 
 		static std::optional<KeywordType> checkKeyword(std::string_view identifier) noexcept;
-		static std::optional<DataType> checkDataType(std::string_view identifier) noexcept;
 
 	private:
 		static constexpr bool isValidDigit(char ch, int base) noexcept

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "common_defs.h"
-#include "datatype_info.h"
 #include "literal_value.h"
+#include "data_type.h"
 #include "operand.h"
 #include "errors.h"
 #include "vm/address.h"
@@ -26,32 +26,35 @@ namespace ceres::casm
 	private:
 		std::string _name;
 		SymbolType _type;
+		SectionType _section;
 		bool _global;
 		bool _readonly;
 		std::optional<Address> _address;
-		std::optional<DataTypeInfo> _dataType;
+		std::optional<DataType> _dataType;
 		std::optional<LiteralValue> _value;
 
 	public:
 		Symbol() = delete;
-		Symbol(const Symbol&) = delete;
+		Symbol(const Symbol&) = default;
 		Symbol(Symbol&&) = default;
 		~Symbol() = default;
 
-		Symbol& operator=(const Symbol&) = delete;
+		Symbol& operator=(const Symbol&) = default;
 		Symbol& operator=(Symbol&&) = default;
 	private:
 		explicit Symbol(
 			std::string&& name,
 			SymbolType type,
+			SectionType section,
 			bool global,
 			bool readonly,
 			std::optional<Address>&& address,
-			std::optional<DataTypeInfo>&& dataType,
+			std::optional<DataType>&& dataType,
 			std::optional<LiteralValue>&& value
 		) noexcept :
 			_name(std::move(name)),
 			_type(type),
+			_section(section),
 			_global(global),
 			_readonly(readonly),
 			_address(std::move(address)),
@@ -62,10 +65,11 @@ namespace ceres::casm
 	public:
 		inline std::string_view name() const noexcept { return _name; }
 		inline SymbolType type() const noexcept { return _type; }
+		inline SectionType section() const noexcept { return _section; }
 		inline bool isGlobal() const noexcept { return _global; }
 		inline bool isReadonly() const noexcept { return _readonly; }
 		inline Address address() const noexcept { return _address.value(); }
-		inline const DataTypeInfo& dataType() const noexcept { return _dataType.value(); }
+		inline DataType dataType() const noexcept { return _dataType.value(); }
 		inline const LiteralValue& value() const noexcept { return _value.value(); }
 
 		inline bool hasAddress() const noexcept { return _address.has_value(); }
@@ -76,25 +80,30 @@ namespace ceres::casm
 		inline bool isConstant() const noexcept { return _type == SymbolType::Constant; }
 		inline bool isVariable() const noexcept { return _type == SymbolType::Variable; }
 
+		inline void setAddress(Address address) noexcept { _address = address; }
+
 	public:
-		static Symbol makeLabel(std::string&& name, Address address, bool isGlobal) noexcept
+		static Symbol makeLabel(std::string&& name, SectionType section, Address address, bool isGlobal) noexcept
 		{
-			return Symbol(std::move(name), SymbolType::Label, isGlobal, true, address, std::nullopt, std::nullopt);
+			return Symbol(std::move(name), SymbolType::Label, section, isGlobal, true, address, std::nullopt, std::nullopt);
 		}
 
 		static Symbol makeConstant(std::string&& name, const LiteralValue& value, bool isGlobal) noexcept
 		{
-			return Symbol(std::move(name), SymbolType::Constant, isGlobal, true, std::nullopt, std::nullopt, LiteralValue{ value });
+			return Symbol(std::move(name), SymbolType::Constant, SectionType::Rodata, isGlobal, true, std::nullopt, std::nullopt, LiteralValue{ value });
 		}
 
-		static Symbol makeVariable(std::string&& name, Address address, const DataTypeInfo& dataType, std::optional<LiteralValue> value, bool isGlobal, bool isReadonly) noexcept
+		static Symbol makeVariable(std::string&& name, SectionType section, Address address, DataType dataType, std::optional<LiteralValue> value, bool isGlobal, bool isReadonly) noexcept
 		{
-			return Symbol(std::move(name), SymbolType::Variable, isGlobal, isReadonly, address, std::make_optional(dataType), std::move(value));
+			return Symbol(std::move(name), SymbolType::Variable, section, isGlobal, isReadonly, address, std::make_optional(dataType), std::move(value));
 		}
 	};
 
 	class SymbolTable
 	{
+	public:
+		static inline constexpr std::string_view EntryPointLabelName = "main";
+
 	private:
 		std::unordered_map<std::string, Symbol> _symbols;
 		std::string _lastParentLabel;
@@ -109,39 +118,52 @@ namespace ceres::casm
 		SymbolTable& operator=(SymbolTable&&) = default;
 
 	public:
-		void defineLabel(u32 line, const Identifier& identifier, Address address, LabelLevel level);
+		void defineLabel(u32 line, const Identifier& identifier, SectionType section, Address address, LabelLevel level);
 		void defineConstant(u32 line, const Identifier& identifier, bool isGlobal, const LiteralValue& value);
 
 		std::optional<std::reference_wrapper<const Symbol>> get(std::string_view name) const noexcept;
 		std::optional<std::reference_wrapper<const Symbol>> getLocal(std::string_view name, const Identifier& parentIdentifier) const noexcept;
 
+		void relocateSymbols(Address textOffset, Address dataOffset, Address rodataOffset, Address bssOffset);
+
 	public:
-		void defineVariable(u32 line, const Identifier& identifier, Address address, bool isGlobal, bool isReadonly, const DataTypeInfo& dataType, const LiteralValue& initialValue)
+		void insertRawSymbol(const Symbol& symbol)
 		{
-			defineVariable(line, identifier, address, isGlobal, isReadonly, dataType, &initialValue);
+			if (const auto [it, inserted] = _symbols.emplace(symbol.name(), symbol); !inserted)
+				error(0, "Redefinition of symbol: {}", it->first);
 		}
-		void defineVariable(u32 line, const Identifier& identifier, Address address, bool isGlobal, bool isReadonly, const DataTypeInfo& dataType)
+
+		void defineVariable(u32 line, const Identifier& identifier, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType, const LiteralValue& initialValue)
 		{
-			defineVariable(line, identifier, address, isGlobal, isReadonly, dataType, nullptr);
+			defineVariable(line, identifier, section, address, isGlobal, isReadonly, dataType, &initialValue);
+		}
+		void defineVariable(u32 line, const Identifier& identifier, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType)
+		{
+			defineVariable(line, identifier, section, address, isGlobal, isReadonly, dataType, nullptr);
 		}
 
 		Operand& tryResolveOperand(u32 line, Operand& operand, std::vector<std::string>& unresolvedSymbols) const
 		{
-			return resolveOperand(line, operand, &unresolvedSymbols);
+			return resolveOperand(line, operand, &unresolvedSymbols, nullptr);
 		}
-		Operand& resolveOperand(u32 line, Operand& operand) const
+		Operand& resolveOperand(u32 line, Operand& operand, const SymbolTable& globalSymbolTable) const
 		{
-			return resolveOperand(line, operand, nullptr);
+			return resolveOperand(line, operand, nullptr, &globalSymbolTable);
+		}
+
+		const std::unordered_map<std::string, Symbol>& getAllSymbols() const noexcept
+		{
+			return _symbols;
 		}
 
 	private:
-		void defineVariable(u32 line, const Identifier& identifier, Address address, bool isGlobal, bool isReadonly, const DataTypeInfo& dataType, const LiteralValue* initialValue);
+		void defineVariable(u32 line, const Identifier& identifier, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType, const LiteralValue* initialValue);
 
 		std::string resolveName(u32 line, std::string_view name, bool isLocal);
 
 		void checkRedefinition(u32 line, const std::string& name) const;
 
-		Operand& resolveOperand(u32 line, Operand& operand, std::vector<std::string>* unresolvedSymbols) const;
+		Operand& resolveOperand(u32 line, Operand& operand, std::vector<std::string>* unresolvedSymbols, const SymbolTable* globalSymbolTable) const;
 
 	private:
 		[[noreturn]] void error(u32 line, std::string_view message) const

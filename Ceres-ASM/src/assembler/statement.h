@@ -2,11 +2,10 @@
 
 #include "operand.h"
 #include "literal_value.h"
-#include "datatype_info.h"
 #include "mnemonic.h"
-#include "vm/address.h"
 #include <optional>
 #include <vector>
+#include <array>
 
 namespace ceres::casm
 {
@@ -25,21 +24,30 @@ namespace ceres::casm
 	{
 		bool isConstant; // Whether the data is a constant (defined with 'const') or a variable (defined with 'let')
 		Identifier identifier; // Identifier name (e.g., variable name)
-		std::optional<DataTypeInfo> dataType; // Optional data type information (can be scalar, unsized array, or sized array)
-		std::optional<LiteralValue> value; // Optional initial value (can be a literal integer, float, char, bool, string, or an array of literal values)
+		std::optional<DataTypeReference> dataType; // Optional data type information (can be scalar, unsized array, or sized array)
+		std::optional<LiteralValueReference> value; // Optional initial value (can be a literal integer, float, char, bool, string, or an array of literal values)
 	};
 
 	struct InstructionStatement
 	{
 		Mnemonic mnemonic; // Instruction mnemonic (e.g., ADD, SUB, etc.)
 		std::vector<Operand> operands; // Operands for the instruction (can be registers, immediates, memory operands, etc.)
+
+		InstructionSignature signature() const noexcept
+		{
+			InstructionSignature::OperandArray operandArray{};
+			for (usize i = 0; i < operands.size() && i < InstructionSignature::MaxOperandsPerInstruction; ++i)
+			{
+				operandArray[i] = operands[i].type();
+			}
+			return InstructionSignature{ mnemonic, operandArray };
+		}
 	};
 
 	class Statement
 	{
 	private:
-		u32 _line; // Line number in the source code where the statement is located
-		std::optional<vm::Address> _address = std::nullopt; // Address in program memory where the statement will be located (set during assembly)
+		u32 _line = 0; // Line number in the source code where the statement is located
 		std::variant<SectionStatement, LabelStatement, DataStatement, InstructionStatement> _value;
 
 	public:
@@ -52,16 +60,13 @@ namespace ceres::casm
 		Statement& operator=(Statement&&) noexcept = default;
 
 	private:
-		 Statement(u32 line, std::variant<SectionStatement, LabelStatement, DataStatement, InstructionStatement>&& value) noexcept :
+		 explicit Statement(u32 line, std::variant<SectionStatement, LabelStatement, DataStatement, InstructionStatement>&& value) noexcept :
 			 _line(line),
 			_value(std::move(value))
 		 {}
 
 	public:
 		constexpr u32 line() const noexcept { return _line; }
-
-		constexpr bool hasAddress() const noexcept { return _address.has_value(); }
-		constexpr vm::Address address() const noexcept { return _address.value(); }
 
 		constexpr bool isSection() const noexcept { return std::holds_alternative<SectionStatement>(_value); }
 		constexpr bool isLabel() const noexcept { return std::holds_alternative<LabelStatement>(_value); }
@@ -78,8 +83,6 @@ namespace ceres::casm
 		constexpr DataStatement& asData() noexcept { return std::get<DataStatement>(_value); }
 		constexpr InstructionStatement& asInstruction() noexcept { return std::get<InstructionStatement>(_value); }
 
-		constexpr void setAddress(vm::Address address) noexcept { _address = address; }
-
 	public:
 		static Statement makeSection(u32 line, SectionType section) noexcept	
 		{
@@ -95,12 +98,12 @@ namespace ceres::casm
 			return Statement{ line, LabelStatement{ std::move(name), level } };
 		}
 
-		static Statement makeData(u32 line, bool isConstant, const Identifier& identifier, std::optional<DataTypeInfo>&& dataType = std::nullopt) noexcept
+		static Statement makeData(u32 line, bool isConstant, const Identifier& identifier, std::optional<DataTypeReference>&& dataType = std::nullopt) noexcept
 		{
 			return Statement{ line, DataStatement{ isConstant, identifier, dataType, std::nullopt } };
 		}
 
-		static Statement makeData(u32 line, bool isConstant, const Identifier& identifier, std::optional<DataTypeInfo>&& dataType, std::optional<LiteralValue>&& value) noexcept
+		static Statement makeData(u32 line, bool isConstant, const Identifier& identifier, std::optional<DataTypeReference>&& dataType, std::optional<LiteralValueReference>&& value) noexcept
 		{
 			return Statement{ line, DataStatement{ isConstant, identifier, std::move(dataType), std::move(value) } };
 		}

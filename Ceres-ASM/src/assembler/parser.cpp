@@ -89,26 +89,26 @@ namespace ceres::casm
 		const Token& identifierToken = _cursor.consume(TokenType::Identifier, "Expected identifier after 'let' or 'const'");
 		std::string_view name = identifierToken.lexeme();
 
-		std::optional<DataTypeInfo> dataTypeInfo = std::nullopt;
+		std::optional<DataTypeReference> dataType = std::nullopt;
 		if (!isConstant || _cursor.match(TokenType::Colon))
 		{
 			_cursor.consume(TokenType::Colon, "Expected ':' after identifier in data declaration");
 
-			dataTypeInfo = parseDataType();
-			if (!dataTypeInfo->isValid())
+			dataType = parseDataType();
+			if (!dataType->isValid())
 				error("Invalid data type specified in data declaration");
 		}
 
-		std::optional<LiteralValue> initialValue = std::nullopt;
+		std::optional<LiteralValueReference> initialValue = std::nullopt;
 		if (_cursor.match(TokenType::Equals))
 		{
 			_cursor.next(); // Consume '='
-			initialValue = parseLiteralValue(dataTypeInfo, false);
+			initialValue = parseLiteralValue(dataType);
 		}
 		else if (isConstant)
 			error("Expected '=' and initializer for constant data declaration");
 
-		return Statement::makeData(line, isConstant, Identifier::make(name), std::move(dataTypeInfo), std::move(initialValue));
+		return Statement::makeData(line, isConstant, Identifier::make(name), std::move(dataType), std::move(initialValue));
 	}
 
 	Statement Parser::parseLabelOrInstruction()
@@ -156,31 +156,31 @@ namespace ceres::casm
 		return Statement::makeInstruction(line, *mnemonic, std::move(operands));
 	}
 
-	DataTypeInfo Parser::parseDataType()
+	DataTypeReference Parser::parseDataType()
 	{
 		const Token& dataTypeToken = _cursor.consume(TokenType::DataType, "Expected data type after ':' in data declaration");
 		DataType dataType = dataTypeToken.dataTypeValue();
+		if (!dataType.isValid())
+			error("Invalid data type specified in data declaration");
+
 		if (_cursor.match(TokenType::BracketOpen))
 		{
+			if (!dataType.isScalar())
+				error("Array size can only be specified for scalar data types (non string types)");
+
 			_cursor.next(); // Consume '['
 			if (_cursor.match(TokenType::LiteralInteger))
 			{
-				if (!isScalarDataType(dataType))
-					error("Array size can only be specified for scalar data types");
-
 				const Token& arraySizeToken = _cursor.current();
 				if (arraySizeToken.integerValue() == 0)
 					error("Array size cannot be zero");
 
 				_cursor.next(); // Consume array size token
 				_cursor.consume(TokenType::BracketClose, "Expected ']' after array size in data declaration");
-				return DataTypeInfo::makeSizedArray(dataType, arraySizeToken.integerValue());
+				return dataType.withNumElements(arraySizeToken.integerValue());
 			}
 			else if (_cursor.match(TokenType::Identifier))
 			{
-				if (!isScalarDataType(dataType))
-					error("Array size can only be specified for scalar data types");
-
 				const Token& arraySizeToken = _cursor.current();
 				std::string_view arraySizeIdentifierName = arraySizeToken.lexeme();
 				if (!Identifier::isValidIdentifierName(arraySizeIdentifierName))
@@ -188,12 +188,12 @@ namespace ceres::casm
 
 				_cursor.next(); // Consume array size token
 				_cursor.consume(TokenType::BracketClose, "Expected ']' after array size in data declaration");
-				return DataTypeInfo::makeSizedArray(dataType, Identifier::make(arraySizeIdentifierName));
+				return DataTypeReference::make(dataType.scalarCode(), Identifier::make(arraySizeIdentifierName));
 			}
 			else if (_cursor.match(TokenType::BracketClose))
 			{
 				_cursor.next(); // Consume ']'
-				return DataTypeInfo::makeUnsizedArray(dataType);
+				return dataType.asUnsizedArray();
 			}
 			else
 			{
@@ -202,66 +202,55 @@ namespace ceres::casm
 		}
 		else
 		{
-			if (dataType == DataType::String)
-				return DataTypeInfo::makeUnsizedArray(dataType);
+			if (dataType.isUnsizedArray()) // string type only
+				return dataType;
 			else
-				return DataTypeInfo::makeScalar(dataTypeToken.dataTypeValue());
+				return dataType.asScalar();
 		}
 	}
 
-	LiteralValue Parser::parseLiteralValue(std::optional<DataTypeInfo> expectedDataType, bool nestedContext)
+	LiteralValueReference Parser::parseLiteralValue(std::optional<DataTypeReference> expectedDataType)
 	{
 		const Token& token = _cursor.current();
 		_cursor.next(); // Consume the token
 
-		LiteralValue literalValue;
+		LiteralValueReference literalValue;
 		switch (token.type())
 		{
 			case TokenType::Identifier:
-				literalValue = LiteralValue::makeIdentifier(Identifier::make(token.lexeme()));
+				literalValue = LiteralValueReference::make(Identifier::make(token.lexeme()));
 				break;
 
 			case TokenType::LiteralInteger:
-				literalValue = LiteralValue::makeInteger(token.integerValue());
+				literalValue = LiteralValueReference::make(token.integerValue());
 				break;
 
 			case TokenType::LiteralFloat:
-				literalValue = LiteralValue::makeFloat(token.floatValue());
+				literalValue = LiteralValueReference::make(token.floatValue());
 				break;
 
 			case TokenType::LiteralChar:
-				literalValue = LiteralValue::makeChar(token.charValue());
+				literalValue = LiteralValueReference::make(token.charValue());
 				break;
 
 			case TokenType::LiteralBool:
-				literalValue = LiteralValue::makeBool(token.boolValue());
+				literalValue = LiteralValueReference::make(token.boolValue());
 				break;
 
 			case TokenType::LiteralString:
-				literalValue = LiteralValue::makeString(token.stringValue());
+				literalValue = LiteralValueReference::make(token.stringValue());
 				break;
 
 			case TokenType::BracketOpen:
 			{
-				if (nestedContext)
-					error("Nested arrays are not allowed");
-
-				std::optional<DataTypeInfo> expectedElementType = std::nullopt;
+				std::optional<DataTypeScalarCode> expectedElementType = std::nullopt;
 				if (expectedDataType.has_value())
-				{
-					if (!expectedDataType->isUnsizedArray() && !expectedDataType->isSizedArray())
-						error("Expected a scalar literal value, but got an array literal");
+					expectedElementType = expectedDataType->scalarCode();
 
-					DataType elementType = expectedDataType->type();
-					if (!isScalarDataType(elementType))
-						error("Expected a scalar literal value, but got an array literal");
-					expectedElementType = DataTypeInfo::makeScalar(expectedDataType->type());
-				}
-
-				std::vector<LiteralValue> arrayElements;
+				std::vector<LiteralValueReference::ElementType> arrayElements;
 				while (!_cursor.match(TokenType::BracketClose))
 				{
-					LiteralValue element = parseLiteralValue(expectedElementType, true);
+					LiteralValueReferenceElement element = parseLiteralValueElement(expectedElementType);
 					arrayElements.push_back(std::move(element));
 					if (_cursor.match(TokenType::Comma))
 						_cursor.next(); // Consume ',' and continue parsing elements
@@ -269,7 +258,8 @@ namespace ceres::casm
 						error("Expected ',' or ']' in array literal");
 				}
 				_cursor.consume(TokenType::BracketClose, "Expected ']' to close array literal");
-				literalValue = LiteralValue::makeArray(std::move(arrayElements));
+
+				literalValue = LiteralValueReference::make(std::move(arrayElements));
 			}
 			break;
 
@@ -277,10 +267,45 @@ namespace ceres::casm
 				error("Unexpected token {} in literal value", token.lexeme());
 		}
 
-		if (expectedDataType.has_value() && !expectedDataType->matchLiteralValue(literalValue, true))
+		if (expectedDataType.has_value() && !literalValue.matchDataType(*expectedDataType))
 			error("Expected a literal value of type {}, but got a different type", expectedDataType->toString());
 
 		return literalValue;
+	}
+
+	LiteralValueReferenceElement Parser::parseLiteralValueElement(std::optional<DataTypeScalarCode> expectedScalarCode)
+	{
+		const Token& token = _cursor.current();
+		_cursor.next(); // Consume the token
+
+		switch (token.type())
+		{
+			case TokenType::Identifier:
+				return LiteralValueReferenceElement(Identifier::make(token.lexeme()));
+
+			case TokenType::LiteralInteger:
+				if (expectedScalarCode.has_value() && !DataType::isIntegerScalarCode(*expectedScalarCode))
+					error("Expected a literal value of type {}, but got an integer literal", DataType::scalarCodeToString(*expectedScalarCode));
+				return LiteralValueReferenceElement(LiteralScalar::make(token.integerValue()));
+
+			case TokenType::LiteralFloat:
+				if (expectedScalarCode.has_value() && *expectedScalarCode != DataTypeScalarCode::F32)
+					error("Expected a literal value of type {}, but got a float literal", DataType::scalarCodeToString(*expectedScalarCode));
+				return LiteralValueReferenceElement(LiteralScalar::make(token.floatValue()));
+
+			case TokenType::LiteralChar:
+				if (expectedScalarCode.has_value() && *expectedScalarCode != DataTypeScalarCode::U8)
+					error("Expected a literal value of type {}, but got a char literal", DataType::scalarCodeToString(*expectedScalarCode));
+				return LiteralValueReferenceElement(LiteralScalar::make(token.charValue()));
+
+			case TokenType::LiteralBool:
+				if (expectedScalarCode.has_value() && *expectedScalarCode != DataTypeScalarCode::U8)
+					error("Expected a literal value of type {}, but got a bool literal", DataType::scalarCodeToString(*expectedScalarCode));
+				return LiteralValueReferenceElement(LiteralScalar::make(token.boolValue()));
+
+			default:
+				error("Unexpected token {} in literal array value element", token.lexeme());
+		}
 	}
 
 	Operand Parser::parseOperand()

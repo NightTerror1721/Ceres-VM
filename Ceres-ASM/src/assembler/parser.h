@@ -2,7 +2,6 @@
 
 #include "operand.h"
 #include "statement.h"
-#include "datatype_info.h"
 #include "lexer.h"
 #include "errors.h"
 #include <format>
@@ -180,8 +179,9 @@ namespace ceres::casm
 		Statement parseDataDeclaration();
 		Statement parseLabelOrInstruction();
 
-		DataTypeInfo parseDataType();
-		LiteralValue parseLiteralValue(std::optional<DataTypeInfo> expectedDataType = std::nullopt, bool nestedContext = false);
+		DataTypeReference parseDataType();
+		LiteralValueReference parseLiteralValue(std::optional<DataTypeReference> expectedDataType);
+		LiteralValueReferenceElement parseLiteralValueElement(std::optional<DataTypeScalarCode> expectedScalarCode);
 		Operand parseOperand();
 
 	private:

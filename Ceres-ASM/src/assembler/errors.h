@@ -62,6 +62,11 @@ namespace ceres::casm
 			_errors.push_back(AssemblerErrorEntry{ error._line, error._column, error.what() });
 		}
 
+		void clearErrors() noexcept
+		{
+			_errors.clear();
+		}
+
 	public:
 		iterator begin() const noexcept { return _errors.begin(); }
 		iterator end() const noexcept { return _errors.end(); }

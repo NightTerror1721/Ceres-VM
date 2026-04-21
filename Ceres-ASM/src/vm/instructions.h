@@ -65,6 +65,21 @@ namespace ceres::vm
 		forceinline constexpr u8 fs() const noexcept { return (_raw & RsMask) >> FsShift; } // For floating-point registers
 		forceinline constexpr u8 ft() const noexcept { return (_raw & RtMask) >> FtShift; } // For floating-point registers
 
+		forceinline constexpr void setOpcode(Opcode opcode) noexcept { _raw = (_raw & ~OpcodeMask) | (static_cast<RawType>(opcode) << OpcodeShift); }
+		forceinline constexpr void setImm24(u24 imm24) noexcept { _raw = (_raw & ~Imm24Mask) | (static_cast<RawType>(imm24) & Imm24Mask); }
+		forceinline constexpr void setSImm24(i24 simm24) noexcept { _raw = (_raw & ~Imm24Mask) | (static_cast<RawType>(simm24) & Imm24Mask); }
+		forceinline constexpr void setImm16(u16 imm16) noexcept { _raw = (_raw & ~Imm16Mask) | (imm16 & Imm16Mask); }
+		forceinline constexpr void setSImm16(i16 simm16) noexcept { _raw = (_raw & ~Imm16Mask) | (static_cast<u16>(simm16) & Imm16Mask); }
+		forceinline constexpr void setImm8(u8 imm8) noexcept { _raw = (_raw & ~Imm8Mask) | (imm8 & Imm8Mask); }
+		forceinline constexpr void setRd(u8 rd) noexcept { _raw = (_raw & ~RdMask) | ((rd & RegisterMask) << RdShift); }
+		forceinline constexpr void setRs(u8 rs) noexcept { _raw = (_raw & ~RsMask) | ((rs & RegisterMask) << RsShift); }
+		forceinline constexpr void setRt(u8 rt) noexcept { _raw = (_raw & ~RtMask) | ((rt & RegisterMask) << RtShift); }
+		forceinline constexpr void setFd(u8 fd) noexcept { _raw = (_raw & ~RdMask) | ((fd & RegisterMask) << FdShift); } // For floating-point registers
+		forceinline constexpr void setFs(u8 fs) noexcept { _raw = (_raw & ~RsMask) | ((fs & RegisterMask) << FsShift); } // For floating-point registers
+		forceinline constexpr void setFt(u8 ft) noexcept { _raw = (_raw & ~RtMask) | ((ft & RegisterMask) << FtShift); } // For floating-point registers
+
+		std::span<const u8> asBytes() const noexcept { return std::span<const u8>(reinterpret_cast<const u8*>(&_raw), Size); }
+
 	public:
 		forceinline operator RawType() const noexcept { return _raw; }
 
@@ -164,20 +179,20 @@ namespace ceres::vm
 
 		// Memory Access
 		static constexpr Instruction MOV(u8 rd, u8 rs) noexcept { return make(Opcode::MOV, rd, rs); }
-		static constexpr Instruction MOVI(u8 rd, u16 imm16) noexcept { return make(Opcode::MOVI, rd, 0, imm16); }
-		static constexpr Instruction MOVIH(u8 rd, u16 imm16) noexcept { return make(Opcode::MOVIH, rd, 0, imm16); }
 		static constexpr Instruction FMOV(u8 fd, u8 fs) noexcept { return make(Opcode::FMOV, fd, fs); }
+		static constexpr Instruction LI(u8 rd, u16 imm16) noexcept { return make(Opcode::LI, rd, 0, imm16); }
+		static constexpr Instruction LUI(u8 rd, u16 imm16) noexcept { return make(Opcode::LUI, rd, 0, imm16); }
+		static constexpr Instruction LDR(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDR, rd, rs, imm16); }
 		static constexpr Instruction LDRB(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDRB, rd, rs, imm16); }
-		static constexpr Instruction ILDRB(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::ILDRB, rd, rs, imm16); }
-		static constexpr Instruction LDRW(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDRW, rd, rs, imm16); }
-		static constexpr Instruction ILDRW(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::ILDRW, rd, rs, imm16); }
-		static constexpr Instruction LDRD(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDRD, rd, rs, imm16); }
+		static constexpr Instruction LDRH(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDRH, rd, rs, imm16); }
+		static constexpr Instruction LDRSB(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDRSB, rd, rs, imm16); }
+		static constexpr Instruction LDRSH(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDRSH, rd, rs, imm16); }
 		static constexpr Instruction FLDR(u8 fd, u8 rs, u16 imm16) noexcept { return make(Opcode::FLDR, fd, rs, imm16); }
-		static constexpr Instruction LEA(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LEA, rd, rs, imm16); }
+		static constexpr Instruction STR(u8 rs, u8 rt, u16 imm16) noexcept { return make(Opcode::STR, rs, rt, imm16); }
 		static constexpr Instruction STRB(u8 rs, u8 rt, u16 imm16) noexcept { return make(Opcode::STRB, rs, rt, imm16); }
-		static constexpr Instruction STRW(u8 rs, u8 rt, u16 imm16) noexcept { return make(Opcode::STRW, rs, rt, imm16); }
-		static constexpr Instruction STRD(u8 rs, u8 rt, u16 imm16) noexcept { return make(Opcode::STRD, rs, rt, imm16); }
+		static constexpr Instruction STRH(u8 rs, u8 rt, u16 imm16) noexcept { return make(Opcode::STRH, rs, rt, imm16); }
 		static constexpr Instruction FSTR(u8 rs, u8 fd, u16 imm16) noexcept { return make(Opcode::FSTR, rs, fd, imm16); }
+		static constexpr Instruction LEA(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LEA, rd, rs, imm16); }
 
 		// Control Flow
 		static constexpr Instruction JP(i24 simm24) noexcept { return make(Opcode::JP, simm24); }

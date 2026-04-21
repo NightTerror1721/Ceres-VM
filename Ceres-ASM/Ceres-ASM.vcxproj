@@ -139,7 +139,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\assembler\assembler.cpp" />
+    <ClCompile Include="src\assembler\binary_emitter.cpp" />
+    <ClCompile Include="src\assembler\instruction_info.cpp" />
     <ClCompile Include="src\assembler\lexer.cpp" />
+    <ClCompile Include="src\assembler\linker.cpp" />
     <ClCompile Include="src\assembler\mnemonic.cpp" />
     <ClCompile Include="src\assembler\operand.cpp" />
     <ClCompile Include="src\assembler\parser.cpp" />
@@ -151,15 +155,21 @@
     <ClCompile Include="src\vm\program.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\assembler\assembler.h" />
+    <ClInclude Include="src\assembler\binary_emitter.h" />
     <ClInclude Include="src\assembler\common_defs.h" />
-    <ClInclude Include="src\assembler\datatype_info.h" />
+    <ClInclude Include="src\assembler\data_type.h" />
     <ClInclude Include="src\assembler\errors.h" />
     <ClInclude Include="src\assembler\identifier.h" />
+    <ClInclude Include="src\assembler\instruction_info.h" />
     <ClInclude Include="src\assembler\lexer.h" />
+    <ClInclude Include="src\assembler\linker.h" />
+    <ClInclude Include="src\assembler\literal_scalar.h" />
     <ClInclude Include="src\assembler\literal_value.h" />
     <ClInclude Include="src\assembler\mnemonic.h" />
     <ClInclude Include="src\assembler\operand.h" />
     <ClInclude Include="src\assembler\parser.h" />
+    <ClInclude Include="src\assembler\relocatable_statement.h" />
     <ClInclude Include="src\assembler\size.h" />
     <ClInclude Include="src\assembler\statement.h" />
     <ClInclude Include="src\assembler\symbol_table.h" />

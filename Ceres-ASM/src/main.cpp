@@ -22,20 +22,20 @@ int main()
 
 	constexpr u8 OutPort = default_ports::TERM_OUT;
 	std::vector<Instruction> programInstructions = {
-		Instruction::MOVI(0, 'H'), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, 'e'), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, 'l'), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, 'l'), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, 'o'), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, ','), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, ' '), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, 'W'), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, 'o'), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, 'r'), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, 'l'), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, 'd'), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, '!'), Instruction::OUT(0, OutPort),
-		Instruction::MOVI(0, 0x01), Instruction::OUT(0, default_ports::SYS_CONTROL) // Send shutdown command to system control port to halt the VM.
+		Instruction::LI(0, 'H'), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, 'e'), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, 'l'), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, 'l'), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, 'o'), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, ','), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, ' '), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, 'W'), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, 'o'), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, 'r'), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, 'l'), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, 'd'), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, '!'), Instruction::OUT(0, OutPort),
+		Instruction::LI(0, 0x01), Instruction::OUT(0, default_ports::SYS_CONTROL) // Send shutdown command to system control port to halt the VM.
 	};
 
 	std::span<const u8> programBytes = Instruction::asBytes(programInstructions);

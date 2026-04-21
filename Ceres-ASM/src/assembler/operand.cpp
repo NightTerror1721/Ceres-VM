@@ -6,31 +6,35 @@ namespace ceres::casm
 {
 	std::expected<Operand, std::string_view> Operand::makeFromLiteralValue(const LiteralValue& value) noexcept
 	{
-		switch (value.type())
-		{
-			case LiteralValueType::Integer:
-				return Operand::makeImmediate(value.integerValue());
+		if (!value.isScalar())
+			return std::unexpected("Only scalar literals are supported as operands");
 
-			case LiteralValueType::Float:
+		auto scalarValue = value.first();
+		switch (scalarValue.scalarCode())
+		{
+			case DataTypeScalarCode::U8:
+				return Operand::makeImmediate(scalarValue.value().u8Value);
+
+			case DataTypeScalarCode::U16:
+				return Operand::makeImmediate(scalarValue.value().u16Value);
+
+			case DataTypeScalarCode::U32:
+				return Operand::makeImmediate(scalarValue.value().u32Value);
+
+			case DataTypeScalarCode::I8:
+				return Operand::makeImmediate(static_cast<u32>(scalarValue.value().i8Value));
+
+			case DataTypeScalarCode::I16:
+				return Operand::makeImmediate(static_cast<u32>(scalarValue.value().i16Value));
+
+			case DataTypeScalarCode::I32:
+				return Operand::makeImmediate(static_cast<u32>(scalarValue.value().i32Value));
+
+			case DataTypeScalarCode::F32:
 				return std::unexpected("Floating-point literals are not directly supported as operands");
 
-			case LiteralValueType::Char:
-				return Operand::makeImmediate(static_cast<u32>(value.charValue()));
-
-			case LiteralValueType::Bool:
-				return Operand::makeImmediate(static_cast<u32>(value.boolValue() ? 1 : 0));
-
-			case LiteralValueType::String:
-				return std::unexpected("String literals are not directly supported as operands");
-
-			case LiteralValueType::Array:
-				return std::unexpected("Array literals are not directly supported as operands");
-
-			case LiteralValueType::Identifier:
-				return std::unexpected("Identifiers are not directly supported as operands");
-
 			default:
-				return std::unexpected("Unsupported literal value type");
+				return std::unexpected("Unsupported scalar type for operand");
 		}
 	}
 

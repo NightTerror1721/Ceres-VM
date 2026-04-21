@@ -27,7 +27,7 @@ namespace ceres::vm
 			for (InterruptNumber in = InterruptNumber::Trap; in <= InterruptNumber::UserInterrupt0; in = static_cast<InterruptNumber>(static_cast<u8>(in) + 1))
 				initVector(memory, in, 0);
 
-			write(memory, 0, Instruction::MOVI(0, 'E'));
+			write(memory, 0, Instruction::LI(0, 'E'));
 			write(memory, 1, Instruction::OUT(0, 0x1));
 			write(memory, 2, Instruction::HALT());
 		}

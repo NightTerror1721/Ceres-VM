@@ -23,7 +23,7 @@ namespace ceres::casm
 		IDIV, // IDIV, IDIVI
 		MOD, // MOD, MODI
 		IMOD, // IMOD, IMODI
-		NEG, // IMUL rd rs -1, FNEG
+		NEG, // Pseudo-instruction // IMUL rd rs -1 | FNEG
 
 		AND, // AND, ANDI
 		OR, // OR, ORI
@@ -33,8 +33,20 @@ namespace ceres::casm
 		SHR, // SHR, SHRI
 		SAR, // SAR, SARI
 
-		MOV, // MOV, MOVI, FMOV, LDRB, ILDRB, LDRW, ILDRW, LDRD, FLDR, STRB, STRW, STRD, FSTR 
-		MOVH, // MOVIH
+		MOV, // MOV, MOVI, FMOV, LDRB, LDRW, LDRD, FLDR, STRB, STRW, STRD, FSTR
+		LI, // LI
+		LUI, // LUI
+		LDR, // LDR, FLDR
+		LDRB, // LDRB,
+		LDRH, // LDRH,
+		LDRSB, // LDRSB,
+		LDRSH, // LDRSH,
+		LDV, // Pseudo-instruction // Load variable address: LUI + ORI + (LDR | LDRB | LDRH | LDRSB | LDRSH | FLDR)
+		STR, // STR, FSTR
+		STRB, // STRB,
+		STRH, // STRH,
+		STV, // Pseudo-instruction // Store variable address: LUI + ORI + (STR | STRB | STRH | FSTR)
+		LA, // Pseudo-instruction // Load address: LUI + ORI
 		LEA, // LEA
 
 		JP, // JP, JPR

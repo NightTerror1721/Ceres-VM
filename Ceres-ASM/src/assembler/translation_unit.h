@@ -1,14 +1,16 @@
 #pragma once
 
 #include "symbol_table.h"
-#include "statement.h"
+#include "relocatable_statement.h"
 #include "size.h"
 #include <vector>
+#include <string_view>
+#include <expected>
 
 namespace ceres::casm
 {
 	struct SectionSizes
-	{
+	{	
 		u32 textSize = 0; // Size of the text section in bytes
 		u32 dataSize = 0; // Size of the data section in bytes
 		u32 rodataSize = 0; // Size of the read-only data section in bytes
@@ -19,10 +21,10 @@ namespace ceres::casm
 	{
 	private:
 		std::string _source; // The source code of the translation unit
-		std::vector<Statement> _ast; // The abstract syntax tree (AST) of the translation unit
+		std::vector<RelocatableStatement> _ast; // The abstract syntax tree (AST) of the translation unit
 		SymbolTable _symbolTable; // The symbol table for the translation unit
 		SectionSizes _sectionSizes; // The sizes of the sections in the translation unit
-		AssemblerErrorHandler _errorHandler; // The error handler for the translation unit
+		std::reference_wrapper<AssemblerErrorHandler> _errorHandler; // The error handler for the translation unit
 		std::vector<std::string> _unresolvedSymbols; // List of unresolved symbols in the translation unit
 
 	public:
@@ -35,21 +37,22 @@ namespace ceres::casm
 		TranslationUnit& operator=(TranslationUnit&&) noexcept = default;
 
 	public:
-		explicit TranslationUnit(const std::string& source) noexcept : _source(source) {}
-		explicit TranslationUnit(std::string&& source) noexcept : _source(std::move(source)) {}
+		explicit TranslationUnit(const std::string& source, AssemblerErrorHandler& errorHandler) noexcept : _source(source), _errorHandler(errorHandler) {}
+		explicit TranslationUnit(std::string&& source, AssemblerErrorHandler& errorHandler) noexcept : _source(std::move(source)), _errorHandler(errorHandler) {}
 
 		inline std::string_view source() const noexcept { return _source; }
-		inline std::span<const Statement> ast() const noexcept { return _ast; }
+		inline std::span<const RelocatableStatement> ast() const noexcept { return _ast; }
 		inline const SymbolTable& symbolTable() const noexcept { return _symbolTable; }
 		inline const SectionSizes& sectionSizes() const noexcept { return _sectionSizes; }
-		inline const AssemblerErrorHandler& errorHandler() const noexcept { return _errorHandler; }
+		inline const AssemblerErrorHandler& errorHandler() const noexcept { return _errorHandler.get(); }
 		inline std::span<const std::string> unresolvedSymbols() const noexcept { return _unresolvedSymbols; }
 
 		inline SymbolTable& symbolTable() noexcept { return _symbolTable; }
 		inline SectionSizes& sectionSizes() noexcept { return _sectionSizes; }
-		inline AssemblerErrorHandler& errorHandler() noexcept { return _errorHandler; }
+		inline AssemblerErrorHandler& errorHandler() noexcept { return _errorHandler.get(); }
+		inline std::vector<RelocatableStatement>& ast() noexcept { return _ast; }
 
-		inline void setAST(std::vector<Statement>&& ast) noexcept { _ast = std::move(ast); }
+		inline void setAST(std::vector<RelocatableStatement>&& ast) noexcept { _ast = std::move(ast); }
 		inline void setUnresolvedSymbols(std::vector<std::string>&& symbols) noexcept { _unresolvedSymbols = std::move(symbols); }
 	};
 
@@ -75,8 +78,8 @@ namespace ceres::casm
 		TranslationUnitBuilder& operator=(TranslationUnitBuilder&&) noexcept = default;
 
 	public:
-		explicit TranslationUnitBuilder(const std::string& source) noexcept : _translationUnit(source) {}
-		explicit TranslationUnitBuilder(std::string&& source) noexcept : _translationUnit(std::move(source)) {}
+		explicit TranslationUnitBuilder(const std::string& source, AssemblerErrorHandler& errorHandler) noexcept : _translationUnit(source, errorHandler) {}
+		explicit TranslationUnitBuilder(std::string&& source, AssemblerErrorHandler& errorHandler) noexcept : _translationUnit(std::move(source), errorHandler) {}
 
 		void build(std::vector<Statement>&& statements);
 
@@ -94,13 +97,13 @@ namespace ceres::casm
 		}
 
 	private:
-		void resolveDataType(u32 line, DataTypeInfo& dataType) const;
-		void resolveLiteralValue(u32 line, LiteralValue& value, bool allowEmptyArrays = false) const;
-		void resolveLiteralValue(u32 line, DataTypeInfo& expectedDataType, LiteralValue& value) const;
+		DataType resolveDataType(u32 line, const DataTypeReference& dataType) const;
+		LiteralValue resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays = false) const;
+		std::pair<DataType, LiteralValue> resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const;
 
-		u32 sizeOf(u32 line, const DataTypeInfo& dataType) const;
-		u32 sizeOf(u32 line, const LiteralValue& value) const;
-		u32 sizeOf(u32 line, const DataTypeInfo& dataType, const LiteralValue& value) const;
+		std::expected<u32, std::string_view> sizeOf(u32 line, DataType dataType) const;
+		std::expected<u32, std::string_view> sizeOf(u32 line, const LiteralValue& value) const;
+		std::expected<u32, std::string_view> sizeOf(u32 line, DataType dataType, const LiteralValue& value) const;
 
 		std::optional<std::reference_wrapper<const LiteralValue>> getConstantValue(u32 line, std::string_view name) const noexcept;
 

@@ -2,14 +2,14 @@
 
 namespace ceres::casm
 {
-	void SymbolTable::defineLabel(u32 line, const Identifier& identifier, Address address, LabelLevel level)
+	void SymbolTable::defineLabel(u32 line, const Identifier& identifier, SectionType section, Address address, LabelLevel level)
 	{
 		bool isLocal = level == LabelLevel::Local;
 		std::string fullName = resolveName(line, identifier.name(), isLocal);
 		checkRedefinition(line, fullName);
 
 		std::string key = fullName;
-		Symbol symbol = Symbol::makeLabel(std::move(fullName), address, level == LabelLevel::Global);
+		Symbol symbol = Symbol::makeLabel(std::move(fullName), section, address, level == LabelLevel::Global);
 		auto [it, inserted] = _symbols.emplace(std::move(key), std::move(symbol));
 		if (!inserted)
 			error(line, "Redefinition of symbol: {}", it->first);
@@ -30,7 +30,7 @@ namespace ceres::casm
 			error(line, "Redefinition of symbol: {}", it->first);
 	}
 
-	void SymbolTable::defineVariable(u32 line, const Identifier& identifier, Address address, bool isGlobal, bool isReadonly, const DataTypeInfo& dataType, const LiteralValue* initialValue)
+	void SymbolTable::defineVariable(u32 line, const Identifier& identifier, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType, const LiteralValue* initialValue)
 	{
 		std::string fullName = resolveName(line, identifier.name(), false);
 		checkRedefinition(line, fullName);
@@ -38,7 +38,7 @@ namespace ceres::casm
 		std::optional<LiteralValue> value = initialValue ? std::make_optional(*initialValue) : std::nullopt;
 		
 		std::string key = fullName;
-		Symbol symbol = Symbol::makeVariable(std::move(fullName), address, dataType, std::move(value), isGlobal, isReadonly);
+		Symbol symbol = Symbol::makeVariable(std::move(fullName), section, address, dataType, std::move(value), isGlobal, isReadonly);
 		auto [it, inserted] = _symbols.emplace(std::move(key), std::move(symbol));
 		if (!inserted)
 			error(line, "Redefinition of symbol: {}", it->first);
@@ -76,12 +76,15 @@ namespace ceres::casm
 			error(line, "Redefinition of symbol: {}", name);
 	}
 
-	Operand& SymbolTable::resolveOperand(u32 line, Operand& operand, std::vector<std::string>* unresolvedSymbols) const
+	Operand& SymbolTable::resolveOperand(u32 line, Operand& operand, std::vector<std::string>* unresolvedSymbols, const SymbolTable* globalSymbolTable) const
 	{
 		if (operand.isIdentifier())
 		{
 			const auto& identifierOperand = operand.asIdentifier();
-			const auto& value = get(identifierOperand.identifier.name());
+			auto value = get(identifierOperand.identifier.name());
+			if (!value.has_value() && globalSymbolTable != nullptr)
+				value = globalSymbolTable->get(identifierOperand.identifier.name());
+
 			if (!value.has_value())
 			{
 				if (unresolvedSymbols == nullptr)
@@ -103,7 +106,10 @@ namespace ceres::casm
 				{
 					if (!symbol.hasAddress())
 						error(line, "Variable symbol '{}' does not have a valid address", symbol.name());
-					operand = Operand::makeMemory(symbol.address().value());
+					DataType dataType = symbol.dataType();
+					if (!dataType.isValid())
+						error(line, "Variable symbol '{}' has an invalid data type", symbol.name());
+					operand = Operand::makeVariable(dataType.scalarCode(), symbol.address().value());
 				}
 				else if (symbol.isLabel() && !resolveConstantsOnly)
 				{
@@ -122,7 +128,10 @@ namespace ceres::casm
 			if (memoryOperand.hasOffset() && memoryOperand.isIdentifierOffset())
 			{
 				const auto& identifierOperand = memoryOperand.identifierOffset();
-				const auto& value = get(identifierOperand.identifier.name());
+				auto value = get(identifierOperand.identifier.name());
+				if (!value.has_value() && globalSymbolTable != nullptr)
+					value = globalSymbolTable->get(identifierOperand.identifier.name());
+
 				if (!value.has_value())
 				{
 					if (unresolvedSymbols == nullptr)
@@ -147,5 +156,49 @@ namespace ceres::casm
 		}
 
 		return operand;
+	}
+
+	void SymbolTable::relocateSymbols(Address textOffset, Address dataOffset, Address rodataOffset, Address bssOffset)
+	{
+		for (auto& [name, symbol] : _symbols)
+		{
+			if (symbol.isLabel())
+			{
+				if (!symbol.hasAddress())
+					error(0, "Label symbol '{}' does not have a valid address", symbol.name());
+
+				Address newAddress = symbol.address();
+				switch (symbol.section())
+				{
+					case SectionType::Text: newAddress += textOffset; break;
+					case SectionType::Rodata: newAddress += rodataOffset; break;
+					case SectionType::Data: newAddress += dataOffset; break;
+					case SectionType::BSS: newAddress += bssOffset; break;
+					default:
+						error(0, "Label symbol '{}' has an invalid section type", symbol.name());
+				}
+				symbol.setAddress(newAddress);
+			}
+			else if (symbol.isVariable())
+			{
+				if (!symbol.hasAddress())
+					error(0, "Variable symbol '{}' does not have a valid address", symbol.name());
+
+				Address newAddress = symbol.address();
+				switch (symbol.section())
+				{
+					case SectionType::Text:
+						error(0, "Variable symbol '{}' cannot be in the text section", symbol.name());
+						break;
+
+					case SectionType::Rodata: newAddress += rodataOffset; break;
+					case SectionType::Data: newAddress += dataOffset; break;
+					case SectionType::BSS: newAddress += bssOffset; break;
+					default:
+						error(0, "Variable symbol '{}' has an invalid section type", symbol.name());
+				}
+				symbol.setAddress(newAddress);
+			}
+		}
 	}
 }

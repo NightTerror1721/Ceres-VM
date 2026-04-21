@@ -119,7 +119,7 @@ namespace ceres::casm
 		if (keywordType.has_value())
 			return Token::makeKeyword(text, *keywordType, _source.line(), startColumn);
 
-		const auto dataType = checkDataType(text);
+		const auto dataType = DataType::fromString(text);
 		if (dataType.has_value())
 			return Token::makeDataType(text, *dataType, _source.line(), startColumn);
 
@@ -403,16 +403,6 @@ namespace ceres::casm
 		if (identifier == "let") return KeywordType::Let;
 		if (identifier == "const") return KeywordType::Constant;
 		if (identifier == "global") return KeywordType::Global;
-
-		return std::nullopt;
-	}
-
-	std::optional<DataType> Lexer::checkDataType(std::string_view identifier) noexcept
-	{
-		if (identifier == "u8") return DataType::U8;
-		if (identifier == "u16") return DataType::U16;
-		if (identifier == "u32") return DataType::U32;
-		if (identifier == "string") return DataType::String;
 
 		return std::nullopt;
 	}

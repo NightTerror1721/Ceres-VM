@@ -1,5 +1,5 @@
 #include "translation_unit.h"
-#include "vm/instructions.h"
+#include "instruction_info.h"
 
 namespace ceres::casm
 {
@@ -12,8 +12,12 @@ namespace ceres::casm
 
 		AssemblerErrorHandler& errorHandler = _translationUnit.errorHandler();
 		SymbolTable& symbolTable = _translationUnit.symbolTable();
+		std::vector<RelocatableStatement> ast;
 		std::vector<std::string> unresolvedSymbols;
 		const usize statementCount = statements.size();
+
+		ast.reserve(statementCount);
+
 		for (auto it = statements.begin(); it != statements.end(); ++it)
 		{
 			try
@@ -22,6 +26,7 @@ namespace ceres::casm
 				if (statement.isSection())
 				{
 					_currentSection = statement.asSection().section;
+					ast.push_back(RelocatableStatement::makeSection(statement.line(), statement.asSection()));
 				}
 				else if (statement.isLabel())
 				{
@@ -29,53 +34,65 @@ namespace ceres::casm
 						error(statement.line(), "Label statement must be preceded by a section statement");
 
 					const auto& label = statement.asLabel();
-					symbolTable.defineLabel(statement.line(), label.name, currentOffset(), label.level);
+					symbolTable.defineLabel(statement.line(), label.name, _currentSection.value(), currentOffset(), label.level);
+					ast.push_back(RelocatableStatement::makeLabel(statement.line(), currentOffset(), label));
 				}
 				else if (statement.isData())
 				{
-					auto& data = statement.asData();
+					const auto& data = statement.asData();
 					if (!_currentSection.has_value())
 					{
 						if (!data.isConstant)
 							error(statement.line(), "Data statement must be preceded by a section statement");
 					}
 					
-					u32 size = 0;
+					DataType dataType = DataType::Invalid;
+					std::optional<LiteralValue> literalValue = std::nullopt;
+					std::expected<u32, std::string_view> size = 0;
 					if (data.value.has_value())
 					{
 						if (data.dataType.has_value())
 						{
-							resolveLiteralValue(statement.line(), data.dataType.value(), data.value.value());
-							size = sizeOf(statement.line(), data.dataType.value(), data.value.value());
+							auto result = resolveLiteralValue(statement.line(), data.dataType.value(), data.value.value());
+							dataType = result.first;
+							literalValue = std::move(result.second);
+							size = sizeOf(statement.line(), dataType, literalValue.value());
 						}
 						else
 						{
-							resolveLiteralValue(statement.line(), data.value.value(), false);
-							size = sizeOf(statement.line(), data.value.value());
+							literalValue = resolveLiteralValue(statement.line(), data.value.value(), false);
+							dataType = literalValue.value().dataType();
+							size = sizeOf(statement.line(), literalValue.value());
 						}
 					}
 					else if (data.dataType.has_value())
 					{
-						resolveDataType(statement.line(), data.dataType.value());
-						size = sizeOf(statement.line(), data.dataType.value());
+						dataType = resolveDataType(statement.line(), data.dataType.value());
+						size = sizeOf(statement.line(), dataType);
 					}
 
-					if (size == 0)
-						error(statement.line(), "Data statement must have a non-zero size");
+					if (!dataType.isValid())
+						error(statement.line(), "Failed to determine data type of data statement");
+
+					if (literalValue.has_value() && !literalValue->matchDataType(dataType))
+						error(statement.line(), "Literal value does not match the specified data type");
+
+					if (!size.has_value() || size.value() == 0)
+						error(statement.line(), "Failed to determine size of data statement: " + std::string(size.error()));
 
 					if (data.isConstant)
 					{
-						if (!data.value.has_value())
+						if (!literalValue.has_value())
 							error(statement.line(), "Constant data statement must have an initial value");
 
 						if (_currentSection.has_value() && _currentSection.value() == SectionType::Rodata)
 						{
 							if (!data.dataType.has_value())
 								error(statement.line(), "Constant data statement in @rodata section must have a data type");
-							symbolTable.defineVariable(statement.line(), data.identifier, currentOffset(), false, true, data.dataType.value(), data.value.value());
+							symbolTable.defineVariable(statement.line(), data.identifier, _currentSection.value(), currentOffset(), false, true, dataType, literalValue.value());
 						}
 						else
-							symbolTable.defineConstant(statement.line(), data.identifier, false, data.value.value());
+							symbolTable.defineConstant(statement.line(), data.identifier, false, literalValue.value());
 					}
 					else
 					{
@@ -86,31 +103,28 @@ namespace ceres::casm
 						{
 							case SectionType::Text:
 								error(statement.line(), "Variable data statement cannot be in the @text section");
+
 							case SectionType::Rodata:
 								error(statement.line(), "Variable data statement cannot be in the @rodata section");
-							case SectionType::Data:
-								if (!data.dataType.has_value())
-									error(statement.line(), "Variable data statement must have a data type");
 
-								if (data.value.has_value())
-									symbolTable.defineVariable(statement.line(), data.identifier, currentOffset(), false, false, data.dataType.value(), data.value.value());
+							case SectionType::Data:
+								if (literalValue.has_value())
+									symbolTable.defineVariable(statement.line(), data.identifier, _currentSection.value(), currentOffset(), false, false, dataType, literalValue.value());
 								else
-									symbolTable.defineVariable(statement.line(), data.identifier, currentOffset(), false, false, data.dataType.value());
+									symbolTable.defineVariable(statement.line(), data.identifier, _currentSection.value(), currentOffset(), false, false, dataType);
 								break;
 
 							case SectionType::BSS:
-								if (!data.dataType.has_value())
-									error(statement.line(), "Variable data statement must have a data type");
-								if (data.value.has_value())
+								if (literalValue.has_value())
 									error(statement.line(), "Variable data statement in @bss section cannot have an initial value");
 
-								symbolTable.defineVariable(statement.line(), data.identifier, currentOffset(), false, false, data.dataType.value());
+								symbolTable.defineVariable(statement.line(), data.identifier, _currentSection.value(), currentOffset(), false, false, dataType);
 								break;
 						}
 					}
 
-					statement.setAddress(currentOffset());
-					currentOffset() += size;
+					ast.push_back(RelocatableStatement::makeData(statement.line(), size.value(), currentOffset(), ResolvedDataStatement{data.isConstant, data.identifier, dataType, literalValue}));
+					currentOffset() += size.value();
 				}
 				else if (statement.isInstruction())
 				{
@@ -121,8 +135,13 @@ namespace ceres::casm
 					for (auto& operand : instruction.operands)
 						symbolTable.tryResolveOperand(statement.line(), operand, unresolvedSymbols);
 
-					statement.setAddress(currentOffset());
-					currentOffset() += vm::Instruction::SizeInBytes;
+					ast.push_back(RelocatableStatement::makeInstruction(statement.line(), currentOffset(), instruction));
+
+					auto sizeOpt = InstructionInfo::findMaxSizeInBytes(instruction.mnemonic);
+					if (!sizeOpt.has_value() || sizeOpt.value() == 0)
+						error(statement.line(), "Failed to determine size of instruction statement");
+
+					currentOffset() += sizeOpt.value();
 				}
 				else
 				{
@@ -136,251 +155,113 @@ namespace ceres::casm
 			}
 		}
 
-		_translationUnit.setAST(std::move(statements));
+		_translationUnit.setAST(std::move(ast));
 		_translationUnit.setUnresolvedSymbols(std::move(unresolvedSymbols));
 	}
 
-	void TranslationUnitBuilder::resolveDataType(u32 line, DataTypeInfo& dataType) const
+	DataType TranslationUnitBuilder::resolveDataType(u32 line, const DataTypeReference& dataType) const
 	{
-		switch (dataType.category())
+		if (!dataType.isValid())
+			error(line, "Invalid data type");
+
+		if (!dataType.hasNumElementsIdentifier())
 		{
-			case DataTypeCategory::Scalar:
-				if (!isScalarDataType(dataType.type()))
-					error(line, "Invalid scalar data type");
-				return;
+			DataType resolvedDataType = dataType.isScalar()
+				? DataType::makeScalar(dataType.scalarCode())
+				: DataType::makeSizedArray(dataType.scalarCode(), dataType.numElementsIntegerValue());
 
-			case DataTypeCategory::UnsizedArray:
-				if (dataType.type() == DataType::String)
-					return; // String is a valid unsized array data type
-				if (!isScalarDataType(dataType.type()))
-					error(line, "Invalid unsized array data type");
-				if (dataType.hasArraySize())
-					error(line, "Unsized array data type should not have an array size");
-				return;
+			if (resolvedDataType.hasUnknownSize())
+				error(line, "Array data type without initial value must have a known size (either a specified size or an identifier for the size)");
 
-			case DataTypeCategory::SizedArray:
-				if (!isScalarDataType(dataType.type()))
-					error(line, "Invalid sized array data type");
-				if (!dataType.hasArraySize())
-					error(line, "Sized array data type should have an array size");
-				if (dataType.hasIdentifierArraySize())
-				{
-					const auto constValue = getConstantValue(line, dataType.identifierArraySize().name());
-					if (!constValue.has_value() || !constValue.value().get().isInteger())
-						error(line, "Invalid identifier array size for sized array data type");
-
-					u32 size = constValue.value().get().integerValue();
-					if (size == 0)
-						error(line, "Invalid identifier array size of 0 for sized array data type");
-
-					dataType.setArraySize(size);
-				}
-				return;
+			return resolvedDataType;
 		}
+
+		const auto constValue = getConstantValue(line, dataType.numElementsIdentifier().name());
+		if (!constValue.has_value())
+			error(line, "Invalid identifier for array size in data type");
+
+		const auto& value = constValue.value().get();
+		if (!value.isScalar() || !DataType::isIntegerScalarCode(value.scalarCode()))
+			error(line, "Identifier for array size in data type must be a constant integer");
+
+		u32 numElements = value.first().asRawValue();
+		if (numElements == 0)
+			error(line, "Array size in data type cannot be zero");
+
+		return DataType::makeSizedArray(dataType.scalarCode(), numElements);
 	}
 
-	void TranslationUnitBuilder::resolveLiteralValue(u32 line, LiteralValue& value, bool allowEmptyArrays) const
+	LiteralValue TranslationUnitBuilder::resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays) const
 	{
-		switch (value.type())
+		if (value.empty())
 		{
-			case LiteralValueType::Integer:
-			case LiteralValueType::Float:
-			case LiteralValueType::Char:
-			case LiteralValueType::Bool:
-			case LiteralValueType::String:
-				return; // No resolution needed for these types
+			if (!allowEmptyArrays)
+				error(line, "Empty array literal value is not allowed");
+			return LiteralValue::makeEmpty();
+		}
 
-			case LiteralValueType::Array:
-			{
-				auto& array = value.arrayValueMutable();
-				if (array.empty() && !allowEmptyArrays)
-					error(line, "Empty array literal value is not allowed");
-				for (auto& elem : array)
-					resolveLiteralValue(line, elem); // Recursively resolve each element
-				const auto& elementType = array.begin()->type();
-				for (const auto& elem : array)
-				{
-					if (elem.type() != elementType)
-						error(line, "Array literal value contains elements of different types");
-				}
-				return;
-			}
+		std::vector<LiteralScalar> resolvedElements;
+		resolvedElements.reserve(value.size());
 
-			case LiteralValueType::Identifier:
+		for (const auto& elem : value.elements())
+		{
+			if (elem.isIdentifier())
 			{
-				auto constantValue = getConstantValue(line, value.identifierValue().name());
+				auto constantValue = getConstantValue(line, elem.identifierValue().name());
 				if (!constantValue.has_value())
 					error(line, "Cannot resolve identifier literal value that is not a constant");
-				value.setValue(constantValue.value().get()); // Replace identifier with its constant value
-				return;
+				const auto& resolvedValue = constantValue.value().get();
+				if (!resolvedValue.isScalar())
+					error(line, "Identifier literal array element value must resolve to a scalar constant");
+				resolvedElements.push_back(resolvedValue.first());
+			}
+			else if (elem.isScalar())
+			{
+				resolvedElements.push_back(elem.scalarValue());
+			}
+			else
+			{
+				error(line, "Unknown literal value reference element type");
 			}
 		}
+
+		return LiteralValue::make(std::move(resolvedElements));
 	}
 
-	void TranslationUnitBuilder::resolveLiteralValue(u32 line, DataTypeInfo& expectedDataType, LiteralValue& value) const
+	std::pair<DataType, LiteralValue> TranslationUnitBuilder::resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const
 	{
-		resolveDataType(line, expectedDataType);
-		resolveLiteralValue(line, value, true);
-		if (!expectedDataType.matchLiteralValue(value, true))
+		DataType resolvedDataType = resolveDataType(line, expectedDataType);
+		LiteralValue resolvedValue = resolveLiteralValue(line, value, true);
+		if (!resolvedValue.matchDataType(resolvedDataType))
+			error(line, "Resolved literal value does not match the expected data type");
+
+		return { resolvedDataType, std::move(resolvedValue) };
+	}
+
+	std::expected<u32, std::string_view> TranslationUnitBuilder::sizeOf(u32 line, DataType dataType) const
+	{
+		auto size = dataType.sizeInBytes();
+		if (!size.has_value())
+			error(line, "Cannot determine the size of an invalid data type {}", dataType.toString());
+
+		return size.value();
+	}
+
+	std::expected<u32, std::string_view> TranslationUnitBuilder::sizeOf(u32 line, const LiteralValue& value) const
+	{
+		auto dataType = value.dataType();
+		if (!dataType.isValid())
+			error(line, "Cannot determine the size of an invalid literal value");
+
+		return sizeOf(line, dataType);
+	}
+
+	std::expected<u32, std::string_view> TranslationUnitBuilder::sizeOf(u32 line, DataType dataType, const LiteralValue& value) const
+	{
+		if (!value.matchDataType(dataType))
 			error(line, "Literal value does not match the expected data type");
-	}
 
-	u32 TranslationUnitBuilder::sizeOf(u32 line, const DataTypeInfo& dataType) const
-	{
-		u32 elementSize = 0;
-		switch (dataType.type())
-		{
-			case DataType::U8:
-			case DataType::I8:
-			case DataType::Char:
-			case DataType::Bool:
-			case DataType::String:
-				elementSize = 1;
-				break;
-
-			case DataType::U16:
-			case DataType::I16:
-				elementSize = 2;
-				break;
-
-			case DataType::U32:
-			case DataType::I32:
-				elementSize = 4;
-				break;
-		}
-
-		switch (dataType.category())
-		{
-			case DataTypeCategory::Scalar:
-				return elementSize;
-
-			case DataTypeCategory::UnsizedArray:
-				error(line, "Cannot determine the size of an unsized array data type");
-
-			case DataTypeCategory::SizedArray:
-				if (dataType.hasIntegerArraySize())
-					return elementSize * dataType.integerArraySize();
-				error(line, "Cannot determine the size of a sized array data type with an identifier array size");
-		}
-
-		std::unreachable();
-	}
-
-	u32 TranslationUnitBuilder::sizeOf(u32 line, const LiteralValue& value) const
-	{
-		switch (value.type())
-		{
-			case LiteralValueType::Integer:
-				return 4; // Assuming u32 for integer literals
-
-			case LiteralValueType::Float:
-				return 4; // Assuming f32 for float literals
-
-			case LiteralValueType::Char:
-				return 1; // Assuming char is 1 byte
-
-			case LiteralValueType::Bool:
-				return 1; // Assuming bool is 1 byte
-
-			case LiteralValueType::String:
-				return static_cast<u32>(value.stringValue().size() + 1); // +1 for null terminator
-
-			case LiteralValueType::Array:
-			{
-				const auto& array = value.arrayValue();
-				u32 totalSize = 0;
-				for (const auto& elem : array)
-					totalSize += sizeOf(line, elem);
-				return totalSize;
-			}
-
-			case LiteralValueType::Identifier:
-			{
-				auto constantValue = getConstantValue(line, value.identifierValue().name());
-				if (!constantValue.has_value())
-					error(line, "Cannot determine the size of an identifier literal value that is not a constant");
-				return sizeOf(line, constantValue.value().get());
-			}
-		}
-
-		std::unreachable();
-	}
-
-	u32 TranslationUnitBuilder::sizeOf(u32 line, const DataTypeInfo& dataType, const LiteralValue& value) const
-	{
-		if (!dataType.matchLiteralValue(value, true))
-			error(line, "Data type does not match the literal value");
-
-		u32 elementSize = 0;
-		switch (dataType.type())
-		{
-			case DataType::U8:
-			case DataType::I8:
-			case DataType::Char:
-			case DataType::Bool:
-			case DataType::String:
-				elementSize = 1;
-				break;
-
-			case DataType::U16:
-			case DataType::I16:
-				elementSize = 2;
-				break;
-
-			case DataType::U32:
-			case DataType::I32:
-				elementSize = 4;
-				break;
-		}
-
-		switch (dataType.category())
-		{
-			case DataTypeCategory::Scalar:
-				return elementSize;
-
-			case DataTypeCategory::UnsizedArray:
-			{
-				if (value.isString())
-				{
-					if (dataType.type() != DataType::String)
-						error(line, "Cannot determine the size of an unsized array data type with a string literal value that is not a string data type");
-					return static_cast<u32>(value.stringValue().size() + 1); // +1 for null terminator
-				}
-
-				if (!value.isArray())
-				{
-					error(line,
-						"Cannot determine the size of an unsized array data type with a non-array literal value or an array literal value with incompatible element types"
-					);
-				}
-
-				const auto& array = value.arrayValue();
-				if (array.empty())
-					error(line, "Cannot determine the size of an unsized array data type with an empty array literal value");
-
-				return elementSize * static_cast<u32>(array.size());
-			}
-
-			case DataTypeCategory::SizedArray:
-			{
-				if (dataType.type() == DataType::String)
-					error(line, "Cannot determine the size of a sized array data type with a string literal value");
-				if (!value.isArray())
-					error(line, "Cannot determine the size of a sized array data type with a non-array literal value");
-				if (!dataType.hasIntegerArraySize())
-					error(line, "Cannot determine the size of a sized array data type with an identifier array size");
-
-				const auto& array = value.arrayValue();
-				if (array.size() != dataType.integerArraySize())
-					error(line, "Cannot determine the size of a sized array data type with an array literal value of a different size");
-				if (dataType.integerArraySize() == 0)
-					error(line, "Cannot determine the size of a sized array data type with an array literal value of size 0");
-
-				return elementSize * dataType.integerArraySize();
-			}
-		}
-
-		std::unreachable();
+		return sizeOf(line, dataType);
 	}
 
 	std::optional<std::reference_wrapper<const LiteralValue>> TranslationUnitBuilder::getConstantValue(u32 line, std::string_view name) const noexcept

@@ -28,6 +28,9 @@ namespace ceres::casm
 
 		constexpr std::string_view name() const noexcept { return _name; }
 
+		constexpr bool empty() const noexcept { return _name.empty(); }
+		constexpr usize size() const noexcept { return _name.size(); }
+
 		inline usize hash() const noexcept { return std::hash<std::string_view>::_Do_hash(_name); }
 
 		forceinline constexpr bool isValid() const noexcept { return isValidIdentifierName(_name); }

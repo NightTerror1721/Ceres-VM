@@ -28,12 +28,12 @@ namespace ceres::vm
 		MUL = 0x1A, // [rd, rs, rt] - rd = rs * rt
 		MULI = 0x1B, // [rd, rs, imm16] - rd = rs * imm16
 		IMUL = 0x1C, // [rd, rs, rt] - rd = rs * rt (signed)
-		IMULI = 0x1D, // [rd, rs, imm16] - rd = rs * imm16 (signed)
+		IMULI = 0x1D, // [rd, rs, simm16] - rd = rs * imm16 (signed)
 		FMUL = 0x1E, // [fd, fs, ft] - fd = fs * ft (floating-point multiply)
 		DIV = 0x1F, // [rd, rs, rt] - rd = rs / rt
 		DIVI = 0x20, // [rd, rs, imm16] - rd = rs / imm16
 		IDIV = 0x21, // [rd, rs, rt] - rd = rs / rt (signed)
-		IDIVI = 0x22, // [rd, rs, imm16] - rd = rs / imm16 (signed)
+		IDIVI = 0x22, // [rd, rs, simm16] - rd = rs / imm16 (signed)
 		FDIV = 0x23, // [fd, fs, ft] - fd = fs / ft (floating-point divide)
 		MOD = 0x24, // [rd, rs, rt] - rd = rs % rt
 		MODI = 0x25, // [rd, rs, imm16] - rd = rs % imm16
@@ -58,26 +58,26 @@ namespace ceres::vm
 
 		// Memory Access //
 		MOV = 0x40, // [rd, rs] - rd = rs
-		MOVI = 0x41, // [rd, imm16] - rd = imm16
-		MOVIH = 0x42, // [rd, imm16] - rd = (imm16 << 16)
-		FMOV = 0x43, // [fd, fs] - fd = fs (floating-point move)
-		LDRB = 0x44, // [rd, rs, imm16] - rd = *(u8*)(rs + imm16)
-		ILDRB = 0x45, // [rd, rs, imm16] - rd = *(i8*)(rs + imm16)
-		LDRW = 0x46, // [rd, rs, imm16] - rd = *(u16*)(rs + imm16)
-		ILDRW = 0x47, // [rd, rs, imm16] - rd = *(i16*)(rs + imm16)
-		LDRD = 0x48, // [rd, rs, imm16] - rd = *(u32*)(rs + imm16)
+		FMOV = 0x41, // [fd, fs] - fd = fs (floating-point move)
+		LI = 0x42, // [rd, imm16] - rd = imm16
+		LUI = 0x43, // [rd, imm16] - rd = (imm16 << 16)
+		LDR = 0x48, // [rd, rs, imm16] - rd = *(u32*)(rs + imm16)
+		LDRB = 0x44, // [rd, rs, imm16] - rd = *(u8*)(rs + imm16) (load byte)
+		LDRH = 0x45, // [rd, rs, imm16] - rd = *(u16*)(rs + imm16) (load halfword)
+		LDRSB = 0x46, // [rd, rs, imm16] - rd = *(i8*)(rs + imm16) (load signed byte)
+		LDRSH = 0x47, // [rd, rs, imm16] - rd = *(i16*)(rs + imm16) (load signed halfword)
 		FLDR = 0x49, // [fd, rs, imm16] - fd = *(float*)(rs + imm16) (floating-point load)
-		LEA = 0x4A, // [rd, rs, imm16] - rd = rs + imm16 (load effective address)
+		STR = 0x4A, // [rs, rt, imm16] - *(u32*)(rs + imm16) = rt
 		STRB = 0x4B, // [rs, rt, imm16] - *(u8*)(rs + imm16) = rt
-		STRW = 0x4C, // [rs, rt, imm16] - *(u16*)(rs + imm16) = rt
-		STRD = 0x4D, // [rs, rt, imm16] - *(u32*)(rs + imm16) = rt
-		FSTR = 0x4E, // [rs, fd, imm16] - *(float*)(rs + imm16) = fd (floating-point store)
+		STRH = 0x4C, // [rs, rt, imm16] - *(u16*)(rs + imm16) = rt
+		FSTR = 0x4D, // [rs, fd, imm16] - *(float*)(rs + imm16) = fd (floating-point store)
+		LEA = 0x4E, // [rd, rs, imm16] - rd = rs + imm16 (load effective address)
 
 		// Control Flow //
 		JP = 0x50, // [simm24] - PC = (PC + simm24): Jump to the instruction at the given relative address.
 		JPR = 0x51, // [rs] - PC = rs: Jump to the instruction at the address contained in the given register.
 		CMP = 0x52, // [rs, rt] - Compare the values in rs and rt, setting the zero, sign and carry flags accordingly.
-		CMPI = 0x53, // [rs, imm16] - Compare the value in rs with the immediate value imm16, setting the zero, sign and carry flags accordingly.
+		CMPI = 0x53, // [rs, simm16] - Compare the value in rs with the immediate value imm16, setting the zero, sign and carry flags accordingly.
 		FCMP = 0x54, // [fs, ft] - Compare the values in fs and ft, setting the zero, sign and carry flags accordingly (floating-point compare).
 		JZ = 0x55, // [simm24] - PC = (PC + simm24): Jump to the instruction at the given relative address if the zero flag is set.
 		JZR = 0x56, // [rs] - PC = rs: Jump to the instruction at the address contained in the given register if the zero flag is set.
@@ -98,8 +98,8 @@ namespace ceres::vm
 		// Stack Operations //
 		PUSH = 0x70, // [rs] - Push the value of the given register onto the stack.
 		POP = 0x71, // [rd] - Pop the value from the stack into the given register.
-		PUSHF = 0x72, // [rs] - Push the value of the given register onto the stack frame.
-		POPF = 0x73, // [rd] - Pop the value from the stack frame into the given register.
+		PUSHF = 0x72, // [] - Push the value of the given register onto the stack frame.
+		POPF = 0x73, // [] - Pop the value from the stack frame into the given register.
 		FPUSH = 0x74, // [fs] - Push the value of the given floating-point register onto the stack.
 		FPOP = 0x75, // [fd] - Pop the value from the stack into the given floating-point register.
 

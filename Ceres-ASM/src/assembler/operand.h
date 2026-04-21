@@ -2,6 +2,7 @@
 
 #include "common_defs.h"
 #include "literal_value.h"
+#include "instruction_info.h"
 #include <variant>
 #include <string>
 #include <expected>
@@ -42,10 +43,19 @@ namespace ceres::casm
 		constexpr const IdentifierOperand& identifierOffset() const noexcept { return std::get<IdentifierOperand>(offset); }
 	};
 
+	struct VariableOperand
+	{
+		DataTypeScalarCode scalarCode; // Scalar code for the variable (e.g., U8, S8, U16, S16, U32, S32, F32)
+		vm::Address address; // Address of the variable in memory
+	};
+
 	class Operand
 	{
+	public:
+		using OperandVariant = std::variant<std::monostate, RegisterOperand, FloatingPointRegisterOperand, ImmediateOperand, IdentifierOperand, MemoryOperand, VariableOperand>;
+
 	private:
-		std::variant<std::monostate, RegisterOperand, FloatingPointRegisterOperand, ImmediateOperand, IdentifierOperand, MemoryOperand> _value;
+		OperandVariant _value;
 
 	public:
 		Operand() noexcept = default;
@@ -56,10 +66,10 @@ namespace ceres::casm
 		Operand& operator=(const Operand&) noexcept = default;
 		Operand& operator=(Operand&&) noexcept = default;
 
-		bool operator==(const Operand& other) const noexcept = default;
+		bool operator==(const Operand&) const noexcept = default;
 
 	private:
-		 Operand(std::variant<std::monostate, RegisterOperand, FloatingPointRegisterOperand, ImmediateOperand, IdentifierOperand, MemoryOperand>&& value) noexcept
+		 Operand(OperandVariant&& value) noexcept
 			: _value(std::move(value))
 		 {}
 
@@ -70,12 +80,45 @@ namespace ceres::casm
 		constexpr bool isImmediate() const noexcept { return std::holds_alternative<ImmediateOperand>(_value); }
 		constexpr bool isIdentifier() const noexcept { return std::holds_alternative<IdentifierOperand>(_value); }
 		constexpr bool isMemory() const noexcept { return std::holds_alternative<MemoryOperand>(_value); }
+		constexpr bool isVariable() const noexcept { return std::holds_alternative<VariableOperand>(_value); }
 
 		constexpr const RegisterOperand& asRegister() const noexcept { return std::get<RegisterOperand>(_value); }
 		constexpr const FloatingPointRegisterOperand& asFloatingPointRegister() const noexcept { return std::get<FloatingPointRegisterOperand>(_value); }
 		constexpr const ImmediateOperand& asImmediate() const noexcept { return std::get<ImmediateOperand>(_value); }
 		constexpr const IdentifierOperand& asIdentifier() const noexcept { return std::get<IdentifierOperand>(_value); }
 		constexpr const MemoryOperand& asMemory() const noexcept { return std::get<MemoryOperand>(_value); }
+		constexpr const VariableOperand& asVariable() const noexcept { return std::get<VariableOperand>(_value); }
+
+		constexpr OperandType type() const noexcept
+		{
+			if (isRegister())
+				return OperandType::IntegralRegister;
+			else if (isFloatingPointRegister())
+				return OperandType::FloatingPointRegister;
+			else if (isImmediate())
+				return OperandType::Immediate;
+			else if (isIdentifier())
+				return OperandType::Invalid; // Identifiers are not directly valid operand types; they need to be resolved to a value
+			else if (isMemory())
+				return OperandType::RegisterPlusAddress;
+			else if (isVariable())
+			{
+				const auto& var = asVariable();
+				switch (var.scalarCode)
+				{
+					case DataTypeScalarCode::U8: return OperandType::VariableU8;
+					case DataTypeScalarCode::I8: return OperandType::VariableS8;
+					case DataTypeScalarCode::U16: return OperandType::VariableU16;
+					case DataTypeScalarCode::I16: return OperandType::VariableS16;
+					case DataTypeScalarCode::U32: return OperandType::VariableU32;
+					case DataTypeScalarCode::I32: return OperandType::VariableS32;
+					case DataTypeScalarCode::F32: return OperandType::VariableF32;
+					default: return OperandType::Invalid;
+				}
+			}
+			else
+				return OperandType::Invalid;
+		}
 
 	public:
 		constexpr explicit operator bool() const noexcept { return isValid(); }
@@ -101,6 +144,10 @@ namespace ceres::casm
 		static Operand makeMemory(u8 baseRegIndex, Identifier&& identifierOffset) noexcept
 		{
 			return Operand{ MemoryOperand{ baseRegIndex, IdentifierOperand{ std::move(identifierOffset) } } };
+		}
+		static Operand makeVariable(DataTypeScalarCode scalarCode, vm::Address address) noexcept
+		{
+			return Operand{ VariableOperand{ scalarCode, address } };
 		}
 
 	public:

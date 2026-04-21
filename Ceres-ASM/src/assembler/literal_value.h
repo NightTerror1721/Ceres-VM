@@ -1,255 +1,362 @@
 #pragma once
 
-#include "common_defs.h"
-#include <variant>
+#include "literal_scalar.h"
 #include <vector>
+#include <compare>
 #include <span>
-#include <memory>
 
 namespace ceres::casm
 {
-	enum class LiteralValueType
-	{
-		Integer,
-		Float,
-		Char,
-		Bool,
-		String,
-		Array,
-		Identifier
-	};
-
 	class LiteralValue
 	{
 	public:
-		using LiteralArrayTypePtr = std::unique_ptr<std::vector<LiteralValue>>;
-		using LiteralStringTypePtr = std::unique_ptr<LiteralStringType>;
+		using iterator = std::vector<LiteralScalar>::iterator;
+		using const_iterator = std::vector<LiteralScalar>::const_iterator;
 
 	private:
-		LiteralValueType _type;
-		std::variant<
-			LiteralIntegerType,
-			LiteralFloatType,
-			LiteralCharType,
-			LiteralBoolType,
-			LiteralStringTypePtr,
-			LiteralArrayTypePtr,
-			Identifier
-		> _value;
+		std::vector<LiteralScalar> _elements = {};
 
 	public:
-		LiteralValue() noexcept : _type(LiteralValueType::Integer), _value(LiteralIntegerType{ 0 }) {}
-		LiteralValue(const LiteralValue& other) noexcept : _type(other._type), _value() { _copyFrom<true>(other); }
-		LiteralValue(LiteralValue&&) noexcept = default;
-		~LiteralValue() noexcept = default;
+		constexpr LiteralValue() = default;
+		constexpr LiteralValue(const LiteralValue&) noexcept = default;
+		constexpr LiteralValue(LiteralValue&&) noexcept = default;
+		constexpr ~LiteralValue() noexcept = default;
 
-		LiteralValue& operator=(const LiteralValue& other) noexcept { _copyFrom<false>(other); return *this; }
-		LiteralValue& operator=(LiteralValue&&) noexcept = default;
+		constexpr LiteralValue& operator=(const LiteralValue&) noexcept = default;
+		constexpr LiteralValue& operator=(LiteralValue&&) noexcept = default;
 
-		bool operator==(const LiteralValue& other) const noexcept
-		{
-			return _type == other._type && _value == other._value;
-		}
+		constexpr bool operator==(const LiteralValue&) const noexcept = default;
 
-	public:
-		explicit LiteralValue(LiteralIntegerType value) noexcept : _type(LiteralValueType::Integer), _value(value) {}
-		explicit LiteralValue(LiteralFloatType value) noexcept : _type(LiteralValueType::Float), _value(value) {}
-		explicit LiteralValue(LiteralCharType value) noexcept : _type(LiteralValueType::Char), _value(value) {}
-		explicit LiteralValue(LiteralBoolType value) noexcept : _type(LiteralValueType::Bool), _value(value) {}
-		explicit LiteralValue(std::string_view value) noexcept : _type(LiteralValueType::String), _value(std::make_unique<LiteralStringType>(value)) {}
-		explicit LiteralValue(const LiteralStringType& value) noexcept : _type(LiteralValueType::String), _value(std::make_unique<LiteralStringType>(value)) {}
-		explicit LiteralValue(LiteralStringType&& value) noexcept : _type(LiteralValueType::String), _value(std::make_unique<LiteralStringType>(std::move(value))) {}
-		explicit LiteralValue(std::vector<LiteralValue>&& value) noexcept :
-			_type(LiteralValueType::Array), _value(std::make_unique<std::vector<LiteralValue>>(std::move(value)))
+	private:
+		constexpr explicit LiteralValue(LiteralScalar value) noexcept :
+			_elements{ value }
 		{}
-		explicit LiteralValue(const Identifier& value) noexcept : _type(LiteralValueType::Identifier), _value(value) {}
-		explicit LiteralValue(Identifier&& value) noexcept : _type(LiteralValueType::Identifier), _value(std::move(value)) {}
+		constexpr explicit LiteralValue(std::vector<LiteralScalar>&& elements) noexcept :
+			_elements(std::move(elements))
+		{}
 
-		constexpr LiteralValueType type() const noexcept { return _type; }
-		constexpr bool isInteger() const noexcept { return _type == LiteralValueType::Integer; }
-		constexpr bool isFloat() const noexcept { return _type == LiteralValueType::Float; }
-		constexpr bool isChar() const noexcept { return _type == LiteralValueType::Char; }
-		constexpr bool isBool() const noexcept { return _type == LiteralValueType::Bool; }
-		constexpr bool isString() const noexcept { return _type == LiteralValueType::String; }
-		constexpr bool isArray() const noexcept { return _type == LiteralValueType::Array; }
-		constexpr bool isIdentifier() const noexcept { return _type == LiteralValueType::Identifier; }
-
-		constexpr const auto& value() const noexcept { return _value; }
-		constexpr LiteralIntegerType integerValue() const noexcept { return std::get<LiteralIntegerType>(_value); }
-		constexpr LiteralFloatType floatValue() const noexcept { return std::get<LiteralFloatType>(_value); }
-		constexpr LiteralCharType charValue() const noexcept { return std::get<LiteralCharType>(_value); }
-		constexpr LiteralBoolType boolValue() const noexcept { return std::get<LiteralBoolType>(_value); }
-		constexpr const LiteralStringType& stringValue() const noexcept { return *std::get<LiteralStringTypePtr>(_value); }
-		constexpr std::span<const LiteralValue> arrayValue() const noexcept
+	public:
+		constexpr LiteralScalar first() const noexcept
 		{
-			const auto& arrayPtr = std::get<LiteralArrayTypePtr>(_value);
-			return std::span<const LiteralValue>(arrayPtr->begin(), arrayPtr->end());
+			if (_elements.empty())
+				return LiteralScalar(); // Return a default LiteralScalar if the array is empty
+			return _elements.front(); // Return the first element
 		}
-		constexpr const Identifier& identifierValue() const noexcept { return std::get<Identifier>(_value); }
+		constexpr std::span<const LiteralScalar> elements() const noexcept { return _elements; }
 
-		constexpr std::vector<LiteralValue>& arrayValueMutable() noexcept { return *std::get<LiteralArrayTypePtr>(_value); }
-
-		constexpr void setValue(const LiteralValue& value) noexcept { *this = value; }
-
-		constexpr bool isValid() const noexcept
+		constexpr bool areAllElementsSameType() const noexcept
 		{
-			switch (_type)
+			if (_elements.empty())
+				return true; // An empty array is considered to have all elements of the same type
+
+			auto firstType = _elements.front().scalarCode();
+			for (const auto& element : _elements)
 			{
-				case LiteralValueType::Integer:
-				case LiteralValueType::Float:
-				case LiteralValueType::Char:
-				case LiteralValueType::Bool:
-					return true;
-				case LiteralValueType::String:
-					return std::get<LiteralStringTypePtr>(_value) != nullptr;
-				case LiteralValueType::Array:
-					return std::get<LiteralArrayTypePtr>(_value) != nullptr;
-				case LiteralValueType::Identifier:
-					return std::get<Identifier>(_value).isValid();
-				default:
-					return false;
+				if (element.scalarCode() != firstType)
+					return false; // Found an element with a different type
 			}
+			return true; // All elements have the same type
 		}
 
-		constexpr bool isValidInteger(DataType expectedType) const noexcept
+		constexpr bool allElementsMatchDataTypeScalarCode(DataTypeScalarCode expectedType) const noexcept
 		{
-			if (!isInteger())
-				return false;
-
-			switch (expectedType)
+			for (const auto& element : _elements)
 			{
-				case DataType::U8:
-					return integerValue() <= std::numeric_limits<u8>::max();
-				case DataType::U16:
-					return integerValue() <= std::numeric_limits<u16>::max();
-				case DataType::U32:
-					return true; // All u32 values are valid for U32
-				case DataType::I8:
-					return integerValue() <= static_cast<LiteralIntegerType>(std::numeric_limits<i8>::max()) && integerValue() >= static_cast<LiteralIntegerType>(std::numeric_limits<i8>::min());
-				case DataType::I16:
-					return integerValue() <= static_cast<LiteralIntegerType>(std::numeric_limits<i16>::max()) && integerValue() >= static_cast<LiteralIntegerType>(std::numeric_limits<i16>::min());
-				case DataType::I32:
-					return integerValue() <= static_cast<LiteralIntegerType>(std::numeric_limits<i32>::max()) && integerValue() >= static_cast<LiteralIntegerType>(std::numeric_limits<i32>::min());
-				case DataType::Char:
-					return static_cast<u8>(charValue()) <= std::numeric_limits<u8>::max(); // Char is an alias for u8
-				case DataType::Bool:
-					return static_cast<u8>(boolValue()) <= 1; // Bool is an alias for u8, where 0 represents false and 1 represents true
-				default:
-					return false; // Not a valid integer data type
+				if (element.scalarCode() != expectedType)
+					return false; // Found an element with a different type
 			}
+			return true; // All elements match the expected type
 		}
 
-		constexpr bool checkArrayElementTypes(DataType dataType, bool permitIdentifiers, std::optional<u32> expectedSize = std::nullopt) const noexcept
+		constexpr DataTypeScalarCode scalarCode() const noexcept
 		{
-			if (!isArray())
-				return false;
-
-			const auto& arrayElements = arrayValue();
-			if (expectedSize.has_value() && arrayElements.size() != expectedSize.value())
-				return false; // Array size does not match the expected size
-
-			for (const auto& element : arrayElements)
-			{
-				if (element.isIdentifier())
-				{
-					if (permitIdentifiers)
-						continue; // Identifiers are assumed to be valid for now, actual validity will be checked during semantic analysis
-					else
-						return false; // Identifiers are not permitted
-				}
-
-				switch (dataType)
-				{
-					case DataType::U8:
-					case DataType::U16:
-					case DataType::U32:
-					case DataType::I8:
-					case DataType::I16:
-					case DataType::I32:
-						if (!element.isInteger() || !element.isValidInteger(dataType))
-							return false;
-						break;
-
-					case DataType::F32:
-						if (!element.isFloat())
-							return false;
-						break;
-
-					case DataType::Char:
-						if (!element.isChar())
-							return false;
-						break;
-
-					case DataType::Bool:
-						if (!element.isBool())
-							return false;
-						break;
-
-					default:
-						return false; // Unsupported data type for array elements
-				}
-			}
-			return true;
+			if (_elements.empty())
+				return DataTypeScalarCode::Invalid; // An empty array has no valid element type
+			return _elements.front().scalarCode(); // All elements must have the same scalar type
 		}
 
-	private:
-		template <bool IsConstructor>
-		void _copyFrom(const LiteralValue& other) noexcept
+		constexpr DataType dataType() const noexcept
 		{
-			if constexpr (IsConstructor)
-			{
-				_type = other._type;
-				switch (_type)
-				{
-					case LiteralValueType::Integer:
-						_value = other.integerValue();
-						break;
+			if (_elements.empty() || !areAllElementsSameType())
+				return DataType::Invalid; // Invalid data type if the array is empty or elements have different types
 
-					case LiteralValueType::Float:
-						_value = other.floatValue();
-						break;
+			u32 arraySize = size();
+			if (arraySize == 1)
+				return DataType::makeScalar(scalarCode()); // Return the scalar type if there's only one element
+			return DataType::makeSizedArray(scalarCode(), arraySize); // Create a DataType for the array with the scalar type and size
+		}
 
-					case LiteralValueType::Char:
-						_value = other.charValue();
-						break;
+		constexpr bool hasUnknownSize() const noexcept { return _elements.empty(); }
+		constexpr bool isScalar() const noexcept { return size() == 1; }
+		constexpr bool empty() const noexcept { return _elements.empty(); }
+		constexpr u32 size() const noexcept { return static_cast<u32>(_elements.size()); }
 
-					case LiteralValueType::Bool:
-						_value = other.boolValue();
-						break;
+		constexpr bool matchDataType(DataType expectedType) const noexcept
+		{
+			if (!allElementsMatchDataTypeScalarCode(expectedType.scalarCode()))
+				return false; // Element types do not match the expected scalar type
 
-					case LiteralValueType::String:
-						_value = std::make_unique<LiteralStringType>(other.stringValue());
-						break;
+			if (expectedType.hasUnknownSize() && !hasUnknownSize())
+				return false; // Expected an unsized array, but this array has a known size
 
-					case LiteralValueType::Array:
-						_value = std::make_unique<std::vector<LiteralValue>>(other.arrayValue().begin(), other.arrayValue().end());
-						break;
+			if (!expectedType.hasUnknownSize() && size() != expectedType.numElements())
+				return false; // Expected a sized array, but the sizes do not match
 
-					case LiteralValueType::Identifier:
-						_value = other.identifierValue();
-						break;
-				}
-			}
-			else
-			{
-				if (this != &other)
-				{
-					this->~LiteralValue(); // Destroy current value
-					new (this) LiteralValue(other); // Placement new to copy construct
-				}
-			}
+			return true; // The array matches the expected data type
 		}
 
 	public:
-		static LiteralValue makeInteger(LiteralIntegerType value) noexcept { return LiteralValue(value); }
-		static LiteralValue makeFloat(LiteralFloatType value) noexcept { return LiteralValue(value); }
-		static LiteralValue makeChar(LiteralCharType value) noexcept { return LiteralValue(value); }
-		static LiteralValue makeBool(LiteralBoolType value) noexcept { return LiteralValue(value); }
-		static LiteralValue makeString(std::string_view value) noexcept { return LiteralValue(value); }
-		static LiteralValue makeString(const LiteralStringType& value) noexcept { return LiteralValue(value); }
-		static LiteralValue makeString(LiteralStringType&& value) noexcept { return LiteralValue(std::move(value)); }
-		static LiteralValue makeArray(std::vector<LiteralValue>&& value) noexcept { return LiteralValue(std::move(value)); }
-		static LiteralValue makeIdentifier(const Identifier& value) noexcept { return LiteralValue(value); }
-		static LiteralValue makeIdentifier(Identifier&& value) noexcept { return LiteralValue(std::move(value)); }
+		constexpr iterator begin() noexcept { return _elements.begin(); }
+		constexpr const_iterator begin() const noexcept { return _elements.begin(); }
+		constexpr const_iterator cbegin() const noexcept { return _elements.cbegin(); }
+
+		constexpr iterator end() noexcept { return _elements.end(); }
+		constexpr const_iterator end() const noexcept { return _elements.end(); }
+		constexpr const_iterator cend() const noexcept { return _elements.cend(); }
+
+	public:
+		static constexpr LiteralValue make(u8 value) noexcept { return LiteralValue(LiteralScalar::makeU8(value)); }
+		static constexpr LiteralValue make(u16 value) noexcept { return LiteralValue(LiteralScalar::makeU16(value)); }
+		static constexpr LiteralValue make(u32 value) noexcept { return LiteralValue(LiteralScalar::makeU32(value)); }
+		static constexpr LiteralValue make(i8 value) noexcept { return LiteralValue(LiteralScalar::makeI8(value)); }
+		static constexpr LiteralValue make(i16 value) noexcept { return LiteralValue(LiteralScalar::makeI16(value)); }
+		static constexpr LiteralValue make(i32 value) noexcept { return LiteralValue(LiteralScalar::makeI32(value)); }
+		static constexpr LiteralValue make(f32 value) noexcept { return LiteralValue(LiteralScalar::makeF32(value)); }
+		static constexpr LiteralValue make(char value) noexcept { return LiteralValue(LiteralScalar::makeFromChar(value)); }
+		static constexpr LiteralValue make(bool value) noexcept { return LiteralValue(LiteralScalar::makeFromBool(value)); }
+
+		static constexpr LiteralValue make(std::vector<LiteralScalar>&& elements) noexcept
+		{
+			return LiteralValue(std::move(elements));
+		}
+
+		static constexpr LiteralValue make(std::span<const LiteralScalar> elements) noexcept
+		{
+			return LiteralValue(std::vector<LiteralScalar>(elements.begin(), elements.end()));
+		}
+
+		static constexpr LiteralValue make(std::string_view str) noexcept
+		{
+			std::vector<LiteralScalar> elements;
+			elements.reserve(str.size() + 1);
+			for (char c : str)
+				elements.emplace_back(LiteralScalar::makeFromChar(c));
+			elements.emplace_back(LiteralScalar::makeFromChar('\0')); // Null terminator
+			return LiteralValue(std::move(elements));
+		}
+
+		static constexpr LiteralValue makeEmpty() noexcept
+		{
+			return LiteralValue();
+
+		}
+	};
+
+	class LiteralValueReferenceElement
+	{
+	private:
+		std::variant<LiteralScalar, Identifier> _value;
+
+	public:
+		constexpr LiteralValueReferenceElement() noexcept = default;
+		constexpr LiteralValueReferenceElement(const LiteralValueReferenceElement&) noexcept = default;
+		constexpr LiteralValueReferenceElement(LiteralValueReferenceElement&&) noexcept = default;
+		constexpr ~LiteralValueReferenceElement() noexcept = default;
+
+		constexpr LiteralValueReferenceElement& operator=(const LiteralValueReferenceElement&) noexcept = default;
+		constexpr LiteralValueReferenceElement& operator=(LiteralValueReferenceElement&&) noexcept = default;
+
+		constexpr bool operator==(const LiteralValueReferenceElement&) const noexcept = default;
+
+	public:
+		constexpr LiteralValueReferenceElement(LiteralScalar scalar) noexcept : _value(scalar) {}
+		constexpr LiteralValueReferenceElement(const Identifier& identifier) noexcept : _value(identifier) {}
+
+		constexpr bool isScalar() const noexcept { return std::holds_alternative<LiteralScalar>(_value); }
+		constexpr bool isIdentifier() const noexcept { return std::holds_alternative<Identifier>(_value); }
+
+		constexpr const LiteralScalar& scalarValue() const noexcept { return std::get<LiteralScalar>(_value); }
+		constexpr const Identifier& identifierValue() const noexcept { return std::get<Identifier>(_value); }
+	};
+
+	class LiteralValueReference
+	{
+	public:
+		using ElementType = LiteralValueReferenceElement;
+		using iterator = std::vector<ElementType>::iterator;
+		using const_iterator = std::vector<ElementType>::const_iterator;
+
+	private:
+		std::vector<ElementType> _elements = {};
+
+	public:
+		constexpr LiteralValueReference() noexcept = default;
+		constexpr LiteralValueReference(const LiteralValueReference&) noexcept = default;
+		constexpr LiteralValueReference(LiteralValueReference&&) noexcept = default;
+		constexpr ~LiteralValueReference() noexcept = default;
+
+		constexpr LiteralValueReference& operator=(const LiteralValueReference&) noexcept = default;
+		constexpr LiteralValueReference& operator=(LiteralValueReference&&) noexcept = default;
+
+		constexpr bool operator==(const LiteralValueReference&) const noexcept = default;
+
+	private:
+		constexpr explicit LiteralValueReference(LiteralScalar value) noexcept :
+			_elements{ value }
+		{}
+		constexpr explicit LiteralValueReference(const Identifier& value) noexcept :
+			_elements{ value }
+		{}
+		constexpr explicit LiteralValueReference(std::vector<ElementType>&& elements) noexcept :
+			_elements(std::move(elements))
+		{}
+
+	public:
+		constexpr LiteralValueReference(const LiteralValue& literalValue) noexcept
+		{
+			_elements.reserve(literalValue.size());
+			for (const auto& scalar : literalValue.elements())
+				_elements.emplace_back(scalar);
+		}
+
+		constexpr ElementType first() const noexcept
+		{
+			if (_elements.empty())
+				return ElementType(); // Return a default ElementType if the array is empty
+			return _elements.front(); // Return the first element
+		}
+		constexpr std::span<const ElementType> elements() const noexcept { return _elements; }
+
+		constexpr bool areAllElementsSameType() const noexcept
+		{
+			if (_elements.empty())
+				return true; // An empty array is considered to have all elements of the same type
+
+			DataTypeScalarCode firstType = DataTypeScalarCode::Invalid;
+			for (const auto& element : _elements)
+			{
+				if (element.isScalar())
+				{
+					if (firstType == DataTypeScalarCode::Invalid)
+						firstType = element.scalarValue().scalarCode();
+					else if (element.scalarValue().scalarCode() != firstType)
+						return false; // Found an element with a different type
+				}
+			}
+			return true; // All elements have the same type
+		}
+
+		constexpr bool allElementsMatchDataTypeScalarCode(DataTypeScalarCode expectedType) const noexcept
+		{
+			for (const auto& element : _elements)
+			{
+				if (element.isScalar() && element.scalarValue().scalarCode() != expectedType)
+					return false; // Found an element with a different type
+			}
+			return true; // All elements match the expected type
+		}
+
+		constexpr DataTypeScalarCode scalarCode() const noexcept
+		{
+			if (_elements.empty())
+				return DataTypeScalarCode::Invalid; // An empty array has no valid element type
+
+			for (const auto& element : _elements)
+			{
+				if (element.isScalar())
+					return element.scalarValue().scalarCode(); // Return the scalar type of the first scalar element
+			}
+			return DataTypeScalarCode::Invalid; // No scalar elements found
+		}
+
+		constexpr DataType dataType() const noexcept
+		{
+			if (_elements.empty() || !areAllElementsSameType())
+				return DataType::Invalid; // Invalid data type if the array is empty or elements have different types
+
+			u32 arraySize = size();
+			if (arraySize == 1)
+				return DataType::makeScalar(scalarCode()); // Return the scalar type if there's only one element
+			return DataType::makeSizedArray(scalarCode(), arraySize); // Create a DataType for the array with the scalar type and size
+		}
+
+		constexpr bool hasUnknownSize() const noexcept { return _elements.empty(); }
+		constexpr bool empty() const noexcept { return _elements.empty(); }
+		constexpr u32 size() const noexcept { return static_cast<u32>(_elements.size()); }
+
+		constexpr bool matchDataType(DataType expectedType) const noexcept
+		{
+			if (!allElementsMatchDataTypeScalarCode(expectedType.scalarCode()))
+				return false; // Element types do not match the expected scalar type
+
+			if (expectedType.hasUnknownSize() && !hasUnknownSize())
+				return false; // Expected an unsized array, but this array has a known size
+
+			if (!expectedType.hasUnknownSize() && size() != expectedType.numElements())
+				return false; // Expected a sized array, but the sizes do not match
+
+			return true; // The array matches the expected data type
+		}
+
+		constexpr bool matchDataType(DataTypeReference expectedType) const noexcept
+		{
+			if (!allElementsMatchDataTypeScalarCode(expectedType.scalarCode()))
+				return false; // Element types do not match the expected scalar type
+
+			if (expectedType.hasUnknownSize() && !hasUnknownSize())
+				return false; // Expected an unsized array, but this array has a known size
+
+			if (!expectedType.hasUnknownSize() && !expectedType.hasNumElementsIdentifier() && size() != expectedType.numElementsIntegerValue())
+				return false; // Expected a sized array, but the sizes do not match
+
+			return true; // The array matches the expected data type
+		}
+
+	public:
+		constexpr iterator begin() noexcept { return _elements.begin(); }
+		constexpr const_iterator begin() const noexcept { return _elements.begin(); }
+		constexpr const_iterator cbegin() const noexcept { return _elements.cbegin(); }
+
+		constexpr iterator end() noexcept { return _elements.end(); }
+		constexpr const_iterator end() const noexcept { return _elements.end(); }
+		constexpr const_iterator cend() const noexcept { return _elements.cend(); }
+
+	public:
+		static constexpr LiteralValueReference make(const Identifier& identifier) noexcept { return LiteralValueReference(identifier); }
+		static constexpr LiteralValueReference make(u8 value) noexcept { return LiteralValueReference(LiteralScalar::makeU8(value)); }
+		static constexpr LiteralValueReference make(u16 value) noexcept { return LiteralValueReference(LiteralScalar::makeU16(value)); }
+		static constexpr LiteralValueReference make(u32 value) noexcept { return LiteralValueReference(LiteralScalar::makeU32(value)); }
+		static constexpr LiteralValueReference make(i8 value) noexcept { return LiteralValueReference(LiteralScalar::makeI8(value)); }
+		static constexpr LiteralValueReference make(i16 value) noexcept { return LiteralValueReference(LiteralScalar::makeI16(value)); }
+		static constexpr LiteralValueReference make(i32 value) noexcept { return LiteralValueReference(LiteralScalar::makeI32(value)); }
+		static constexpr LiteralValueReference make(f32 value) noexcept { return LiteralValueReference(LiteralScalar::makeF32(value)); }
+		static constexpr LiteralValueReference make(char value) noexcept { return LiteralValueReference(LiteralScalar::makeFromChar(value)); }
+		static constexpr LiteralValueReference make(bool value) noexcept { return LiteralValueReference(LiteralScalar::makeFromBool(value)); }
+
+		static constexpr LiteralValueReference make(std::vector<ElementType>&& elements) noexcept
+		{
+			return LiteralValueReference(std::move(elements));
+		}
+
+		static constexpr LiteralValueReference make(std::span<const ElementType> elements) noexcept
+		{
+			return LiteralValueReference(std::vector<ElementType>(elements.begin(), elements.end()));
+		}
+
+		static constexpr LiteralValueReference make(std::string_view str) noexcept
+		{
+			std::vector<ElementType> elements;
+			elements.reserve(str.size() + 1);
+			for (char c : str)
+				elements.emplace_back(LiteralScalar::makeFromChar(c));
+			elements.emplace_back(LiteralScalar::makeFromChar('\0')); // Null terminator
+			return LiteralValueReference(std::move(elements));
+		}
+
+		static constexpr LiteralValueReference makeEmpty() noexcept
+		{
+			return LiteralValueReference();
+
+		}
 	};
 }

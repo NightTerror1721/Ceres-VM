@@ -63,6 +63,18 @@
     <ClCompile Include="src\assembler\translation_unit.cpp">
       <Filter>Archivos de origen\assembler</Filter>
     </ClCompile>
+    <ClCompile Include="src\assembler\linker.cpp">
+      <Filter>Archivos de origen\assembler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\assembler\binary_emitter.cpp">
+      <Filter>Archivos de origen\assembler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\assembler\instruction_info.cpp">
+      <Filter>Archivos de origen\assembler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\assembler\assembler.cpp">
+      <Filter>Archivos de origen\assembler</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\common\types.h">
@@ -143,9 +155,6 @@
     <ClInclude Include="src\assembler\literal_value.h">
       <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>
-    <ClInclude Include="src\assembler\datatype_info.h">
-      <Filter>Archivos de encabezado\assembler</Filter>
-    </ClInclude>
     <ClInclude Include="src\assembler\mnemonic.h">
       <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>
@@ -159,6 +168,27 @@
       <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>
     <ClInclude Include="src\assembler\size.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\linker.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\binary_emitter.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\data_type.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\literal_scalar.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\relocatable_statement.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\instruction_info.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\assembler.h">
       <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>
   </ItemGroup>
