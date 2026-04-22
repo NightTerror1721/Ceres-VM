@@ -26,7 +26,8 @@ namespace ceres::casm
 
 	struct IdentifierOperand
 	{
-		Identifier identifier; // Identifier name (e.g., variable name, label name, etc.)
+		std::string name; // Identifier name (e.g., variable name, label name, etc.)
+		bool isLocal; // Whether the identifier is a local label (e.g., .label) or a global label, variable, constant (e.g., label, variable, constant)
 	};
 
 	struct MemoryOperand
@@ -49,10 +50,15 @@ namespace ceres::casm
 		vm::Address address; // Address of the variable in memory
 	};
 
+	struct LabelOperand
+	{
+		vm::Address address; // Address of the label in memory
+	};
+
 	class Operand
 	{
 	public:
-		using OperandVariant = std::variant<std::monostate, RegisterOperand, FloatingPointRegisterOperand, ImmediateOperand, IdentifierOperand, MemoryOperand, VariableOperand>;
+		using OperandVariant = std::variant<std::monostate, RegisterOperand, FloatingPointRegisterOperand, ImmediateOperand, IdentifierOperand, MemoryOperand, VariableOperand, LabelOperand>;
 
 	private:
 		OperandVariant _value;
@@ -81,6 +87,7 @@ namespace ceres::casm
 		constexpr bool isIdentifier() const noexcept { return std::holds_alternative<IdentifierOperand>(_value); }
 		constexpr bool isMemory() const noexcept { return std::holds_alternative<MemoryOperand>(_value); }
 		constexpr bool isVariable() const noexcept { return std::holds_alternative<VariableOperand>(_value); }
+		constexpr bool isLabel() const noexcept { return std::holds_alternative<LabelOperand>(_value); }
 
 		constexpr const RegisterOperand& asRegister() const noexcept { return std::get<RegisterOperand>(_value); }
 		constexpr const FloatingPointRegisterOperand& asFloatingPointRegister() const noexcept { return std::get<FloatingPointRegisterOperand>(_value); }
@@ -88,6 +95,7 @@ namespace ceres::casm
 		constexpr const IdentifierOperand& asIdentifier() const noexcept { return std::get<IdentifierOperand>(_value); }
 		constexpr const MemoryOperand& asMemory() const noexcept { return std::get<MemoryOperand>(_value); }
 		constexpr const VariableOperand& asVariable() const noexcept { return std::get<VariableOperand>(_value); }
+		constexpr const LabelOperand& asLabel() const noexcept { return std::get<LabelOperand>(_value); }
 
 		constexpr OperandType type() const noexcept
 		{
@@ -116,6 +124,8 @@ namespace ceres::casm
 					default: return OperandType::Invalid;
 				}
 			}
+			else if (isLabel())
+				return OperandType::Label;
 			else
 				return OperandType::Invalid;
 		}
@@ -128,26 +138,25 @@ namespace ceres::casm
 		static Operand makeRegister(u8 regIndex) noexcept { return Operand{ RegisterOperand{ regIndex } }; }
 		static Operand makeFloatingPointRegister(u8 regIndex) noexcept { return Operand{ FloatingPointRegisterOperand{ regIndex } }; }
 		static Operand makeImmediate(u32 value) noexcept { return Operand{ ImmediateOperand{ value } }; }
-		static Operand makeIdentifier(std::string_view name) noexcept { return Operand{ IdentifierOperand{ Identifier(name) } }; }
-		static Operand makeIdentifier(const Identifier& identifier) noexcept { return Operand{ IdentifierOperand{ identifier } }; }
-		static Operand makeIdentifier(Identifier&& identifier) noexcept { return Operand{ IdentifierOperand{ std::move(identifier) } }; }
+		static Operand makeIdentifier(std::string_view name, bool isLocal) noexcept { return Operand{ IdentifierOperand{ std::string(name), isLocal } }; }
+		static Operand makeIdentifier(std::string&& name, bool isLocal) noexcept { return Operand{ IdentifierOperand{ std::move(name), isLocal } }; }
 		static Operand makeMemory(u8 baseRegIndex) noexcept { return Operand{ MemoryOperand{ baseRegIndex, std::monostate{} } }; }
 		static Operand makeMemory(u8 baseRegIndex, u32 immediateOffset) noexcept { return Operand{ MemoryOperand{ baseRegIndex, ImmediateOperand{ immediateOffset } } }; }
 		static Operand makeMemory(u8 baseRegIndex, std::string_view identifierOffset) noexcept
 		{
-			return Operand{ MemoryOperand{ baseRegIndex, IdentifierOperand{ Identifier(identifierOffset) } } };
+			return Operand{ MemoryOperand{ baseRegIndex, IdentifierOperand{ std::string(identifierOffset) } } };
 		}
-		static Operand makeMemory(u8 baseRegIndex, const Identifier& identifierOffset) noexcept
-		{
-			return Operand{ MemoryOperand{ baseRegIndex, IdentifierOperand{ identifierOffset } } };
-		}
-		static Operand makeMemory(u8 baseRegIndex, Identifier&& identifierOffset) noexcept
+		static Operand makeMemory(u8 baseRegIndex, std::string&& identifierOffset) noexcept
 		{
 			return Operand{ MemoryOperand{ baseRegIndex, IdentifierOperand{ std::move(identifierOffset) } } };
 		}
 		static Operand makeVariable(DataTypeScalarCode scalarCode, vm::Address address) noexcept
 		{
 			return Operand{ VariableOperand{ scalarCode, address } };
+		}
+		static Operand makeLabel(vm::Address address) noexcept
+		{
+			return Operand{ LabelOperand{ address } };
 		}
 
 	public:
@@ -160,10 +169,5 @@ namespace ceres::casm
 		bool isFloatingPoint; // Whether the register is a floating-point register
 
 		static std::optional<RegisterInfo> get(std::string_view name) noexcept;
-
-		static inline std::optional<RegisterInfo> get(const Identifier& identifier) noexcept
-		{
-			return get(identifier.name());
-		}
 	};
 }

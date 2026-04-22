@@ -1,6 +1,7 @@
 #include <iostream>
 #include "vm/ceresvm.h"
 #include "vm/devices.h"
+#include "assembler/assembler.h"
 
 int main()
 {
@@ -20,7 +21,7 @@ int main()
 
 	// For demonstration purposes, we'll create a simple program in memory that writes "Hello, World!" to the terminal and then halts.
 
-	constexpr u8 OutPort = default_ports::TERM_OUT;
+	/*constexpr u8 OutPort = default_ports::TERM_OUT;
 	std::vector<Instruction> programInstructions = {
 		Instruction::LI(0, 'H'), Instruction::OUT(0, OutPort),
 		Instruction::LI(0, 'e'), Instruction::OUT(0, OutPort),
@@ -51,7 +52,22 @@ int main()
 	header.bssSize = 0;
 	header.minimumStack = 1024; // Minimum stack size of 1 KiB
 
-	Program program = Program::make(header, programBytes, {}, {});
+	Program program = Program::make(header, programBytes, {}, {});*/
+
+	ceres::casm::Assembler assembler{};
+	auto programOpt = assembler.assemble({ "examples/main.casm" });
+	if (!programOpt.has_value())
+	{
+		std::cerr << "Failed to assemble program: " << std::endl;
+		if (assembler.hasErrors())
+		{
+			for (const auto& error : assembler.errors())
+				std::cerr << "  [" << error.line << "] " << error.message << std::endl;
+		}
+		return 1;
+	}
+
+	Program program = std::move(programOpt.value());
 
 	if (auto result = vm.loadProgram(program); !result)
 	{

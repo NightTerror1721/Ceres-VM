@@ -12,9 +12,11 @@ namespace ceres::casm
 
 		AssemblerErrorHandler& errorHandler = _translationUnit.errorHandler();
 		SymbolTable& symbolTable = _translationUnit.symbolTable();
+		SectionSizes& sectionSizes = _translationUnit.sectionSizes();
 		std::vector<RelocatableStatement> ast;
-		std::vector<std::string> unresolvedSymbols;
+		std::vector<UnresolvedSymbol> unresolvedSymbols;
 		const usize statementCount = statements.size();
+		std::string_view lastParentLabel = {};
 
 		ast.reserve(statementCount);
 
@@ -26,20 +28,23 @@ namespace ceres::casm
 				if (statement.isSection())
 				{
 					_currentSection = statement.asSection().section;
-					ast.push_back(RelocatableStatement::makeSection(statement.line(), statement.asSection()));
+					ast.push_back(RelocatableStatement::makeSection(statement.line(), std::move(statement.asSection())));
 				}
 				else if (statement.isLabel())
 				{
 					if (!_currentSection.has_value())
 						error(statement.line(), "Label statement must be preceded by a section statement");
 
-					const auto& label = statement.asLabel();
-					symbolTable.defineLabel(statement.line(), label.name, _currentSection.value(), currentOffset(), label.level);
-					ast.push_back(RelocatableStatement::makeLabel(statement.line(), currentOffset(), label));
+					auto& label = statement.asLabel();
+					auto labelLevel = label.level;
+					symbolTable.defineLabel(statement.line(), label.name, _currentSection.value(), currentOffset(), labelLevel);
+					ast.push_back(RelocatableStatement::makeLabel(statement.line(), currentOffset(), std::move(label)));
+					if (labelLevel != LabelLevel::Local)
+						lastParentLabel = ast.back().asLabel().name;
 				}
 				else if (statement.isData())
 				{
-					const auto& data = statement.asData();
+					auto& data = statement.asData();
 					if (!_currentSection.has_value())
 					{
 						if (!data.isConstant)
@@ -67,7 +72,7 @@ namespace ceres::casm
 					}
 					else if (data.dataType.has_value())
 					{
-						dataType = resolveDataType(statement.line(), data.dataType.value());
+						dataType = resolveDataType(statement.line(), data.dataType.value(), false);
 						size = sizeOf(statement.line(), dataType);
 					}
 
@@ -85,14 +90,13 @@ namespace ceres::casm
 						if (!literalValue.has_value())
 							error(statement.line(), "Constant data statement must have an initial value");
 
-						if (_currentSection.has_value() && _currentSection.value() == SectionType::Rodata)
+						/*if (_currentSection.has_value() && _currentSection.value() == SectionType::Rodata)
 						{
-							if (!data.dataType.has_value())
-								error(statement.line(), "Constant data statement in @rodata section must have a data type");
-							symbolTable.defineVariable(statement.line(), data.identifier, _currentSection.value(), currentOffset(), false, true, dataType, literalValue.value());
+							symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), false, true, dataType, literalValue.value());
+							sectionSizes.rodataSize += size.value();
 						}
-						else
-							symbolTable.defineConstant(statement.line(), data.identifier, false, literalValue.value());
+						else*/
+							symbolTable.defineConstant(statement.line(), data.name, false, literalValue.value());
 					}
 					else
 					{
@@ -103,28 +107,42 @@ namespace ceres::casm
 						{
 							case SectionType::Text:
 								error(statement.line(), "Variable data statement cannot be in the @text section");
+								break;
 
 							case SectionType::Rodata:
-								error(statement.line(), "Variable data statement cannot be in the @rodata section");
+								if (!literalValue.has_value())
+									error(statement.line(), "Variable data statement in @rodata section must have an initial value");
+								symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), false, true, dataType, literalValue.value());
+								sectionSizes.rodataSize += size.value();
+								break;
 
 							case SectionType::Data:
 								if (literalValue.has_value())
-									symbolTable.defineVariable(statement.line(), data.identifier, _currentSection.value(), currentOffset(), false, false, dataType, literalValue.value());
+									symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), false, false, dataType, literalValue.value());
 								else
-									symbolTable.defineVariable(statement.line(), data.identifier, _currentSection.value(), currentOffset(), false, false, dataType);
+									symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), false, false, dataType);
+								sectionSizes.dataSize += size.value();
 								break;
 
 							case SectionType::BSS:
 								if (literalValue.has_value())
 									error(statement.line(), "Variable data statement in @bss section cannot have an initial value");
 
-								symbolTable.defineVariable(statement.line(), data.identifier, _currentSection.value(), currentOffset(), false, false, dataType);
+								symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), false, false, dataType);
+								sectionSizes.bssSize += size.value();
 								break;
 						}
 					}
 
-					ast.push_back(RelocatableStatement::makeData(statement.line(), size.value(), currentOffset(), ResolvedDataStatement{data.isConstant, data.identifier, dataType, literalValue}));
-					currentOffset() += size.value();
+					if (data.isConstant)
+					{
+						// Constant data statements do not occupy space in the program memory, so we do not increment the current offset
+					}
+					else
+					{
+						ast.push_back(RelocatableStatement::makeData(statement.line(), size.value(), currentOffset(), ResolvedDataStatement{ data.isConstant, data.name, dataType, literalValue }));
+						currentOffset() += size.value();
+					}
 				}
 				else if (statement.isInstruction())
 				{
@@ -133,13 +151,15 @@ namespace ceres::casm
 
 					auto& instruction = statement.asInstruction();
 					for (auto& operand : instruction.operands)
-						symbolTable.tryResolveOperand(statement.line(), operand, unresolvedSymbols);
+						symbolTable.tryResolveOperand(statement.line(), operand, lastParentLabel, unresolvedSymbols);
 
-					ast.push_back(RelocatableStatement::makeInstruction(statement.line(), currentOffset(), instruction));
+					ast.push_back(RelocatableStatement::makeInstruction(statement.line(), currentOffset(), std::move(instruction)));
 
 					auto sizeOpt = InstructionInfo::findMaxSizeInBytes(instruction.mnemonic);
 					if (!sizeOpt.has_value() || sizeOpt.value() == 0)
 						error(statement.line(), "Failed to determine size of instruction statement");
+
+					sectionSizes.textSize += sizeOpt.value();
 
 					currentOffset() += sizeOpt.value();
 				}
@@ -151,7 +171,6 @@ namespace ceres::casm
 			catch (const AssemblerError& error)
 			{
 				errorHandler.reportError(error);
-				it = statements.erase(it);
 			}
 		}
 
@@ -159,7 +178,7 @@ namespace ceres::casm
 		_translationUnit.setUnresolvedSymbols(std::move(unresolvedSymbols));
 	}
 
-	DataType TranslationUnitBuilder::resolveDataType(u32 line, const DataTypeReference& dataType) const
+	DataType TranslationUnitBuilder::resolveDataType(u32 line, const DataTypeReference& dataType, bool allowUnsizedArrays) const
 	{
 		if (!dataType.isValid())
 			error(line, "Invalid data type");
@@ -170,13 +189,13 @@ namespace ceres::casm
 				? DataType::makeScalar(dataType.scalarCode())
 				: DataType::makeSizedArray(dataType.scalarCode(), dataType.numElementsIntegerValue());
 
-			if (resolvedDataType.hasUnknownSize())
+			if (resolvedDataType.hasUnknownSize() && !allowUnsizedArrays)
 				error(line, "Array data type without initial value must have a known size (either a specified size or an identifier for the size)");
 
 			return resolvedDataType;
 		}
 
-		const auto constValue = getConstantValue(line, dataType.numElementsIdentifier().name());
+		const auto constValue = getConstantValue(line, dataType.numElementsIdentifier());
 		if (!constValue.has_value())
 			error(line, "Invalid identifier for array size in data type");
 
@@ -207,7 +226,7 @@ namespace ceres::casm
 		{
 			if (elem.isIdentifier())
 			{
-				auto constantValue = getConstantValue(line, elem.identifierValue().name());
+				auto constantValue = getConstantValue(line, elem.identifierValue());
 				if (!constantValue.has_value())
 					error(line, "Cannot resolve identifier literal value that is not a constant");
 				const auto& resolvedValue = constantValue.value().get();
@@ -230,8 +249,8 @@ namespace ceres::casm
 
 	std::pair<DataType, LiteralValue> TranslationUnitBuilder::resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const
 	{
-		DataType resolvedDataType = resolveDataType(line, expectedDataType);
-		LiteralValue resolvedValue = resolveLiteralValue(line, value, true);
+		DataType resolvedDataType = resolveDataType(line, expectedDataType, true);
+		LiteralValue resolvedValue = resolveLiteralValue(line, value, !resolvedDataType.hasUnknownSize());
 		if (!resolvedValue.matchDataType(resolvedDataType))
 			error(line, "Resolved literal value does not match the expected data type");
 
@@ -261,6 +280,12 @@ namespace ceres::casm
 		if (!value.matchDataType(dataType))
 			error(line, "Literal value does not match the expected data type");
 
+		if (dataType.hasUnknownSize())
+		{
+			if (value.hasUnknownSize())
+				error(line, "Cannot determine the size of an unsized array literal value without elements");
+			return sizeOf(line, dataType.withNumElements(value.size()));
+		}
 		return sizeOf(line, dataType);
 	}
 

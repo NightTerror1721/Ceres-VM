@@ -96,8 +96,8 @@ namespace ceres::casm
 			if (!allElementsMatchDataTypeScalarCode(expectedType.scalarCode()))
 				return false; // Element types do not match the expected scalar type
 
-			if (expectedType.hasUnknownSize() && !hasUnknownSize())
-				return false; // Expected an unsized array, but this array has a known size
+			if (expectedType.hasUnknownSize() && hasUnknownSize())
+				return false; // Both the expected type and the literal value have unknown sizes, which is not allowed
 
 			if (!expectedType.hasUnknownSize() && size() != expectedType.numElements())
 				return false; // Expected a sized array, but the sizes do not match
@@ -155,7 +155,7 @@ namespace ceres::casm
 	class LiteralValueReferenceElement
 	{
 	private:
-		std::variant<LiteralScalar, Identifier> _value;
+		std::variant<LiteralScalar, std::string> _value;
 
 	public:
 		constexpr LiteralValueReferenceElement() noexcept = default;
@@ -169,14 +169,15 @@ namespace ceres::casm
 		constexpr bool operator==(const LiteralValueReferenceElement&) const noexcept = default;
 
 	public:
-		constexpr LiteralValueReferenceElement(LiteralScalar scalar) noexcept : _value(scalar) {}
-		constexpr LiteralValueReferenceElement(const Identifier& identifier) noexcept : _value(identifier) {}
+		constexpr explicit LiteralValueReferenceElement(LiteralScalar scalar) noexcept : _value(scalar) {}
+		constexpr explicit LiteralValueReferenceElement(std::string&& identifier) noexcept : _value(std::move(identifier)) {}
+		constexpr explicit LiteralValueReferenceElement(std::string_view identifier) noexcept : _value(std::string(identifier)) {}
 
 		constexpr bool isScalar() const noexcept { return std::holds_alternative<LiteralScalar>(_value); }
-		constexpr bool isIdentifier() const noexcept { return std::holds_alternative<Identifier>(_value); }
+		constexpr bool isIdentifier() const noexcept { return std::holds_alternative<std::string>(_value); }
 
-		constexpr const LiteralScalar& scalarValue() const noexcept { return std::get<LiteralScalar>(_value); }
-		constexpr const Identifier& identifierValue() const noexcept { return std::get<Identifier>(_value); }
+		constexpr LiteralScalar scalarValue() const noexcept { return std::get<LiteralScalar>(_value); }
+		constexpr std::string_view identifierValue() const noexcept { return std::get<std::string>(_value); }
 	};
 
 	class LiteralValueReference
@@ -202,10 +203,13 @@ namespace ceres::casm
 
 	private:
 		constexpr explicit LiteralValueReference(LiteralScalar value) noexcept :
-			_elements{ value }
+			_elements{ LiteralValueReferenceElement{ value } }
 		{}
-		constexpr explicit LiteralValueReference(const Identifier& value) noexcept :
-			_elements{ value }
+		constexpr explicit LiteralValueReference(std::string&& value) noexcept :
+			_elements{ LiteralValueReferenceElement{ std::move(value) } }
+		{}
+		constexpr explicit LiteralValueReference(std::string_view value) noexcept :
+			_elements{ LiteralValueReferenceElement{ value } }
 		{}
 		constexpr explicit LiteralValueReference(std::vector<ElementType>&& elements) noexcept :
 			_elements(std::move(elements))
@@ -289,8 +293,8 @@ namespace ceres::casm
 			if (!allElementsMatchDataTypeScalarCode(expectedType.scalarCode()))
 				return false; // Element types do not match the expected scalar type
 
-			if (expectedType.hasUnknownSize() && !hasUnknownSize())
-				return false; // Expected an unsized array, but this array has a known size
+			if (expectedType.hasUnknownSize() && hasUnknownSize())
+				return false; // Both the expected type and the array have unknown sizes, which is not allowed
 
 			if (!expectedType.hasUnknownSize() && size() != expectedType.numElements())
 				return false; // Expected a sized array, but the sizes do not match
@@ -303,8 +307,8 @@ namespace ceres::casm
 			if (!allElementsMatchDataTypeScalarCode(expectedType.scalarCode()))
 				return false; // Element types do not match the expected scalar type
 
-			if (expectedType.hasUnknownSize() && !hasUnknownSize())
-				return false; // Expected an unsized array, but this array has a known size
+			if (expectedType.hasUnknownSize() && hasUnknownSize())
+				return false; // Both the expected type and the array have unknown sizes, which is not allowed
 
 			if (!expectedType.hasUnknownSize() && !expectedType.hasNumElementsIdentifier() && size() != expectedType.numElementsIntegerValue())
 				return false; // Expected a sized array, but the sizes do not match
@@ -322,16 +326,17 @@ namespace ceres::casm
 		constexpr const_iterator cend() const noexcept { return _elements.cend(); }
 
 	public:
-		static constexpr LiteralValueReference make(const Identifier& identifier) noexcept { return LiteralValueReference(identifier); }
-		static constexpr LiteralValueReference make(u8 value) noexcept { return LiteralValueReference(LiteralScalar::makeU8(value)); }
-		static constexpr LiteralValueReference make(u16 value) noexcept { return LiteralValueReference(LiteralScalar::makeU16(value)); }
-		static constexpr LiteralValueReference make(u32 value) noexcept { return LiteralValueReference(LiteralScalar::makeU32(value)); }
-		static constexpr LiteralValueReference make(i8 value) noexcept { return LiteralValueReference(LiteralScalar::makeI8(value)); }
-		static constexpr LiteralValueReference make(i16 value) noexcept { return LiteralValueReference(LiteralScalar::makeI16(value)); }
-		static constexpr LiteralValueReference make(i32 value) noexcept { return LiteralValueReference(LiteralScalar::makeI32(value)); }
-		static constexpr LiteralValueReference make(f32 value) noexcept { return LiteralValueReference(LiteralScalar::makeF32(value)); }
-		static constexpr LiteralValueReference make(char value) noexcept { return LiteralValueReference(LiteralScalar::makeFromChar(value)); }
-		static constexpr LiteralValueReference make(bool value) noexcept { return LiteralValueReference(LiteralScalar::makeFromBool(value)); }
+		static constexpr LiteralValueReference makeIdentifier(std::string_view identifier) noexcept { return LiteralValueReference(identifier); }
+		static constexpr LiteralValueReference makeIdentifier(std::string&& identifier) noexcept { return LiteralValueReference(std::move(identifier)); }
+		static constexpr LiteralValueReference makeU8(u8 value) noexcept { return LiteralValueReference(LiteralScalar::makeU8(value)); }
+		static constexpr LiteralValueReference makeU16(u16 value) noexcept { return LiteralValueReference(LiteralScalar::makeU16(value)); }
+		static constexpr LiteralValueReference makeU32(u32 value) noexcept { return LiteralValueReference(LiteralScalar::makeU32(value)); }
+		static constexpr LiteralValueReference makeI8(i8 value) noexcept { return LiteralValueReference(LiteralScalar::makeI8(value)); }
+		static constexpr LiteralValueReference makeI16(i16 value) noexcept { return LiteralValueReference(LiteralScalar::makeI16(value)); }
+		static constexpr LiteralValueReference makeI32(i32 value) noexcept { return LiteralValueReference(LiteralScalar::makeI32(value)); }
+		static constexpr LiteralValueReference makeF32(f32 value) noexcept { return LiteralValueReference(LiteralScalar::makeF32(value)); }
+		static constexpr LiteralValueReference makeChar(char value) noexcept { return LiteralValueReference(LiteralScalar::makeFromChar(value)); }
+		static constexpr LiteralValueReference makeBool(bool value) noexcept { return LiteralValueReference(LiteralScalar::makeFromBool(value)); }
 
 		static constexpr LiteralValueReference make(std::vector<ElementType>&& elements) noexcept
 		{
@@ -343,7 +348,7 @@ namespace ceres::casm
 			return LiteralValueReference(std::vector<ElementType>(elements.begin(), elements.end()));
 		}
 
-		static constexpr LiteralValueReference make(std::string_view str) noexcept
+		static constexpr LiteralValueReference makeString(std::string_view str) noexcept
 		{
 			std::vector<ElementType> elements;
 			elements.reserve(str.size() + 1);

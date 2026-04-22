@@ -43,18 +43,15 @@ namespace ceres::casm
 			return std::nullopt;
 		}
 
-		if (_errorHandler.hasErrors())
-		{
-			reportError("Linking failed due to errors in translation units");
-			return std::nullopt;
-		}
-
 		auto binaryOpt = emitBinary(std::move(linkedExecutableOpt.value()));
 		if (!binaryOpt.has_value())
 		{
 			reportError("Binary emission failed due to errors in the linked executable");
 			return std::nullopt;
 		}
+
+		if (_errorHandler.hasErrors())
+			return std::nullopt; // Return nullopt if there were any errors during the assembly process
 
 		return binaryOpt;
 	}

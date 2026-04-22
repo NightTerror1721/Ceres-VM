@@ -78,9 +78,4 @@ namespace ceres::casm
 
 	std::string_view mnemonicToString(Mnemonic mnemonic) noexcept;
 	std::optional<Mnemonic> stringToMnemonic(std::string_view str, bool caseSensitive = false) noexcept;
-
-	inline std::optional<Mnemonic> identifierToMnemonic(const Identifier& identifier, bool caseSensitive = false) noexcept
-	{
-		return stringToMnemonic(identifier.name(), caseSensitive);
-	}
 }

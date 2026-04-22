@@ -36,32 +36,49 @@ namespace ceres::casm
 		// Check for unresolved symbols in each translation unit
 		for (const auto& unit : units)
 		{
-			for (const auto& symbolName : unit.unresolvedSymbols())
+			for (const auto& unresolvedSymbol : unit.unresolvedSymbols())
 			{
-				Identifier identifier = Identifier::make(symbolName);
-				if (unit.symbolTable().get(symbolName).has_value())
-					continue;
+				if (unresolvedSymbol.isLocal())
+				{
+					if (unit.symbolTable().getLocal(unresolvedSymbol.name, unresolvedSymbol.parentName).has_value())
+						continue;
 
-				if (globalSymbolTable.get(symbolName).has_value())
-					continue;
+					reportError(unresolvedSymbol.line, "Linker error: Unresolved local symbol '.{}'.", unresolvedSymbol.name);
+					return std::nullopt;
+				}
+				else
+				{
+					if (unit.symbolTable().get(unresolvedSymbol.name).has_value())
+						continue;
 
-				reportError(0, "Linker error: Unresolved symbol '{}'.", symbolName);
-				return std::nullopt;
+					if (globalSymbolTable.get(unresolvedSymbol.name).has_value())
+						continue;
+
+					reportError(unresolvedSymbol.line, "Linker error: Unresolved symbol '{}'.", unresolvedSymbol.name);
+					return std::nullopt;
+				}
 			}
 		}
 
 		// Resolve operands in each translation unit using the global symbol table
 		for (auto& unit : units)
 		{
+			std::string_view lastParentLabel = {};
 			for (auto& statement : unit.ast())
 			{
 				try
 				{
+					if (statement.isLabel())
+					{
+						const auto& label = statement.asLabel();
+						if (label.level != LabelLevel::Local)
+							lastParentLabel = label.name;
+					}
 					if (statement.isInstruction())
 					{
 						InstructionStatement& instructionStatement = statement.asInstruction();
 						for (auto& operand : instructionStatement.operands)
-							unit.symbolTable().resolveOperand(statement.line(), operand, globalSymbolTable);
+							unit.symbolTable().resolveOperand(statement.line(), operand, lastParentLabel, globalSymbolTable);
 
 						auto info = InstructionInfo::find(instructionStatement.signature());
 						if (!info.has_value())

@@ -44,50 +44,50 @@ namespace ceres::casm
 		inline [[nodiscard]] const Token& current() const noexcept { return _currentToken; }
 		inline [[nodiscard]] const Token& peek() const noexcept { return _peekedToken; }
 
-		inline [[nodiscard]] bool isAtEnd() const noexcept { return _lexer.isAtEnd(); }
+		inline [[nodiscard]] bool isAtEnd() const noexcept { return _currentToken.isEndOfFile() || (_currentToken.isInvalid() && _lexer.isAtEnd()); }
 
-		inline const Token& next() noexcept
+		inline Token next() noexcept
 		{
 			_currentToken = std::move(_peekedToken);
 			_peekedToken = std::move(_lexer.nextToken());
 			return _currentToken;
 		}
 
-		inline const Token& consume(TokenType expectedType, std::string_view errorMessage) 		{
+		inline Token consume(TokenType expectedType, std::string_view errorMessage) 		{
 			if (_currentToken.is(expectedType))
 			{
-				const Token& token = _currentToken;
+				Token token = std::move(_currentToken);
 				next(); // Consume the token after returning it
 				return token;
 			}
 			throw ParserError(_currentToken.line(), _currentToken.column(), errorMessage);
 		}
-		inline const Token& consume(DataType expectedDataType, std::string_view errorMessage)
+		inline Token consume(DataType expectedDataType, std::string_view errorMessage)
 		{
 			if (_currentToken.isDataType() && _currentToken.dataTypeValue() == expectedDataType)
 			{
-				const Token& token = _currentToken;
+				Token token = std::move(_currentToken);
 				next(); // Consume the token after returning it
 				return token;
 			}
 			throw ParserError(_currentToken.line(), _currentToken.column(), errorMessage);
 		}
-		inline const Token& consume(KeywordType expectedKeywordType, std::string_view errorMessage) 
+		inline Token consume(KeywordType expectedKeywordType, std::string_view errorMessage) 
 		{
 			if (_currentToken.isKeyword() && _currentToken.keywordTypeValue() == expectedKeywordType)
 			{
-				const Token& token = _currentToken;
+				Token token = std::move(_currentToken);
 				next(); // Consume the token after returning it
 				return token;
 			}
 			throw ParserError(_currentToken.line(), _currentToken.column(), errorMessage);
 		}
 
-		inline const Token& consumeEndOfLineOrEndOfFile(std::string_view errorMessage)
+		inline Token consumeEndOfLineOrEndOfFile(std::string_view errorMessage)
 		{
 			if (_currentToken.isEndOfInput())
 			{
-				const Token& token = _currentToken;
+				Token token = std::move(_currentToken);
 				next(); // Consume the token after returning it
 				return token;
 			}

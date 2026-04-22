@@ -179,6 +179,7 @@
     <ClInclude Include="src\common\config.h" />
     <ClInclude Include="src\common\int24.h" />
     <ClInclude Include="src\common\logs.h" />
+    <ClInclude Include="src\common\string_utils.h" />
     <ClInclude Include="src\common\types.h" />
     <ClInclude Include="src\vm\address.h" />
     <ClInclude Include="src\vm\bios.h" />

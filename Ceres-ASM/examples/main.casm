@@ -1,0 +1,25 @@
+const OUT_WRITE = 0x01
+const EXIT_CODE = 0x01
+const SYS_CTRL = 0xFF
+
+@rodata
+    let HELLO_MSG: u8[17] = "Hello, CeresVM!"
+
+@text
+global main:
+    la r1, HELLO_MSG
+    call println
+    li r0, EXIT_CODE
+    out r0, SYS_CTRL
+    ret
+
+println:
+.print_loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .print_end
+    out r2, OUT_WRITE
+    add r1, r1, 1
+    jp .print_loop
+.print_end:
+    ret

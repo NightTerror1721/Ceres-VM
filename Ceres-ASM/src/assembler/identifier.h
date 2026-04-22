@@ -1,69 +1,30 @@
 #pragma once
 
 #include "common/types.h"
+#include "common/string_utils.h"
 #include <string>
 #include <compare>
 
 namespace ceres::casm
 {
-	class Identifier
+	inline constexpr bool isAsciiAlpha(char ch) noexcept { return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z'); }
+	inline constexpr bool isAsciiDigit(char ch) noexcept { return ch >= '0' && ch <= '9'; }
+	inline constexpr bool isAsciiAlnum(char ch) noexcept { return isAsciiAlpha(ch) || isAsciiDigit(ch); }
+
+	inline constexpr bool isValidIdentifierName(std::string_view name) noexcept
 	{
-	private:
-		std::string_view _name{};
+		if (name.empty())
+			return false;
 
-	public:
-		constexpr Identifier() noexcept = default;
-		constexpr Identifier(const Identifier&) noexcept = default;
-		constexpr Identifier(Identifier&&) noexcept = default;
-		constexpr ~Identifier() noexcept = default;
+		if (!isAsciiAlpha(name.front()) && name.front() != '_')
+			return false;
 
-		constexpr Identifier& operator=(const Identifier&) noexcept = default;
-		constexpr Identifier& operator=(Identifier&&) noexcept = default;
-
-		constexpr bool operator==(const Identifier&) const noexcept = default;
-		constexpr auto operator<=>(const Identifier&) const noexcept = default;
-
-	public:
-		constexpr explicit Identifier(std::string_view name) noexcept : _name(name) {}
-
-		constexpr std::string_view name() const noexcept { return _name; }
-
-		constexpr bool empty() const noexcept { return _name.empty(); }
-		constexpr usize size() const noexcept { return _name.size(); }
-
-		inline usize hash() const noexcept { return std::hash<std::string_view>::_Do_hash(_name); }
-
-		forceinline constexpr bool isValid() const noexcept { return isValidIdentifierName(_name); }
-
-	public:
-		static Identifier makeInvalid() noexcept { return Identifier{}; }
-		static Identifier make(std::string_view name) noexcept { return Identifier(name); }
-
-		static forceinline constexpr bool isAsciiAlpha(char ch) noexcept { return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z'); }
-		static forceinline constexpr bool isAsciiDigit(char ch) noexcept { return ch >= '0' && ch <= '9'; }
-		static forceinline constexpr bool isAsciiAlnum(char ch) noexcept { return isAsciiAlpha(ch) || isAsciiDigit(ch); }
-
-		static constexpr bool isValidIdentifierName(std::string_view name) noexcept
+		for (char c : name)
 		{
-			if (name.empty())
+			if (!isAsciiAlnum(c) && c != '_')
 				return false;
-			if (!isAsciiAlpha(name.front()) && name.front() != '_')
-				return false;
-			for (char c : name)
-			{
-				if (!isAsciiAlnum(c) && c != '_')
-					return false;
-			}
-			return true;
 		}
-	};
-}
 
-template <>
-struct std::hash<ceres::casm::Identifier>
-{
-	static std::size_t operator()(const ceres::casm::Identifier& identifier) noexcept
-	{
-		return identifier.hash();
+		return true;
 	}
-};
+}

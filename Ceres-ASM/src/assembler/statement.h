@@ -16,14 +16,14 @@ namespace ceres::casm
 
 	struct LabelStatement
 	{
-		Identifier name; // Label name (e.g., "main", "loop_start", etc.)
+		std::string name; // Label name (e.g., "main", "loop_start", etc.)
 		LabelLevel level; // Label level (global, file-level, or local)
 	};
 
 	struct DataStatement
 	{
 		bool isConstant; // Whether the data is a constant (defined with 'const') or a variable (defined with 'let')
-		Identifier identifier; // Identifier name (e.g., variable name)
+		std::string name; // Identifier name (e.g., variable name)
 		std::optional<DataTypeReference> dataType; // Optional data type information (can be scalar, unsized array, or sized array)
 		std::optional<LiteralValueReference> value; // Optional initial value (can be a literal integer, float, char, bool, string, or an array of literal values)
 	};
@@ -89,23 +89,31 @@ namespace ceres::casm
 			return Statement{ line, SectionStatement{ section } };
 		}
 
-		static Statement makeLabel(u32 line, const Identifier& name, LabelLevel level) noexcept
+		static Statement makeLabel(u32 line, std::string_view name, LabelLevel level) noexcept
 		{
-			return Statement{ line, LabelStatement{ name, level } };
+			return Statement{ line, LabelStatement{ std::string{name}, level } };
 		}
-		static Statement makeLabel(u32 line, Identifier&& name, LabelLevel level) noexcept
+		static Statement makeLabel(u32 line, std::string&& name, LabelLevel level) noexcept
 		{
 			return Statement{ line, LabelStatement{ std::move(name), level } };
 		}
 
-		static Statement makeData(u32 line, bool isConstant, const Identifier& identifier, std::optional<DataTypeReference>&& dataType = std::nullopt) noexcept
+		static Statement makeData(u32 line, bool isConstant, std::string_view identifier, std::optional<DataTypeReference>&& dataType = std::nullopt) noexcept
 		{
-			return Statement{ line, DataStatement{ isConstant, identifier, dataType, std::nullopt } };
+			return Statement{ line, DataStatement{ isConstant, std::string{identifier}, std::move(dataType), std::nullopt } };
+		}
+		static Statement makeData(u32 line, bool isConstant, std::string&& identifier, std::optional<DataTypeReference>&& dataType = std::nullopt) noexcept
+		{
+			return Statement{ line, DataStatement{ isConstant, std::move(identifier), std::move(dataType), std::nullopt } };
 		}
 
-		static Statement makeData(u32 line, bool isConstant, const Identifier& identifier, std::optional<DataTypeReference>&& dataType, std::optional<LiteralValueReference>&& value) noexcept
+		static Statement makeData(u32 line, bool isConstant, std::string_view identifier, std::optional<DataTypeReference>&& dataType, std::optional<LiteralValueReference>&& value) noexcept
 		{
-			return Statement{ line, DataStatement{ isConstant, identifier, std::move(dataType), std::move(value) } };
+			return Statement{ line, DataStatement{ isConstant, std::string{identifier}, std::move(dataType), std::move(value) } };
+		}
+		static Statement makeData(u32 line, bool isConstant, std::string&& identifier, std::optional<DataTypeReference>&& dataType, std::optional<LiteralValueReference>&& value) noexcept
+		{
+			return Statement{ line, DataStatement{ isConstant, std::move(identifier), std::move(dataType), std::move(value) } };
 		}
 
 		static Statement makeInstruction(u32 line, Mnemonic mnemonic, std::vector<Operand>&& operands) noexcept

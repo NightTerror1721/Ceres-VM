@@ -15,10 +15,10 @@ namespace ceres::casm
 		u32 startColumn = _source.column();
         char currentChar = _source.next();
 
-		if (Identifier::isAsciiAlpha(currentChar) || currentChar == '_')
+		if (isAsciiAlpha(currentChar) || currentChar == '_')
 			return scanIdentifierOrKeyword(startPosition, startColumn);
 
-		if (Identifier::isAsciiDigit(currentChar))
+		if (isAsciiDigit(currentChar))
 			return scanNumberLiteral(startPosition, startColumn);
 
 		if (currentChar == '0' && (*_source == 'x' || *_source == 'X' || *_source == 'b' || *_source == 'B'))
@@ -26,17 +26,17 @@ namespace ceres::casm
 
         if (currentChar == '-' || currentChar == '+')
 		{
-			if (Identifier::isAsciiDigit(*_source))
+			if (isAsciiDigit(*_source))
 				return scanNumberLiteral(startPosition, startColumn);
 
-			if (*_source == '.' && Identifier::isAsciiDigit(_source[1]))
+			if (*_source == '.' && isAsciiDigit(_source[1]))
 				return scanNumberLiteral(startPosition, startColumn);
 
 			if (*_source == '0' && (_source[1] == 'x' || _source[1] == 'X' || _source[1] == 'b' || _source[1] == 'B'))
 				return scanNumberLiteral(startPosition, startColumn);
 		}
 
-		if (currentChar == '.' && Identifier::isAsciiDigit(*_source))
+		if (currentChar == '.' && isAsciiDigit(*_source))
 			return scanNumberLiteral(startPosition, startColumn);
 
 		if (currentChar == '"')
@@ -66,7 +66,7 @@ namespace ceres::casm
 
 	void Lexer::skipWhitespaceAndComments() noexcept
 	{
-		while (!_source)
+		while (_source)
 		{
 			switch (char currentChar = *_source; currentChar)
 			{
@@ -89,10 +89,10 @@ namespace ceres::casm
 						++_source; // Consume the first '/'
 						++_source; // Consume the '*'
 
-						while (!_source || !(*_source == '*' && _source[1] == '/'))
+						while (_source && !(*_source == '*' && _source[1] == '/'))
 							++_source;
 
-						if (!_source)
+						if (_source)
 						{
 							++_source; // Consume the '*'
 							++_source; // Consume the '/'
@@ -112,7 +112,7 @@ namespace ceres::casm
 
 	Token Lexer::scanIdentifierOrKeyword(usize startPosition, u32 startColumn) noexcept
 	{
-		usize count = _source.skipUntil(+[](char ch) { return !Identifier::isAsciiAlnum(ch) && ch != '_'; });
+		usize count = _source.skipUntil(+[](char ch) { return !isAsciiAlnum(ch) && ch != '_'; }) + 1;
 		std::string_view text = _source.peekSourceUntilCurrentPosition(count);
 
 		const auto keywordType = checkKeyword(text);
@@ -168,7 +168,7 @@ namespace ceres::casm
 		{
 			// Integer part (may be absent for ".5")
 			bool hasDigitsBeforeDot = false;
-			while (idx < src.size() && Identifier::isAsciiDigit(src[idx]))
+			while (idx < src.size() && isAsciiDigit(src[idx]))
 			{
 				hasDigitsBeforeDot = true;
 				++idx;
@@ -180,7 +180,7 @@ namespace ceres::casm
 				isFloat = true;
 				++idx; // consume '.'
 				bool hasDigitsAfterDot = false;
-				while (idx < src.size() && Identifier::isAsciiDigit(src[idx]))
+				while (idx < src.size() && isAsciiDigit(src[idx]))
 				{
 					hasDigitsAfterDot = true;
 					++idx;
@@ -198,10 +198,10 @@ namespace ceres::casm
 				if (idx < src.size() && (src[idx] == '+' || src[idx] == '-'))
 					++idx;
 
-				if (idx >= src.size() || !Identifier::isAsciiDigit(src[idx]))
+				if (idx >= src.size() || !isAsciiDigit(src[idx]))
 					return Token::makeInvalid(_source.line(), startColumn);
 
-				while (idx < src.size() && Identifier::isAsciiDigit(src[idx]))
+				while (idx < src.size() && isAsciiDigit(src[idx]))
 					++idx;
 			}
 		}

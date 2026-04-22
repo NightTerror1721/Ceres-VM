@@ -99,7 +99,12 @@ namespace ceres::casm
 				return;
 			}
 
-			u32 size = type.sizeInBytes().value_or(0);
+			u32 size = 0;
+			if (type.hasUnknownSize())
+				size = type.withNumElements(value.elements().size()).sizeInBytes().value_or(0);
+			else
+				size = type.sizeInBytes().value_or(0);
+
 			if (size == 0)
 			{
 				reportError(statement.line(), "Cannot determine size of data statement");
@@ -277,38 +282,80 @@ namespace ceres::casm
 							break;
 
 						case OpcodeParameterType::IMM8:
-							encodedInstruction.setImm8(static_cast<u8>(operandInfo.asImmediate().value << param.fixedValueShift()));
+							if (operandInfo.isVariable())
+								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asVariable().address.value() << param.fixedValueShift()));
+							else if (operandInfo.isLabel())
+								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asLabel().address.value() << param.fixedValueShift()));
+							else // if (operandInfo.isImmediate())
+								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asImmediate().value << param.fixedValueShift()));
 							break;
 
 						case OpcodeParameterType::IMM16:
-							encodedInstruction.setImm16(static_cast<u16>(operandInfo.asImmediate().value << param.fixedValueShift()));
+							if (operandInfo.isVariable())
+								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asVariable().address.value() << param.fixedValueShift()));
+							else if (operandInfo.isLabel())
+								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asLabel().address.value() << param.fixedValueShift()));
+							else // if (operandInfo.isImmediate())
+								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asImmediate().value << param.fixedValueShift()));
 							break;
 
 						case OpcodeParameterType::SIMM16:
-							encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asImmediate().value << param.fixedValueShift()));
+							if (operandInfo.isVariable())
+								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asVariable().address.value() << param.fixedValueShift()));
+							else if (operandInfo.isLabel())
+								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asLabel().address.value() << param.fixedValueShift()));
+							else // if (operandInfo.isImmediate())
+								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asImmediate().value << param.fixedValueShift()));
 							break;
 
 						case OpcodeParameterType::IMM24:
-							encodedInstruction.setImm24(static_cast<u24>(operandInfo.asImmediate().value << param.fixedValueShift()));
+							if (operandInfo.isVariable())
+								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asVariable().address.value() << param.fixedValueShift()));
+							else if (operandInfo.isLabel())
+								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asLabel().address.value() << param.fixedValueShift()));
+							else // if (operandInfo.isImmediate())
+								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asImmediate().value << param.fixedValueShift()));
 							break;
 
 						case OpcodeParameterType::SIMM24:
-							encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asImmediate().value << param.fixedValueShift()));
+							if (operandInfo.isVariable())
+								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asVariable().address.value() << param.fixedValueShift()));
+							else if (operandInfo.isLabel())
+								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asLabel().address.value() << param.fixedValueShift()));
+							else // if (operandInfo.isImmediate())
+								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asImmediate().value << param.fixedValueShift()));
 							break;
 
 						case OpcodeParameterType::RD_IMM16:
 							encodedInstruction.setRd(operandInfo.asMemory().baseRegIndex);
-							encodedInstruction.setImm16(static_cast<u16>(instruction.operands[operandIndex + 1].asMemory().immediateOffset().value));
+							if (operandInfo.asMemory().isIdentifierOffset())
+								encodedInstruction.setImm16(static_cast<u16>(instruction.operands[operandIndex + 1].asMemory().immediateOffset().value));
 							break;
 
 						case OpcodeParameterType::RS_IMM16:
 							encodedInstruction.setRs(operandInfo.asMemory().baseRegIndex);
-							encodedInstruction.setImm16(static_cast<u16>(instruction.operands[operandIndex + 1].asMemory().immediateOffset().value));
+							if (operandInfo.asMemory().isIdentifierOffset())
+								encodedInstruction.setImm16(static_cast<u16>(instruction.operands[operandIndex + 1].asMemory().immediateOffset().value));
 							break;
 
 						case OpcodeParameterType::RT_IMM16:
 							encodedInstruction.setRt(operandInfo.asMemory().baseRegIndex);
-							encodedInstruction.setImm16(static_cast<u16>(instruction.operands[operandIndex + 1].asMemory().immediateOffset().value));
+							if (operandInfo.asMemory().isIdentifierOffset())
+								encodedInstruction.setImm16(static_cast<u16>(instruction.operands[operandIndex + 1].asMemory().immediateOffset().value));
+							break;
+
+						case OpcodeParameterType::REL_ADDR:
+							if (operandInfo.isLabel())
+							{
+								Address currentAddress = lastSectionAddress(SectionType::Text);
+								Address targetAddress = operandInfo.asLabel().address;
+								i32 relativeOffset = static_cast<i32>(targetAddress.value()) - static_cast<i32>(currentAddress.value());
+								encodedInstruction.setSImm24(static_cast<i24>(relativeOffset));
+							}
+							else // if (operandInfo.isImmediate())
+							{
+								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asImmediate().value));
+							}
 							break;
 
 						default:
@@ -332,6 +379,25 @@ namespace ceres::casm
 		{
 			writeToBuffer(_textBuffer, vm::Instruction::NOP());
 			remainingOpcodes--;
+		}
+	}
+
+	Address BinaryEmitter::lastSectionAddress(SectionType sectionType)
+	{
+		switch (sectionType)
+		{
+		case SectionType::Text:
+			return _linkedExecutable.memoryMap().textStart + _textBuffer.size();
+
+		case SectionType::Rodata:
+			return _linkedExecutable.memoryMap().rodataStart + _rodataBuffer.size();
+
+		case SectionType::Data:
+			return _linkedExecutable.memoryMap().dataStart + _dataBuffer.size();
+
+		default:
+			reportError(0, "Unsupported section type for lastSectionAddress");
+			return Address::Null;
 		}
 	}
 }

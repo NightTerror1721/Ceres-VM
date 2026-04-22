@@ -25,7 +25,7 @@ namespace ceres::casm
 		SymbolTable _symbolTable; // The symbol table for the translation unit
 		SectionSizes _sectionSizes; // The sizes of the sections in the translation unit
 		std::reference_wrapper<AssemblerErrorHandler> _errorHandler; // The error handler for the translation unit
-		std::vector<std::string> _unresolvedSymbols; // List of unresolved symbols in the translation unit
+		std::vector<UnresolvedSymbol> _unresolvedSymbols; // List of unresolved symbols in the translation unit
 
 	public:
 		TranslationUnit() = delete;
@@ -45,7 +45,7 @@ namespace ceres::casm
 		inline const SymbolTable& symbolTable() const noexcept { return _symbolTable; }
 		inline const SectionSizes& sectionSizes() const noexcept { return _sectionSizes; }
 		inline const AssemblerErrorHandler& errorHandler() const noexcept { return _errorHandler.get(); }
-		inline std::span<const std::string> unresolvedSymbols() const noexcept { return _unresolvedSymbols; }
+		inline std::span<const UnresolvedSymbol> unresolvedSymbols() const noexcept { return _unresolvedSymbols; }
 
 		inline SymbolTable& symbolTable() noexcept { return _symbolTable; }
 		inline SectionSizes& sectionSizes() noexcept { return _sectionSizes; }
@@ -53,7 +53,7 @@ namespace ceres::casm
 		inline std::vector<RelocatableStatement>& ast() noexcept { return _ast; }
 
 		inline void setAST(std::vector<RelocatableStatement>&& ast) noexcept { _ast = std::move(ast); }
-		inline void setUnresolvedSymbols(std::vector<std::string>&& symbols) noexcept { _unresolvedSymbols = std::move(symbols); }
+		inline void setUnresolvedSymbols(std::vector<UnresolvedSymbol>&& symbols) noexcept { _unresolvedSymbols = std::move(symbols); }
 	};
 
 	class TranslationUnitBuilder
@@ -97,7 +97,7 @@ namespace ceres::casm
 		}
 
 	private:
-		DataType resolveDataType(u32 line, const DataTypeReference& dataType) const;
+		DataType resolveDataType(u32 line, const DataTypeReference& dataType, bool allowUnsizedArrays) const;
 		LiteralValue resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays = false) const;
 		std::pair<DataType, LiteralValue> resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const;
 

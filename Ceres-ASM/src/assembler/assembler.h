@@ -32,6 +32,19 @@ namespace ceres::casm
 
 		std::optional<vm::Program> assemble(std::span<const std::filesystem::path> sourceFiles);
 
+	public:
+		std::optional<vm::Program> assemble(const std::vector<std::filesystem::path>& sourceFiles)
+		{
+			return assemble(std::span<const std::filesystem::path>(sourceFiles));
+		}
+		std::optional<vm::Program> assemble(std::initializer_list<const std::filesystem::path> sourceFiles)
+		{
+			return assemble(std::span<const std::filesystem::path>(sourceFiles));
+		}
+
+		bool hasErrors() const noexcept { return _errorHandler.hasErrors(); }
+		std::span<const AssemblerErrorEntry> errors() const noexcept { return _errorHandler; }
+
 	private:
 		std::optional<std::string> readSourceFile(const std::filesystem::path& filePath);
 		std::vector<Statement> parseSource(const std::string& source, const std::filesystem::path& filePath);

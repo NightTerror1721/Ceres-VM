@@ -99,6 +99,15 @@ namespace ceres::casm
 		}
 	};
 
+	struct UnresolvedSymbol
+	{
+		std::string name; // Name of the unresolved symbol
+		std::string parentName; // Name of the parent symbol (if applicable)
+		u32 line; // Line number in the source code where the symbol is referenced
+
+		inline bool isLocal() const noexcept { return !parentName.empty(); }
+	};
+
 	class SymbolTable
 	{
 	public:
@@ -118,11 +127,11 @@ namespace ceres::casm
 		SymbolTable& operator=(SymbolTable&&) = default;
 
 	public:
-		void defineLabel(u32 line, const Identifier& identifier, SectionType section, Address address, LabelLevel level);
-		void defineConstant(u32 line, const Identifier& identifier, bool isGlobal, const LiteralValue& value);
+		void defineLabel(u32 line, std::string_view name, SectionType section, Address address, LabelLevel level);
+		void defineConstant(u32 line, std::string_view name, bool isGlobal, const LiteralValue& value);
 
 		std::optional<std::reference_wrapper<const Symbol>> get(std::string_view name) const noexcept;
-		std::optional<std::reference_wrapper<const Symbol>> getLocal(std::string_view name, const Identifier& parentIdentifier) const noexcept;
+		std::optional<std::reference_wrapper<const Symbol>> getLocal(std::string_view name, std::string_view parentName) const noexcept;
 
 		void relocateSymbols(Address textOffset, Address dataOffset, Address rodataOffset, Address bssOffset);
 
@@ -133,22 +142,22 @@ namespace ceres::casm
 				error(0, "Redefinition of symbol: {}", it->first);
 		}
 
-		void defineVariable(u32 line, const Identifier& identifier, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType, const LiteralValue& initialValue)
+		void defineVariable(u32 line, std::string_view name, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType, const LiteralValue& initialValue)
 		{
-			defineVariable(line, identifier, section, address, isGlobal, isReadonly, dataType, &initialValue);
+			defineVariable(line, name, section, address, isGlobal, isReadonly, dataType, &initialValue);
 		}
-		void defineVariable(u32 line, const Identifier& identifier, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType)
+		void defineVariable(u32 line, std::string_view name, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType)
 		{
-			defineVariable(line, identifier, section, address, isGlobal, isReadonly, dataType, nullptr);
+			defineVariable(line, name, section, address, isGlobal, isReadonly, dataType, nullptr);
 		}
 
-		Operand& tryResolveOperand(u32 line, Operand& operand, std::vector<std::string>& unresolvedSymbols) const
+		Operand& tryResolveOperand(u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>& unresolvedSymbols) const
 		{
-			return resolveOperand(line, operand, &unresolvedSymbols, nullptr);
+			return resolveOperand(line, operand, parentName, &unresolvedSymbols, nullptr);
 		}
-		Operand& resolveOperand(u32 line, Operand& operand, const SymbolTable& globalSymbolTable) const
+		Operand& resolveOperand(u32 line, Operand& operand, std::string_view parentName, const SymbolTable& globalSymbolTable) const
 		{
-			return resolveOperand(line, operand, nullptr, &globalSymbolTable);
+			return resolveOperand(line, operand, parentName, nullptr, &globalSymbolTable);
 		}
 
 		const std::unordered_map<std::string, Symbol>& getAllSymbols() const noexcept
@@ -157,13 +166,13 @@ namespace ceres::casm
 		}
 
 	private:
-		void defineVariable(u32 line, const Identifier& identifier, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType, const LiteralValue* initialValue);
+		void defineVariable(u32 line, std::string_view name, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType, const LiteralValue* initialValue);
 
 		std::string resolveName(u32 line, std::string_view name, bool isLocal);
 
 		void checkRedefinition(u32 line, const std::string& name) const;
 
-		Operand& resolveOperand(u32 line, Operand& operand, std::vector<std::string>* unresolvedSymbols, const SymbolTable* globalSymbolTable) const;
+		Operand& resolveOperand(u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>* unresolvedSymbols, const SymbolTable* globalSymbolTable) const;
 
 	private:
 		[[noreturn]] void error(u32 line, std::string_view message) const

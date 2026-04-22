@@ -25,6 +25,7 @@ namespace ceres::casm
 		VariableU32,				// 32-bit variable (for pseudo-instructions)
 		VariableS32,				// 32-bit signed variable (for pseudo-instructions)
 		VariableF32,				// Floating-point variable (for pseudo-instructions)
+		Label,						// Label operand (for branch instructions)
 	};
 
 	enum class OpcodeParameterType : u8
@@ -44,6 +45,7 @@ namespace ceres::casm
 		RD_IMM16,		// Destination register with 16-bit immediate value
 		RS_IMM16,		// Source register with 16-bit immediate value
 		RT_IMM16,		// Target register with 16-bit immediate value
+		REL_ADDR,		// Relative address (for branch instructions) (similar to SIMM24)
 	};
 
 
@@ -167,6 +169,9 @@ namespace ceres::casm
 				case OpcodeParameterType::RS_IMM16:
 				case OpcodeParameterType::RT_IMM16:
 					return OperandType::RegisterPlusAddress;
+
+				case OpcodeParameterType::REL_ADDR:
+					return OperandType::Label;
 
 				default:
 					return OperandType::Invalid;

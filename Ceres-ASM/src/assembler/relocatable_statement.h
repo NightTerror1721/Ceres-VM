@@ -9,7 +9,7 @@ namespace ceres::casm
 	struct ResolvedDataStatement
 	{
 		bool isConstant; // Whether the data is a constant (defined with 'const') or a variable (defined with 'let')
-		Identifier identifier; // Identifier name (e.g., variable name)
+		std::string name; // Identifier name (e.g., variable name)
 		DataType dataType; // Resolved data type information (can be scalar, unsized array, or sized array)
 		std::optional<LiteralValue> value; // Optional initial value (can be a literal integer, float, char, bool, string, or an array of literal values)
 	};
@@ -67,28 +67,28 @@ namespace ceres::casm
 		void setAddress(vm::Address address) noexcept { _address = address; }
 
 	public:
-		static RelocatableStatement makeSection(u32 line, const SectionStatement& section) noexcept
+		static RelocatableStatement makeSection(u32 line, SectionStatement&& section) noexcept
 		{
-			return RelocatableStatement(line, 0, std::nullopt, section);
+			return RelocatableStatement(line, 0, std::nullopt, std::move(section));
 		}
 
-		static RelocatableStatement makeLabel(u32 line, vm::Address address, const LabelStatement& label) noexcept
+		static RelocatableStatement makeLabel(u32 line, vm::Address address, LabelStatement&& label) noexcept
 		{
-			return RelocatableStatement(line, 0, address, label);
+			return RelocatableStatement(line, 0, address, std::move(label));
 		}
 
-		static RelocatableStatement makeData(u32 line, u32 size, const ResolvedDataStatement& data) noexcept
+		static RelocatableStatement makeData(u32 line, u32 size, ResolvedDataStatement&& data) noexcept
 		{
-			return RelocatableStatement(line, size, std::nullopt, data);
+			return RelocatableStatement(line, size, std::nullopt, std::move(data));
 		}
-		static RelocatableStatement makeData(u32 line, u32 size, vm::Address address, const ResolvedDataStatement& data) noexcept
+		static RelocatableStatement makeData(u32 line, u32 size, vm::Address address, ResolvedDataStatement&& data) noexcept
 		{
-			return RelocatableStatement(line, size, address, data);
+			return RelocatableStatement(line, size, address, std::move(data));
 		}
 
-		static RelocatableStatement makeInstruction(u32 line, vm::Address address, const InstructionStatement& instruction) noexcept
+		static RelocatableStatement makeInstruction(u32 line, vm::Address address, InstructionStatement&& instruction) noexcept
 		{
-			return RelocatableStatement(line, vm::Instruction::Size, address, instruction);
+			return RelocatableStatement(line, vm::Instruction::Size, address, std::move(instruction));
 		}
 	};
 }

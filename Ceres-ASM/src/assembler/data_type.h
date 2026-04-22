@@ -62,6 +62,9 @@ namespace ceres::casm
 
 		constexpr std::optional<u32> sizeInBytes() const noexcept
 		{
+			if (_numElements == 0)
+				return std::nullopt; // Unsized array (e.g., string or unsized array) has unknown size
+
 			u32 scalarSize = 0;
 			switch (_scalarCode)
 			{
@@ -179,7 +182,7 @@ namespace ceres::casm
 	private:
 		DataTypeScalarCode _scalarCode = DataTypeScalarCode::Invalid;
 		u32 _numElements = 1; // 0 indicates an unsized array (e.g., string or unsized array)
-		Identifier _numElementsIdentifier{}; // Only used if _dataType is an unsized array and the size is specified by an identifier
+		std::string _numElementsIdentifier{}; // Only used if _dataType is an unsized array and the size is specified by an identifier
 
 	public:
 		constexpr DataTypeReference() noexcept = default;
@@ -196,8 +199,8 @@ namespace ceres::casm
 		constexpr DataTypeReference(DataTypeScalarCode scalarCode, u32 numElements) noexcept :
 			_scalarCode(scalarCode), _numElements(numElements)
 		{}
-		constexpr DataTypeReference(DataTypeScalarCode scalarCode, Identifier numElementsIdentifier) noexcept :
-			_scalarCode(scalarCode), _numElements(0), _numElementsIdentifier(numElementsIdentifier)
+		constexpr DataTypeReference(DataTypeScalarCode scalarCode, std::string&& numElementsIdentifier) noexcept :
+			_scalarCode(scalarCode), _numElements(0), _numElementsIdentifier(std::move(numElementsIdentifier))
 		{}
 
 	public:
@@ -208,7 +211,7 @@ namespace ceres::casm
 		constexpr DataTypeScalarCode scalarCode() const noexcept { return _scalarCode; }
 
 		constexpr bool hasNumElementsIdentifier() const noexcept { return !_numElementsIdentifier.empty(); }
-		constexpr Identifier numElementsIdentifier() const noexcept { return _numElementsIdentifier; }
+		constexpr std::string_view numElementsIdentifier() const noexcept { return _numElementsIdentifier; }
 		constexpr u32 numElementsIntegerValue() const noexcept { return !hasNumElementsIdentifier() ? _numElements : 0; }
 
 		constexpr bool isValid() const noexcept { return _scalarCode != DataTypeScalarCode::Invalid; }
@@ -223,7 +226,7 @@ namespace ceres::casm
 			std::string result{ DataType::scalarCodeToString(_scalarCode) };
 
 			if (isSizedArray())
-				result += "[" + (hasNumElementsIdentifier() ? std::string(_numElementsIdentifier.name()) : std::to_string(_numElements)) + "]";
+				result += string_utils::concat("[", (hasNumElementsIdentifier() ? std::string(_numElementsIdentifier) : std::to_string(_numElements)), "]");
 			else if (isUnsizedArray())
 				result += "[]";
 
@@ -236,9 +239,13 @@ namespace ceres::casm
 		{
 			return DataTypeReference{ scalarCode, numElements };
 		}
-		static constexpr DataTypeReference make(DataTypeScalarCode scalarCode, const Identifier& numElementsIdentifier) noexcept
+		static constexpr DataTypeReference make(DataTypeScalarCode scalarCode, std::string_view numElementsIdentifier) noexcept
 		{
-			return DataTypeReference{ scalarCode, numElementsIdentifier };
+			return DataTypeReference{ scalarCode, std::string(numElementsIdentifier) };
+		}
+		static constexpr DataTypeReference make(DataTypeScalarCode scalarCode, std::string&& numElementsIdentifier) noexcept
+		{
+			return DataTypeReference{ scalarCode, std::move(numElementsIdentifier) };
 		}
 	};
 

@@ -1,0 +1,75 @@
+// ==========================================================
+// Ceres ASM - Archivo de prueba exhaustiva para VSCode
+// ==========================================================
+
+// 1. Constantes (Macros de tiempo de compilación)
+const MAX_PLAYERS = 4
+const INITIAL_SCORE = 0x0000
+const MASK_BITS = 0b10101100
+
+@rodata
+    // 2. Arrays sin tamaño (Unsized arrays) y Strings
+    let welcome_msg: u8[] = "Welcome to CeresVM!\n"
+    let error_msg: u8[] = "Error 404\0"
+    
+    // 3. Tipos de coma flotante
+    let pi_value: f32 = 3.14159
+    let gravity: f32 = -9.81
+
+@bss
+    // 4. Variables sin inicializar (Sized arrays usando constantes)
+    let dynamic_buffer: u32[128]
+    let player_active: u8[MAX_PLAYERS]
+
+@data
+    // 5. Variables inicializadas con escalares y arrays
+    let global_score: u32 = INITIAL_SCORE
+    let magic_numbers: i16[4] = [42, -10, 0x1A, 0b10]
+    let is_running: u8 = 1
+
+@text
+// 6. Etiquetas Globales
+global main:
+    // 7. Pseudo-instrucciones y referencias a identificadores
+    LA R1, welcome_msg      // Carga el puntero (Load Address)
+    CALL print_string       // Salto a subrutina
+
+    LDV R2, global_score    // Carga el valor absoluto (Load Value)
+    LI R3, 10               // Carga inmediato (Load Immediate)
+    
+    // 8. Aritmética de enteros y registros
+    ADD R2, R2, R3          // Aritmética básica
+    STV R2, global_score    // Guarda el valor absoluto (Store Value)
+
+    // 9. Instrucciones y registros de coma flotante (FPU)
+    LDV F0, pi_value
+    ADD F1, F0, F0          // 2 * pi
+    FTOI R4, F1             // Conversión Float -> Int
+
+    // 10. Bucle e inicialización de punteros
+    LI R4, 0                // Índice i = 0
+    LA R5, player_active    // Puntero base del array en R5
+
+// 11. Etiquetas Locales / Bucles
+.init_loop:
+    LI R6, MAX_PLAYERS
+    CMP R4, R6
+    JZ end_loop             // Salto condicional si i == MAX_PLAYERS
+
+    // 12. Direccionamiento Relativo a Base (Memoria)
+    LI R7, 1
+    STRB [R5 + 0], R7       // player_active[i] = 1
+    LDRB R8, [R5 + 0]       // Leer de vuelta para testear LDRB
+
+    ADD R4, R4, 1           // i++
+    ADD R5, R5, 1           // Avanza puntero 1 byte
+    JP .init_loop           // Salto incondicional (Jump)
+
+.end_loop:
+    HALT                    // Detiene la máquina virtual
+
+// Subrutina dummy
+print_string:
+    // Imprime el string apuntado por R1
+    NOP
+    RET

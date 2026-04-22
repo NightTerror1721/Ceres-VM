@@ -191,5 +191,8 @@
     <ClInclude Include="src\assembler\assembler.h">
       <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>
+    <ClInclude Include="src\common\string_utils.h">
+      <Filter>Archivos de encabezado\common</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

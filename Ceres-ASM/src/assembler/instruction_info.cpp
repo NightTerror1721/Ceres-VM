@@ -222,25 +222,37 @@ namespace ceres::casm
 			op(Opcode::LUI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
 			op(Opcode::ORI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::RS, 0), param(OpcodeParameterType::IMM16, 1))
 		}),
+		inst(sig(Mnemonic::LA, OperandType::IntegralRegister, OperandType::Label), {
+			op(Opcode::LUI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
+			op(Opcode::ORI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::RS, 0), param(OpcodeParameterType::IMM16, 1))
+		}),
 		inst(Opcode::LEA, Mnemonic::LEA, OpcodeParameterType::RD, OpcodeParameterType::RT_IMM16),
 
+		inst(Opcode::JP, Mnemonic::JP, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::JP, Mnemonic::JP, OpcodeParameterType::SIMM24),
 		inst(Opcode::JPR, Mnemonic::JP, OpcodeParameterType::RS),
 		inst(Opcode::CMP, Mnemonic::CMP, OpcodeParameterType::RS, OpcodeParameterType::RT),
 		inst(Opcode::CMPI, Mnemonic::CMP, OpcodeParameterType::RS, OpcodeParameterType::SIMM16),
 		inst(Opcode::FCMP, Mnemonic::CMP, OpcodeParameterType::FS, OpcodeParameterType::FT),
+		inst(Opcode::JZ, Mnemonic::JZ, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::JZ, Mnemonic::JZ, OpcodeParameterType::SIMM24),
 		inst(Opcode::JZR, Mnemonic::JZ, OpcodeParameterType::RS),
+		inst(Opcode::JNZ, Mnemonic::JNZ, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::JNZ, Mnemonic::JNZ, OpcodeParameterType::SIMM24),
 		inst(Opcode::JNZR, Mnemonic::JNZ, OpcodeParameterType::RS),
+		inst(Opcode::JC, Mnemonic::JC, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::JC, Mnemonic::JC, OpcodeParameterType::SIMM24),
 		inst(Opcode::JCR, Mnemonic::JC, OpcodeParameterType::RS),
+		inst(Opcode::JNC, Mnemonic::JNC, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::JNC, Mnemonic::JNC, OpcodeParameterType::SIMM24),
 		inst(Opcode::JNCR, Mnemonic::JNC, OpcodeParameterType::RS),
+		inst(Opcode::JS, Mnemonic::JS, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::JS, Mnemonic::JS, OpcodeParameterType::SIMM24),
 		inst(Opcode::JSR, Mnemonic::JS, OpcodeParameterType::RS),
+		inst(Opcode::JNS, Mnemonic::JNS, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::JNS, Mnemonic::JNS, OpcodeParameterType::SIMM24),
 		inst(Opcode::JNSR, Mnemonic::JNS, OpcodeParameterType::RS),
+		inst(Opcode::CALL, Mnemonic::CALL, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::CALL, Mnemonic::CALL, OpcodeParameterType::SIMM24),
 		inst(Opcode::CALLR, Mnemonic::CALL, OpcodeParameterType::RS),
 		inst(Opcode::RET, Mnemonic::RET),
@@ -261,7 +273,7 @@ namespace ceres::casm
 
 		inst(Opcode::IN, Mnemonic::IN, OpcodeParameterType::RD, OpcodeParameterType::IMM8),
 		inst(Opcode::INR, Mnemonic::IN, OpcodeParameterType::RD, OpcodeParameterType::RS),
-		inst(Opcode::OUT, Mnemonic::OUT, OpcodeParameterType::IMM8, OpcodeParameterType::RS),
+		inst(Opcode::OUT, Mnemonic::OUT, OpcodeParameterType::RS, OpcodeParameterType::IMM8),
 		inst(Opcode::OUTR, Mnemonic::OUT, OpcodeParameterType::RS, OpcodeParameterType::RS)
 	};
 

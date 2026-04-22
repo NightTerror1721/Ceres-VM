@@ -42,6 +42,7 @@ namespace ceres::casm
 	private:
 		void emitData(const RelocatableStatement& statement, bool isRodata);
 		void emitInstruction(const RelocatableStatement& statement);
+		Address lastSectionAddress(SectionType sectionType);
 
 	private:
 		template <typename T>
