@@ -71,6 +71,11 @@ namespace ceres::vm
 			std::span<const ByteType> data
 		);
 
+		// Program could be loaded five different ways and written none, which is why the assembler
+		// and the VM could only ever run in the same process.
+		std::expected<void, std::string> saveToFile(const std::filesystem::path& filePath) const;
+		std::expected<void, std::string> writeToStream(std::ostream& stream) const;
+
 		std::expected<Program, std::string> static loadFromFile(const std::filesystem::path& filePath);
 		std::expected<Program, std::string> static loadFromBytes(std::span<const ByteType> bytes);
 		std::expected<Program, std::string> static loadFromStream(std::istream& stream);

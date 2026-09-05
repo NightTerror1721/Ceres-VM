@@ -18,6 +18,39 @@ namespace ceres::vm
 		);
 	}
 
+	std::expected<void, std::string> Program::writeToStream(std::ostream& stream) const
+	{
+		if (!stream)
+			return std::unexpected("Invalid output stream");
+
+		// Header first, then the three sections in the order loadProgram expects them in memory.
+		stream.write(reinterpret_cast<const char*>(&_header), sizeof(_header));
+
+		const auto writeSection = [&stream](const std::vector<ByteType>& section)
+		{
+			if (!section.empty())
+				stream.write(reinterpret_cast<const char*>(section.data()), static_cast<std::streamsize>(section.size()));
+		};
+
+		writeSection(_text);
+		writeSection(_rodata);
+		writeSection(_data);
+
+		if (!stream)
+			return std::unexpected("Failed while writing the program");
+
+		return {};
+	}
+
+	std::expected<void, std::string> Program::saveToFile(const std::filesystem::path& filePath) const
+	{
+		std::ofstream file(filePath, std::ios::binary | std::ios::trunc);
+		if (!file)
+			return std::unexpected("Failed to open file for writing: " + filePath.string());
+
+		return writeToStream(file);
+	}
+
 	std::expected<Program, std::string> Program::loadFromFile(const std::filesystem::path& filePath)
 	{
 		std::ifstream file(filePath, std::ios::binary);

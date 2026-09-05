@@ -1,121 +1,252 @@
 #include <iostream>
+#include <filesystem>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include "vm/ceresvm.h"
 #include "vm/devices.h"
-#include "assembler/assembler.h"
 #include "vm/disassembler.h"
-#include <filesystem>
-#include <string_view>
+#include "assembler/assembler.h"
+
+namespace
+{
+	using namespace ceres;
+	using namespace ceres::vm;
+
+	constexpr std::string_view UsageText =
+		"Ceres - assembler and virtual machine\n"
+		"\n"
+		"  ceres asm <source.casm> [-o <output.cres>] [--listing]\n"
+		"      Assemble a source file. Without -o the program is only checked.\n"
+		"\n"
+		"  ceres run <file.casm|file.cres> [--memory <bytes>]\n"
+		"      Run a program, assembling it first if given a source file.\n"
+		"\n"
+		"  ceres disasm <file.casm|file.cres>\n"
+		"      Print the text section as address, encoded word and instruction.\n"
+		"\n"
+		"A bare path is shorthand for 'run'.\n";
+
+	// Set by the assembling commands so a failure prints every diagnostic, not just the first.
+	void reportAssemblyErrors(const casm::Assembler& assembler, const std::filesystem::path& path)
+	{
+		std::cerr << "Failed to assemble " << path.string() << '\n';
+		for (const auto& error : assembler.errors())
+			std::cerr << "  [line " << error.line << "] " << error.message << '\n';
+	}
+
+	std::optional<Program> assembleFile(const std::filesystem::path& path)
+	{
+		casm::Assembler assembler{};
+		auto program = assembler.assemble({ path });
+
+		if (!program.has_value() || assembler.hasErrors())
+		{
+			reportAssemblyErrors(assembler, path);
+			return std::nullopt;
+		}
+		return program;
+	}
+
+	// A .cres is loaded as-is; anything else is assembled first. Keeps every command able to take
+	// either form without the caller having to care.
+	std::optional<Program> loadProgram(const std::filesystem::path& path)
+	{
+		if (path.extension() == ".cres")
+		{
+			auto loaded = Program::loadFromFile(path);
+			if (!loaded)
+			{
+				std::cerr << "Failed to load " << path.string() << ": " << loaded.error() << '\n';
+				return std::nullopt;
+			}
+			return std::move(loaded.value());
+		}
+
+		return assembleFile(path);
+	}
+
+	void printListing(const Program& program, const std::filesystem::path& path)
+	{
+		const ProgramHeader& header = program.header();
+		std::cout << "; " << path.string()
+			<< "  text=" << header.textSize
+			<< "  rodata=" << header.rodataSize
+			<< "  data=" << header.dataSize
+			<< "  bss=" << header.bssSize
+			<< "  entry=0x" << std::hex << header.entryPoint << std::dec << '\n';
+		std::cout << Disassembler::listing(program.text(), Memory::UnrestrictedSegmentStart);
+	}
+
+	int runProgram(const Program& program, usize memorySize)
+	{
+		CeresVM vm{ memorySize };
+
+		SystemControlDevice systemControl{
+			[&vm]() { vm.shutdown(); },
+			[&vm]() { vm.shutdown(); }
+		};
+		systemControl.attachTo(vm.io());
+
+		TerminalDevice terminal{};
+		terminal.attachTo(vm.io());
+
+		if (auto loaded = vm.loadProgram(program); !loaded)
+		{
+			std::cerr << "Failed to load program: " << loaded.error() << '\n';
+			return 1;
+		}
+
+		if (auto ran = vm.run(); !ran)
+		{
+			std::cerr << "Failed to run program: " << ran.error() << '\n';
+			return 1;
+		}
+
+		return 0;
+	}
+
+	struct Options
+	{
+		std::string_view command;
+		std::filesystem::path input;
+		std::filesystem::path output;
+		bool listing = false;
+		usize memorySize = Memory::DefaultSize;
+	};
+
+	// Returns nullopt when the arguments do not describe a runnable command; the caller prints
+	// the usage text.
+	std::optional<Options> parseArguments(int argc, char** argv)
+	{
+		Options options;
+		std::vector<std::string_view> positional;
+
+		for (int i = 1; i < argc; ++i)
+		{
+			const std::string_view argument = argv[i];
+
+			if (argument == "-o" || argument == "--output")
+			{
+				if (++i >= argc)
+				{
+					std::cerr << "Missing path after " << argument << '\n';
+					return std::nullopt;
+				}
+				options.output = argv[i];
+			}
+			else if (argument == "--listing")
+			{
+				options.listing = true;
+			}
+			else if (argument == "--memory")
+			{
+				if (++i >= argc)
+				{
+					std::cerr << "Missing size after --memory\n";
+					return std::nullopt;
+				}
+				options.memorySize = static_cast<usize>(std::stoull(argv[i]));
+			}
+			else if (argument == "-h" || argument == "--help")
+			{
+				return std::nullopt;
+			}
+			else if (argument.starts_with("-"))
+			{
+				std::cerr << "Unknown option '" << argument << "'\n";
+				return std::nullopt;
+			}
+			else
+			{
+				positional.push_back(argument);
+			}
+		}
+
+		if (positional.empty())
+			return std::nullopt;
+
+		// A bare path means 'run', so the common case stays short.
+		if (positional[0] == "asm" || positional[0] == "run" || positional[0] == "disasm")
+		{
+			options.command = positional[0];
+			if (positional.size() < 2)
+			{
+				std::cerr << "Missing input file for '" << options.command << "'\n";
+				return std::nullopt;
+			}
+			options.input = positional[1];
+		}
+		else
+		{
+			options.command = "run";
+			options.input = positional[0];
+		}
+
+		return options;
+	}
+}
 
 int main(int argc, char** argv)
 {
 	using namespace ceres;
 	using namespace ceres::vm;
 
-	CeresVM vm{};
-
-	SystemControlDevice systemControlDevice{
-		[&vm]() { vm.shutdown(); }, // Shutdown callback
-		[&vm]() { vm.shutdown(); }  // Reset callback (for simplicity, we just shut down the VM on reset as well)
-	};
-	systemControlDevice.attachTo(vm.io());
-
-	TerminalDevice terminalDevice{};
-	terminalDevice.attachTo(vm.io());
-
-	// For demonstration purposes, we'll create a simple program in memory that writes "Hello, World!" to the terminal and then halts.
-
-	/*constexpr u8 OutPort = default_ports::TERM_OUT;
-	std::vector<Instruction> programInstructions = {
-		Instruction::LI(0, 'H'), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, 'e'), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, 'l'), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, 'l'), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, 'o'), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, ','), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, ' '), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, 'W'), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, 'o'), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, 'r'), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, 'l'), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, 'd'), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, '!'), Instruction::OUT(0, OutPort),
-		Instruction::LI(0, 0x01), Instruction::OUT(0, default_ports::SYS_CONTROL) // Send shutdown command to system control port to halt the VM.
-	};
-
-	std::span<const u8> programBytes = Instruction::asBytes(programInstructions);
-
-	ProgramHeader header{};
-	header.magic = ProgramHeader::MagicNumber;
-	header.version = ProgramHeader::CurrentVersion;
-	header.flags = 0;
-	header.entryPoint = Memory::UnrestrictedSegmentStart.value(); // Entry point at the start of the unrestricted segment
-	header.textSize = static_cast<u32>(programBytes.size());
-	header.rodataSize = 0;
-	header.dataSize = 0;
-	header.bssSize = 0;
-	header.minimumStack = 1024; // Minimum stack size of 1 KiB
-
-	Program program = Program::make(header, programBytes, {}, {});*/
-
-	// A real command line belongs to a later pass; this is just enough to point the assembler at
-	// a different file and to dump what it produced.
-	std::filesystem::path sourcePath = "examples/main.casm";
-	bool showListing = false;
-
-	for (int i = 1; i < argc; ++i)
+	const auto optionsOpt = parseArguments(argc, argv);
+	if (!optionsOpt.has_value())
 	{
-		const std::string_view argument = argv[i];
-		if (argument == "--listing")
-			showListing = true;
-		else if (argument.starts_with("--"))
-		{
-			std::cerr << "Unknown option '" << argument << "'. Usage: ceres [source.casm] [--listing]" << std::endl;
-			return 2;
-		}
-		else
-			sourcePath = argument;
+		std::cerr << UsageText;
+		return 2;
 	}
 
-	ceres::casm::Assembler assembler{};
-	auto programOpt = assembler.assemble({ sourcePath });
-	if (!programOpt.has_value())
+	const Options& options = optionsOpt.value();
+
+	if (!std::filesystem::exists(options.input))
 	{
-		std::cerr << "Failed to assemble " << sourcePath.string() << std::endl;
-		if (assembler.hasErrors())
-		{
-			for (const auto& error : assembler.errors())
-				std::cerr << "  [" << error.line << "] " << error.message << std::endl;
-		}
+		std::cerr << "No such file: " << options.input.string() << '\n';
 		return 1;
 	}
 
-	Program program = std::move(programOpt.value());
-
-	if (showListing)
+	if (options.command == "asm")
 	{
-		const ProgramHeader& header = program.header();
-		std::cerr << "; " << sourcePath.string()
-			<< "  text=" << header.textSize
-			<< "  rodata=" << header.rodataSize
-			<< "  data=" << header.dataSize
-			<< "  bss=" << header.bssSize
-			<< "  entry=0x" << std::hex << header.entryPoint << std::dec << std::endl;
-		std::cerr << Disassembler::listing(program.text(), Memory::UnrestrictedSegmentStart);
+		auto program = assembleFile(options.input);
+		if (!program.has_value())
+			return 1;
 
-		// Asking for a listing means inspecting the output, not running it.
+		if (options.listing)
+			printListing(program.value(), options.input);
+
+		if (!options.output.empty())
+		{
+			if (auto saved = program->saveToFile(options.output); !saved)
+			{
+				std::cerr << "Failed to write " << options.output.string() << ": " << saved.error() << '\n';
+				return 1;
+			}
+			std::cerr << "Wrote " << options.output.string() << '\n';
+		}
+
 		return 0;
 	}
 
-	if (auto result = vm.loadProgram(program); !result)
+	if (options.command == "disasm")
 	{
-		std::cerr << "Failed to load program: " << result.error() << std::endl;
-		return 1;
+		auto program = loadProgram(options.input);
+		if (!program.has_value())
+			return 1;
+
+		printListing(program.value(), options.input);
+		return 0;
 	}
 
-	if (auto result = vm.run(); !result)
-	{
-		std::cerr << "Failed to run program: " << result.error() << std::endl;
+	// run
+	auto program = loadProgram(options.input);
+	if (!program.has_value())
 		return 1;
-	}
 
+	if (options.listing)
+		printListing(program.value(), options.input);
+
+	return runProgram(program.value(), options.memorySize);
 }
