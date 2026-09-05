@@ -26,19 +26,19 @@ namespace ceres::vm
 
 		if (header.textSize > 0)
 		{
-			_memory.loadBytes(offset, program.text());
+			_memory.writeBytesUnchecked(offset, program.text());
 			offset += header.textSize;
 		}
 
 		if (header.rodataSize > 0)
 		{
-			_memory.loadBytes(offset, program.rodata());
+			_memory.writeBytesUnchecked(offset, program.rodata());
 			offset += header.rodataSize;
 		}
 
 		if (header.dataSize > 0)
 		{
-			_memory.loadBytes(offset, program.data());
+			_memory.writeBytesUnchecked(offset, program.data());
 			offset += header.dataSize;
 		}
 

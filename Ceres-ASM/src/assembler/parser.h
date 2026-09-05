@@ -35,8 +35,8 @@ namespace ceres::casm
 		ParserCursor& operator=(ParserCursor&&) noexcept = default;
 
 	public:
-		explicit ParserCursor(std::string_view source) noexcept :
-			_lexer(source),
+		explicit ParserCursor(std::string_view source, StringPool& stringPool) noexcept :
+			_lexer(source, stringPool),
 			_currentToken(_lexer.nextToken()),
 			_peekedToken(_lexer.nextToken())
 		{}
@@ -156,6 +156,7 @@ namespace ceres::casm
 	{
 	private:
 		ParserCursor _cursor;
+		StringPool& _stringPool;
 		AssemblerErrorHandler& _errorHandler;
 
 	public:
@@ -168,16 +169,21 @@ namespace ceres::casm
 		Parser& operator=(Parser&&) noexcept = delete;
 
 	public:
-		explicit Parser(std::string_view source, AssemblerErrorHandler& errorHandler) noexcept :
-			_cursor(source), _errorHandler(errorHandler)
+		explicit Parser(std::string_view source, StringPool& stringPool, AssemblerErrorHandler& errorHandler) noexcept :
+			_cursor(source, stringPool), _stringPool(stringPool), _errorHandler(errorHandler)
 		{}
 
 		std::vector<Statement> parse();
 
 	private:
+		Optional<Statement> parseStatement();
+
 		Statement parseSection();
 		Statement parseDataDeclaration();
+		Statement parseImportDeclaration();
 		Statement parseLabelOrInstruction();
+		Statement parseMacroLabel();
+		Statement parseMacroDeclaration();
 
 		DataTypeReference parseDataType();
 		LiteralValueReference parseLiteralValue(std::optional<DataTypeReference> expectedDataType);

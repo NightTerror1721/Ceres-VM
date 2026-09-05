@@ -1,14 +1,18 @@
 #pragma once
 
 #include "symbol_table.h"
+#include "macro_table.h"
 #include "relocatable_statement.h"
 #include "size.h"
 #include <vector>
 #include <string_view>
 #include <expected>
+#include <flat_set>
 
 namespace ceres::casm
 {
+	class AssemblyState;
+
 	struct SectionSizes
 	{	
 		u32 textSize = 0; // Size of the text section in bytes
@@ -20,12 +24,13 @@ namespace ceres::casm
 	class TranslationUnit
 	{
 	private:
-		std::string _source; // The source code of the translation unit
+		Ref<AssemblyState> _state; // Shared pointer to the assembly state
 		std::vector<RelocatableStatement> _ast; // The abstract syntax tree (AST) of the translation unit
 		SymbolTable _symbolTable; // The symbol table for the translation unit
+		MacroTable _macroTable; // The macro table for the translation unit
 		SectionSizes _sectionSizes; // The sizes of the sections in the translation unit
-		std::reference_wrapper<AssemblerErrorHandler> _errorHandler; // The error handler for the translation unit
 		std::vector<UnresolvedSymbol> _unresolvedSymbols; // List of unresolved symbols in the translation unit
+		std::flat_set<std::string> _importedModules; // List of imported modules in the translation unit
 
 	public:
 		TranslationUnit() = delete;
@@ -37,23 +42,31 @@ namespace ceres::casm
 		TranslationUnit& operator=(TranslationUnit&&) noexcept = default;
 
 	public:
-		explicit TranslationUnit(const std::string& source, AssemblerErrorHandler& errorHandler) noexcept : _source(source), _errorHandler(errorHandler) {}
-		explicit TranslationUnit(std::string&& source, AssemblerErrorHandler& errorHandler) noexcept : _source(std::move(source)), _errorHandler(errorHandler) {}
+		explicit TranslationUnit(AssemblyState& state) noexcept : _state(state) {}
 
-		inline std::string_view source() const noexcept { return _source; }
+		inline const AssemblyState& state() const noexcept { return _state.get(); }
 		inline std::span<const RelocatableStatement> ast() const noexcept { return _ast; }
 		inline const SymbolTable& symbolTable() const noexcept { return _symbolTable; }
+		inline const MacroTable& macroTable() const noexcept { return _macroTable; }
 		inline const SectionSizes& sectionSizes() const noexcept { return _sectionSizes; }
-		inline const AssemblerErrorHandler& errorHandler() const noexcept { return _errorHandler.get(); }
 		inline std::span<const UnresolvedSymbol> unresolvedSymbols() const noexcept { return _unresolvedSymbols; }
 
+		inline AssemblyState& state() noexcept { return _state.get(); }
 		inline SymbolTable& symbolTable() noexcept { return _symbolTable; }
+		inline MacroTable& macroTable() noexcept { return _macroTable; }
 		inline SectionSizes& sectionSizes() noexcept { return _sectionSizes; }
-		inline AssemblerErrorHandler& errorHandler() noexcept { return _errorHandler.get(); }
 		inline std::vector<RelocatableStatement>& ast() noexcept { return _ast; }
+		inline std::span<const std::string> importedModules() const noexcept { return _importedModules; }
 
 		inline void setAST(std::vector<RelocatableStatement>&& ast) noexcept { _ast = std::move(ast); }
 		inline void setUnresolvedSymbols(std::vector<UnresolvedSymbol>&& symbols) noexcept { _unresolvedSymbols = std::move(symbols); }
+		inline void addImportedModule(const std::string& moduleName) { _importedModules.insert(moduleName); }
+
+		inline bool hasImportedModule(const std::string& moduleName) const noexcept
+		{
+			return _importedModules.contains(moduleName);
+		}
+		
 	};
 
 	class TranslationUnitBuilder
@@ -78,8 +91,7 @@ namespace ceres::casm
 		TranslationUnitBuilder& operator=(TranslationUnitBuilder&&) noexcept = default;
 
 	public:
-		explicit TranslationUnitBuilder(const std::string& source, AssemblerErrorHandler& errorHandler) noexcept : _translationUnit(source, errorHandler) {}
-		explicit TranslationUnitBuilder(std::string&& source, AssemblerErrorHandler& errorHandler) noexcept : _translationUnit(std::move(source), errorHandler) {}
+		explicit TranslationUnitBuilder(AssemblyState& state) noexcept : _translationUnit(state) {}
 
 		void build(std::vector<Statement>&& statements);
 
@@ -135,6 +147,5 @@ namespace ceres::casm
 			std::string message = std::vformat(formatStr, std::make_format_args(args...));
 			throw AssemblerError(line, 1, message);
 		}
-
 	};
 }

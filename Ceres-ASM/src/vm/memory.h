@@ -55,12 +55,105 @@ namespace ceres::vm
 			return Instruction(readUnchecked<Instruction::RawType>(address));
 		}
 
-		void loadBytes(Address address, std::span<const ByteType> bytes)
+		void writeBytesUnchecked(Address address, std::span<const ByteType> bytes)
 		{
 			const usize base = address.value();
 			if (base + bytes.size() > _data.size())
 				throw std::out_of_range("Attempt to load bytes beyond memory bounds.");
-			std::memcpy(_data.data() + base, bytes.data(), bytes.size());
+			if (bytes.size() > 0)
+				std::memcpy(_data.data() + base, bytes.data(), bytes.size());
+		}
+		void writeBytes(Address address, std::span<const ByteType> bytes)
+		{
+			const usize base = address.value();
+			if (base < UnrestrictedSegmentStartValue || base + bytes.size() > _data.size())
+				throw std::out_of_range("Attempt to load bytes beyond memory bounds or into restricted segment.");
+			if (bytes.size() > 0)
+				std::memcpy(_data.data() + base, bytes.data(), bytes.size());
+		}
+
+		void readBytesUnchecked(Address address, std::span<ByteType> buffer) const
+		{
+			const usize base = address.value();
+			if (base + buffer.size() > _data.size())
+				throw std::out_of_range("Attempt to read bytes beyond memory bounds.");
+			if (buffer.size() > 0)
+				std::memcpy(buffer.data(), _data.data() + base, buffer.size());
+		}
+		void readBytes(Address address, std::span<ByteType> buffer) const
+		{
+			const usize base = address.value();
+			if (base < UnrestrictedSegmentStartValue || base + buffer.size() > _data.size())
+				throw std::out_of_range("Attempt to read bytes beyond memory bounds or from restricted segment.");
+			if (buffer.size() > 0)
+				std::memcpy(buffer.data(), _data.data() + base, buffer.size());
+		}
+
+		std::span<const ByteType> peekBytesUnchecked(Address address, u32 size) const
+		{
+			const usize base = address.value();
+			if (base + size > _data.size())
+				throw std::out_of_range("Attempt to get bytes beyond memory bounds.");
+			return std::span<const ByteType>(_data.data() + base, size);
+		}
+		std::span<const ByteType> peekBytes(Address address, u32 size) const
+		{
+			const usize base = address.value();
+			if (base < UnrestrictedSegmentStartValue || base + size > _data.size())
+				throw std::out_of_range("Attempt to get bytes beyond memory bounds or from restricted segment.");
+			return std::span<const ByteType>(_data.data() + base, size);
+		}
+
+		std::span<ByteType> peekMutBytesUnchecked(Address address, u32 size)
+		{
+			const usize base = address.value();
+			if (base + size > _data.size())
+				throw std::out_of_range("Attempt to get mutable bytes beyond memory bounds.");
+			return std::span<ByteType>(_data.data() + base, size);
+		}
+		std::span<ByteType> peekMutBytes(Address address, u32 size)
+		{
+			const usize base = address.value();
+			if (base < UnrestrictedSegmentStartValue || base + size > _data.size())
+				throw std::out_of_range("Attempt to get mutable bytes beyond memory bounds or from restricted segment.");
+			return std::span<ByteType>(_data.data() + base, size);
+		}
+
+		void copyBytesUnchecked(Address srcAddress, Address destAddress, u32 size)
+		{
+			const usize srcBase = srcAddress.value();
+			const usize destBase = destAddress.value();
+			if (srcBase + size > _data.size() || destBase + size > _data.size())
+				throw std::out_of_range("Attempt to copy bytes beyond memory bounds.");
+			if (size > 0)
+				std::memmove(_data.data() + destBase, _data.data() + srcBase, size);
+		}
+		void copyBytes(Address srcAddress, Address destAddress, u32 size)
+		{
+			const usize srcBase = srcAddress.value();
+			const usize destBase = destAddress.value();
+			if (srcBase < UnrestrictedSegmentStartValue || destBase < UnrestrictedSegmentStartValue ||
+				srcBase + size > _data.size() || destBase + size > _data.size())
+				throw std::out_of_range("Attempt to copy bytes beyond memory bounds or into restricted segment.");
+			if (size > 0)
+				std::memmove(_data.data() + destBase, _data.data() + srcBase, size);
+		}
+
+		void setBytesUnchecked(Address address, ByteType value, u32 size)
+		{
+			const usize base = address.value();
+			if (base + size > _data.size())
+				throw std::out_of_range("Attempt to set bytes beyond memory bounds.");
+			if (size > 0)
+				std::memset(_data.data() + base, value, size);
+		}
+		void setBytes(Address address, ByteType value, u32 size)
+		{
+			const usize base = address.value();
+			if (base < UnrestrictedSegmentStartValue || base + size > _data.size())
+				throw std::out_of_range("Attempt to set bytes beyond memory bounds or into restricted segment.");
+			if (size > 0)
+				std::memset(_data.data() + base, value, size);
 		}
 
 	public:

@@ -22,6 +22,10 @@ namespace ceres::casm
 	{
 		return { signature, InstructionInfo::make(signature, opcodes) };
 	}
+	static constexpr std::pair<const InstructionSignature, InstructionInfo> inst(InstructionSignature signature, OpcodeInfo opcode) noexcept
+	{
+		return { signature, InstructionInfo::make(signature, { opcode }) };
+	}
 
 	static constexpr InstructionSignature sig(
 		Mnemonic mnemonic,
@@ -271,10 +275,69 @@ namespace ceres::casm
 		inst(Opcode::MTF, Mnemonic::MTF, OpcodeParameterType::FD, OpcodeParameterType::RS),
 		inst(Opcode::MFF, Mnemonic::MFF, OpcodeParameterType::RD, OpcodeParameterType::FS),
 
-		inst(Opcode::IN, Mnemonic::IN, OpcodeParameterType::RD, OpcodeParameterType::IMM8),
-		inst(Opcode::INR, Mnemonic::IN, OpcodeParameterType::RD, OpcodeParameterType::RS),
-		inst(Opcode::OUT, Mnemonic::OUT, OpcodeParameterType::RS, OpcodeParameterType::IMM8),
-		inst(Opcode::OUTR, Mnemonic::OUT, OpcodeParameterType::RS, OpcodeParameterType::RS)
+		inst(sig(Mnemonic::IN, OperandType::Immediate, OperandType::IntegralRegister),
+			op(Opcode::IN, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+		inst(sig(Mnemonic::INB, OperandType::Immediate, OperandType::IntegralRegister),
+			op(Opcode::INB, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+		inst(sig(Mnemonic::INH, OperandType::Immediate, OperandType::IntegralRegister),
+			op(Opcode::INH, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+		inst(sig(Mnemonic::INSB, OperandType::Immediate, OperandType::IntegralRegister),
+			op(Opcode::INSB, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+		inst(sig(Mnemonic::INSH, OperandType::Immediate, OperandType::IntegralRegister),
+			op(Opcode::INSH, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+		inst(sig(Mnemonic::INM, OperandType::Immediate, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::INM, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::RS, 2), param(OpcodeParameterType::IMM8, 0))
+		),
+
+		inst(sig(Mnemonic::IN, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::INR, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::RS, 0))
+		),
+		inst(sig(Mnemonic::INB, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::INRB, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::RS, 0))
+		),
+		inst(sig(Mnemonic::INH, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::INRH, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::RS, 0))
+		),
+		inst(sig(Mnemonic::INSB, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::INRSB, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::RS, 0))
+		),
+		inst(sig(Mnemonic::INSH, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::INRSH, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::RS, 0))
+		),
+		inst(sig(Mnemonic::INM, OperandType::IntegralRegister, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::INRM, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::RS, 2), param(OpcodeParameterType::RT, 0))
+		),
+
+		inst(sig(Mnemonic::OUT, OperandType::Immediate, OperandType::IntegralRegister),
+			op(Opcode::OUT, param(OpcodeParameterType::RS, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+		inst(sig(Mnemonic::OUTB, OperandType::Immediate, OperandType::IntegralRegister),
+			op(Opcode::OUTB, param(OpcodeParameterType::RS, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+		inst(sig(Mnemonic::OUTH, OperandType::Immediate, OperandType::IntegralRegister),
+			op(Opcode::OUTH, param(OpcodeParameterType::RS, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+		inst(sig(Mnemonic::OUTM, OperandType::Immediate, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::OUTM, param(OpcodeParameterType::RS, 2), param(OpcodeParameterType::RT, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+
+		inst(sig(Mnemonic::OUT, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::OUTR, param(OpcodeParameterType::RS, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+		inst(sig(Mnemonic::OUTB, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::OUTRB, param(OpcodeParameterType::RS, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+		inst(sig(Mnemonic::OUTH, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::OUTRH, param(OpcodeParameterType::RS, 1), param(OpcodeParameterType::IMM8, 0))
+		),
+		inst(sig(Mnemonic::OUTM, OperandType::IntegralRegister, OperandType::IntegralRegister, OperandType::IntegralRegister),
+			op(Opcode::OUTRM, param(OpcodeParameterType::RD, 2), param(OpcodeParameterType::RS, 1), param(OpcodeParameterType::RT, 0))
+		)
 	};
 
 	std::optional<InstructionInfo> InstructionInfo::find(InstructionSignature signature) noexcept

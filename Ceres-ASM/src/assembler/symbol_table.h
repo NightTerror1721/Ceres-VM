@@ -12,6 +12,8 @@
 
 namespace ceres::casm
 {
+	class TranslationUnit;
+
 	using Address = vm::Address;
 
 	enum class SymbolType : u8
@@ -132,6 +134,8 @@ namespace ceres::casm
 
 		std::optional<std::reference_wrapper<const Symbol>> get(std::string_view name) const noexcept;
 		std::optional<std::reference_wrapper<const Symbol>> getLocal(std::string_view name, std::string_view parentName) const noexcept;
+
+		void importSymbols(const TranslationUnit& translationUnit);
 
 		void relocateSymbols(Address textOffset, Address dataOffset, Address rodataOffset, Address bssOffset);
 

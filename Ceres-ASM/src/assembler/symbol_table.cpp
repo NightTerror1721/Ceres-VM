@@ -1,4 +1,5 @@
 #include "symbol_table.h"
+#include "translation_unit.h"
 #include "common/string_utils.h"
 
 namespace ceres::casm
@@ -173,6 +174,20 @@ namespace ceres::casm
 		}
 
 		return operand;
+	}
+
+	void SymbolTable::importSymbols(const TranslationUnit& translationUnit)
+	{
+		const auto& externSymbolTable = translationUnit.symbolTable();
+
+		for (const auto& [name, symbol] : externSymbolTable.getAllSymbols())
+		{
+			if (symbol.isConstant())
+			{
+				if (const auto [it, inserted] = _symbols.emplace(name, symbol); !inserted)
+					error(0, "Redefinition of global symbol: {}", it->first);
+			}
+		}
 	}
 
 	void SymbolTable::relocateSymbols(Address textOffset, Address dataOffset, Address rodataOffset, Address bssOffset)

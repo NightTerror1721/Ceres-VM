@@ -21,6 +21,7 @@ namespace ceres::vm
 	public:
 		explicit CeresVM(usize memorySize = Memory::DefaultSize) :
 			_memory(memorySize),
+			_ioPorts(_memory),
 			_engine(_memory, _ioPorts)
 		{}
 

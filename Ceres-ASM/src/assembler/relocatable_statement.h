@@ -16,11 +16,19 @@ namespace ceres::casm
 
 	class RelocatableStatement
 	{
+	public:
+		using RelocatableStatementVariant = std::variant<
+			SectionStatement,
+			LabelStatement,
+			ResolvedDataStatement,
+			InstructionStatement
+		>;
+
 	private:
 		u32 _line; // Line number in the source code where the statement is located
 		u32 _size = 0; // Size of the statement in bytes (set during assembly)
 		std::optional<vm::Address> _address; // Address in program memory where the statement will be located (set during assembly)
-		std::variant<SectionStatement, LabelStatement, ResolvedDataStatement, InstructionStatement> _value;
+		RelocatableStatementVariant _value;
 
 	public:
 		RelocatableStatement() noexcept = default;
@@ -36,7 +44,7 @@ namespace ceres::casm
 			u32 line,
 			u32 size,
 			std::optional<vm::Address> address,
-			std::variant<SectionStatement, LabelStatement, ResolvedDataStatement, InstructionStatement>&& value
+			RelocatableStatementVariant&& value
 		) noexcept :
 			_line(line),
 			_size(size),

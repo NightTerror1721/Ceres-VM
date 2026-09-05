@@ -3,14 +3,15 @@
 
 namespace ceres::casm
 {
-	std::optional<LinkedExecutable> Linker::link(std::vector<TranslationUnit>&& units)
+	bool Linker::link()
 	{
-		MemoryMap memoryMap = calculateMemoryMap(units);
-		MemoryOffsets offsets = calculateMemoryOffsets(memoryMap);
-		SymbolTable globalSymbolTable;
+		calculateMemoryMap();
+		MemoryOffsets offsets = calculateMemoryOffsets();
+		MemoryMap& memoryMap = _state.get().memoryMap();
+		SymbolTable& globalSymbolTable = _state.get().globalSymbolTable();
 
 		// Relocate symbols in each translation unit and build the global symbol table
-		for (auto& unit : units)
+		for (auto& unit : _state.get().translationUnits())
 		{
 			unit.symbolTable().relocateSymbols(offsets.textOffset, offsets.dataOffset, offsets.rodataOffset, offsets.bssOffset);
 
@@ -21,7 +22,7 @@ namespace ceres::casm
 					if (globalSymbolTable.get(name).has_value())
 					{
 						reportError(0, "Linker error: Symbol '{}' is defined in multiple translation units.", name);
-						return std::nullopt;
+						continue; // Skip adding this symbol to the global symbol table
 					}
 					globalSymbolTable.insertRawSymbol(symbol);
 				}
@@ -34,7 +35,7 @@ namespace ceres::casm
 		}
 
 		// Check for unresolved symbols in each translation unit
-		for (const auto& unit : units)
+		for (const auto& unit : _state.get().translationUnits())
 		{
 			for (const auto& unresolvedSymbol : unit.unresolvedSymbols())
 			{
@@ -44,7 +45,7 @@ namespace ceres::casm
 						continue;
 
 					reportError(unresolvedSymbol.line, "Linker error: Unresolved local symbol '.{}'.", unresolvedSymbol.name);
-					return std::nullopt;
+					continue; // Skip adding this symbol to the global symbol table
 				}
 				else
 				{
@@ -55,13 +56,13 @@ namespace ceres::casm
 						continue;
 
 					reportError(unresolvedSymbol.line, "Linker error: Unresolved symbol '{}'.", unresolvedSymbol.name);
-					return std::nullopt;
+					continue; // Skip adding this symbol to the global symbol table
 				}
 			}
 		}
 
 		// Resolve operands in each translation unit using the global symbol table
-		for (auto& unit : units)
+		for (auto& unit : _state.get().translationUnits())
 		{
 			std::string_view lastParentLabel = {};
 			for (auto& statement : unit.ast())
@@ -85,21 +86,25 @@ namespace ceres::casm
 							error(statement.line(), "Invalid instruction syntax: {}", instructionStatement.signature().toString());
 					}
 				}
-				catch (const AssemblerError& e)
+				catch (const AssemblerError& ex)
 				{
-					reportError(e.line(), "Linker error: {}", e.what());
+					reportError(ex.line(), "Linker error: {}", ex.what());
 				}
 			}
 		}
 
-		return LinkedExecutable(std::move(units), std::move(globalSymbolTable), std::move(memoryMap));
+		return !_state.get().errorHandler().hasErrors();
 	}
 
-	MemoryMap Linker::calculateMemoryMap(const std::vector<TranslationUnit>& units) const
+	void Linker::calculateMemoryMap() const
 	{
-		MemoryMap memoryMap;
+		MemoryMap& memoryMap = _state.get().memoryMap();
+		memoryMap.textSize = 0;
+		memoryMap.dataSize = 0;
+		memoryMap.rodataSize = 0;
+		memoryMap.bssSize = 0;
 
-		for (const auto& unit : units)
+		for (const auto& unit : _state.get().translationUnits())
 		{
 			const SectionSizes& sizes = unit.sectionSizes();
 			memoryMap.textSize += sizes.textSize;
@@ -113,12 +118,11 @@ namespace ceres::casm
 		memoryMap.rodataStart = memoryMap.textStart + memoryMap.textSize;
 		memoryMap.dataStart = memoryMap.rodataStart + memoryMap.rodataSize;
 		memoryMap.bssStart = memoryMap.dataStart + memoryMap.dataSize;
-
-		return memoryMap;
 	}
 
-	Linker::MemoryOffsets Linker::calculateMemoryOffsets(const MemoryMap& memoryMap) const
+	Linker::MemoryOffsets Linker::calculateMemoryOffsets() const
 	{
+		const MemoryMap& memoryMap = _state.get().memoryMap();
 		return MemoryOffsets{
 			.textOffset = memoryMap.textStart,
 			.rodataOffset = memoryMap.rodataStart,

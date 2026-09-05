@@ -8,9 +8,9 @@ const SYS_CTRL = 0xFF
 @text
 global main:
     la r1, HELLO_MSG
-    call println
+    call print
     li r0, EXIT_CODE
-    out r0, SYS_CTRL
+    out SYS_CTRL, r0
     ret
 
 println:
@@ -18,8 +18,27 @@ println:
     ldrb r2, [r1]
     cmp r2, 0
     jz .print_end
-    out r2, OUT_WRITE
+    out OUT_WRITE, r2
     add r1, r1, 1
     jp .print_loop
 .print_end:
+    ret
+
+print:
+    mov r3, r1  // Save the original pointer
+    call strlen
+    mov r2, r0  // Length of the string
+    outm OUT_WRITE, r2, r3
+    ret
+
+strlen:
+    xor r0, r0, r0  // length = 0
+.strlen_loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .strlen_end
+    add r0, r0, 1
+    add r1, r1, 1
+    jp .strlen_loop
+.strlen_end:
     ret

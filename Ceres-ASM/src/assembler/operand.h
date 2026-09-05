@@ -3,6 +3,7 @@
 #include "common_defs.h"
 #include "literal_value.h"
 #include "instruction_info.h"
+#include "strings_pool.h"
 #include <variant>
 #include <string>
 #include <expected>
@@ -26,7 +27,7 @@ namespace ceres::casm
 
 	struct IdentifierOperand
 	{
-		std::string name; // Identifier name (e.g., variable name, label name, etc.)
+		Identifier name; // Identifier name (e.g., variable name, label name, etc.)
 		bool isLocal; // Whether the identifier is a local label (e.g., .label) or a global label, variable, constant (e.g., label, variable, constant)
 	};
 
@@ -55,10 +56,31 @@ namespace ceres::casm
 		vm::Address address; // Address of the label in memory
 	};
 
+	struct MacroParameterOperand
+	{
+		Identifier name; // Macro parameter name (e.g., "$param1", "$param2", etc.)
+	};
+
+	struct MacroLabelOperand
+	{
+		Identifier name; // Macro label name (e.g., "%%label1", "%%label2", etc.)
+	};
+
 	class Operand
 	{
 	public:
-		using OperandVariant = std::variant<std::monostate, RegisterOperand, FloatingPointRegisterOperand, ImmediateOperand, IdentifierOperand, MemoryOperand, VariableOperand, LabelOperand>;
+		using OperandVariant = std::variant<
+			std::monostate,
+			RegisterOperand,
+			FloatingPointRegisterOperand,
+			ImmediateOperand,
+			IdentifierOperand,
+			MemoryOperand,
+			VariableOperand,
+			LabelOperand,
+			MacroParameterOperand,
+			MacroLabelOperand
+		>;
 
 	private:
 		OperandVariant _value;
@@ -88,6 +110,8 @@ namespace ceres::casm
 		constexpr bool isMemory() const noexcept { return std::holds_alternative<MemoryOperand>(_value); }
 		constexpr bool isVariable() const noexcept { return std::holds_alternative<VariableOperand>(_value); }
 		constexpr bool isLabel() const noexcept { return std::holds_alternative<LabelOperand>(_value); }
+		constexpr bool isMacroParameter() const noexcept { return std::holds_alternative<MacroParameterOperand>(_value); }
+		constexpr bool isMacroLabel() const noexcept { return std::holds_alternative<MacroLabelOperand>(_value); }
 
 		constexpr const RegisterOperand& asRegister() const noexcept { return std::get<RegisterOperand>(_value); }
 		constexpr const FloatingPointRegisterOperand& asFloatingPointRegister() const noexcept { return std::get<FloatingPointRegisterOperand>(_value); }
@@ -96,6 +120,8 @@ namespace ceres::casm
 		constexpr const MemoryOperand& asMemory() const noexcept { return std::get<MemoryOperand>(_value); }
 		constexpr const VariableOperand& asVariable() const noexcept { return std::get<VariableOperand>(_value); }
 		constexpr const LabelOperand& asLabel() const noexcept { return std::get<LabelOperand>(_value); }
+		constexpr const MacroParameterOperand& asMacroParameter() const noexcept { return std::get<MacroParameterOperand>(_value); }
+		constexpr const MacroLabelOperand& asMacroLabel() const noexcept { return std::get<MacroLabelOperand>(_value); }
 
 		constexpr OperandType type() const noexcept
 		{
@@ -126,6 +152,10 @@ namespace ceres::casm
 			}
 			else if (isLabel())
 				return OperandType::Label;
+			else if (isMacroParameter())
+				return OperandType::Invalid; // Macro parameters are not directly valid operand types; they need to be resolved to a value
+			else if (isMacroLabel())
+				return OperandType::Invalid; // Macro labels are not directly valid operand types; they need to be resolved to a value
 			else
 				return OperandType::Invalid;
 		}
@@ -138,17 +168,12 @@ namespace ceres::casm
 		static Operand makeRegister(u8 regIndex) noexcept { return Operand{ RegisterOperand{ regIndex } }; }
 		static Operand makeFloatingPointRegister(u8 regIndex) noexcept { return Operand{ FloatingPointRegisterOperand{ regIndex } }; }
 		static Operand makeImmediate(u32 value) noexcept { return Operand{ ImmediateOperand{ value } }; }
-		static Operand makeIdentifier(std::string_view name, bool isLocal) noexcept { return Operand{ IdentifierOperand{ std::string(name), isLocal } }; }
-		static Operand makeIdentifier(std::string&& name, bool isLocal) noexcept { return Operand{ IdentifierOperand{ std::move(name), isLocal } }; }
+		static Operand makeIdentifier(Identifier name, bool isLocal) noexcept { return Operand{ IdentifierOperand{ name, isLocal } }; }
 		static Operand makeMemory(u8 baseRegIndex) noexcept { return Operand{ MemoryOperand{ baseRegIndex, std::monostate{} } }; }
 		static Operand makeMemory(u8 baseRegIndex, u32 immediateOffset) noexcept { return Operand{ MemoryOperand{ baseRegIndex, ImmediateOperand{ immediateOffset } } }; }
-		static Operand makeMemory(u8 baseRegIndex, std::string_view identifierOffset) noexcept
+		static Operand makeMemory(u8 baseRegIndex, Identifier identifierOffset) noexcept
 		{
-			return Operand{ MemoryOperand{ baseRegIndex, IdentifierOperand{ std::string(identifierOffset) } } };
-		}
-		static Operand makeMemory(u8 baseRegIndex, std::string&& identifierOffset) noexcept
-		{
-			return Operand{ MemoryOperand{ baseRegIndex, IdentifierOperand{ std::move(identifierOffset) } } };
+			return Operand{ MemoryOperand{ baseRegIndex, IdentifierOperand{ identifierOffset } } };
 		}
 		static Operand makeVariable(DataTypeScalarCode scalarCode, vm::Address address) noexcept
 		{
@@ -158,6 +183,8 @@ namespace ceres::casm
 		{
 			return Operand{ LabelOperand{ address } };
 		}
+		static Operand makeMacroParameter(Identifier name) noexcept { return Operand{ MacroParameterOperand{ name } }; }
+		static Operand makeMacroLabel(Identifier name) noexcept { return Operand{ MacroLabelOperand{ name } }; }
 
 	public:
 		static std::expected<Operand, std::string_view> makeFromLiteralValue(const LiteralValue& value) noexcept;
@@ -168,6 +195,6 @@ namespace ceres::casm
 		u8 index; // Register index (0-15)
 		bool isFloatingPoint; // Whether the register is a floating-point register
 
-		static std::optional<RegisterInfo> get(std::string_view name) noexcept;
+		static std::optional<RegisterInfo> get(Identifier name) noexcept;
 	};
 }

@@ -2,7 +2,10 @@
 #include "translation_unit.h"
 #include "linker.h"
 #include "binary_emitter.h"
+#include "assembly_state.h"
 #include <filesystem>
+#include <vector>
+#include <memory>
 
 namespace ceres::casm
 {
@@ -15,7 +18,7 @@ namespace ceres::casm
 	{
 	private:
 		AssemblerOptions _options;
-		AssemblerErrorHandler _errorHandler;
+		std::unique_ptr<AssemblyState> _state = nullptr;
 
 	public:
 		Assembler() = default;
@@ -42,27 +45,31 @@ namespace ceres::casm
 			return assemble(std::span<const std::filesystem::path>(sourceFiles));
 		}
 
-		bool hasErrors() const noexcept { return _errorHandler.hasErrors(); }
-		std::span<const AssemblerErrorEntry> errors() const noexcept { return _errorHandler; }
+		bool hasErrors() const noexcept { return _state ? _state->errorHandler().hasErrors() : false; }
+		std::span<const AssemblerErrorEntry> errors() const noexcept { return _state ? _state->errorHandler().errors() : std::span<const AssemblerErrorEntry>{}; }
 
 	private:
 		std::optional<std::string> readSourceFile(const std::filesystem::path& filePath);
 		std::vector<Statement> parseSource(const std::string& source, const std::filesystem::path& filePath);
-		TranslationUnit translateStatementsToUnit(const std::string& source, std::vector<Statement>&& statements, const std::filesystem::path& filePath);
-		std::optional<LinkedExecutable> linkTranslationUnits(std::vector<TranslationUnit>&& units);
-		std::optional<vm::Program> emitBinary(LinkedExecutable&& linkedExecutable);
+		std::optional<TranslationUnit> translateStatementsToUnit(const std::string& source, std::vector<Statement>&& statements, const std::filesystem::path& filePath);
+		bool linkTranslationUnits();
+		std::optional<vm::Program> emitBinary();
+
+		OptionalRef<TranslationUnit> loadTranslationUnit(const std::string& filePath) noexcept;
 
 	private:
 		void reportError(std::string_view message) noexcept
 		{
-			_errorHandler.reportError(1, 1, message);
+			if (_state)
+				_state->errorHandler().reportError(1, 1, message);
 		}
 
 		template <typename... Args>
 		void reportError(std::string_view formatStr, Args&&... args) noexcept
 		{
 			std::string message = std::vformat(formatStr, std::make_format_args(args...));
-			_errorHandler.reportError(1, 1, message);
+			if (_state)
+				_state->errorHandler().reportError(1, 1, message);
 		}
 	};
 }

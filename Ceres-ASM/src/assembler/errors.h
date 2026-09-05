@@ -52,6 +52,8 @@ namespace ceres::casm
 	public:
 		constexpr bool hasErrors() const noexcept { return !_errors.empty(); }
 
+		constexpr std::span<const AssemblerErrorEntry> errors() const noexcept { return std::span<const AssemblerErrorEntry>(_errors); }
+
 		void reportError(u32 line, u32 column, std::string_view message) noexcept
 		{
 			_errors.push_back({ line, column, std::string(message) });

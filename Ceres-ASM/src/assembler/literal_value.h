@@ -1,7 +1,8 @@
 #pragma once
 
 #include "literal_scalar.h"
-#include <vector>
+#include "strings_pool.h"
+#include "common/fixed_vector.h"
 #include <compare>
 #include <span>
 
@@ -10,11 +11,11 @@ namespace ceres::casm
 	class LiteralValue
 	{
 	public:
-		using iterator = std::vector<LiteralScalar>::iterator;
-		using const_iterator = std::vector<LiteralScalar>::const_iterator;
+		using iterator = FixedVector<LiteralScalar>::iterator;
+		using const_iterator = FixedVector<LiteralScalar>::const_iterator;
 
 	private:
-		std::vector<LiteralScalar> _elements = {};
+		FixedVector<LiteralScalar> _elements = FixedVector<LiteralScalar>::makeEmpty();
 
 	public:
 		constexpr LiteralValue() = default;
@@ -31,7 +32,7 @@ namespace ceres::casm
 		constexpr explicit LiteralValue(LiteralScalar value) noexcept :
 			_elements{ value }
 		{}
-		constexpr explicit LiteralValue(std::vector<LiteralScalar>&& elements) noexcept :
+		constexpr explicit LiteralValue(FixedVector<LiteralScalar>&& elements) noexcept :
 			_elements(std::move(elements))
 		{}
 
@@ -125,14 +126,19 @@ namespace ceres::casm
 		static constexpr LiteralValue make(char value) noexcept { return LiteralValue(LiteralScalar::makeFromChar(value)); }
 		static constexpr LiteralValue make(bool value) noexcept { return LiteralValue(LiteralScalar::makeFromBool(value)); }
 
-		static constexpr LiteralValue make(std::vector<LiteralScalar>&& elements) noexcept
+		static constexpr LiteralValue make(FixedVector<LiteralScalar>&& elements) noexcept
 		{
 			return LiteralValue(std::move(elements));
 		}
 
+		static constexpr LiteralValue make(std::vector<LiteralScalar>&& elements) noexcept
+		{
+			return LiteralValue(FixedVector<LiteralScalar>(std::move(elements)));
+		}
+
 		static constexpr LiteralValue make(std::span<const LiteralScalar> elements) noexcept
 		{
-			return LiteralValue(std::vector<LiteralScalar>(elements.begin(), elements.end()));
+			return LiteralValue(FixedVector<LiteralScalar>(elements));
 		}
 
 		static constexpr LiteralValue make(std::string_view str) noexcept
@@ -142,7 +148,7 @@ namespace ceres::casm
 			for (char c : str)
 				elements.emplace_back(LiteralScalar::makeFromChar(c));
 			elements.emplace_back(LiteralScalar::makeFromChar('\0')); // Null terminator
-			return LiteralValue(std::move(elements));
+			return LiteralValue(FixedVector<LiteralScalar>(std::move(elements)));
 		}
 
 		static constexpr LiteralValue makeEmpty() noexcept
@@ -155,7 +161,7 @@ namespace ceres::casm
 	class LiteralValueReferenceElement
 	{
 	private:
-		std::variant<LiteralScalar, std::string> _value;
+		std::variant<LiteralScalar, Identifier> _value;
 
 	public:
 		constexpr LiteralValueReferenceElement() noexcept = default;
@@ -170,25 +176,24 @@ namespace ceres::casm
 
 	public:
 		constexpr explicit LiteralValueReferenceElement(LiteralScalar scalar) noexcept : _value(scalar) {}
-		constexpr explicit LiteralValueReferenceElement(std::string&& identifier) noexcept : _value(std::move(identifier)) {}
-		constexpr explicit LiteralValueReferenceElement(std::string_view identifier) noexcept : _value(std::string(identifier)) {}
+		constexpr explicit LiteralValueReferenceElement(Identifier identifier) noexcept : _value(identifier) {}
 
 		constexpr bool isScalar() const noexcept { return std::holds_alternative<LiteralScalar>(_value); }
-		constexpr bool isIdentifier() const noexcept { return std::holds_alternative<std::string>(_value); }
+		constexpr bool isIdentifier() const noexcept { return std::holds_alternative<Identifier>(_value); }
 
 		constexpr LiteralScalar scalarValue() const noexcept { return std::get<LiteralScalar>(_value); }
-		constexpr std::string_view identifierValue() const noexcept { return std::get<std::string>(_value); }
+		constexpr Identifier identifierValue() const noexcept { return std::get<Identifier>(_value); }
 	};
 
 	class LiteralValueReference
 	{
 	public:
 		using ElementType = LiteralValueReferenceElement;
-		using iterator = std::vector<ElementType>::iterator;
-		using const_iterator = std::vector<ElementType>::const_iterator;
+		using iterator = FixedVector<ElementType>::iterator;
+		using const_iterator = FixedVector<ElementType>::const_iterator;
 
 	private:
-		std::vector<ElementType> _elements = {};
+		FixedVector<ElementType> _elements = FixedVector<ElementType>::makeEmpty();
 
 	public:
 		constexpr LiteralValueReference() noexcept = default;
@@ -205,22 +210,18 @@ namespace ceres::casm
 		constexpr explicit LiteralValueReference(LiteralScalar value) noexcept :
 			_elements{ LiteralValueReferenceElement{ value } }
 		{}
-		constexpr explicit LiteralValueReference(std::string&& value) noexcept :
+		constexpr explicit LiteralValueReference(Identifier value) noexcept :
 			_elements{ LiteralValueReferenceElement{ std::move(value) } }
 		{}
-		constexpr explicit LiteralValueReference(std::string_view value) noexcept :
-			_elements{ LiteralValueReferenceElement{ value } }
-		{}
-		constexpr explicit LiteralValueReference(std::vector<ElementType>&& elements) noexcept :
+		constexpr explicit LiteralValueReference(FixedVector<ElementType>&& elements) noexcept :
 			_elements(std::move(elements))
 		{}
 
 	public:
 		constexpr LiteralValueReference(const LiteralValue& literalValue) noexcept
 		{
-			_elements.reserve(literalValue.size());
-			for (const auto& scalar : literalValue.elements())
-				_elements.emplace_back(scalar);
+			FixedVector<ElementType> elements{ literalValue.elements(), [](LiteralScalar scalar) { return ElementType{ scalar }; } };
+			FixedVector<ElementType>::swap(_elements, elements);
 		}
 
 		constexpr ElementType first() const noexcept
@@ -326,8 +327,7 @@ namespace ceres::casm
 		constexpr const_iterator cend() const noexcept { return _elements.cend(); }
 
 	public:
-		static constexpr LiteralValueReference makeIdentifier(std::string_view identifier) noexcept { return LiteralValueReference(identifier); }
-		static constexpr LiteralValueReference makeIdentifier(std::string&& identifier) noexcept { return LiteralValueReference(std::move(identifier)); }
+		static constexpr LiteralValueReference makeIdentifier(Identifier identifier) noexcept { return LiteralValueReference(identifier); }
 		static constexpr LiteralValueReference makeU8(u8 value) noexcept { return LiteralValueReference(LiteralScalar::makeU8(value)); }
 		static constexpr LiteralValueReference makeU16(u16 value) noexcept { return LiteralValueReference(LiteralScalar::makeU16(value)); }
 		static constexpr LiteralValueReference makeU32(u32 value) noexcept { return LiteralValueReference(LiteralScalar::makeU32(value)); }
@@ -340,28 +340,25 @@ namespace ceres::casm
 
 		static constexpr LiteralValueReference make(std::vector<ElementType>&& elements) noexcept
 		{
-			return LiteralValueReference(std::move(elements));
+			return LiteralValueReference(FixedVector<ElementType>(std::move(elements)));
 		}
 
 		static constexpr LiteralValueReference make(std::span<const ElementType> elements) noexcept
 		{
-			return LiteralValueReference(std::vector<ElementType>(elements.begin(), elements.end()));
+			return LiteralValueReference(FixedVector<ElementType>(elements));
 		}
 
-		static constexpr LiteralValueReference makeString(std::string_view str) noexcept
+		static constexpr LiteralValueReference makeString(LiteralString str) noexcept
 		{
-			std::vector<ElementType> elements;
-			elements.reserve(str.size() + 1);
-			for (char c : str)
-				elements.emplace_back(LiteralScalar::makeFromChar(c));
-			elements.emplace_back(LiteralScalar::makeFromChar('\0')); // Null terminator
+			FixedVector<ElementType> elements{ str.size() + 1, ElementType{  LiteralScalar::makeFromChar('\0') } };
+			for (usize i = 0; i < str.size(); ++i)
+				elements[i] = ElementType{ LiteralScalar::makeFromChar(str[i]) };
 			return LiteralValueReference(std::move(elements));
 		}
 
 		static constexpr LiteralValueReference makeEmpty() noexcept
 		{
 			return LiteralValueReference();
-
 		}
 	};
 }

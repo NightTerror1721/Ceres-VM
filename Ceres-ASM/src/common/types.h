@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <concepts>
 #include <ranges>
+#include <optional>
+#include <expected>
 
 namespace ceres
 {
@@ -27,6 +29,30 @@ namespace ceres
 
 	using uoffset = std::size_t;
 	using ioffset = std::make_signed_t<std::size_t>;
+
+	template <typename T>
+	using Ref = std::reference_wrapper<T>;
+
+	template <typename T>
+	using ConstRef = std::reference_wrapper<const T>;
+
+	template <typename T>
+	using Optional = std::optional<T>;
+
+	template <typename T>
+	using OptionalRef = std::optional<std::reference_wrapper<T>>;
+
+	template <typename T>
+	using OptionalConstRef = std::optional<std::reference_wrapper<const T>>;
+
+	template <typename T, typename E>
+	using Expected = std::expected<T, E>;
+
+	template <typename T, typename E>
+	using ExpectedRef = std::expected<std::reference_wrapper<T>, E>;
+
+	template <typename T, typename E>
+	using ExpectedConstRef = std::expected<std::reference_wrapper<const T>, E>;
 }
 
 namespace ceres

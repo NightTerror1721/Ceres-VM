@@ -2,6 +2,7 @@
 
 #include "common_defs.h"
 #include "data_type.h"
+#include "strings_pool.h"
 #include <string>
 #include <compare>
 #include <memory>
@@ -15,6 +16,8 @@ namespace ceres::casm
 
 		// Identifiers
 		Identifier,		// e.g., variable names, label names, etc.
+		DollarIdentifier, // e.g., $localLabel, $globalLabel, etc.
+		DoublePercentIdentifier, // e.g., %%localLabel, %%globalLabel, etc.
 
 		// Literals
 		LiteralInteger, // e.g., 123, 0x7B, 0b1111011
@@ -52,54 +55,56 @@ namespace ceres::casm
 	private:
 		std::variant<
 			std::monostate,
+			Identifier,
 			u32,
 			f32,
-			std::string,
 			char,
 			bool,
+			LiteralString,
 			SectionType,
 			DataType,
 			KeywordType
 		> _value;
 
 	public:
-		TokenPayload() noexcept = default;
-		TokenPayload(const TokenPayload&) noexcept = default;
-		TokenPayload(TokenPayload&&) noexcept = default;
-		~TokenPayload() noexcept = default;
+		constexpr TokenPayload() noexcept = default;
+		constexpr TokenPayload(const TokenPayload&) noexcept = default;
+		constexpr TokenPayload(TokenPayload&&) noexcept = default;
+		constexpr ~TokenPayload() noexcept = default;
 
-		TokenPayload& operator=(const TokenPayload&) noexcept = default;
-		TokenPayload& operator=(TokenPayload&&) noexcept = default;
+		constexpr TokenPayload& operator=(const TokenPayload&) noexcept = default;
+		constexpr TokenPayload& operator=(TokenPayload&&) noexcept = default;
 
-		bool operator==(const TokenPayload&) const noexcept = default;
+		constexpr bool operator==(const TokenPayload&) const noexcept = default;
 
 	public:
-		TokenPayload(u32 intValue) noexcept : _value(intValue) {}
-		TokenPayload(f32 floatValue) noexcept : _value(floatValue) {}
-		TokenPayload(char charValue) noexcept : _value(charValue) {}
-		TokenPayload(bool boolValue) noexcept : _value(boolValue) {}
-		TokenPayload(const std::string& strValue) noexcept : _value(strValue) {}
-		TokenPayload(std::string&& strValue) noexcept : _value(std::move(strValue)) {}
-		TokenPayload(std::string_view strValue) noexcept : _value(std::string(strValue)) {}
-		TokenPayload(DataType dataType) noexcept : _value(dataType) {}
-		TokenPayload(KeywordType keywordType) noexcept : _value(keywordType) {}
+		constexpr TokenPayload(Identifier identifier) noexcept : _value(identifier) {}
+		constexpr TokenPayload(u32 intValue) noexcept : _value(intValue) {}
+		constexpr TokenPayload(f32 floatValue) noexcept : _value(floatValue) {}
+		constexpr TokenPayload(char charValue) noexcept : _value(charValue) {}
+		constexpr TokenPayload(bool boolValue) noexcept : _value(boolValue) {}
+		constexpr TokenPayload(LiteralString strValue) noexcept : _value(strValue) {}
+		constexpr TokenPayload(DataType dataType) noexcept : _value(dataType) {}
+		constexpr TokenPayload(KeywordType keywordType) noexcept : _value(keywordType) {}
 
-		bool hasValue() const noexcept { return !_value.valueless_by_exception() && !std::holds_alternative<std::monostate>(_value); }
-		bool isInteger() const noexcept { return std::holds_alternative<u32>(_value); }
-        bool isFloat() const noexcept { return std::holds_alternative<f32>(_value); }
-		bool isString() const noexcept { return std::holds_alternative<std::string>(_value); }
-		bool isChar() const noexcept { return std::holds_alternative<char>(_value); }
-		bool isBool() const noexcept { return std::holds_alternative<bool>(_value); }
-		bool isDataType() const noexcept { return std::holds_alternative<DataType>(_value); }
-		bool isKeywordType() const noexcept { return std::holds_alternative<KeywordType>(_value); }
+		constexpr bool hasValue() const noexcept { return !_value.valueless_by_exception() && !std::holds_alternative<std::monostate>(_value); }
+		constexpr bool isIdentifier() const noexcept { return std::holds_alternative<Identifier>(_value); }
+		constexpr bool isInteger() const noexcept { return std::holds_alternative<u32>(_value); }
+        constexpr bool isFloat() const noexcept { return std::holds_alternative<f32>(_value); }
+		constexpr bool isChar() const noexcept { return std::holds_alternative<char>(_value); }
+		constexpr bool isBool() const noexcept { return std::holds_alternative<bool>(_value); }
+		constexpr bool isLiteralString() const noexcept { return std::holds_alternative<LiteralString>(_value); }
+		constexpr bool isDataType() const noexcept { return std::holds_alternative<DataType>(_value); }
+		constexpr bool isKeywordType() const noexcept { return std::holds_alternative<KeywordType>(_value); }
 
-		u32 asInteger() const noexcept { return std::get<u32>(_value); }
-		f32 asFloat() const noexcept { return std::get<f32>(_value); }
-		const std::string& asString() const noexcept { return std::get<std::string>(_value); }
-		char asChar() const noexcept { return std::get<char>(_value); }
-		bool asBool() const noexcept { return std::get<bool>(_value); }
-		DataType asDataType() const noexcept { return std::get<DataType>(_value); }
-		KeywordType asKeywordType() const noexcept { return std::get<KeywordType>(_value); }
+		constexpr Identifier asIdentifier() const noexcept { return std::get<Identifier>(_value); }
+		constexpr u32 asInteger() const noexcept { return std::get<u32>(_value); }
+		constexpr f32 asFloat() const noexcept { return std::get<f32>(_value); }
+		constexpr char asChar() const noexcept { return std::get<char>(_value); }
+		constexpr bool asBool() const noexcept { return std::get<bool>(_value); }
+		constexpr LiteralString asLiteralString() const noexcept { return std::get<LiteralString>(_value); }
+		constexpr DataType asDataType() const noexcept { return std::get<DataType>(_value); }
+		constexpr KeywordType asKeywordType() const noexcept { return std::get<KeywordType>(_value); }
 	};
 
 	class Token
@@ -112,18 +117,18 @@ namespace ceres::casm
 		u32 _column = 0;
 
 	public:
-		Token() noexcept = default;
-		Token(const Token&) noexcept = default;
-		Token(Token&&) noexcept = default;
-		~Token() noexcept = default;
+		constexpr Token() noexcept = default;
+		constexpr Token(const Token&) noexcept = default;
+		constexpr Token(Token&&) noexcept = default;
+		constexpr ~Token() noexcept = default;
 
-		Token& operator=(const Token&) noexcept = default;
-		Token& operator=(Token&&) noexcept = default;
+		constexpr Token& operator=(const Token&) noexcept = default;
+		constexpr Token& operator=(Token&&) noexcept = default;
 
-		bool operator==(const Token& other) const noexcept = default;
+		constexpr bool operator==(const Token& other) const noexcept = default;
 
 	private:
-		Token(TokenType type, std::string_view lexeme, TokenPayload payload, u32 line, u32 column) noexcept
+		constexpr explicit Token(TokenType type, std::string_view lexeme, TokenPayload payload, u32 line, u32 column) noexcept
 			: _type(type), _lexeme(lexeme), _payload(payload), _line(line), _column(column)
 		{}
 
@@ -133,13 +138,14 @@ namespace ceres::casm
 		constexpr u32 line() const noexcept { return _line; }
 		constexpr u32 column() const noexcept { return _column; }
 
-		inline u32 integerValue() const noexcept { return _payload.asInteger(); }
-		inline float floatValue() const noexcept { return _payload.asFloat(); }
-		inline char charValue() const noexcept { return _payload.asChar(); }
-		inline bool boolValue() const noexcept { return _payload.asBool(); }
-		inline std::string_view stringValue() const noexcept { return _payload.asString(); }
-		inline DataType dataTypeValue() const noexcept { return _payload.asDataType(); }
-		inline KeywordType keywordTypeValue() const noexcept { return _payload.asKeywordType(); }
+		constexpr Identifier identifierValue() const noexcept { return _payload.asIdentifier(); }
+		constexpr u32 integerValue() const noexcept { return _payload.asInteger(); }
+		constexpr f32 floatValue() const noexcept { return _payload.asFloat(); }
+		constexpr char charValue() const noexcept { return _payload.asChar(); }
+		constexpr bool boolValue() const noexcept { return _payload.asBool(); }
+		constexpr LiteralString literalStringValue() const noexcept { return _payload.asLiteralString(); }
+		constexpr DataType dataTypeValue() const noexcept { return _payload.asDataType(); }
+		constexpr KeywordType keywordTypeValue() const noexcept { return _payload.asKeywordType(); }
 
 		constexpr bool is(TokenType expectedType) const noexcept { return _type == expectedType; }
 
@@ -147,6 +153,8 @@ namespace ceres::casm
 		constexpr bool isInvalid() const noexcept { return _type == TokenType::Invalid; }
 
 		constexpr bool isIdentifier() const noexcept { return _type == TokenType::Identifier; }
+		constexpr bool isDollarIdentifier() const noexcept { return _type == TokenType::DollarIdentifier; }
+		constexpr bool isDoublePercentIdentifier() const noexcept { return _type == TokenType::DoublePercentIdentifier; }
 
         constexpr bool isLiteral() const noexcept
 		{
@@ -196,17 +204,25 @@ namespace ceres::casm
 
 	public:
 		static Token makeInvalid(u32 line, u32 column) noexcept { return Token{ TokenType::Invalid, {}, {}, line, column }; }
-		static Token makeIdentifier(std::string_view lexeme, u32 line, u32 column) noexcept
+		static Token makeIdentifier(std::string_view lexeme, Identifier identifier, u32 line, u32 column) noexcept
 		{
-			return Token{ TokenType::Identifier, lexeme, {}, line, column };
+			return Token{ TokenType::Identifier, lexeme, identifier, line, column };
+		}
+		static Token makeDollarIdentifier(std::string_view lexeme, Identifier identifier, u32 line, u32 column) noexcept
+		{
+			return Token{ TokenType::DollarIdentifier, lexeme, identifier, line, column };
+		}
+		static Token makeDoublePercentIdentifier(std::string_view lexeme, Identifier identifier, u32 line, u32 column) noexcept
+		{
+			return Token{ TokenType::DoublePercentIdentifier, lexeme, identifier, line, column };
 		}
 		static Token makeLiteralInteger(std::string_view lexeme, u32 value, u32 line, u32 column) noexcept
 		{
 			return Token{ TokenType::LiteralInteger, lexeme, value, line, column };
 		}
-		static Token makeLiteralString(std::string_view lexeme, std::string&& value, u32 line, u32 column) noexcept
+		static Token makeLiteralString(std::string_view lexeme, LiteralString value, u32 line, u32 column) noexcept
 		{
-			return Token{ TokenType::LiteralString, lexeme, std::move(value), line, column };
+			return Token{ TokenType::LiteralString, lexeme, value, line, column };
 		}
 		static Token makeLiteralFloat(std::string_view lexeme, float value, u32 line, u32 column) noexcept
 		{

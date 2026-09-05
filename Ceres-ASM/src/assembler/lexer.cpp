@@ -15,10 +15,10 @@ namespace ceres::casm
 		u32 startColumn = _source.column();
         char currentChar = _source.next();
 
-		if (isAsciiAlpha(currentChar) || currentChar == '_')
+		if (Identifier::isAsciiAlpha(currentChar) || currentChar == '_')
 			return scanIdentifierOrKeyword(startPosition, startColumn);
 
-		if (isAsciiDigit(currentChar))
+		if (Identifier::isAsciiDigit(currentChar))
 			return scanNumberLiteral(startPosition, startColumn);
 
 		if (currentChar == '0' && (*_source == 'x' || *_source == 'X' || *_source == 'b' || *_source == 'B'))
@@ -26,17 +26,17 @@ namespace ceres::casm
 
         if (currentChar == '-' || currentChar == '+')
 		{
-			if (isAsciiDigit(*_source))
+			if (Identifier::isAsciiDigit(*_source))
 				return scanNumberLiteral(startPosition, startColumn);
 
-			if (*_source == '.' && isAsciiDigit(_source[1]))
+			if (*_source == '.' && Identifier::isAsciiDigit(_source[1]))
 				return scanNumberLiteral(startPosition, startColumn);
 
 			if (*_source == '0' && (_source[1] == 'x' || _source[1] == 'X' || _source[1] == 'b' || _source[1] == 'B'))
 				return scanNumberLiteral(startPosition, startColumn);
 		}
 
-		if (currentChar == '.' && isAsciiDigit(*_source))
+		if (currentChar == '.' && Identifier::isAsciiDigit(*_source))
 			return scanNumberLiteral(startPosition, startColumn);
 
 		if (currentChar == '"')
@@ -44,6 +44,30 @@ namespace ceres::casm
 
 		if (currentChar == '\'')
 			return scanCharLiteral(startPosition, startColumn);
+
+		if (currentChar == '$')
+		{
+			if (Identifier::isAsciiAlpha(*_source) || *_source == '_')
+				return scanSpecialIdentifier(startPosition, startColumn, SpecialIdentifierType::DollarIdentifier);
+			else
+				return Token::makeInvalid(_source.line(), startColumn);
+		}
+
+		if (currentChar == '%')
+		{
+			if (*_source == '%')
+			{
+				_source.next(); // Consume the second '%'
+				if (Identifier::isAsciiAlpha(*_source) || *_source == '_')
+					return scanSpecialIdentifier(startPosition, startColumn, SpecialIdentifierType::DoublePercentIdentifier);
+				else
+					return Token::makeInvalid(_source.line(), startColumn);
+			}
+			else
+			{
+				return Token::makeInvalid(_source.line(), startColumn);
+			}
+		}
 
 		switch (currentChar)
 		{
@@ -112,7 +136,7 @@ namespace ceres::casm
 
 	Token Lexer::scanIdentifierOrKeyword(usize startPosition, u32 startColumn) noexcept
 	{
-		usize count = _source.skipUntil(+[](char ch) { return !isAsciiAlnum(ch) && ch != '_'; }) + 1;
+		usize count = _source.skipUntil(+[](char ch) { return !Identifier::isAsciiAlnum(ch) && ch != '_'; }) + 1;
 		std::string_view text = _source.peekSourceUntilCurrentPosition(count);
 
 		const auto keywordType = checkKeyword(text);
@@ -123,7 +147,35 @@ namespace ceres::casm
 		if (dataType.has_value())
 			return Token::makeDataType(text, *dataType, _source.line(), startColumn);
 
-		return Token::makeIdentifier(text, _source.line(), startColumn);
+		return Token::makeIdentifier(text, _stringPool.makeIdentifier(text), _source.line(), startColumn);
+	}
+
+	Token Lexer::scanSpecialIdentifier(usize startPosition, u32 startColumn, SpecialIdentifierType type) noexcept
+	{
+		usize count = _source.skipUntil(+[](char ch) { return !Identifier::isAsciiAlnum(ch) && ch != '_'; }) + 1;
+		std::string_view text = _source.peekSourceUntilCurrentPosition(count);
+
+		const auto keywordType = checkKeyword(text);
+		if (keywordType.has_value())
+			return Token::makeInvalid(_source.line(), startColumn); // Identifiers cannot be keywords, so return an invalid token.
+
+		const auto dataType = DataType::fromString(text);
+		if (dataType.has_value())
+			return Token::makeInvalid(_source.line(), startColumn); // Identifiers cannot be data types, so return an invalid token.
+
+		std::string_view lexeme = _source.getSourceSubpart(startPosition, _source.position() - startPosition);
+
+		switch (type)
+		{
+			case SpecialIdentifierType::DollarIdentifier:
+				return Token::makeDollarIdentifier(lexeme, _stringPool.makeIdentifier(text), _source.line(), startColumn);
+
+			case SpecialIdentifierType::DoublePercentIdentifier:
+				return Token::makeDoublePercentIdentifier(lexeme, _stringPool.makeIdentifier(text), _source.line(), startColumn);
+
+			default:
+				return Token::makeInvalid(_source.line(), startColumn); // Fallback case, should not be reached.
+		}
 	}
 
 	Token Lexer::scanNumberLiteral(usize startPosition, u32 startColumn) noexcept
@@ -168,7 +220,7 @@ namespace ceres::casm
 		{
 			// Integer part (may be absent for ".5")
 			bool hasDigitsBeforeDot = false;
-			while (idx < src.size() && isAsciiDigit(src[idx]))
+			while (idx < src.size() && Identifier::isAsciiDigit(src[idx]))
 			{
 				hasDigitsBeforeDot = true;
 				++idx;
@@ -180,7 +232,7 @@ namespace ceres::casm
 				isFloat = true;
 				++idx; // consume '.'
 				bool hasDigitsAfterDot = false;
-				while (idx < src.size() && isAsciiDigit(src[idx]))
+				while (idx < src.size() && Identifier::isAsciiDigit(src[idx]))
 				{
 					hasDigitsAfterDot = true;
 					++idx;
@@ -198,7 +250,7 @@ namespace ceres::casm
 				if (idx < src.size() && (src[idx] == '+' || src[idx] == '-'))
 					++idx;
 
-				if (idx >= src.size() || !isAsciiDigit(src[idx]))
+				if (idx >= src.size() || !Identifier::isAsciiDigit(src[idx]))
 					return Token::makeInvalid(_source.line(), startColumn);
 
 				while (idx < src.size() && isAsciiDigit(src[idx]))
@@ -334,7 +386,7 @@ namespace ceres::casm
 
 		std::string_view fullLexeme = _source.getSourceSubpart(startPosition, _source.position() - startPosition);
 
-		return Token::makeLiteralString(fullLexeme, std::move(stringContentBuilder), _source.line(), startColumn);
+		return Token::makeLiteralString(fullLexeme, _stringPool.makeLiteralString(std::move(stringContentBuilder)), _source.line(), startColumn);
 	}
 
 	Token Lexer::scanCharLiteral(usize startPosition, u32 startColumn) noexcept

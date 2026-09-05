@@ -5,7 +5,7 @@ namespace ceres::casm
 	std::optional<vm::Program> BinaryEmitter::emit()
 	{
 		Address entryPoint = Address::Null;
-		auto mainSymbol = _linkedExecutable.globalSymbolTable().get(SymbolTable::EntryPointLabelName);
+		auto mainSymbol = _state.get().globalSymbolTable().get(SymbolTable::EntryPointLabelName);
 		if (!mainSymbol.has_value() || !mainSymbol.value().get().isLabel() || !mainSymbol.value().get().isGlobal() || !mainSymbol.value().get().hasAddress())
 		{
 			reportError(0, "Entry point label '{}' is not defined or not a global label", SymbolTable::EntryPointLabelName);
@@ -13,7 +13,7 @@ namespace ceres::casm
 		}
 		entryPoint = mainSymbol.value().get().address();
 
-		for (const auto& unit : _linkedExecutable.units())
+		for (const auto& unit : _state.get().translationUnits())
 		{
 			std::optional<SectionType> currentSection = std::nullopt;
 			for (const auto& statement : unit.ast())
@@ -69,10 +69,10 @@ namespace ceres::casm
 			.magic = vm::ProgramHeader::MagicNumber,
 			.version = vm::ProgramHeader::CurrentVersion,
 			.entryPoint = entryPoint.value(),
-			.textSize = _linkedExecutable.memoryMap().textSize,
-			.rodataSize = _linkedExecutable.memoryMap().rodataSize,
-			.dataSize = _linkedExecutable.memoryMap().dataSize,
-			.bssSize = _linkedExecutable.memoryMap().bssSize,
+			.textSize = _state.get().memoryMap().textSize,
+			.rodataSize = _state.get().memoryMap().rodataSize,
+			.dataSize = _state.get().memoryMap().dataSize,
+			.bssSize = _state.get().memoryMap().bssSize,
 			.minimumStack = 1024 // For now, we can set this to 1024. In the future, we might want to calculate the minimum stack size based on the program's requirements.
 		};
 
@@ -101,7 +101,7 @@ namespace ceres::casm
 
 			u32 size = 0;
 			if (type.hasUnknownSize())
-				size = type.withNumElements(value.elements().size()).sizeInBytes().value_or(0);
+				size = type.withNumElements(static_cast<u32>(value.elements().size())).sizeInBytes().value_or(0);
 			else
 				size = type.sizeInBytes().value_or(0);
 
@@ -386,18 +386,18 @@ namespace ceres::casm
 	{
 		switch (sectionType)
 		{
-		case SectionType::Text:
-			return _linkedExecutable.memoryMap().textStart + _textBuffer.size();
+			case SectionType::Text:
+				return _state.get().memoryMap().textStart + static_cast<u32>(_textBuffer.size());
 
-		case SectionType::Rodata:
-			return _linkedExecutable.memoryMap().rodataStart + _rodataBuffer.size();
+			case SectionType::Rodata:
+				return _state.get().memoryMap().rodataStart + static_cast<u32>(_rodataBuffer.size());
 
-		case SectionType::Data:
-			return _linkedExecutable.memoryMap().dataStart + _dataBuffer.size();
+			case SectionType::Data:
+				return _state.get().memoryMap().dataStart + static_cast<u32>(_dataBuffer.size());
 
-		default:
-			reportError(0, "Unsupported section type for lastSectionAddress");
-			return Address::Null;
+			default:
+				reportError(0, "Unsupported section type for lastSectionAddress");
+				return Address::Null;
 		}
 	}
 }

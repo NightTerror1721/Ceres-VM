@@ -112,10 +112,26 @@ namespace ceres::vm
 		MFF = 0x85, // [rd, fs] - Move the bit pattern of the floating-point value in fs to the integer register rd without conversion.
 
 		// I/O Operations //
-		IN = 0x90, // [rd, imm8] - Read a byte from the I/O port specified by imm8 into rd.
-		INR = 0x91, // [rd, rs] - Read a byte from the I/O port specified by the value in rs into rd.
-		OUT = 0x92, // [rs, imm8] - Write a byte from rs to the I/O port specified by imm8.
-		OUTR = 0x93, // [rs, rt] - Write a byte from rs to the I/O port specified by the value in rt.
+		IN = 0x90, // [rd, imm8] - Read a word from the I/O port specified by imm8 into rd.
+		INB = 0x91, // [rd, imm8] - Read a byte from the I/O port specified by imm8 into rd.
+		INH = 0x92, // [rd, imm8] - Read a halfword from the I/O port specified by imm8 into rd.
+		INSB = 0x93, // [rd, imm8] - Read a signed byte from the I/O port specified by imm8 into rd.
+		INSH = 0x94, // [rd, imm8] - Read a signed halfword from the I/O port specified by imm8 into rd.
+		INM = 0x95, // [rd, rs, imm8] - Read an array of bytes with size specified by rs from the I/O port specified by imm8 into the memory address pointed to by rd.
+		INR = 0x96, // [rd, rs] - Read a word from the I/O port specified by the value in rs into rd.
+		INRB = 0x97, // [rd, rs] - Read a byte from the I/O port specified by the value in rs into rd.
+		INRH = 0x98, // [rd, rs] - Read a halfword from the I/O port specified by the value in rs into rd.
+		INRSB = 0x99, // [rd, rs] - Read a signed byte from the I/O port specified by the value in rs into rd.
+		INRSH = 0x9A, // [rd, rs] - Read a signed halfword from the I/O port specified by the value in rs into rd.
+		INRM = 0x9B, // [rd, rs, rt] - Read an array of bytes with size specified by rt from the I/O port specified by the value in rs into the memory address pointed to by rd.
+		OUT = 0x9C, // [rs, imm8] - Write a word from rs to the I/O port specified by imm8.
+		OUTB = 0x9D, // [rs, imm8] - Write a byte from rs to the I/O port specified by imm8.
+		OUTH = 0x9E, // [rs, imm8] - Write a halfword from rs to the I/O port specified by imm8.
+		OUTM = 0x9F, // [rs, rt, imm8] - Write an array of bytes with size specified by rt from the memory address pointed to by rs to the I/O port specified by imm8.
+		OUTR = 0xA0, // [rs, rt] - Write a word from rs to the I/O port specified by the value in rt.
+		OUTRB = 0xA1, // [rs, rt] - Write a byte from rs to the I/O port specified by the value in rt.
+		OUTRH = 0xA2, // [rs, rt] - Write a halfword from rs to the I/O port specified by the value in rt.
+		OUTRM = 0xA3, // [rd, rs, rt] - Write an array of bytes with size specified by rd from the memory address pointed to by rs to the I/O port specified by the value in rt.
 
 		// Miscellaneous - Reserved //
 	};

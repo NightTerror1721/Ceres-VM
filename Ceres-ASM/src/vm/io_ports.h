@@ -1,26 +1,62 @@
 #pragma once
 
 #include "common/types.h"
+#include "address.h"
+#include "memory.h"
 #include <array>
+#include <limits>
 
 namespace ceres::vm
 {
 	using PortNumber = u8;
 
+	class IOPorts;
+
 	class IODevice
 	{
+	private:
+		Memory* _memory = nullptr;
+
 	public:
 		virtual ~IODevice() = default;
 
 	public:
-		virtual u8 readPort(PortNumber port) = 0;
-		virtual void writePort(PortNumber port, u8 value) = 0;
+		virtual u8 readPortUnsignedByte(PortNumber port) = 0;
+		virtual i8 readPortSignedByte(PortNumber port) = 0;
+		virtual u16 readPortUnsignedHalfword(PortNumber port) = 0;
+		virtual i16 readPortSignedHalfword(PortNumber port) = 0;
+		virtual u32 readPortUnsignedWord(PortNumber port) = 0;
+		virtual void readPort(PortNumber, Address address, u32 size) = 0;
+
+		virtual void writePortByte(PortNumber port, u8 value) = 0;
+		virtual void writePortHalfword(PortNumber port, u16 value) = 0;
+		virtual void writePortWord(PortNumber port, u32 value) = 0;
+		virtual void writePort(PortNumber port, Address address, u32 size) = 0;
+
+	protected:
+		Memory& memory() { return *_memory; }
+		const Memory& memory() const { return *_memory; }
+
+	public:
+		friend class IOPorts;
 	};
 
 	class DummyDevice final : public IODevice
 	{
-		u8 readPort(PortNumber port) override { return 0xFF; }
-		void writePort(PortNumber port, u8 value) override {}
+		u8 readPortUnsignedByte(PortNumber port) override { return 0xFF; }
+		i8 readPortSignedByte(PortNumber port) override { return -1; }
+		u16 readPortUnsignedHalfword(PortNumber port) override { return 0xFFFF; }
+		i16 readPortSignedHalfword(PortNumber port) override { return -1; }
+		u32 readPortUnsignedWord(PortNumber port) override { return 0xFFFFFFFF; }
+		void readPort(PortNumber port, Address address, u32 size) override
+		{
+			memory().setBytes(address, 0xFF, size); // Fill the memory with 0xFF for undefined ports.
+		}
+
+		void writePortByte(PortNumber port, u8 value) override {}
+		void writePortHalfword(PortNumber port, u16 value) override {}
+		void writePortWord(PortNumber port, u32 value) override {}
+		void writePort(PortNumber port, Address address, u32 size) override {}
 	};
 
 	class IOPorts
@@ -30,9 +66,10 @@ namespace ceres::vm
 
 	private:
 		std::array<IODevice*, MaxPorts> _devices{};
+		Memory& _memory;
 
 	public:
-		IOPorts() = default;
+		IOPorts() = delete;
 		IOPorts(const IOPorts&) = delete;
 		IOPorts(IOPorts&&) = delete;
 		~IOPorts() = default;
@@ -41,26 +78,45 @@ namespace ceres::vm
 		IOPorts& operator=(IOPorts&&) = delete;
 
 	public:
+		IOPorts(Memory& memory) : _memory(memory)
+		{
+			_devices.fill(nullptr);
+		}
+
 		inline constexpr void attach(PortNumber port, IODevice& device)
 		{
 			_devices[port] = &device;
+			device._memory = &_memory; // Set the memory reference for the device
 		}
 
 		inline constexpr void attachRange(PortNumber start, PortNumber end, IODevice& device)
 		{
 			for (PortNumber port = start; port <= end; ++port)
+			{
 				_devices[port] = &device;
+				device._memory = &_memory; // Set the memory reference for the device
+			}
 		}
 
 		inline constexpr void detach(PortNumber port)
 		{
-			_devices[port] = nullptr;
+			if (IODevice* device = _devices[port])
+			{
+				device->_memory = nullptr; // Clear the memory reference for the device
+				_devices[port] = nullptr;
+			}
 		}
 
 		inline constexpr void detachRange(PortNumber start, PortNumber end)
 		{
 			for (PortNumber port = start; port <= end; ++port)
-				_devices[port] = nullptr;
+			{
+				if (IODevice* device = _devices[port])
+				{
+					device->_memory = nullptr; // Clear the memory reference for the device
+					_devices[port] = nullptr;
+				}
+			}
 		}
 
 		inline constexpr bool isAttached(PortNumber port) const
@@ -68,17 +124,72 @@ namespace ceres::vm
 			return _devices[port] != nullptr;
 		}
 
-		forceinline u8 read(PortNumber port)
+		template <Integral T> requires (sizeof(T) <= sizeof(u32))
+		forceinline T read(PortNumber port)
 		{
 			if (IODevice* device = _devices[port])
-				return device->readPort(port);
-			return 0xFF; // Default to returning 0xFF if no device is attached
+			{
+				if constexpr (SignedIntegral<T>)
+				{
+					if constexpr (sizeof(T) == 1)
+						return device->readPortSignedByte(port);
+					else if constexpr (sizeof(T) == 2)
+						return device->readPortSignedHalfword(port);
+					else
+						static_assert(false, "Unsupported signed integral type size for port read");
+				}
+				else
+				{
+					if constexpr (sizeof(T) == 1)
+						return device->readPortUnsignedByte(port);
+					else if constexpr (sizeof(T) == 2)
+						return device->readPortUnsignedHalfword(port);
+					else if constexpr (sizeof(T) == 4)
+						return device->readPortUnsignedWord(port);
+					else
+						static_assert(false, "Unsupported unsigned integral type size for port read");
+				}
+			}
+			if constexpr (SignedIntegral<T>)
+				return static_cast<T>(-1); // Default to returning -1 for signed types if no device is attached
+			else
+				return std::numeric_limits<T>::max(); // Default to returning the maximum value if no device is attached
 		}
 
-		forceinline void write(PortNumber port, u8 value)
+		template <UnsignedIntegral T> requires (sizeof(T) <= sizeof(u32))
+		forceinline void write(PortNumber port, T value)
 		{
 			if (IODevice* device = _devices[port])
-				device->writePort(port, value);
+			{
+				if constexpr (sizeof(T) == 1)
+					device->writePortByte(port, value);
+				else if constexpr (sizeof(T) == 2)
+					device->writePortHalfword(port, value);
+				else if constexpr (sizeof(T) == 4)
+					device->writePortWord(port, value);
+				else
+					static_assert(false, "Unsupported integral type size for port write");
+			}
+		}
+
+		forceinline void readBytes(PortNumber port, Address address, u32 size)
+		{
+			if (IODevice* device = _devices[port])
+			{
+				device->readPort(port, address, size);
+			}
+			else
+			{
+				_memory.setBytes(address, 0xFF, size); // Fill the memory with 0xFF for undefined ports.
+			}
+		}
+
+		forceinline void writeBytes(PortNumber port, Address address, u32 size)
+		{
+			if (IODevice* device = _devices[port])
+			{
+				device->writePort(port, address, size);
+			}
 		}
 	};
 

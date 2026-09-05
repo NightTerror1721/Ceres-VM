@@ -140,10 +140,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\assembler\assembler.cpp" />
+    <ClCompile Include="src\assembler\assembly_state.cpp" />
     <ClCompile Include="src\assembler\binary_emitter.cpp" />
     <ClCompile Include="src\assembler\instruction_info.cpp" />
     <ClCompile Include="src\assembler\lexer.cpp" />
     <ClCompile Include="src\assembler\linker.cpp" />
+    <ClCompile Include="src\assembler\macro_table.cpp" />
     <ClCompile Include="src\assembler\mnemonic.cpp" />
     <ClCompile Include="src\assembler\operand.cpp" />
     <ClCompile Include="src\assembler\parser.cpp" />
@@ -156,6 +158,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\assembler\assembler.h" />
+    <ClInclude Include="src\assembler\assembly_state.h" />
     <ClInclude Include="src\assembler\binary_emitter.h" />
     <ClInclude Include="src\assembler\common_defs.h" />
     <ClInclude Include="src\assembler\data_type.h" />
@@ -166,19 +169,24 @@
     <ClInclude Include="src\assembler\linker.h" />
     <ClInclude Include="src\assembler\literal_scalar.h" />
     <ClInclude Include="src\assembler\literal_value.h" />
+    <ClInclude Include="src\assembler\macro_table.h" />
     <ClInclude Include="src\assembler\mnemonic.h" />
     <ClInclude Include="src\assembler\operand.h" />
     <ClInclude Include="src\assembler\parser.h" />
     <ClInclude Include="src\assembler\relocatable_statement.h" />
+    <ClInclude Include="src\assembler\scope.h" />
     <ClInclude Include="src\assembler\size.h" />
     <ClInclude Include="src\assembler\statement.h" />
+    <ClInclude Include="src\assembler\strings_pool.h" />
     <ClInclude Include="src\assembler\symbol_table.h" />
     <ClInclude Include="src\assembler\token.h" />
     <ClInclude Include="src\assembler\translation_unit.h" />
     <ClInclude Include="src\common\assert.h" />
     <ClInclude Include="src\common\config.h" />
+    <ClInclude Include="src\common\fixed_vector.h" />
     <ClInclude Include="src\common\int24.h" />
     <ClInclude Include="src\common\logs.h" />
+    <ClInclude Include="src\common\memory.h" />
     <ClInclude Include="src\common\string_utils.h" />
     <ClInclude Include="src\common\types.h" />
     <ClInclude Include="src\vm\address.h" />

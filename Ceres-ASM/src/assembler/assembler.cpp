@@ -5,7 +5,13 @@ namespace ceres::casm
 {
 	std::optional<vm::Program> Assembler::assemble(std::span<const std::filesystem::path> sourceFiles)
 	{
-		_errorHandler.clearErrors();
+		_state.reset();
+		_state = std::make_unique<AssemblyState>(
+			[&](const std::string& filePath) -> OptionalRef<TranslationUnit>
+			{
+				return loadTranslationUnit(filePath);
+			}
+		);
 
 		if (sourceFiles.empty())
 		{
@@ -13,45 +19,21 @@ namespace ceres::casm
 			return std::nullopt;
 		}
 
-		std::vector<TranslationUnit> translationUnits;
 		for (const auto& filePath : sourceFiles)
-		{
-			auto sourceOpt = readSourceFile(filePath);
-			if (!sourceOpt.has_value())
-				continue; // Continue to the next file instead of returning immediately
+			loadTranslationUnit(filePath.string());
 
-			auto source = std::move(sourceOpt.value());
-
-			auto statements = parseSource(source, filePath);
-			if (_errorHandler.hasErrors())
-				continue; // Continue to the next file if there were parsing errors
-
-			auto translationUnit = translateStatementsToUnit(source, std::move(statements), filePath);
-			translationUnits.push_back(std::move(translationUnit));
-		}
-
-		if (_errorHandler.hasErrors())
-		{
-			reportError("Assembly failed due to errors in source files");
+		if (hasErrors())
 			return std::nullopt;
-		}
 
-		auto linkedExecutableOpt = linkTranslationUnits(std::move(translationUnits));
-		if (!linkedExecutableOpt.has_value())
+		if (!linkTranslationUnits())
 		{
 			reportError("Linking failed due to unresolved symbols or other errors");
 			return std::nullopt;
 		}
 
-		auto binaryOpt = emitBinary(std::move(linkedExecutableOpt.value()));
-		if (!binaryOpt.has_value())
-		{
-			reportError("Binary emission failed due to errors in the linked executable");
+		auto binaryOpt = emitBinary();
+		if (!binaryOpt.has_value() || hasErrors())
 			return std::nullopt;
-		}
-
-		if (_errorHandler.hasErrors())
-			return std::nullopt; // Return nullopt if there were any errors during the assembly process
 
 		return binaryOpt;
 	}
@@ -81,7 +63,7 @@ namespace ceres::casm
 	{
 		try
 		{
-			Parser parser{ source, _errorHandler };
+			Parser parser{ source, _state->errorHandler() };
 			return parser.parse();
 		}
 		catch (const std::exception& e)
@@ -91,40 +73,40 @@ namespace ceres::casm
 		}
 	}
 
-	TranslationUnit Assembler::translateStatementsToUnit(const std::string& source, std::vector<Statement>&& statements, const std::filesystem::path& filePath)
+	std::optional<TranslationUnit> Assembler::translateStatementsToUnit(const std::string& source, std::vector<Statement>&& statements, const std::filesystem::path& filePath)
 	{
 		try
 		{
-			TranslationUnitBuilder builder{ source, _errorHandler };
+			TranslationUnitBuilder builder{ *_state };
 			builder.build(std::move(statements));
 			return builder.release();
 		}
 		catch (const std::exception& e)
 		{
 			reportError("Error translating statements to translation unit for file '{}': {}", filePath.string(), e.what());
-			return TranslationUnit{ "", _errorHandler }; // Return an empty translation unit on error
-		}
-	}
-
-	std::optional<LinkedExecutable> Assembler::linkTranslationUnits(std::vector<TranslationUnit>&& units)
-	{
-		try
-		{
-			Linker linker{ _errorHandler };
-			return linker.link(std::move(units));
-		}
-		catch (const std::exception& e)
-		{
-			reportError("Error linking translation units: {}", e.what());
 			return std::nullopt;
 		}
 	}
 
-	std::optional<vm::Program> Assembler::emitBinary(LinkedExecutable&& linkedExecutable)
+	bool Assembler::linkTranslationUnits()
 	{
 		try
 		{
-			BinaryEmitter emitter{ std::move(linkedExecutable), _errorHandler };
+			Linker linker{ *_state };
+			return linker.link();
+		}
+		catch (const std::exception& e)
+		{
+			reportError("Error linking translation units: {}", e.what());
+			return false;
+		}
+	}
+
+	std::optional<vm::Program> Assembler::emitBinary()
+	{
+		try
+		{
+			BinaryEmitter emitter{ *_state };
 			return emitter.emit();
 		}
 		catch (const std::exception& e)
@@ -132,5 +114,31 @@ namespace ceres::casm
 			reportError("Error emitting binary: {}", e.what());
 			return std::nullopt;
 		}
+	}
+
+	OptionalRef<TranslationUnit> Assembler::loadTranslationUnit(const std::string& filePath) noexcept
+	{
+		if (!_state)
+			return std::nullopt;
+
+		auto result = _state->getTranslationUnit(filePath);
+		if (result.has_value())
+			return result;
+
+		auto sourceOpt = readSourceFile(filePath);
+		if (!sourceOpt.has_value())
+			return std::nullopt;
+
+		auto& source = _state->cacheSourceFile(filePath, std::move(sourceOpt.value()));
+
+		auto statements = parseSource(source, filePath);
+		if (hasErrors())
+			return std::nullopt;
+
+		auto translationUnit = translateStatementsToUnit(source, std::move(statements), filePath);
+		if (!translationUnit.has_value())
+			return std::nullopt;
+
+		return _state->cacheTranslationUnit(filePath, std::move(translationUnit.value()));
 	}
 }

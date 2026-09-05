@@ -140,7 +140,15 @@ namespace ceres::casm
 	class Lexer
 	{
 	private:
+		enum class SpecialIdentifierType : u8
+		{
+			DollarIdentifier, // $identifier
+			DoublePercentIdentifier, // %%identifier
+		};
+
+	private:
 		LexerSource _source;
+		StringPool& _stringPool;
 
 	public:
 		Lexer() = delete;
@@ -152,7 +160,7 @@ namespace ceres::casm
 		Lexer& operator=(Lexer&&) noexcept = default;
 
 	public:
-		explicit Lexer(std::string_view source) noexcept : _source(source) {}
+		explicit Lexer(std::string_view source, StringPool& stringPool) noexcept : _source(source), _stringPool(stringPool) {}
 
 		Token nextToken();
 
@@ -163,6 +171,7 @@ namespace ceres::casm
 		void skipWhitespaceAndComments() noexcept;
 
 		Token scanIdentifierOrKeyword(usize startPosition, u32 startColumn) noexcept;
+		Token scanSpecialIdentifier(usize startPosition, u32 startColumn, SpecialIdentifierType type) noexcept;
 		Token scanNumberLiteral(usize startPosition, u32 startColumn) noexcept;
 		Token scanStringLiteral(usize startPosition, u32 startColumn) noexcept;
 		Token scanCharLiteral(usize startPosition, u32 startColumn) noexcept;

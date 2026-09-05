@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/types.h"
-#include "identifier.h"
+//#include "identifier.h"
 #include <string>
 #include <optional>
 
@@ -20,6 +20,9 @@ namespace ceres::casm
 		Let, // 'let' keyword for defining variables.
 		Constant, // 'const' keyword for defining constants.
 		Global, // 'global' keyword for defining global symbols.
+		Import, // 'import' keyword for importing modules or libraries.
+		Macro, // 'macro' keyword for defining macros.
+		EndMacro, // 'endmacro' keyword for ending macro definitions.
 	};
 
 	enum class LabelLevel : u8

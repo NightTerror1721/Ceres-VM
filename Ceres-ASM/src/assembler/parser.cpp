@@ -8,57 +8,77 @@ namespace ceres::casm
 
 		while (!_cursor.isAtEnd())
 		{
-			try
-			{
-				if (_cursor.match(TokenType::EndOfLine))
-				{
-					_cursor.next(); // Skip empty lines
-					continue;
-				}
-
-				if (_cursor.isCurrentInvalid())
-				{
-					_cursor.next(); // Skip the invalid token
-					error("Unexpected invalid token");
-				}
-
-				if (_cursor.match(TokenType::At))
-				{
-					statements.push_back(parseSection());
-					_cursor.consumeEndOfLineOrEndOfFile("Expected end of line or end of file after section declaration");
-					continue;
-				}
-
-				if (_cursor.match(TokenType::Keyword))
-				{
-					if (_cursor.match(KeywordType::Global))
-						statements.push_back(parseLabelOrInstruction());
-					else if (_cursor.matchAny({ KeywordType::Let, KeywordType::Constant }))
-						statements.push_back(parseDataDeclaration());
-					else
-						error("Unexpected keyword {}", _cursor.current().lexeme());
-					_cursor.consumeEndOfLineOrEndOfFile("Expected comma between operands or end of line after statement");
-					continue;
-				}
-
-				if (_cursor.matchAny({ TokenType::Identifier, TokenType::Dot }))
-				{
-					statements.push_back(parseLabelOrInstruction());
-					_cursor.consumeEndOfLineOrEndOfFile("Expected end of line or end of file after statement");
-					continue;
-				}
-
-				error("Unexpected token {}", _cursor.current().lexeme());
-			}
-			catch (const ParserError& error)
-			{
-				_errorHandler.reportError(error);
-				_cursor.skipUntilEndOfLineOrEndOfFile();
-				_cursor.next(); // Move to the next token after skipping
-			}
+			Optional<Statement> statement = parseStatement();
+			if (statement.has_value())
+				statements.push_back(std::move(statement.value()));
 		}
 
 		return statements;
+	}
+
+	Optional<Statement> Parser::parseStatement()
+	{
+		try
+		{
+			if (_cursor.match(TokenType::EndOfLine))
+			{
+				_cursor.next(); // Skip empty lines
+				return std::nullopt;
+			}
+
+			if (_cursor.isCurrentInvalid())
+			{
+				_cursor.next(); // Skip the invalid token
+				error("Unexpected invalid token");
+			}
+
+			if (_cursor.match(TokenType::At))
+			{
+				Statement statement = parseSection();
+				_cursor.consumeEndOfLineOrEndOfFile("Expected end of line or end of file after section declaration");
+				return std::move(statement);
+			}
+
+			if (_cursor.match(TokenType::Keyword))
+			{
+				Optional<Statement> statement;
+				if (_cursor.match(KeywordType::Global))
+					statement = parseLabelOrInstruction();
+				else if (_cursor.matchAny({ KeywordType::Let, KeywordType::Constant }))
+					statement = parseDataDeclaration();
+				else if (_cursor.match(KeywordType::Import))
+					statement = parseImportDeclaration();
+				else if (_cursor.match(KeywordType::Macro))
+					statement = parseMacroDeclaration();
+				else
+					error("Unexpected keyword {}", _cursor.current().lexeme());
+				_cursor.consumeEndOfLineOrEndOfFile("Expected comma between operands or end of line after statement");
+				return std::move(statement);
+			}
+
+			if (_cursor.matchAny({ TokenType::Identifier, TokenType::Dot }))
+			{
+				Optional<Statement> statement = parseLabelOrInstruction();
+				_cursor.consumeEndOfLineOrEndOfFile("Expected end of line or end of file after statement");
+				return std::move(statement);
+			}
+
+			if (_cursor.match(TokenType::DoublePercentIdentifier))
+			{
+				Statement statement = parseMacroLabel();
+				_cursor.consumeEndOfLineOrEndOfFile("Expected end of line or end of file after macro label");
+				return std::move(statement);
+			}
+
+			error("Unexpected token {}", _cursor.current().lexeme());
+		}
+		catch (const ParserError& error)
+		{
+			_errorHandler.reportError(error);
+			_cursor.skipUntilEndOfLineOrEndOfFile();
+			_cursor.next(); // Move to the next token after skipping
+			return std::nullopt;
+		}
 	}
 
 	Statement Parser::parseSection()
@@ -117,6 +137,16 @@ namespace ceres::casm
 		return Statement::makeData(line, isConstant, name, std::move(dataType), std::move(initialValue));
 	}
 
+	Statement Parser::parseImportDeclaration()
+	{
+		u32 line = _cursor.current().line();
+		_cursor.consume(KeywordType::Import, "Expected 'import' keyword for import declaration");
+
+		Token moduleNameToken = _cursor.consume(TokenType::LiteralString, "Expected module name after 'import' keyword");
+		std::string_view moduleName = moduleNameToken.stringValue();
+		return Statement::makeImport(line, moduleName);
+	}
+
 	Statement Parser::parseLabelOrInstruction()
 	{
 		u32 line = _cursor.current().line();
@@ -143,10 +173,6 @@ namespace ceres::casm
 		if (labelLevel != LabelLevel::File)
 			error("Global or local label specifier must be followed by a label declaration");
 
-		std::optional<Mnemonic> mnemonic = stringToMnemonic(identifierToken.lexeme(), false);
-		if (!mnemonic.has_value())
-			error("Unknown instruction mnemonic '{}'", identifierToken.lexeme());
-
 		std::vector<Operand> operands;
 
 		while (!_cursor.isCurrentEndOfLineOrEndOfFile())
@@ -157,7 +183,67 @@ namespace ceres::casm
 			_cursor.next(); // Consume ',' and continue parsing operands
 		}
 
-		return Statement::makeInstruction(line, *mnemonic, std::move(operands));
+		std::optional<Mnemonic> mnemonic = stringToMnemonic(identifierToken.lexeme(), false);
+		if (mnemonic.has_value())
+			return Statement::makeInstruction(line, *mnemonic, std::move(operands));
+
+		// If the identifier is not a known mnemonic, treat it as a macro call
+		return Statement::makeMacroCall(line, identifierToken.lexeme(), std::move(operands));
+	}
+
+	Statement Parser::parseMacroLabel()
+	{
+		u32 line = _cursor.current().line();
+		_cursor.consume(TokenType::Dot, "Expected '.' for macro label declaration");
+
+		Token identifierToken = _cursor.consume(TokenType::DoublePercentIdentifier, "Expected identifier for macro label name");
+		std::string_view macroLabelName = identifierToken.stringValue();
+		if (!_cursor.current().isEndOfFile())
+			error("Expected end of line or end of file after macro label declaration");
+
+		return Statement::makeMacroLabel(line, macroLabelName);
+	}
+
+	Statement Parser::parseMacroDeclaration()
+	{
+		u32 line = _cursor.current().line();
+		_cursor.consume(KeywordType::Macro, "Expected 'macro' keyword for macro declaration");
+
+		Token identifierToken = _cursor.consume(TokenType::Identifier, "Expected identifier for macro name");
+
+		std::string_view macroName = identifierToken.lexeme();
+		std::vector<std::string> parameters;
+
+		while (!_cursor.isCurrentEndOfLineOrEndOfFile())
+		{
+			Token paramToken = _cursor.consume(TokenType::DollarIdentifier, "Expected identifier for macro parameter");
+			parameters.push_back(std::string(paramToken.stringValue()));
+		}
+
+		if (!_cursor.current().isEndOfFile())
+			error("Expected end of line or end of file after macro parameter list");
+
+		std::vector<Statement> bodyStatements;
+		bool endOfMacroFound = false;
+
+		while (!endOfMacroFound && !_cursor.isCurrentEndOfLineOrEndOfFile())
+		{
+			if (_cursor.match(KeywordType::EndMacro))
+			{
+				endOfMacroFound = true;
+				_cursor.next(); // Consume 'endmacro' keyword
+				break;
+			}
+
+			Optional<Statement> statement = parseStatement();
+			if (statement.has_value())
+				bodyStatements.push_back(std::move(statement.value()));
+		}
+
+		if (!endOfMacroFound)
+			error("Expected 'endmacro' keyword to close macro declaration");
+
+		return Statement::makeMacroDeclaration(line, macroName, std::move(parameters), std::move(bodyStatements));
 	}
 
 	DataTypeReference Parser::parseDataType()
@@ -373,6 +459,22 @@ namespace ceres::casm
 
 			_cursor.next(); // Consume the register identifier
 			return Operand::makeIdentifier(regToken.lexeme(), false);
+		}
+
+		// Handle macro parameter operand (e.g., $param)
+		if (_cursor.match(TokenType::DollarIdentifier))
+		{
+			Token macroParamToken = _cursor.current();
+			_cursor.next(); // Consume the macro parameter identifier
+			return Operand::makeMacroParameter(macroParamToken.stringValue());
+		}
+
+		// Handle macro label operand (e.g., %%label)
+		if (_cursor.match(TokenType::DoublePercentIdentifier))
+		{
+			Token macroLabelToken = _cursor.current();
+			_cursor.next(); // Consume the macro label identifier
+			return Operand::makeMacroLabel(macroLabelToken.stringValue());
 		}
 
 		// Handle immediate operand (literal integer)

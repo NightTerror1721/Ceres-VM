@@ -1,5 +1,6 @@
 #include "translation_unit.h"
 #include "instruction_info.h"
+#include "assembly_state.h"
 
 namespace ceres::casm
 {
@@ -10,8 +11,9 @@ namespace ceres::casm
 
 		_built = true;
 
-		AssemblerErrorHandler& errorHandler = _translationUnit.errorHandler();
+		AssemblerErrorHandler& errorHandler = _translationUnit.state().errorHandler();
 		SymbolTable& symbolTable = _translationUnit.symbolTable();
+		MacroTable& macroTable = _translationUnit.macroTable();
 		SectionSizes& sectionSizes = _translationUnit.sectionSizes();
 		std::vector<RelocatableStatement> ast;
 		std::vector<UnresolvedSymbol> unresolvedSymbols;
@@ -90,13 +92,7 @@ namespace ceres::casm
 						if (!literalValue.has_value())
 							error(statement.line(), "Constant data statement must have an initial value");
 
-						/*if (_currentSection.has_value() && _currentSection.value() == SectionType::Rodata)
-						{
-							symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), false, true, dataType, literalValue.value());
-							sectionSizes.rodataSize += size.value();
-						}
-						else*/
-							symbolTable.defineConstant(statement.line(), data.name, false, literalValue.value());
+						symbolTable.defineConstant(statement.line(), data.name, false, literalValue.value());
 					}
 					else
 					{
@@ -144,6 +140,32 @@ namespace ceres::casm
 						currentOffset() += size.value();
 					}
 				}
+				else if (statement.isImport())
+				{
+					auto& imp = statement.asImport();
+					auto moduleUnit = _translationUnit.state().loadTranslationUnit(imp.moduleName);
+					if (!moduleUnit)
+						error(statement.line(), "Failed to load translation unit for module '{}'", imp.moduleName);
+
+					if (!_translationUnit.hasImportedModule(imp.moduleName))
+					{
+						_translationUnit.addImportedModule(imp.moduleName);
+						symbolTable.importSymbols(moduleUnit->get());
+						macroTable.importMacros(moduleUnit->get());
+						
+						for (const auto& importedModule : moduleUnit->get().importedModules())
+							_translationUnit.addImportedModule(importedModule);
+					}
+				}
+				else if (statement.isMacroDeclaration())
+				{
+					MacroDeclarationStatement& macroDecl = statement.asMacroDeclaration();
+					macroTable.defineMacro(std::move(macroDecl.name), std::move(macroDecl.parameters), std::move(macroDecl.body));
+				}
+				else if (statement.isMacroLabel())
+				{
+					// TODO: Handle macro label statements
+				}
 				else if (statement.isInstruction())
 				{
 					if (!_currentSection.has_value() || _currentSection.value() != SectionType::Text)
@@ -162,6 +184,10 @@ namespace ceres::casm
 					sectionSizes.textSize += sizeOpt.value();
 
 					currentOffset() += sizeOpt.value();
+				}
+				else if (statement.isMacroCall())
+				{
+					// TODO: Handle macro call statements
 				}
 				else
 				{

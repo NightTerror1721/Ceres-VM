@@ -234,9 +234,25 @@ namespace ceres::vm
 
 		// I/O Operations
 		static constexpr Instruction IN(u8 rd, u8 imm8) noexcept { return make(Opcode::IN, rd, 0, 0, imm8); }
+		static constexpr Instruction INB(u8 rd, u8 imm8) noexcept { return make(Opcode::INB, rd, 0, 0, imm8); }
+		static constexpr Instruction INH(u8 rd, u8 imm8) noexcept { return make(Opcode::INH, rd, 0, 0, imm8); }
+		static constexpr Instruction INSB(u8 rd, u8 imm8) noexcept { return make(Opcode::INSB, rd, 0, 0, imm8); }
+		static constexpr Instruction INSH(u8 rd, u8 imm8) noexcept { return make(Opcode::INSH, rd, 0, 0, imm8); }
+		static constexpr Instruction INM(u8 rd, u8 rs, u8 imm8) noexcept { return make(Opcode::INM, rd, rs, 0, imm8); }
 		static constexpr Instruction INR(u8 rd, u8 rs) noexcept { return make(Opcode::INR, rd, rs); }
-		static constexpr Instruction OUT(u8 rs, u8 imm8) noexcept { return make(Opcode::OUT, rs, 0, 0, imm8); }
-		static constexpr Instruction OUTR(u8 rs, u8 rt) noexcept { return make(Opcode::OUTR, rs, rt); }
+		static constexpr Instruction INRB(u8 rd, u8 rs) noexcept { return make(Opcode::INR, rd, rs); }
+		static constexpr Instruction INRH(u8 rd, u8 rs) noexcept { return make(Opcode::INR, rd, rs); }
+		static constexpr Instruction INRSB(u8 rd, u8 rs) noexcept { return make(Opcode::INRSB, rd, rs); }
+		static constexpr Instruction INRSH(u8 rd, u8 rs) noexcept { return make(Opcode::INRSH, rd, rs); }
+		static constexpr Instruction INRM(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::INRM, rd, rs, rt); }
+		static constexpr Instruction OUT(u8 rs, u8 imm8) noexcept { return make(Opcode::OUT, 0, rs, 0, imm8); }
+		static constexpr Instruction OUTB(u8 rs, u8 imm8) noexcept { return make(Opcode::OUTB, 0, rs, 0, imm8); }
+		static constexpr Instruction OUTH(u8 rs, u8 imm8) noexcept { return make(Opcode::OUTH, 0, rs, 0, imm8); }
+		static constexpr Instruction OUTM(u8 rs, u8 rt, u8 imm8) noexcept { return make(Opcode::OUTM, 0, rs, rt, imm8); }
+		static constexpr Instruction OUTR(u8 rs, u8 rt) noexcept { return make(Opcode::OUTR, 0, rs, rt); }
+		static constexpr Instruction OUTRB(u8 rs, u8 rt) noexcept { return make(Opcode::OUTRB, 0, rs, rt); }
+		static constexpr Instruction OUTRH(u8 rs, u8 rt) noexcept { return make(Opcode::OUTRH, 0, rs, rt); }
+		static constexpr Instruction OUTRM(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::OUTRM, rd, rs, rt); }
 
 		// Miscellaneous - Reserved
 

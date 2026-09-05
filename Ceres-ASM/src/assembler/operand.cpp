@@ -38,7 +38,7 @@ namespace ceres::casm
 		}
 	}
 
-	std::optional<RegisterInfo> RegisterInfo::get(std::string_view name) noexcept
+	std::optional<RegisterInfo> RegisterInfo::get(Identifier name) noexcept
 	{
 		constexpr int maxRegisterIndex = vm::GeneralPurposeRegisterPool::Count - 1; // Maximum register index (15 for 16 registers)
 

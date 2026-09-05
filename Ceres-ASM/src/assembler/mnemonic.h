@@ -73,7 +73,15 @@ namespace ceres::casm
 		MFF, // MFF
 
 		IN, // IN, INR
-		OUT // OUT, OUTR
+		INB, // INB, INBR
+		INH, // INH, INHR
+		INSB, // INSB, INSBR
+		INSH, // INSH, INSHR
+		INM, // INM, INMR
+		OUT, // OUT, OUTR
+		OUTB, // OUTB, OUTBR
+		OUTH, // OUTH, OUTHR
+		OUTM // OUTM, OUTMR
 	};
 
 	std::string_view mnemonicToString(Mnemonic mnemonic) noexcept;

@@ -75,6 +75,12 @@
     <ClCompile Include="src\assembler\assembler.cpp">
       <Filter>Archivos de origen\assembler</Filter>
     </ClCompile>
+    <ClCompile Include="src\assembler\assembly_state.cpp">
+      <Filter>Archivos de origen\assembler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\assembler\macro_table.cpp">
+      <Filter>Archivos de origen\assembler</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\common\types.h">
@@ -192,6 +198,24 @@
       <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>
     <ClInclude Include="src\common\string_utils.h">
+      <Filter>Archivos de encabezado\common</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\assembly_state.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\macro_table.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\scope.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\strings_pool.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\common\fixed_vector.h">
+      <Filter>Archivos de encabezado\common</Filter>
+    </ClInclude>
+    <ClInclude Include="src\common\memory.h">
       <Filter>Archivos de encabezado\common</Filter>
     </ClInclude>
   </ItemGroup>

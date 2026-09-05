@@ -9,11 +9,10 @@ namespace ceres::casm
 	class BinaryEmitter
 	{
 	private:
-		LinkedExecutable _linkedExecutable;
+		Ref<AssemblyState> _state;
 		std::vector<u8> _textBuffer;
 		std::vector<u8> _rodataBuffer;
 		std::vector<u8> _dataBuffer;
-		AssemblerErrorHandler& _errorHandler;
 
 	public:
 		BinaryEmitter() = delete;
@@ -25,16 +24,15 @@ namespace ceres::casm
 		BinaryEmitter& operator=(BinaryEmitter&&) noexcept = default;
 
 	public:
-		explicit BinaryEmitter(LinkedExecutable&& linkedExecutable, AssemblerErrorHandler& errorHandler) noexcept :
-			_linkedExecutable(std::move(linkedExecutable)), _errorHandler(errorHandler)
+		explicit BinaryEmitter(AssemblyState& state) noexcept :
+			_state(state)
 		{}
 
-		inline const LinkedExecutable& linkedExecutable() const noexcept { return _linkedExecutable; }
 		inline const std::span<const u8> textBuffer() const noexcept { return _textBuffer; }
 		inline const std::span<const u8> rodataBuffer() const noexcept { return _rodataBuffer; }
 		inline const std::span<const u8> dataBuffer() const noexcept { return _dataBuffer; }
-		inline AssemblerErrorHandler& errorHandler() noexcept { return _errorHandler; }
-		inline const AssemblerErrorHandler& errorHandler() const noexcept { return _errorHandler; }
+		inline AssemblerErrorHandler& errorHandler() noexcept { return _state.get().errorHandler(); }
+		inline const AssemblerErrorHandler& errorHandler() const noexcept { return _state.get().errorHandler(); }
 
 	public:
 		std::optional<vm::Program> emit();
@@ -84,14 +82,14 @@ namespace ceres::casm
 
 		void reportError(u32 line, std::string_view message) noexcept
 		{
-			_errorHandler.reportError(line, 1, message);
+			_state.get().errorHandler().reportError(line, 1, message);
 		}
 
 		template <typename... Args>
 		void reportError(u32 line, std::string_view formatStr, Args&&... args) noexcept
 		{
 			std::string message = std::vformat(formatStr, std::make_format_args(args...));
-			_errorHandler.reportError(line, 1, message);
+			_state.get().errorHandler().reportError(line, 1, message);
 		}
 	};
 }
