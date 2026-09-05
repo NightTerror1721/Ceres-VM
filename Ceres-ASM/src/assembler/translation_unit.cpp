@@ -22,7 +22,12 @@ namespace ceres::casm
 			}
 			catch (const AssemblerError& error)
 			{
-				errorHandler.reportError(error);
+				// SymbolTable/MacroTable errors don't know their own file (they're shared across
+				// units); attribute them to the statement being processed when they were thrown.
+				if (error.file().empty() && !_currentStatementFile.empty())
+					errorHandler.reportError(AssemblerError(_currentStatementFile, error.line(), error.column(), error.what()));
+				else
+					errorHandler.reportError(error);
 			}
 		}
 
@@ -34,6 +39,11 @@ namespace ceres::casm
 	// the depth carried along so a self-referential macro is reported instead of hanging.
 	void TranslationUnitBuilder::processStatement(Statement& statement, u32 expansionDepth)
 	{
+		// Read by error() (directly, or through any helper it calls while processing this
+		// statement), so every diagnostic below is attributed to the file the statement actually
+		// came from - the macro's defining file for one that came from macro expansion.
+		_currentStatementFile = statement.file();
+
 		SymbolTable& symbolTable = _translationUnit.symbolTable();
 		MacroTable& macroTable = _translationUnit.macroTable();
 		SectionSizes& sectionSizes = _translationUnit.sectionSizes();
@@ -43,7 +53,7 @@ namespace ceres::casm
 				if (statement.isSection())
 				{
 					_currentSection = statement.asSection().section;
-					_ast.push_back(RelocatableStatement::makeSection(statement.line(), std::move(statement.asSection())));
+					_ast.push_back(RelocatableStatement::makeSection(statement.file(), statement.line(), std::move(statement.asSection())));
 				}
 				else if (statement.isLabel())
 				{
@@ -53,7 +63,7 @@ namespace ceres::casm
 					auto& label = statement.asLabel();
 					auto labelLevel = label.level;
 					symbolTable.defineLabel(statement.line(), label.name, _currentSection.value(), currentOffset(), labelLevel);
-					_ast.push_back(RelocatableStatement::makeLabel(statement.line(), currentOffset(), std::move(label)));
+					_ast.push_back(RelocatableStatement::makeLabel(statement.file(), statement.line(), currentOffset(), std::move(label)));
 					if (labelLevel != LabelLevel::Local)
 						_lastParentLabel = _ast.back().asLabel().name;
 				}
@@ -165,7 +175,7 @@ namespace ceres::casm
 					}
 					else
 					{
-						_ast.push_back(RelocatableStatement::makeData(statement.line(), size.value(), currentOffset(), ResolvedDataStatement{ data.isConstant, data.name, dataType, literalValue }));
+						_ast.push_back(RelocatableStatement::makeData(statement.file(), statement.line(), size.value(), currentOffset(), ResolvedDataStatement{ data.isConstant, data.name, dataType, literalValue }));
 						currentOffset() += size.value();
 					}
 				}
@@ -215,9 +225,9 @@ namespace ceres::casm
 
 					auto& instruction = statement.asInstruction();
 					for (auto& operand : instruction.operands)
-						symbolTable.tryResolveOperand(statement.line(), operand, _lastParentLabel, _unresolvedSymbols);
+						symbolTable.tryResolveOperand(statement.file(), statement.line(), operand, _lastParentLabel, _unresolvedSymbols);
 
-					_ast.push_back(RelocatableStatement::makeInstruction(statement.line(), currentOffset(), std::move(instruction)));
+					_ast.push_back(RelocatableStatement::makeInstruction(statement.file(), statement.line(), currentOffset(), std::move(instruction)));
 
 					auto sizeOpt = InstructionInfo::findMaxSizeInBytes(instruction.mnemonic);
 					if (!sizeOpt.has_value() || sizeOpt.value() == 0)
@@ -274,7 +284,7 @@ namespace ceres::casm
 		const u32 line = statement.line();
 
 		if (statement.isMacroLabel())
-			return Statement::makeLabel(line, makeHygienicLabel(statement.asMacroLabel().name, instanceId), LabelLevel::File);
+			return Statement::makeLabel(statement.file(), line, makeHygienicLabel(statement.asMacroLabel().name, instanceId), LabelLevel::File);
 
 		if (statement.isInstruction())
 		{
@@ -285,7 +295,7 @@ namespace ceres::casm
 			for (const Operand& operand : instruction.operands)
 				operands.push_back(substituteMacroOperand(line, operand, macro, call, instanceId));
 
-			return Statement::makeInstruction(line, instruction.mnemonic, std::move(operands));
+			return Statement::makeInstruction(statement.file(), line, instruction.mnemonic, std::move(operands));
 		}
 
 		if (statement.isMacroCall())
@@ -297,7 +307,7 @@ namespace ceres::casm
 			for (const Operand& argument : nested.arguments)
 				arguments.push_back(substituteMacroOperand(line, argument, macro, call, instanceId));
 
-			return Statement::makeMacroCall(line, nested.name, std::move(arguments));
+			return Statement::makeMacroCall(statement.file(), line, nested.name, std::move(arguments));
 		}
 
 		// Sections, labels and data declarations carry nothing to substitute.

@@ -17,6 +17,7 @@ namespace ceres::casm
 	class ParserCursor
 	{
 	private:
+		std::string_view _file; // Owned by the Parser that constructs this cursor, which outlives it
 		Lexer _lexer;
 		Token _currentToken;
 		Token _peekedToken;
@@ -31,7 +32,8 @@ namespace ceres::casm
 		ParserCursor& operator=(ParserCursor&&) noexcept = default;
 
 	public:
-		explicit ParserCursor(std::string_view source, StringPool& stringPool) noexcept :
+		explicit ParserCursor(std::string_view source, StringPool& stringPool, std::string_view file) noexcept :
+			_file(file),
 			_lexer(source, stringPool),
 			_currentToken(_lexer.nextToken()),
 			_peekedToken(_lexer.nextToken())
@@ -56,7 +58,7 @@ namespace ceres::casm
 				next(); // Consume the token after returning it
 				return token;
 			}
-			throw ParserError(_currentToken.line(), _currentToken.column(), errorMessage);
+			throw ParserError(_file, _currentToken.line(), _currentToken.column(), errorMessage);
 		}
 		inline Token consume(DataType expectedDataType, std::string_view errorMessage)
 		{
@@ -66,7 +68,7 @@ namespace ceres::casm
 				next(); // Consume the token after returning it
 				return token;
 			}
-			throw ParserError(_currentToken.line(), _currentToken.column(), errorMessage);
+			throw ParserError(_file, _currentToken.line(), _currentToken.column(), errorMessage);
 		}
 		inline Token consume(KeywordType expectedKeywordType, std::string_view errorMessage) 
 		{
@@ -76,7 +78,7 @@ namespace ceres::casm
 				next(); // Consume the token after returning it
 				return token;
 			}
-			throw ParserError(_currentToken.line(), _currentToken.column(), errorMessage);
+			throw ParserError(_file, _currentToken.line(), _currentToken.column(), errorMessage);
 		}
 
 		inline Token consumeEndOfLineOrEndOfFile(std::string_view errorMessage)
@@ -87,7 +89,7 @@ namespace ceres::casm
 				next(); // Consume the token after returning it
 				return token;
 			}
-			throw ParserError(_currentToken.line(), _currentToken.column(), errorMessage);
+			throw ParserError(_file, _currentToken.line(), _currentToken.column(), errorMessage);
 		}
 
 		inline void skipUntilEndOfLineOrEndOfFile() noexcept
@@ -151,6 +153,7 @@ namespace ceres::casm
 	class Parser
 	{
 	private:
+		std::string_view _file; // View into AssemblyState's interned path storage; empty if none was given
 		ParserCursor _cursor;
 		StringPool& _stringPool;
 		AssemblerErrorHandler& _errorHandler;
@@ -165,8 +168,8 @@ namespace ceres::casm
 		Parser& operator=(Parser&&) noexcept = delete;
 
 	public:
-		explicit Parser(std::string_view source, StringPool& stringPool, AssemblerErrorHandler& errorHandler) noexcept :
-			_cursor(source, stringPool), _stringPool(stringPool), _errorHandler(errorHandler)
+		explicit Parser(std::string_view source, StringPool& stringPool, AssemblerErrorHandler& errorHandler, std::string_view file = {}) noexcept :
+			_file(file), _cursor(source, stringPool, _file), _stringPool(stringPool), _errorHandler(errorHandler)
 		{}
 
 		std::vector<Statement> parse();
@@ -198,7 +201,7 @@ namespace ceres::casm
 		[[noreturn]] void error(std::string_view message) const
 		{
 			const Token& token = _cursor.current();
-			throw ParserError(token.line(), token.column(), message);
+			throw ParserError(_file, token.line(), token.column(), message);
 		}
 
 		template <typename... Args>
@@ -206,7 +209,7 @@ namespace ceres::casm
 		{
 			const Token& token = _cursor.current();
             std::string message = std::vformat(formatStr, std::make_format_args(args...));
-			throw ParserError(token.line(), token.column(), message);
+			throw ParserError(_file, token.line(), token.column(), message);
 		}
 	};
 }

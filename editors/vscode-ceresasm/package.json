@@ -1,0 +1,86 @@
+{
+  "name": "ceresasm",
+  "displayName": "CeresASM",
+  "description": "Language support for CASM, the assembler of the Ceres virtual machine: syntax highlighting and live diagnostics from the real ceres compiler.",
+  "version": "0.1.0",
+  "publisher": "ceresasm",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Krampus1721/CeresASM"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:casm"
+  ],
+  "main": "./client/out/extension.js",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "casm",
+        "aliases": [
+          "CeresASM",
+          "casm"
+        ],
+        "extensions": [
+          ".casm"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "casm",
+        "scopeName": "source.casm",
+        "path": "./syntaxes/casm.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "ceresAsm.restartServer",
+        "title": "CeresASM: Restart Language Server"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "CeresASM",
+      "properties": {
+        "ceresAsm.compilerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the ceres executable used to check .casm files. Leave empty to auto-detect it under the workspace (Ceres-ASM/src/ceres[.exe]) or fall back to PATH."
+        },
+        "ceresAsm.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VSCode and the CeresASM language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -b",
+    "watch": "tsc -b -w",
+    "clean": "tsc -b --clean"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "@types/node": "^20.14.0"
+  }
+}

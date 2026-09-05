@@ -161,14 +161,14 @@ namespace ceres::casm
 	private:
 		[[noreturn]] void error(u32 line, std::string_view message) const
 		{
-			throw AssemblerError(line, 1, message);
+			throw AssemblerError("", line, 1, message);
 		}
 
 		template <typename... Args>
 		[[noreturn]] void error(u32 line, std::string_view formatStr, Args&&... args) const
 		{
 			std::string message = std::vformat(formatStr, std::make_format_args(args...));
-			throw AssemblerError(line, 1, message);
+			throw AssemblerError("", line, 1, message);
 		}
 	};
 }

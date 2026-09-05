@@ -87,14 +87,14 @@ namespace ceres::casm
 		Token sectionToken = _cursor.consume(TokenType::Identifier, "Expected section name after '@'");
 
 		std::string_view sectionName = sectionToken.lexeme();
-		if (sectionName == "text") 
-			return Statement::makeSection(line, SectionType::Text);
-		else if (sectionName == "data") 
-			return Statement::makeSection(line, SectionType::Data);
+		if (sectionName == "text")
+			return Statement::makeSection(_file, line, SectionType::Text);
+		else if (sectionName == "data")
+			return Statement::makeSection(_file, line, SectionType::Data);
 		else if (sectionName == "rodata")
-			return Statement::makeSection(line, SectionType::Rodata);
-		else if (sectionName == "bss") 
-			return Statement::makeSection(line, SectionType::BSS);
+			return Statement::makeSection(_file, line, SectionType::Rodata);
+		else if (sectionName == "bss")
+			return Statement::makeSection(_file, line, SectionType::BSS);
 		else
 			error("Unknown section name '{}'", sectionName);
 
@@ -135,6 +135,7 @@ namespace ceres::casm
 			error("Expected '=' and initializer for constant data declaration");
 
 		return Statement::makeData(
+			_file,
 			line,
 			isConstant,
 			name,
@@ -149,7 +150,7 @@ namespace ceres::casm
 
 		Token moduleNameToken = _cursor.consume(TokenType::LiteralString, "Expected module name after 'import' keyword");
 		LiteralString moduleName = moduleNameToken.literalStringValue();
-		return Statement::makeImport(line, moduleName);
+		return Statement::makeImport(_file, line, moduleName);
 	}
 
 	Statement Parser::parseLabelOrInstruction()
@@ -172,7 +173,7 @@ namespace ceres::casm
 		if (_cursor.match(TokenType::Colon))
 		{
 			_cursor.next(); // Consume ':'
-			return Statement::makeLabel(line, identifierToken.identifierValue(), labelLevel);
+			return Statement::makeLabel(_file, line, identifierToken.identifierValue(), labelLevel);
 		}
 
 		if (labelLevel != LabelLevel::File)
@@ -190,10 +191,10 @@ namespace ceres::casm
 
 		std::optional<Mnemonic> mnemonic = stringToMnemonic(identifierToken.lexeme(), false);
 		if (mnemonic.has_value())
-			return Statement::makeInstruction(line, *mnemonic, std::move(operands));
+			return Statement::makeInstruction(_file, line, *mnemonic, std::move(operands));
 
 		// If the identifier is not a known mnemonic, treat it as a macro call
-		return Statement::makeMacroCall(line, identifierToken.identifierValue(), std::move(operands));
+		return Statement::makeMacroCall(_file, line, identifierToken.identifierValue(), std::move(operands));
 	}
 
 	Statement Parser::parseMacroLabel()
@@ -204,7 +205,7 @@ namespace ceres::casm
 		Token identifierToken = _cursor.consume(TokenType::DoublePercentIdentifier, "Expected identifier for macro label name");
 		_cursor.consume(TokenType::Colon, "Expected ':' after macro label declaration");
 
-		return Statement::makeMacroLabel(line, identifierToken.identifierValue());
+		return Statement::makeMacroLabel(_file, line, identifierToken.identifierValue());
 	}
 	Statement Parser::parseMacroDeclaration()
 	{
@@ -253,7 +254,7 @@ namespace ceres::casm
 		if (!endOfMacroFound)
 			error("Expected 'endmacro' to close the declaration of macro '{}'", macroName.view());
 
-		return Statement::makeMacroDeclaration(line, macroName, std::move(parameters), std::move(bodyStatements));
+		return Statement::makeMacroDeclaration(_file, line, macroName, std::move(parameters), std::move(bodyStatements));
 	}
 	DataTypeReference Parser::parseDataType()
 	{

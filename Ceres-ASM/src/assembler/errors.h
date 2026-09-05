@@ -11,14 +11,19 @@ namespace ceres::casm
 	class AssemblerError : public std::runtime_error
 	{
 	protected:
+		// A view, not a copy: thrown/caught within one assemble() call, so it never outlives the
+		// stable, interned path storage it points into (see AssemblyState::internedPath). Empty
+		// if this error isn't tied to a specific file.
+		std::string_view _file;
 		u32 _line;
 		u32 _column;
 
 	public:
-		AssemblerError(u32 line, u32 column, std::string_view message) noexcept :
-			std::runtime_error(std::string(message)), _line(line), _column(column)
+		AssemblerError(std::string_view file, u32 line, u32 column, std::string_view message) noexcept :
+			std::runtime_error(std::string(message)), _file(file), _line(line), _column(column)
 		{}
 
+		constexpr std::string_view file() const noexcept { return _file; }
 		constexpr u32 line() const noexcept { return _line; }
 		constexpr u32 column() const noexcept { return _column; }
 
@@ -27,6 +32,7 @@ namespace ceres::casm
 
 	struct AssemblerErrorEntry
 	{
+		std::string file;
 		u32 line;
 		u32 column;
 		std::string message;
@@ -54,14 +60,17 @@ namespace ceres::casm
 
 		constexpr std::span<const AssemblerErrorEntry> errors() const noexcept { return std::span<const AssemblerErrorEntry>(_errors); }
 
-		void reportError(u32 line, u32 column, std::string_view message) noexcept
+		void reportError(std::string_view file, u32 line, u32 column, std::string_view message) noexcept
 		{
-			_errors.push_back({ line, column, std::string(message) });
+			_errors.push_back({ std::string(file), line, column, std::string(message) });
 		}
 
 		void reportError(const AssemblerError& error) noexcept
 		{
-			_errors.push_back(AssemblerErrorEntry{ error._line, error._column, error.what() });
+			// The one deliberate copy: AssemblerErrorEntry is the external-facing result, meant to
+			// be read after assemble() has returned, so unlike everything upstream of it, it owns
+			// its strings rather than viewing into state that may by then be gone.
+			_errors.push_back(AssemblerErrorEntry{ std::string(error._file), error._line, error._column, error.what() });
 		}
 
 		void clearErrors() noexcept

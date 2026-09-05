@@ -78,7 +78,7 @@ namespace ceres::casm
 			error(line, "Redefinition of symbol: {}", name);
 	}
 
-	Operand& SymbolTable::resolveOperand(u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>* unresolvedSymbols, const SymbolTable* globalSymbolTable) const
+	Operand& SymbolTable::resolveOperand(std::string_view file, u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>* unresolvedSymbols, const SymbolTable* globalSymbolTable) const
 	{
 		if (operand.isIdentifier())
 		{
@@ -96,6 +96,7 @@ namespace ceres::casm
 					error(line, "Unresolved symbol: {}", identifierOperand.name);
 				{
 					UnresolvedSymbol unresolvedSymbol = {
+						.file = file,
 						.name = std::string(identifierOperand.name.view()),
 						.parentName = identifierOperand.isLocal ? std::string(parentName) : std::string(),
 						.line = line
@@ -150,6 +151,7 @@ namespace ceres::casm
 						error(line, "Unresolved symbol: {}", identifierOperand.name);
 
 					UnresolvedSymbol unresolvedSymbol = {
+						.file = file,
 						.name = std::string(identifierOperand.name.view()),
 						.parentName = identifierOperand.isLocal ? std::string(parentName) : std::string(),
 						.line = line

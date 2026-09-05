@@ -103,6 +103,8 @@ namespace ceres::casm
 
 	struct UnresolvedSymbol
 	{
+		std::string_view file; // Interned view of the file the reference itself came from (a
+		                        // macro-expanded operand's file may differ from its unit's own)
 		std::string name; // Name of the unresolved symbol
 		std::string parentName; // Name of the parent symbol (if applicable)
 		u32 line; // Line number in the source code where the symbol is referenced
@@ -155,13 +157,13 @@ namespace ceres::casm
 			defineVariable(line, name, section, address, isGlobal, isReadonly, dataType, nullptr);
 		}
 
-		Operand& tryResolveOperand(u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>& unresolvedSymbols) const
+		Operand& tryResolveOperand(std::string_view file, u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>& unresolvedSymbols) const
 		{
-			return resolveOperand(line, operand, parentName, &unresolvedSymbols, nullptr);
+			return resolveOperand(file, line, operand, parentName, &unresolvedSymbols, nullptr);
 		}
 		Operand& resolveOperand(u32 line, Operand& operand, std::string_view parentName, const SymbolTable& globalSymbolTable) const
 		{
-			return resolveOperand(line, operand, parentName, nullptr, &globalSymbolTable);
+			return resolveOperand("", line, operand, parentName, nullptr, &globalSymbolTable);
 		}
 
 		const std::unordered_map<std::string, Symbol>& getAllSymbols() const noexcept
@@ -176,19 +178,19 @@ namespace ceres::casm
 
 		void checkRedefinition(u32 line, const std::string& name) const;
 
-		Operand& resolveOperand(u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>* unresolvedSymbols, const SymbolTable* globalSymbolTable) const;
+		Operand& resolveOperand(std::string_view file, u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>* unresolvedSymbols, const SymbolTable* globalSymbolTable) const;
 
 	private:
 		[[noreturn]] void error(u32 line, std::string_view message) const
 		{
-			throw AssemblerError(line, 1, message);
+			throw AssemblerError("", line, 1, message);
 		}
 
 		template <typename... Args>
 		[[noreturn]] void error(u32 line, std::string_view formatStr, Args&&... args) const
 		{
 			std::string message = std::vformat(formatStr, std::make_format_args(args...));
-			throw AssemblerError(line, 1, message);
+			throw AssemblerError("", line, 1, message);
 		}
 	};
 }

@@ -1,0 +1,147 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "CASM",
+  "scopeName": "source.casm",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#section-directive" },
+    { "include": "#import" },
+    { "include": "#const-declaration" },
+    { "include": "#variable-declaration" },
+    { "include": "#labels" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#mnemonics" },
+    { "include": "#registers" },
+    { "include": "#macro-parameter" },
+    { "include": "#macro-label" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#punctuation" },
+    { "include": "#identifier-reference" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.casm",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.casm",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "section-directive": {
+      "name": "keyword.control.section.casm",
+      "match": "@(text|rodata|data|bss)\\b"
+    },
+    "import": {
+      "match": "\\b(import)\\b\\s*(\"[^\"]*\")?",
+      "captures": {
+        "1": { "name": "keyword.control.import.casm" },
+        "2": { "name": "string.quoted.double.casm" }
+      }
+    },
+    "const-declaration": {
+      "match": "\\b(const)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b",
+      "captures": {
+        "1": { "name": "keyword.control.casm" },
+        "2": { "name": "variable.other.constant.casm" }
+      }
+    },
+    "variable-declaration": {
+      "match": "\\b(let)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b",
+      "captures": {
+        "1": { "name": "keyword.control.casm" },
+        "2": { "name": "variable.other.casm" }
+      }
+    },
+    "labels": {
+      "comment": "Must be tried before #keywords: 'global main:' would otherwise have 'global' claimed by the bare keyword rule (same start position, first-in-list wins ties) before this compound rule ever gets a chance.",
+      "match": "^\\s*(global\\s+)?(\\.?[A-Za-z_][A-Za-z0-9_]*)\\s*(:)",
+      "captures": {
+        "1": { "name": "keyword.control.casm" },
+        "2": { "name": "entity.name.function.label.casm" },
+        "3": { "name": "punctuation.separator.label.casm" }
+      }
+    },
+    "keywords": {
+      "name": "keyword.control.casm",
+      "match": "\\b(const|let|global|macro|endmacro)\\b"
+    },
+    "types": {
+      "name": "storage.type.casm",
+      "match": "\\b(u8|u16|u32|i8|i16|i32|f32|char|bool|string)\\b"
+    },
+    "mnemonics": {
+      "comment": "Case-insensitive: the real lexer resolves mnemonics via stringToMnemonic(str, /*caseSensitive=*/false).",
+      "name": "keyword.other.mnemonic.casm",
+      "match": "(?i:\\b(nop|halt|trap|reset|int|iret|cli|sti|add|adc|sub|sbc|mul|imul|div|idiv|mod|imod|neg|and|or|xor|not|shl|shr|sar|mov|li|lui|ldrsb|ldrsh|ldrb|ldrh|ldr|strb|strh|str|lea|jnz|jnc|jns|jno|jp|jz|jc|js|jo|call|ret|cmp|pushf|push|popf|pop|iitof|itof|ftoii|ftoi|mtf|mff|insb|insh|inb|inh|inm|in|outb|outh|outm|out|la|ldv|stv)\\b)"
+    },
+    "registers": {
+      "comment": "Case-insensitive: RegisterInfo::get() accepts 'R'/'r' and 'F'/'f'. lr/fp/sp/pc are documentation names only, not accepted register operand syntax by the real parser, so they are intentionally not matched here.",
+      "name": "variable.language.register.casm",
+      "match": "(?i:\\b(r1[0-5]|r[0-9]|f1[0-5]|f[0-9])\\b)"
+    },
+    "macro-parameter": {
+      "name": "variable.parameter.casm",
+      "match": "\\$[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "macro-label": {
+      "name": "entity.name.label.macro.casm",
+      "match": "%%[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "strings": {
+      "name": "string.quoted.double.casm",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.casm",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.casm",
+          "match": "\\b0[xX][0-9A-Fa-f]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.casm",
+          "match": "\\b0[bB][01]+\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.casm",
+          "match": "-?\\b[0-9]+(\\.[0-9]+)?\\b"
+        }
+      ]
+    },
+    "operators": {
+      "name": "keyword.operator.arithmetic.casm",
+      "match": "[+\\-*/]"
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.definition.array.casm",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.separator.comma.casm",
+          "match": ","
+        }
+      ]
+    },
+    "identifier-reference": {
+      "comment": "Catch-all for identifiers not claimed by anything above: label references (jp/jz/.../call targets), constant and variable uses, and macro-call names. Purely lexical, so it cannot yet tell those apart (real symbol resolution is a later step) - it just keeps them from rendering as plain unstyled text.",
+      "name": "variable.other.readwrite.casm",
+      "match": "\\.?[A-Za-z_][A-Za-z0-9_]*"
+    }
+  }
+}

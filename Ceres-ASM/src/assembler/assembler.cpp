@@ -63,7 +63,10 @@ namespace ceres::casm
 	{
 		try
 		{
-			Parser parser{ source, _state->stringPool(), _state->errorHandler() };
+			// A view into the source-file cache's stable key, not filePath.string() directly - that
+			// would be a temporary, and every Statement the parser builds holds this view onward
+			// without copying it.
+			Parser parser{ source, _state->stringPool(), _state->errorHandler(), _state->internedPath(filePath.string()) };
 			return parser.parse();
 		}
 		catch (const std::exception& e)
@@ -77,7 +80,7 @@ namespace ceres::casm
 	{
 		try
 		{
-			TranslationUnitBuilder builder{ *_state, filePath };
+			TranslationUnitBuilder builder{ *_state, filePath, _state->internedPath(filePath.string()) };
 			builder.build(std::move(statements));
 			return builder.release();
 		}

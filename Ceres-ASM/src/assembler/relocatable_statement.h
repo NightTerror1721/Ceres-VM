@@ -25,6 +25,7 @@ namespace ceres::casm
 		>;
 
 	private:
+		std::string_view _file; // View into AssemblyState's interned path storage (see Statement::_file)
 		u32 _line; // Line number in the source code where the statement is located
 		u32 _size = 0; // Size of the statement in bytes (set during assembly)
 		std::optional<vm::Address> _address; // Address in program memory where the statement will be located (set during assembly)
@@ -41,11 +42,13 @@ namespace ceres::casm
 
 	private:
 		explicit RelocatableStatement(
+			std::string_view file,
 			u32 line,
 			u32 size,
 			std::optional<vm::Address> address,
 			RelocatableStatementVariant&& value
 		) noexcept :
+			_file(file),
 			_line(line),
 			_size(size),
 			_address(address),
@@ -53,6 +56,7 @@ namespace ceres::casm
 		{}
 
 	public:
+		constexpr std::string_view file() const noexcept { return _file; }
 		constexpr u32 line() const noexcept { return _line; }
 
 		constexpr bool hasAddress() const noexcept { return _address.has_value(); }
@@ -75,28 +79,28 @@ namespace ceres::casm
 		void setAddress(vm::Address address) noexcept { _address = address; }
 
 	public:
-		static RelocatableStatement makeSection(u32 line, SectionStatement&& section) noexcept
+		static RelocatableStatement makeSection(std::string_view file, u32 line, SectionStatement&& section) noexcept
 		{
-			return RelocatableStatement(line, 0, std::nullopt, std::move(section));
+			return RelocatableStatement(file, line, 0, std::nullopt, std::move(section));
 		}
 
-		static RelocatableStatement makeLabel(u32 line, vm::Address address, LabelStatement&& label) noexcept
+		static RelocatableStatement makeLabel(std::string_view file, u32 line, vm::Address address, LabelStatement&& label) noexcept
 		{
-			return RelocatableStatement(line, 0, address, std::move(label));
+			return RelocatableStatement(file, line, 0, address, std::move(label));
 		}
 
-		static RelocatableStatement makeData(u32 line, u32 size, ResolvedDataStatement&& data) noexcept
+		static RelocatableStatement makeData(std::string_view file, u32 line, u32 size, ResolvedDataStatement&& data) noexcept
 		{
-			return RelocatableStatement(line, size, std::nullopt, std::move(data));
+			return RelocatableStatement(file, line, size, std::nullopt, std::move(data));
 		}
-		static RelocatableStatement makeData(u32 line, u32 size, vm::Address address, ResolvedDataStatement&& data) noexcept
+		static RelocatableStatement makeData(std::string_view file, u32 line, u32 size, vm::Address address, ResolvedDataStatement&& data) noexcept
 		{
-			return RelocatableStatement(line, size, address, std::move(data));
+			return RelocatableStatement(file, line, size, address, std::move(data));
 		}
 
-		static RelocatableStatement makeInstruction(u32 line, vm::Address address, InstructionStatement&& instruction) noexcept
+		static RelocatableStatement makeInstruction(std::string_view file, u32 line, vm::Address address, InstructionStatement&& instruction) noexcept
 		{
-			return RelocatableStatement(line, vm::Instruction::Size, address, std::move(instruction));
+			return RelocatableStatement(file, line, vm::Instruction::Size, address, std::move(instruction));
 		}
 	};
 }

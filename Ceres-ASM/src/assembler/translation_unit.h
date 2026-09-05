@@ -26,6 +26,8 @@ namespace ceres::casm
 	{
 	private:
 		Ref<AssemblyState> _state; // Shared pointer to the assembly state
+		std::string_view _file; // Interned view of the file this unit was built from, for diagnostics
+		                         // not tied to one statement (e.g. a symbol unresolved anywhere in it)
 		std::vector<RelocatableStatement> _ast; // The abstract syntax tree (AST) of the translation unit
 		SymbolTable _symbolTable; // The symbol table for the translation unit
 		MacroTable _macroTable; // The macro table for the translation unit
@@ -43,8 +45,9 @@ namespace ceres::casm
 		TranslationUnit& operator=(TranslationUnit&&) noexcept = default;
 
 	public:
-		explicit TranslationUnit(AssemblyState& state) noexcept : _state(state) {}
+		explicit TranslationUnit(AssemblyState& state, std::string_view file = {}) noexcept : _state(state), _file(file) {}
 
+		inline std::string_view file() const noexcept { return _file; }
 		inline const AssemblyState& state() const noexcept { return _state.get(); }
 		inline std::span<const RelocatableStatement> ast() const noexcept { return _ast; }
 		inline const SymbolTable& symbolTable() const noexcept { return _symbolTable; }
@@ -89,6 +92,13 @@ namespace ceres::casm
 		std::string_view _lastParentLabel;
 		u32 _macroExpansionCounter = 0;
 
+		// Refreshed from the statement currently being processed (see processStatement), so every
+		// error() call below it - direct or through a helper like resolveDataType - is attributed
+		// to the right file without threading it through each of their signatures individually.
+		// This is the *statement's own* file, which for a macro-expanded statement is the macro's
+		// defining file, not necessarily this unit's _sourcePath.
+		std::string_view _currentStatementFile;
+
 		// A macro that expands to itself would otherwise hang the assembler.
 		static inline constexpr u32 MaxMacroExpansionDepth = 32;
 
@@ -103,9 +113,12 @@ namespace ceres::casm
 
 	public:
 		// The source path is kept so that an `import` resolves relative to the file doing the
-		// importing, not to whatever directory the assembler happens to run from.
-		explicit TranslationUnitBuilder(AssemblyState& state, std::filesystem::path sourcePath = {}) noexcept :
-			_translationUnit(state), _sourcePath(std::move(sourcePath))
+		// importing, not to whatever directory the assembler happens to run from. `internedFile`
+		// is a view straight from AssemblyState::internedPath - it can't be derived from sourcePath
+		// in here, since AssemblyState is only forward-declared in this header, and sourcePath.string()
+		// would just be a dangling temporary otherwise.
+		explicit TranslationUnitBuilder(AssemblyState& state, std::filesystem::path sourcePath = {}, std::string_view internedFile = {}) noexcept :
+			_translationUnit(state, internedFile), _sourcePath(std::move(sourcePath))
 		{}
 
 		void build(std::vector<Statement>&& statements);
@@ -177,14 +190,14 @@ namespace ceres::casm
 	private:
 		[[noreturn]] void error(u32 line, std::string_view message) const
 		{
-			throw AssemblerError(line, 1, message);
+			throw AssemblerError(_currentStatementFile, line, 1, message);
 		}
 
 		template <typename... Args>
 		[[noreturn]] void error(u32 line, std::string_view formatStr, Args&&... args) const
 		{
 			std::string message = std::vformat(formatStr, std::make_format_args(args...));
-			throw AssemblerError(line, 1, message);
+			throw AssemblerError(_currentStatementFile, line, 1, message);
 		}
 	};
 }

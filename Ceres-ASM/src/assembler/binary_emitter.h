@@ -13,6 +13,9 @@ namespace ceres::casm
 		std::vector<u8> _textBuffer;
 		std::vector<u8> _rodataBuffer;
 		std::vector<u8> _dataBuffer;
+		// Refreshed at the top of each statement processed in emit()'s main loop, so error()/
+		// reportError() below attribute to the right file without threading it through every call.
+		std::string_view _currentFile;
 
 	public:
 		BinaryEmitter() = delete;
@@ -74,26 +77,26 @@ namespace ceres::casm
 
 		[[noreturn]] void error(u32 line, std::string_view message) const
 		{
-			throw AssemblerError(line, 1, message);
+			throw AssemblerError(_currentFile, line, 1, message);
 		}
 
 		template <typename... Args>
 		[[noreturn]] void error(u32 line, std::string_view formatStr, Args&&... args) const
 		{
 			std::string message = std::vformat(formatStr, std::make_format_args(args...));
-			throw AssemblerError(line, 1, message);
+			throw AssemblerError(_currentFile, line, 1, message);
 		}
 
 		void reportError(u32 line, std::string_view message) noexcept
 		{
-			_state.get().errorHandler().reportError(line, 1, message);
+			_state.get().errorHandler().reportError(_currentFile, line, 1, message);
 		}
 
 		template <typename... Args>
 		void reportError(u32 line, std::string_view formatStr, Args&&... args) noexcept
 		{
 			std::string message = std::vformat(formatStr, std::make_format_args(args...));
-			_state.get().errorHandler().reportError(line, 1, message);
+			_state.get().errorHandler().reportError(_currentFile, line, 1, message);
 		}
 	};
 }

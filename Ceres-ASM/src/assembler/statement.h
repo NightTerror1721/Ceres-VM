@@ -85,6 +85,11 @@ namespace ceres::casm
 		>;
 
 	private:
+		// A view, not a copy: points into AssemblyState's interned, stable path storage (see
+		// AssemblyState::internedPath), which outlives every Statement built while it's alive.
+		// Path of the source file this statement was parsed from (or, for a macro-expanded
+		// statement, the file the macro body itself came from).
+		std::string_view _file;
 		u32 _line = 0; // Line number in the source code where the statement is located
 		StatementVariant _value;
 
@@ -98,12 +103,14 @@ namespace ceres::casm
 		Statement& operator=(Statement&&) noexcept = default;
 
 	private:
-		 explicit Statement(u32 line, StatementVariant&& value) noexcept :
+		 explicit Statement(std::string_view file, u32 line, StatementVariant&& value) noexcept :
+			 _file(file),
 			 _line(line),
 			_value(std::move(value))
 		 {}
 
 	public:
+		constexpr std::string_view file() const noexcept { return _file; }
 		constexpr u32 line() const noexcept { return _line; }
 
 		constexpr bool isSection() const noexcept { return std::holds_alternative<SectionStatement>(_value); }
@@ -134,49 +141,49 @@ namespace ceres::casm
 		constexpr InstructionStatement& asInstruction() noexcept { return std::get<InstructionStatement>(_value); }
 
 	public:
-		static Statement makeSection(u32 line, SectionType section) noexcept	
+		static Statement makeSection(std::string_view file, u32 line, SectionType section) noexcept
 		{
-			return Statement{ line, SectionStatement{ section } };
+			return Statement{ file, line, SectionStatement{ section } };
 		}
 
-		static Statement makeLabel(u32 line, Identifier name, LabelLevel level) noexcept
+		static Statement makeLabel(std::string_view file, u32 line, Identifier name, LabelLevel level) noexcept
 		{
-			return Statement{ line, LabelStatement{ name, level } };
+			return Statement{ file, line, LabelStatement{ name, level } };
 		}
 
-		static Statement makeData(u32 line, bool isConstant, Identifier identifier, DataTypeReference dataType = DataTypeReference::Invalid) noexcept
+		static Statement makeData(std::string_view file, u32 line, bool isConstant, Identifier identifier, DataTypeReference dataType = DataTypeReference::Invalid) noexcept
 		{
-			return Statement{ line, DataStatement{ isConstant, identifier, dataType, LiteralValueReference::makeEmpty() } };
+			return Statement{ file, line, DataStatement{ isConstant, identifier, dataType, LiteralValueReference::makeEmpty() } };
 		}
 
-		static Statement makeData(u32 line, bool isConstant, Identifier identifier, DataTypeReference dataType, LiteralValueReference value = LiteralValueReference::makeEmpty()) noexcept
+		static Statement makeData(std::string_view file, u32 line, bool isConstant, Identifier identifier, DataTypeReference dataType, LiteralValueReference value = LiteralValueReference::makeEmpty()) noexcept
 		{
-			return Statement{ line, DataStatement{ isConstant, identifier, dataType, value } };
+			return Statement{ file, line, DataStatement{ isConstant, identifier, dataType, value } };
 		}
 
-		static Statement makeImport(u32 line, LiteralString moduleName) noexcept
+		static Statement makeImport(std::string_view file, u32 line, LiteralString moduleName) noexcept
 		{
-			return Statement{ line, ImportStatement{ moduleName } };
+			return Statement{ file, line, ImportStatement{ moduleName } };
 		}
 
-		static Statement makeMacroDeclaration(u32 line, Identifier name, std::vector<Identifier>&& parameters, std::vector<Statement>&& body) noexcept
+		static Statement makeMacroDeclaration(std::string_view file, u32 line, Identifier name, std::vector<Identifier>&& parameters, std::vector<Statement>&& body) noexcept
 		{
-			return Statement{ line, MacroDeclarationStatement{ name, std::move(parameters), std::move(body) } };
+			return Statement{ file, line, MacroDeclarationStatement{ name, std::move(parameters), std::move(body) } };
 		}
 
-		static Statement makeMacroLabel(u32 line, Identifier name) noexcept
+		static Statement makeMacroLabel(std::string_view file, u32 line, Identifier name) noexcept
 		{
-			return Statement{ line, MacroLabelStatement{ name } };
+			return Statement{ file, line, MacroLabelStatement{ name } };
 		}
 
-		static Statement makeMacroCall(u32 line, Identifier name, std::vector<Operand>&& arguments) noexcept
+		static Statement makeMacroCall(std::string_view file, u32 line, Identifier name, std::vector<Operand>&& arguments) noexcept
 		{
-			return Statement{ line, MacroCallStatement{ name, std::move(arguments) } };
+			return Statement{ file, line, MacroCallStatement{ name, std::move(arguments) } };
 		}
 
-		static Statement makeInstruction(u32 line, Mnemonic mnemonic, std::vector<Operand>&& operands) noexcept
+		static Statement makeInstruction(std::string_view file, u32 line, Mnemonic mnemonic, std::vector<Operand>&& operands) noexcept
 		{
-			return Statement{ line, InstructionStatement{ mnemonic, std::move(operands) } };
+			return Statement{ file, line, InstructionStatement{ mnemonic, std::move(operands) } };
 		}
 	};
 }

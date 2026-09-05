@@ -54,7 +54,7 @@ global main:
 .init_loop:
     LI R6, MAX_PLAYERS
     CMP R4, R6
-    JZ end_loop             // Salto condicional si i == MAX_PLAYERS
+    JZ .end_loop             // Salto condicional si i == MAX_PLAYERS
 
     // 12. Direccionamiento Relativo a Base (Memoria)
     LI R7, 1

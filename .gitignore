@@ -61,6 +61,10 @@ nunit-*.xml
 # Approval Tests result files
 *.received.*
 
+# Command-line g++/clang builds of the ceres CLI (Ceres-ASM/src/ceres[.exe])
+/Ceres-ASM/src/ceres
+/Ceres-ASM/src/ceres.exe
+
 # Build Results of an ATL Project
 [Dd]ebugPS/
 [Rr]eleasePS/

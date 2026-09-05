@@ -22,6 +22,8 @@ namespace ceres::casm
 			const usize dataStart = _dataBuffer.size();
 			for (const auto& statement : unit.ast())
 			{
+				_currentFile = statement.file();
+
 				if (statement.isSection())
 				{
 					currentSection = statement.asSection().section;

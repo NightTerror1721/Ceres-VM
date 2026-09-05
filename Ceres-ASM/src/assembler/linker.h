@@ -21,6 +21,9 @@ namespace ceres::casm
 	private:
 		Ref<AssemblyState> _state;
 		bool _linked = false;
+		// Refreshed while iterating a unit's statements or symbols in link(), so error()/
+		// reportError() below attribute to the right file without threading it through every call.
+		std::string_view _currentFile;
 
 	public:
 		Linker() = delete;
@@ -57,26 +60,26 @@ namespace ceres::casm
 	private:
 		[[noreturn]] void error(u32 line, std::string_view message) const
 		{
-			throw AssemblerError(line, 1, message);
+			throw AssemblerError(_currentFile, line, 1, message);
 		}
 
 		template <typename... Args>
 		[[noreturn]] void error(u32 line, std::string_view formatStr, Args&&... args) const
 		{
 			std::string message = std::vformat(formatStr, std::make_format_args(args...));
-			throw AssemblerError(line, 1, message);
+			throw AssemblerError(_currentFile, line, 1, message);
 		}
 
 		void reportError(u32 line, std::string_view message) noexcept
 		{
-			_state.get().errorHandler().reportError(line, 1, message);
+			_state.get().errorHandler().reportError(_currentFile, line, 1, message);
 		}
 
 		template <typename... Args>
 		void reportError(u32 line, std::string_view formatStr, Args&&... args) noexcept
 		{
 			std::string message = std::vformat(formatStr, std::make_format_args(args...));
-			_state.get().errorHandler().reportError(line, 1, message);
+			_state.get().errorHandler().reportError(_currentFile, line, 1, message);
 		}
 	};
 }

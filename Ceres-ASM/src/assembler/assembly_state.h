@@ -64,6 +64,17 @@ namespace ceres::casm
 
 		std::string& cacheSourceFile(const std::string& filePath, std::string&& source) noexcept;
 
+		// A view of the *stable* copy of filePath already sitting in the source-file cache's key
+		// storage (unordered_map never moves or reallocates a key), so every Statement,
+		// RelocatableStatement and diagnostic can hold a cheap view instead of its own copy of the
+		// path. Only valid to call once cacheSourceFile has cached this exact path (it always has,
+		// by the time anything downstream of loadTranslationUnit needs a file view).
+		std::string_view internedPath(const std::string& filePath) const noexcept
+		{
+			auto it = _sourceFileCache.find(filePath);
+			return it != _sourceFileCache.end() ? std::string_view(it->first) : std::string_view();
+		}
+
 		TranslationUnit& cacheTranslationUnit(const std::string& filePath, TranslationUnit&& translationUnit) noexcept;
 
 		// Iterating the cache directly would walk an unordered_map, whose order is unspecified and

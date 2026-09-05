@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <iostream>
 #include <filesystem>
 #include <string>
@@ -17,8 +18,10 @@ namespace
 	constexpr std::string_view UsageText =
 		"Ceres - assembler and virtual machine\n"
 		"\n"
-		"  ceres asm <source.casm> [-o <output.cres>] [--listing]\n"
+		"  ceres asm <source.casm> [-o <output.cres>] [--listing] [--json]\n"
 		"      Assemble a source file. Without -o the program is only checked.\n"
+		"      --json prints diagnostics as a JSON array on stdout instead of\n"
+		"      human-readable text on stderr, for editor tooling.\n"
 		"\n"
 		"  ceres run <file.casm|file.cres> [--memory <bytes>]\n"
 		"      Run a program, assembling it first if given a source file.\n"
@@ -33,7 +36,63 @@ namespace
 	{
 		std::cerr << "Failed to assemble " << path.string() << '\n';
 		for (const auto& error : assembler.errors())
-			std::cerr << "  [line " << error.line << "] " << error.message << '\n';
+		{
+			if (!error.file.empty())
+				std::cerr << "  [" << error.file << ":" << error.line << "] " << error.message << '\n';
+			else
+				std::cerr << "  [line " << error.line << "] " << error.message << '\n';
+		}
+	}
+
+	// Minimal escaper for the fixed shape of message text the assembler produces; not a general
+	// JSON serialiser.
+	std::string jsonEscape(std::string_view text)
+	{
+		std::string out;
+		out.reserve(text.size());
+		for (char c : text)
+		{
+			switch (c)
+			{
+				case '"': out += "\\\""; break;
+				case '\\': out += "\\\\"; break;
+				case '\n': out += "\\n"; break;
+				case '\r': out += "\\r"; break;
+				case '\t': out += "\\t"; break;
+				default:
+					if (static_cast<unsigned char>(c) < 0x20)
+					{
+						char buf[7];
+						std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
+						out += buf;
+					}
+					else
+					{
+						out += c;
+					}
+			}
+		}
+		return out;
+	}
+
+	// One JSON object per diagnostic, always valid JSON (an empty array on success) so editor
+	// tooling can parse stdout unconditionally.
+	void printJsonDiagnostics(const casm::Assembler& assembler)
+	{
+		std::cout << '[';
+		bool first = true;
+		for (const auto& error : assembler.errors())
+		{
+			if (!first)
+				std::cout << ',';
+			first = false;
+			std::cout << "{\"file\":\"" << jsonEscape(error.file) << "\""
+				<< ",\"line\":" << error.line
+				<< ",\"column\":" << error.column
+				<< ",\"severity\":\"error\""
+				<< ",\"message\":\"" << jsonEscape(error.message) << "\"}";
+		}
+		std::cout << "]\n";
 	}
 
 	std::optional<Program> assembleFile(const std::filesystem::path& path)
@@ -118,6 +177,7 @@ namespace
 		std::filesystem::path input;
 		std::filesystem::path output;
 		bool listing = false;
+		bool json = false;
 		usize memorySize = Memory::DefaultSize;
 	};
 
@@ -144,6 +204,10 @@ namespace
 			else if (argument == "--listing")
 			{
 				options.listing = true;
+			}
+			else if (argument == "--json")
+			{
+				options.json = true;
 			}
 			else if (argument == "--memory")
 			{
@@ -215,8 +279,16 @@ int main(int argc, char** argv)
 
 	if (options.command == "asm")
 	{
-		auto program = assembleFile(options.input);
-		if (!program.has_value())
+		casm::Assembler assembler{};
+		auto program = assembler.assemble({ options.input });
+		const bool failed = !program.has_value() || assembler.hasErrors();
+
+		if (options.json)
+			printJsonDiagnostics(assembler);
+		else if (failed)
+			reportAssemblyErrors(assembler, options.input);
+
+		if (failed)
 			return 1;
 
 		if (options.listing)

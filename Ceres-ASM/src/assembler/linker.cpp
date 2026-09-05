@@ -13,6 +13,7 @@ namespace ceres::casm
 		// Relocate symbols in each translation unit and build the global symbol table
 		for (auto& unit : _state.get().translationUnits())
 		{
+			_currentFile = unit.file();
 			unit.symbolTable().relocateSymbols(offsets.textOffset, offsets.dataOffset, offsets.rodataOffset, offsets.bssOffset);
 
 			for (const auto& [name, symbol] : unit.symbolTable().getAllSymbols())
@@ -39,6 +40,10 @@ namespace ceres::casm
 		{
 			for (const auto& unresolvedSymbol : unit.unresolvedSymbols())
 			{
+				// More precise than unit.file(): a macro-expanded reference's own file can differ
+				// from the file of the unit its expansion ended up in.
+				_currentFile = unresolvedSymbol.file;
+
 				if (unresolvedSymbol.isLocal())
 				{
 					if (unit.symbolTable().getLocal(unresolvedSymbol.name, unresolvedSymbol.parentName).has_value())
@@ -67,6 +72,7 @@ namespace ceres::casm
 			std::string_view lastParentLabel = {};
 			for (auto& statement : unit.ast())
 			{
+				_currentFile = statement.file();
 				try
 				{
 					if (statement.isLabel())

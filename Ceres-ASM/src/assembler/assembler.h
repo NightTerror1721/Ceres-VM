@@ -60,10 +60,13 @@ namespace ceres::casm
 		OptionalRef<TranslationUnit> loadTranslationUnit(const std::string& filePath) noexcept;
 
 	private:
+		// Assembler-level failures (no source files, could not open/parse/link/emit) aren't tied to
+		// one statement's file - the ones that are file-specific already name it in the message
+		// text (e.g. "Could not open source file '{}'"), so there's no separate file field here.
 		void reportError(std::string_view message) noexcept
 		{
 			if (_state)
-				_state->errorHandler().reportError(1, 1, message);
+				_state->errorHandler().reportError("", 1, 1, message);
 		}
 
 		template <typename... Args>
@@ -71,7 +74,7 @@ namespace ceres::casm
 		{
 			std::string message = std::vformat(formatStr, std::make_format_args(args...));
 			if (_state)
-				_state->errorHandler().reportError(1, 1, message);
+				_state->errorHandler().reportError("", 1, 1, message);
 		}
 	};
 }
