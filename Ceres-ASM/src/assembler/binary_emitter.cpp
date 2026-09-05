@@ -17,6 +17,9 @@ namespace ceres::casm
 		for (const auto& unit : _state.get().translationUnits())
 		{
 			std::optional<SectionType> currentSection = std::nullopt;
+			const usize textStart = _textBuffer.size();
+			const usize rodataStart = _rodataBuffer.size();
+			const usize dataStart = _dataBuffer.size();
 			for (const auto& statement : unit.ast())
 			{
 				if (statement.isSection())
@@ -64,6 +67,12 @@ namespace ceres::casm
 					emitInstruction(statement);
 				}
 			}
+
+			// Mirrors alignUp() in the linker: it advanced the next unit's offsets by an aligned
+			// size, so the bytes have to be padded to the same boundary.
+			padSectionToAlignment(_textBuffer, textStart);
+			padSectionToAlignment(_rodataBuffer, rodataStart);
+			padSectionToAlignment(_dataBuffer, dataStart);
 		}
 
 		vm::ProgramHeader header{
@@ -87,6 +96,15 @@ namespace ceres::casm
 
 	// Mirrors alignCurrentOffset() in the translation unit: both have to insert the same padding
 	// or the bytes drift away from the addresses the linker handed out.
+	// Pads whatever a single unit contributed up to the section alignment.
+	void BinaryEmitter::padSectionToAlignment(std::vector<u8>& buffer, usize unitStart)
+	{
+		const usize contributed = buffer.size() - unitStart;
+		const usize remainder = contributed % SectionAlignment;
+		if (remainder != 0)
+			buffer.resize(buffer.size() + (SectionAlignment - remainder), 0);
+	}
+
 	void BinaryEmitter::padToAlignment(std::vector<u8>& buffer, u32 alignment)
 	{
 		if (alignment <= 1)

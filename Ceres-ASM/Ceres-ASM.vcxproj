@@ -194,6 +194,7 @@
     <ClInclude Include="src\vm\ceresvm.h" />
     <ClInclude Include="src\vm\devices.h" />
     <ClInclude Include="src\vm\disassembler.h" />
+    <ClInclude Include="src\vm\interrupt_controller.h" />
     <ClInclude Include="src\vm\execution_engine.h" />
     <ClInclude Include="src\vm\fregisters.h" />
     <ClInclude Include="src\vm\interrupts.h" />

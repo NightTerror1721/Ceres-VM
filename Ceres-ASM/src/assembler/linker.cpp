@@ -28,10 +28,10 @@ namespace ceres::casm
 				}
 			}
 
-			offsets.textOffset += unit.sectionSizes().textSize;
-			offsets.rodataOffset += unit.sectionSizes().rodataSize;
-			offsets.dataOffset += unit.sectionSizes().dataSize;
-			offsets.bssOffset += unit.sectionSizes().bssSize;
+			offsets.textOffset += alignUp(unit.sectionSizes().textSize);
+			offsets.rodataOffset += alignUp(unit.sectionSizes().rodataSize);
+			offsets.dataOffset += alignUp(unit.sectionSizes().dataSize);
+			offsets.bssOffset += alignUp(unit.sectionSizes().bssSize);
 		}
 
 		// Check for unresolved symbols in each translation unit
@@ -106,11 +106,13 @@ namespace ceres::casm
 
 		for (const auto& unit : _state.get().translationUnits())
 		{
+			// Each unit contributes a whole number of aligned blocks, so the unit that follows it
+			// starts aligned too.
 			const SectionSizes& sizes = unit.sectionSizes();
-			memoryMap.textSize += sizes.textSize;
-			memoryMap.dataSize += sizes.dataSize;
-			memoryMap.rodataSize += sizes.rodataSize;
-			memoryMap.bssSize += sizes.bssSize;
+			memoryMap.textSize += alignUp(sizes.textSize);
+			memoryMap.dataSize += alignUp(sizes.dataSize);
+			memoryMap.rodataSize += alignUp(sizes.rodataSize);
+			memoryMap.bssSize += alignUp(sizes.bssSize);
 		}
 
 		

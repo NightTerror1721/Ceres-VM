@@ -40,6 +40,17 @@ namespace ceres::casm
 		bool isLinked() const noexcept { return _linked; }
 
 	private:
+		// Sections carry whole instructions and 32-bit variables, so each one starts on a 4-byte
+		// boundary. Aligning variables inside a section is not enough if the section itself is
+		// misaligned.
+		static inline constexpr u32 SectionAlignment = 4;
+
+		static constexpr u32 alignUp(u32 value) noexcept
+		{
+			const u32 remainder = value % SectionAlignment;
+			return remainder == 0 ? value : value + (SectionAlignment - remainder);
+		}
+
 		void calculateMemoryMap() const;
 		MemoryOffsets calculateMemoryOffsets() const;
 

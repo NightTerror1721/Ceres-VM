@@ -6,6 +6,7 @@
 #include "instructions.h"
 #include "interrupts.h"
 #include "io_ports.h"
+#include "interrupt_controller.h"
 #include <limits>
 #include <cmath>
 #include <optional>
@@ -21,9 +22,12 @@ namespace ceres::vm
 		FlagRegister _flags; // Flags register
 		Memory& _memory;
 		IOPorts& _ioPorts;
+		InterruptController& _interrupts;
 
 	public:
-		explicit ExecutionEngine(Memory& memory, IOPorts& ioPorts) : _memory(memory), _ioPorts(ioPorts) {}
+		explicit ExecutionEngine(Memory& memory, IOPorts& ioPorts, InterruptController& interrupts) :
+			_memory(memory), _ioPorts(ioPorts), _interrupts(interrupts)
+		{}
 		ExecutionEngine(const ExecutionEngine&) = delete;
 		ExecutionEngine(ExecutionEngine&&) = delete;
 		~ExecutionEngine() = default;
@@ -75,6 +79,25 @@ namespace ceres::vm
 
 		forceinline u32 lr() const noexcept { return _registers.getValue<GeneralPurposeRegisterPool::LinkRegisterIndex>(); }
 		forceinline void lr(u32 value) noexcept { _registers.setValue<GeneralPurposeRegisterPool::LinkRegisterIndex>(value); }
+
+		// A halfword or word access has to sit on a boundary of its own size. Byte accesses never
+		// fault. Returns false when the access is misaligned, having already raised the fault.
+		template <typename T>
+		forceinline bool checkAlignment(Address address) noexcept
+		{
+			if constexpr (sizeof(T) <= 1)
+			{
+				return true;
+			}
+			else
+			{
+				if ((address.value() % sizeof(T)) == 0)
+					return true;
+
+				triggerInterrupt(InterruptNumber::AlignmentFault);
+				return false;
+			}
+		}
 
 		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
 		forceinline T read(Address address) const noexcept
@@ -551,9 +574,11 @@ namespace ceres::vm
 	private:
 		forceinline void NOP(const Instruction inst) noexcept { advancePC(); }
 		forceinline void HALT(const Instruction inst) noexcept { handleHalt(); }
-		forceinline void TRAP(const Instruction inst) noexcept { triggerInterrupt(InterruptNumber::Trap); }
+		// Both advance first: the return address has to be the instruction after them, or IRET
+		// would land back on the trap and loop forever.
+		forceinline void TRAP(const Instruction inst) noexcept { advancePC(); triggerInterrupt(InterruptNumber::Trap); }
 		forceinline void RESET(const Instruction inst) noexcept { triggerInterrupt(InterruptNumber::Reset); }
-		forceinline void INT(const Instruction inst) noexcept { triggerInterrupt(static_cast<InterruptNumber>(inst.imm8())); }
+		forceinline void INT(const Instruction inst) noexcept { advancePC(); triggerInterrupt(static_cast<InterruptNumber>(inst.imm8())); }
 		// Without these the interrupt flag could never be set, so every user interrupt was
 		// unreachable: triggerInterrupt drops numbers >= 16 while the flag is clear.
 		forceinline void CLI(const Instruction inst) noexcept { _flags.clear<ExecutionFlag::Interrupt>(); advancePC(); }
@@ -561,18 +586,21 @@ namespace ceres::vm
 
 		forceinline void IRET(const Instruction inst) noexcept
 		{
-			// Restore PC and flags from the stack
-			const auto newFlags = pop<u32>();
-			if (!newFlags.has_value())
-				return;
+			// triggerInterrupt pushes flags and then the PC, so the PC is on top and has to come off
+			// first. Popping them the other way round restored the flags word as the program counter:
+			// an interrupt taken while halted resumed at address 0x30, the flag bits themselves.
 			const auto newPC = pop<u32>();
 			if (!newPC.has_value())
 				return;
+			const auto newFlags = pop<u32>();
+			if (!newFlags.has_value())
+				return;
 
+			// triggerInterrupt pushes the PC of the instruction that had not run yet, so returning
+			// means restoring it exactly. Advancing here skipped that instruction, which is invisible
+			// for a software interrupt (INT advances before trapping) and wrong for everything else.
 			_pc = Address(*newPC);
 			_flags = FlagRegister(*newFlags);
-
-			advancePC();
 		}
 
 		forceinline void ADD(const Instruction inst) noexcept { executeAdd(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
@@ -619,16 +647,65 @@ namespace ceres::vm
 		forceinline void FMOV(const Instruction inst) noexcept { setFloatReg(inst.fd(), getFloatReg(inst.fs())); advancePC(); }
 		forceinline void LI(const Instruction inst) noexcept { setReg(inst.rd(), inst.imm16()); advancePC(); }
 		forceinline void LUI(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(inst.imm16()) << 16u); advancePC(); }
-		forceinline void LDR(const Instruction inst) noexcept { setReg(inst.rd(), read<u32>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
+		forceinline void LDR(const Instruction inst) noexcept
+		{
+			const Address address = getReg(inst.rs()) + inst.imm16();
+			if (!checkAlignment<u32>(address))
+				return;
+			setReg(inst.rd(), read<u32>(address));
+			advancePC();
+		}
 		forceinline void LDRB(const Instruction inst) noexcept { setReg(inst.rd(), read<u8>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
-		forceinline void LDRH(const Instruction inst) noexcept { setReg(inst.rd(), read<u16>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
+		forceinline void LDRH(const Instruction inst) noexcept
+		{
+			const Address address = getReg(inst.rs()) + inst.imm16();
+			if (!checkAlignment<u16>(address))
+				return;
+			setReg(inst.rd(), read<u16>(address));
+			advancePC();
+		}
 		forceinline void LDRSB(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
-		forceinline void LDRSH(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i16>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
-		forceinline void FLDR(const Instruction inst) noexcept { setFloatReg(inst.fd(), read<f32>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
-		forceinline void STR(const Instruction inst) noexcept { write<u32>(getReg(inst.rd()) + inst.imm16(), getReg(inst.rs())); advancePC(); }
+		forceinline void LDRSH(const Instruction inst) noexcept
+		{
+			const Address address = getReg(inst.rs()) + inst.imm16();
+			if (!checkAlignment<i16>(address))
+				return;
+			setReg(inst.rd(), static_cast<u32>(read<i16>(address)));
+			advancePC();
+		}
+		forceinline void FLDR(const Instruction inst) noexcept
+		{
+			const Address address = getReg(inst.rs()) + inst.imm16();
+			if (!checkAlignment<f32>(address))
+				return;
+			setFloatReg(inst.fd(), read<f32>(address));
+			advancePC();
+		}
+		forceinline void STR(const Instruction inst) noexcept
+		{
+			const Address address = getReg(inst.rd()) + inst.imm16();
+			if (!checkAlignment<u32>(address))
+				return;
+			write<u32>(address, getReg(inst.rs()));
+			advancePC();
+		}
 		forceinline void STRB(const Instruction inst) noexcept { write<u8>(getReg(inst.rd()) + inst.imm16(), static_cast<u8>(getReg(inst.rs()))); advancePC(); }
-		forceinline void STRH(const Instruction inst) noexcept { write<u16>(getReg(inst.rd()) + inst.imm16(), static_cast<u16>(getReg(inst.rs()))); advancePC(); }
-		forceinline void FSTR(const Instruction inst) noexcept { write<f32>(getReg(inst.rd()) + inst.imm16(), getFloatReg(inst.fs())); advancePC(); }
+		forceinline void STRH(const Instruction inst) noexcept
+		{
+			const Address address = getReg(inst.rd()) + inst.imm16();
+			if (!checkAlignment<u16>(address))
+				return;
+			write<u16>(address, static_cast<u16>(getReg(inst.rs())));
+			advancePC();
+		}
+		forceinline void FSTR(const Instruction inst) noexcept
+		{
+			const Address address = getReg(inst.rd()) + inst.imm16();
+			if (!checkAlignment<f32>(address))
+				return;
+			write<f32>(address, getFloatReg(inst.fs()));
+			advancePC();
+		}
 		forceinline void LEA(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs()) + inst.imm16()); advancePC(); }
 
 		forceinline void JP(const Instruction inst) noexcept { _pc += inst.simm24().signedValue(); }

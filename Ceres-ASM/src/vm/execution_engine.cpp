@@ -44,7 +44,12 @@ namespace ceres::vm
 			return;
 		}
 
-		push<u32>(_flags.value());
+		// The halting flag is deliberately left out of the saved state. HALT means "wait for an
+		// interrupt", so once one has been serviced the wait is over: restoring the bit on IRET
+		// would put the machine straight back to sleep and no device could ever wake it.
+		const FlagRegister savedFlags{ _flags.value() & ~static_cast<FlagRegister::ValueType>(ExecutionFlag::Halting) };
+
+		push<u32>(savedFlags.value());
 		push<u32>(_pc.value());
 
 		_flags.clear<ExecutionFlag::Interrupt>(); // Clear interrupt flag before handling the interrupt
@@ -55,13 +60,31 @@ namespace ceres::vm
 
 	void ExecutionEngine::step() noexcept
 	{
+		// Pending requests are delivered before anything else, and this is what lets a device
+		// wake a halted machine: triggerInterrupt clears the halting flag.
+		if (const auto pending = _interrupts.peek(); pending.has_value())
+		{
+			// A masked interrupt stays queued rather than being thrown away.
+			const bool deliverable = _flags.get<ExecutionFlag::Interrupt>() ||
+				static_cast<u8>(pending.value()) < ReservedInterruptCount;
+
+			if (deliverable)
+			{
+				_interrupts.clear(pending.value());
+				triggerInterrupt(pending.value());
+			}
+		}
+
 		if (_flags.get<ExecutionFlag::Halting>())
 		{
-			std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Sleep briefly to prevent busy-waiting while halted
-			return; // Do not execute if halting or trap flag is set
+			// Nothing to run, but devices still keep time: this is how a timer eventually fires.
+			_ioPorts.tick();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			return;
 		}
 
 		const Instruction instruction = fetch();
 		execute(instruction);
+		_ioPorts.tick();
 	}
 }

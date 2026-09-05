@@ -92,6 +92,11 @@ namespace
 		TerminalDevice terminal{};
 		terminal.attachTo(vm.io());
 
+		// Gives the machine a clock and, with it, the only asynchronous interrupt source it
+		// has. Disarmed until a program writes to the command port.
+		TimerDevice timer{};
+		timer.attachTo(vm.io());
+
 		if (auto loaded = vm.loadProgram(program); !loaded)
 		{
 			std::cerr << "Failed to load program: " << loaded.error() << '\n';

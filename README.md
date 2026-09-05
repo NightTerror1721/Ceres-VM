@@ -56,6 +56,9 @@ Accesses below `0x400` are rejected for program code, so a program cannot overwr
 table or the BIOS. Integers are assembled and disassembled byte by byte in little-endian, so the
 machine behaves the same whatever the host's byte order is.
 
+Sections are laid out on 4-byte boundaries and variables are padded to their type's natural
+alignment, so a misaligned 16- or 32-bit access raises `AlignmentFault`. Byte accesses never do.
+
 The stack starts at the top of memory and grows down. Pushing below `0x400` raises
 `StackOverflow`. Note that this protects the vectors and the BIOS, **not the program's own code**:
 nothing tells the machine where the loaded image ends, so a runaway stack overwrites program text
@@ -85,6 +88,10 @@ Two banks of sixteen 32-bit registers.
 | Interrupt | `sti` / `cli` | Interrupt dispatch: user interrupts (16–63) are dropped while it is clear |
 | Halting | `halt` | The step loop |
 | Trap | Division by zero, unrecoverable stack fault | Nothing yet |
+
+The halting flag is deliberately **not** saved when an interrupt is taken: `halt` means "wait
+for an interrupt", so restoring the bit on `iret` would put the machine straight back to sleep
+and nothing could ever wake it.
 
 ## Instruction format
 
@@ -121,8 +128,8 @@ range of ±8 MiB.
 `nop` `halt` `trap` `reset` `int imm8` `iret` `cli` `sti`
 
 A program terminates by writing `0x01` to the system control port, not with an instruction. `halt`
-on its own suspends the machine indefinitely: there is no asynchronous interrupt source to wake
-it.
+suspends the machine until an interrupt arrives; arm the timer and enable interrupts with `sti`
+first, or nothing will wake it.
 
 ### Arithmetic · `0x10`–`0x28`
 
@@ -183,7 +190,7 @@ inm  0x02, r3, r2     ; port, address, size
 | Port | Device |
 | --- | --- |
 | `0x00`–`0x03` | Terminal: status, output, input, debug hex. **Implemented.** |
-| `0x10`–`0x12` | Ticks, real-time clock, timer command. |
+| `0x10`–`0x12` | Timer: tick count, real-time clock, command. **Implemented.** |
 | `0x20`–`0x23` | Disk. |
 | `0x30`–`0x33` | GPU. |
 | `0x40`–`0x43` | Mouse and gamepad. |
@@ -295,6 +302,22 @@ Macros are keyed by name **and** argument count, so one name can carry several a
 does not redefine its internal labels. Macros may call other macros; runaway recursion is reported
 rather than hanging.
 
+## The timer
+
+```casm
+    li r1, 1000
+    out 0x12, r1        ; fire an interrupt in 1000 instructions
+    sti                 ; user interrupts are masked until this
+    halt                ; suspended until the timer fires
+```
+
+Time is counted in **executed instructions**, not wall clock, so a program behaves the same on
+every run. Writing 0 disarms the timer; setting the high bit asks for a periodic one that re-arms
+itself. The timer requests `UserInterrupt0` (16), whose vector lives at address `0x40`.
+
+`0x10` reads the tick count and `0x11` the real time in seconds, which is the one thing here that
+is not deterministic.
+
 ## Imports
 
 ```casm
@@ -313,11 +336,8 @@ The assembler and the VM work end to end. What is not done:
 - **Calling convention.** `fp` is defined and unused, and no register is documented as
   caller- or callee-saved. `r12` is clobbered by three pseudo-instructions, which is the closest
   thing to a convention the project has.
-- **Devices.** Twenty-six ports are reserved and four are implemented. A timer would be the most
-  valuable next one: it would give the machine an asynchronous interrupt source, which is what
-  `halt` needs to be useful.
-- **Alignment faults.** Variables are aligned but the machine does not require it, so
-  `AlignmentFault` is never raised.
+- **Devices.** Twenty-six ports are reserved and seven are implemented. Disk, GPU, input, audio
+  and network are all still stubs.
 - **Constant expressions with identifiers.** `2 * BASE` is rejected: constants are not resolved
   until after parsing, so the parser cannot fold them.
 - **`parseOperand` gaps.** Float, character and string literals are not accepted as operands, and
@@ -326,7 +346,7 @@ The assembler and the VM work end to end. What is not done:
 
 ## Tests
 
-96 cases, 311 assertions, run with `sh tests/build.sh`. CI builds with MSVC and GCC 15 and runs
+108 cases, 335 assertions, run with `sh tests/build.sh`. CI builds with MSVC and GCC 15 and runs
 the suite on both.
 
 A test that pins a bug which is still open is marked `TEST_KNOWN_FAILURE`: it asserts the correct

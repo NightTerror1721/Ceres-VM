@@ -3,6 +3,7 @@
 #include "common/types.h"
 #include "address.h"
 #include "memory.h"
+#include "interrupt_controller.h"
 #include <array>
 #include <limits>
 
@@ -16,6 +17,7 @@ namespace ceres::vm
 	{
 	private:
 		Memory* _memory = nullptr;
+		InterruptController* _interrupts = nullptr;
 
 	public:
 		virtual ~IODevice() = default;
@@ -33,9 +35,21 @@ namespace ceres::vm
 		virtual void writePortWord(PortNumber port, u32 value) = 0;
 		virtual void writePort(PortNumber port, Address address, u32 size) = 0;
 
+	public:
+		// Called once per executed instruction. A device that needs no notion of time ignores it;
+		// the default does nothing so existing devices are unaffected.
+		virtual void tick() {}
+
 	protected:
 		Memory& memory() { return *_memory; }
 		const Memory& memory() const { return *_memory; }
+
+		// How a device speaks first.
+		void raiseInterrupt(InterruptNumber interruptNumber)
+		{
+			if (_interrupts != nullptr)
+				_interrupts->raise(interruptNumber);
+		}
 
 	public:
 		friend class IOPorts;
@@ -67,6 +81,7 @@ namespace ceres::vm
 	private:
 		std::array<IODevice*, MaxPorts> _devices{};
 		Memory& _memory;
+		InterruptController& _interrupts;
 
 	public:
 		IOPorts() = delete;
@@ -78,15 +93,46 @@ namespace ceres::vm
 		IOPorts& operator=(IOPorts&&) = delete;
 
 	public:
-		IOPorts(Memory& memory) : _memory(memory)
+		IOPorts(Memory& memory, InterruptController& interrupts) : _memory(memory), _interrupts(interrupts)
 		{
 			_devices.fill(nullptr);
+		}
+
+		// One pulse per executed instruction, delivered once per device however many ports it
+		// claims.
+		void tick()
+		{
+			IODevice* alreadyTicked[MaxPorts] = {};
+			usize tickedCount = 0;
+
+			for (IODevice* device : _devices)
+			{
+				if (device == nullptr)
+					continue;
+
+				bool seen = false;
+				for (usize i = 0; i < tickedCount; ++i)
+				{
+					if (alreadyTicked[i] == device)
+					{
+						seen = true;
+						break;
+					}
+				}
+
+				if (seen)
+					continue;
+
+				alreadyTicked[tickedCount++] = device;
+				device->tick();
+			}
 		}
 
 		inline constexpr void attach(PortNumber port, IODevice& device)
 		{
 			_devices[port] = &device;
 			device._memory = &_memory; // Set the memory reference for the device
+			device._interrupts = &_interrupts;
 		}
 
 		inline constexpr void attachRange(PortNumber start, PortNumber end, IODevice& device)
@@ -95,6 +141,7 @@ namespace ceres::vm
 			{
 				_devices[port] = &device;
 				device._memory = &_memory; // Set the memory reference for the device
+				device._interrupts = &_interrupts;
 			}
 		}
 

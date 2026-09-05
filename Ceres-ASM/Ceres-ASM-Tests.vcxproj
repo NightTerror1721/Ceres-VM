@@ -158,6 +158,12 @@
     <ClCompile Include="..\tests\test_encoding.cpp" />
     <ClCompile Include="..\tests\test_pipeline.cpp" />
     <ClCompile Include="..\tests\test_vm.cpp" />
+    <ClCompile Include="..\tests\test_robustness.cpp" />
+    <ClCompile Include="..\tests\test_macros.cpp" />
+    <ClCompile Include="..\tests\test_modules.cpp" />
+    <ClCompile Include="..\tests\test_language.cpp" />
+    <ClCompile Include="..\tests\test_program_file.cpp" />
+    <ClCompile Include="..\tests\test_devices.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\assembler\assembler.h" />

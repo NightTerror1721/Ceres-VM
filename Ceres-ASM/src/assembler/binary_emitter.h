@@ -39,7 +39,10 @@ namespace ceres::casm
 
 	private:
 		void emitData(const RelocatableStatement& statement, bool isRodata);
+		static inline constexpr usize SectionAlignment = 4;
+
 		void padToAlignment(std::vector<u8>& buffer, u32 alignment);
+		void padSectionToAlignment(std::vector<u8>& buffer, usize unitStart);
 		void emitInstruction(const RelocatableStatement& statement);
 		Address lastSectionAddress(SectionType sectionType);
 

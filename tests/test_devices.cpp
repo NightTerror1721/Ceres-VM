@@ -1,0 +1,305 @@
+// The timer and alignment faults: the two things the machine could not do before.
+//
+// Devices used to be entirely passive, so nothing could wake a halted machine, and nothing
+// depended on alignment so AlignmentFault was never raised.
+
+#include "framework.h"
+#include "assemble_helper.h"
+#include "vm/ceresvm.h"
+#include "vm/devices.h"
+#include "vm/bios.h"
+#include "vm/memory.h"
+
+using namespace ceres;
+using namespace ceres::vm;
+using namespace ceres::testing;
+
+namespace
+{
+	class Machine
+	{
+	private:
+		CeresVM _vm;
+
+	public:
+		explicit Machine(std::initializer_list<Instruction> program)
+		{
+			const Address entry = Memory::UnrestrictedSegmentStart;
+
+			usize offset = 0;
+			for (Instruction instruction : program)
+			{
+				_vm.memory().writeUnchecked<u32>(entry + Address(static_cast<u32>(offset)), instruction.raw());
+				offset += Instruction::Size;
+			}
+
+			BIOS bios{};
+			bios.initializeMemory(_vm.memory());
+			_vm.memory().writeUnchecked<u32>(0_addr, entry.value());
+			_vm.engine().reset();
+		}
+
+		void step(usize count = 1)
+		{
+			for (usize i = 0; i < count; ++i)
+				_vm.engine().step();
+		}
+
+		CeresVM& vm() noexcept { return _vm; }
+		u32 reg(usize index) const { return _vm.engine().registers().getValue(index); }
+		const FlagRegister& flags() const { return _vm.engine().flags(); }
+		Address pc() const { return _vm.engine().programCounter(); }
+		Memory& memory() { return _vm.memory(); }
+
+		// Installs a handler at a fixed spot and points an interrupt vector at it.
+		void installHandler(InterruptNumber number, Address at, std::initializer_list<Instruction> handler)
+		{
+			usize offset = 0;
+			for (Instruction instruction : handler)
+			{
+				_vm.memory().writeUnchecked<u32>(at + Address(static_cast<u32>(offset)), instruction.raw());
+				offset += Instruction::Size;
+			}
+			_vm.memory().writeUnchecked<u32>(Address(static_cast<u32>(number) * Address::Size), at.value());
+		}
+	};
+
+	constexpr u32 EntryPoint = Memory::UnrestrictedSegmentStart.value();
+}
+
+// --- Alignment faults --------------------------------------------------------------------------
+
+TEST(devices, a_misaligned_word_load_raises_a_fault)
+{
+	// r1 = 0x401, which is not a multiple of four.
+	Machine m{
+		Instruction::LI(1, 0x401),
+		Instruction::LDR(2, 1, 0),
+	};
+	m.step(2);
+
+	// The BIOS vector for AlignmentFault points at the stub, so the PC leaves the program.
+	CHECK(m.pc().value() >= Memory::BiosSegmentStart.value());
+	CHECK(m.pc().value() < Memory::UnrestrictedSegmentStart.value());
+}
+
+TEST(devices, a_misaligned_halfword_store_raises_a_fault)
+{
+	// Well clear of the program itself, or the check below would be reading instructions.
+	Machine m{
+		Instruction::LI(1, 0x501),
+		Instruction::LI(2, 0x1234),
+		Instruction::STRH(1, 2, 0),
+	};
+	m.step(3);
+
+	CHECK(m.pc().value() >= Memory::BiosSegmentStart.value());
+
+	// And the store did not happen.
+	CHECK_EQ(m.memory().readUnchecked<u16>(Address(0x501)), u16{ 0 });
+}
+
+TEST(devices, an_aligned_access_is_untouched)
+{
+	Machine m{
+		Instruction::LI(1, 0x404),
+		Instruction::LI(2, 0x1234),
+		Instruction::STRH(1, 2, 0),
+		Instruction::LDRH(3, 1, 0),
+	};
+	m.step(4);
+
+	CHECK_EQ(m.reg(3), 0x1234u);
+	CHECK_EQ(m.pc().value(), EntryPoint + 4 * Instruction::Size);
+}
+
+TEST(devices, a_byte_access_never_faults_whatever_the_address)
+{
+	Machine m{
+		Instruction::LI(1, 0x403),
+		Instruction::LI(2, 0x7F),
+		Instruction::STRB(1, 2, 0),
+		Instruction::LDRB(3, 1, 0),
+	};
+	m.step(4);
+
+	CHECK_EQ(m.reg(3), 0x7Fu);
+	CHECK_EQ(m.pc().value(), EntryPoint + 4 * Instruction::Size);
+}
+
+TEST(devices, a_displacement_can_be_what_misaligns_an_access)
+{
+	// The base is aligned; the displacement is not.
+	Machine m{
+		Instruction::LI(1, 0x400),
+		Instruction::LDR(2, 1, 2),
+	};
+	m.step(2);
+
+	CHECK(m.pc().value() >= Memory::BiosSegmentStart.value());
+}
+
+// --- The timer ---------------------------------------------------------------------------------
+
+TEST(devices, the_tick_port_counts_executed_instructions)
+{
+	Machine m{
+		Instruction::NOP(),
+		Instruction::NOP(),
+		Instruction::NOP(),
+	};
+
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+
+	m.step(3);
+
+	CHECK_EQ(timer.ticks(), u64{ 3 });
+}
+
+TEST(devices, an_armed_timer_raises_its_interrupt)
+{
+	Machine m{
+		Instruction::STI(),
+		Instruction::NOP(),
+		Instruction::NOP(),
+		Instruction::NOP(),
+		Instruction::NOP(),
+		Instruction::NOP(),
+	};
+
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+	timer.arm(3);
+
+	// A handler that just marks a register and returns.
+	m.installHandler(TimerDevice::Interrupt, Address(0x800), {
+		Instruction::LI(9, 0xABC),
+		Instruction::IRET(),
+	});
+
+	m.step(8);
+
+	CHECK_EQ(m.reg(9), 0xABCu);
+	CHECK(!timer.isArmed());
+}
+
+TEST(devices, a_masked_timer_interrupt_stays_pending_until_interrupts_are_enabled)
+{
+	// Without STI the request must be held, not thrown away: user interrupts are masked while
+	// the interrupt flag is clear.
+	Machine m{
+		Instruction::NOP(),
+		Instruction::NOP(),
+		Instruction::NOP(),
+		Instruction::STI(),
+		Instruction::NOP(),
+		Instruction::NOP(),
+	};
+
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+	timer.arm(2);
+
+	m.installHandler(TimerDevice::Interrupt, Address(0x800), {
+		Instruction::LI(9, 0x5A),
+		Instruction::IRET(),
+	});
+
+	// After three steps the timer has expired but the flag is still clear.
+	m.step(3);
+	CHECK_EQ(m.reg(9), 0u);
+	CHECK(m.vm().interrupts().hasPending());
+
+	// STI, and the queued request is delivered.
+	m.step(4);
+	CHECK_EQ(m.reg(9), 0x5Au);
+}
+
+TEST(devices, the_timer_wakes_a_halted_machine)
+{
+	// This is what the timer is for. HALT used to suspend the machine for good, because no device
+	// could ever speak first.
+	Machine m{
+		Instruction::STI(),
+		Instruction::HALT(),
+		Instruction::LI(9, 0x77),
+	};
+
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+	timer.arm(4);
+
+	m.installHandler(TimerDevice::Interrupt, Address(0x800), {
+		Instruction::IRET(),
+	});
+
+	m.step(2);
+	CHECK(m.flags().halting());
+
+	// Stepping on, the timer expires and the interrupt clears the halting flag.
+	m.step(12);
+
+	CHECK(!m.flags().halting());
+	CHECK_EQ(m.reg(9), 0x77u);
+}
+
+TEST(devices, a_periodic_timer_re_arms_itself)
+{
+	Machine m{
+		Instruction::STI(),
+		Instruction::NOP(), Instruction::NOP(), Instruction::NOP(), Instruction::NOP(),
+		Instruction::NOP(), Instruction::NOP(), Instruction::NOP(), Instruction::NOP(),
+		Instruction::NOP(), Instruction::NOP(), Instruction::NOP(), Instruction::NOP(),
+	};
+
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+	timer.arm(2, true);
+
+	// The handler counts how many times it ran.
+	m.installHandler(TimerDevice::Interrupt, Address(0x800), {
+		Instruction::ADDI(9, 9, 1),
+		Instruction::IRET(),
+	});
+
+	m.step(20);
+
+	CHECK(m.reg(9) >= 2u);
+	CHECK(timer.isArmed());
+}
+
+TEST(devices, a_program_can_arm_the_timer_through_its_port)
+{
+	Machine m{
+		Instruction::STI(),
+		Instruction::LI(1, 3),
+		Instruction::OUT(1, TimerDevice::CommandPort),
+		Instruction::NOP(), Instruction::NOP(), Instruction::NOP(), Instruction::NOP(),
+	};
+
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+
+	m.installHandler(TimerDevice::Interrupt, Address(0x800), {
+		Instruction::LI(9, 0x33),
+		Instruction::IRET(),
+	});
+
+	m.step(10);
+
+	CHECK_EQ(m.reg(9), 0x33u);
+}
+
+TEST(devices, writing_zero_disarms_the_timer)
+{
+	Machine m{ Instruction::NOP() };
+
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+	timer.arm(5);
+	CHECK(timer.isArmed());
+
+	timer.arm(0);
+	CHECK(!timer.isArmed());
+}

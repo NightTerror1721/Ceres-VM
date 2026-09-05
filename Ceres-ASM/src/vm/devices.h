@@ -5,6 +5,7 @@
 #include <atomic>
 #include <span>
 #include <functional>
+#include <chrono>
 
 namespace ceres::vm
 {
@@ -92,6 +93,129 @@ namespace ceres::vm
 				for (u32 i = 0; i < bytes.size(); ++i)
 					writePortByte(port, bytes[i]);
 			}
+		}
+	};
+
+	// Gives the machine a sense of time, and with it the asynchronous interrupt source it never
+	// had. Until now HALT suspended the machine for good, because nothing could ever wake it.
+	//
+	// Time is counted in executed instructions rather than wall clock, so a program behaves the
+	// same on every run and on every machine. RTC_TIME is the one exception: it reports real
+	// seconds, and nothing depends on it.
+	class TimerDevice : public IODevice
+	{
+	public:
+		static inline constexpr PortNumber TicksPort = default_ports::SYS_TICKS;   // Read: instructions executed so far
+		static inline constexpr PortNumber ClockPort = default_ports::RTC_TIME;   // Read: seconds since the epoch
+		static inline constexpr PortNumber CommandPort = default_ports::TIMER_CMD; // Write: fire after N ticks, 0 disarms
+
+		// Which interrupt the timer requests when it expires. The first user interrupt, so it needs
+		// STI to be delivered and cannot surprise a program that never asked for it.
+		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt0;
+
+	private:
+		u64 _ticks = 0;
+		u64 _remaining = 0;   // 0 means disarmed
+		bool _periodic = false;
+		u64 _period = 0;
+
+	public:
+		TimerDevice() = default;
+		TimerDevice(const TimerDevice&) = delete;
+		TimerDevice(TimerDevice&&) = delete;
+		~TimerDevice() override = default;
+
+		TimerDevice& operator=(const TimerDevice&) = delete;
+		TimerDevice& operator=(TimerDevice&&) = delete;
+
+	public:
+		void attachTo(IOPorts& ioPorts)
+		{
+			ioPorts.attach(TicksPort, *this);
+			ioPorts.attach(ClockPort, *this);
+			ioPorts.attach(CommandPort, *this);
+		}
+
+		void detachFrom(IOPorts& ioPorts)
+		{
+			ioPorts.detach(TicksPort);
+			ioPorts.detach(ClockPort);
+			ioPorts.detach(CommandPort);
+		}
+
+		u64 ticks() const noexcept { return _ticks; }
+		bool isArmed() const noexcept { return _remaining > 0; }
+
+		// Arms the timer directly, for a host that wants a heartbeat without the program asking.
+		void arm(u64 ticksFromNow, bool periodic = false) noexcept
+		{
+			_remaining = ticksFromNow;
+			_periodic = periodic;
+			_period = ticksFromNow;
+		}
+
+	public:
+		void tick() override
+		{
+			++_ticks;
+
+			if (_remaining == 0)
+				return;
+
+			if (--_remaining == 0)
+			{
+				raiseInterrupt(Interrupt);
+				if (_periodic)
+					_remaining = _period;
+			}
+		}
+
+	public:
+		u32 readPortUnsignedWord(PortNumber port) override
+		{
+			switch (port)
+			{
+				case TicksPort:
+					return static_cast<u32>(_ticks);
+
+				case ClockPort:
+					return static_cast<u32>(std::chrono::duration_cast<std::chrono::seconds>(
+						std::chrono::system_clock::now().time_since_epoch()).count());
+
+				default:
+					return 0xFFFFFFFF;
+			}
+		}
+
+		u8 readPortUnsignedByte(PortNumber port) override { return static_cast<u8>(readPortUnsignedWord(port)); }
+		i8 readPortSignedByte(PortNumber port) override { return static_cast<i8>(readPortUnsignedByte(port)); }
+		u16 readPortUnsignedHalfword(PortNumber port) override { return static_cast<u16>(readPortUnsignedWord(port)); }
+		i16 readPortSignedHalfword(PortNumber port) override { return static_cast<i16>(readPortUnsignedHalfword(port)); }
+		void readPort(PortNumber port, Address address, u32 size) override
+		{
+			if (size >= sizeof(u32))
+				memory().write<u32>(address, readPortUnsignedWord(port));
+		}
+
+		// Writing N to the command port fires the timer N instructions later. Writing 0 disarms it.
+		// The high bit asks for a periodic timer that re-arms itself after each expiry.
+		void writePortWord(PortNumber port, u32 value) override
+		{
+			if (port != CommandPort)
+				return;
+
+			const bool periodic = (value & 0x80000000u) != 0;
+			const u64 count = value & 0x7FFFFFFFu;
+
+			arm(count, periodic && count > 0);
+		}
+
+		void writePortByte(PortNumber port, u8 value) override { writePortWord(port, value); }
+		void writePortHalfword(PortNumber port, u16 value) override { writePortWord(port, value); }
+		void writePort(PortNumber port, Address address, u32 size) override
+		{
+			if (size >= sizeof(u32))
+				writePortWord(port, memory().read<u32>(address));
 		}
 	};
 
