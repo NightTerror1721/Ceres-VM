@@ -12,25 +12,38 @@ namespace ceres::casm
 		_built = true;
 
 		AssemblerErrorHandler& errorHandler = _translationUnit.state().errorHandler();
-		SymbolTable& symbolTable = _translationUnit.symbolTable();
-		MacroTable& macroTable = _translationUnit.macroTable();
-		SectionSizes& sectionSizes = _translationUnit.sectionSizes();
-		std::vector<RelocatableStatement> ast;
-		std::vector<UnresolvedSymbol> unresolvedSymbols;
-		const usize statementCount = statements.size();
-		std::string_view lastParentLabel = {};
+		_ast.reserve(statements.size());
 
-		ast.reserve(statementCount);
-
-		for (auto it = statements.begin(); it != statements.end(); ++it)
+		for (auto& statement : statements)
 		{
 			try
 			{
-				Statement& statement = *it;
+				processStatement(statement, 0);
+			}
+			catch (const AssemblerError& error)
+			{
+				errorHandler.reportError(error);
+			}
+		}
+
+		_translationUnit.setAST(std::move(_ast));
+		_translationUnit.setUnresolvedSymbols(std::move(_unresolvedSymbols));
+	}
+
+	// One statement. Recursive: the statements a macro expands into come back through here, with
+	// the depth carried along so a self-referential macro is reported instead of hanging.
+	void TranslationUnitBuilder::processStatement(Statement& statement, u32 expansionDepth)
+	{
+		SymbolTable& symbolTable = _translationUnit.symbolTable();
+		MacroTable& macroTable = _translationUnit.macroTable();
+		SectionSizes& sectionSizes = _translationUnit.sectionSizes();
+
+		{
+			{
 				if (statement.isSection())
 				{
 					_currentSection = statement.asSection().section;
-					ast.push_back(RelocatableStatement::makeSection(statement.line(), std::move(statement.asSection())));
+					_ast.push_back(RelocatableStatement::makeSection(statement.line(), std::move(statement.asSection())));
 				}
 				else if (statement.isLabel())
 				{
@@ -40,9 +53,9 @@ namespace ceres::casm
 					auto& label = statement.asLabel();
 					auto labelLevel = label.level;
 					symbolTable.defineLabel(statement.line(), label.name, _currentSection.value(), currentOffset(), labelLevel);
-					ast.push_back(RelocatableStatement::makeLabel(statement.line(), currentOffset(), std::move(label)));
+					_ast.push_back(RelocatableStatement::makeLabel(statement.line(), currentOffset(), std::move(label)));
 					if (labelLevel != LabelLevel::Local)
-						lastParentLabel = ast.back().asLabel().name;
+						_lastParentLabel = _ast.back().asLabel().name;
 				}
 				else if (statement.isData())
 				{
@@ -101,7 +114,21 @@ namespace ceres::casm
 						if (!_currentSection.has_value())
 							error(statement.line(), "Variable data statement must be preceded by a section statement");
 
+						// Pad up to the element's natural alignment before recording the address, so the
+					// symbol and the bytes the emitter writes agree on where the variable starts.
+					const u32 padding = alignCurrentOffset(dataType.alignment());
+					if (padding > 0)
+					{
 						switch (_currentSection.value())
+						{
+							case SectionType::Rodata: sectionSizes.rodataSize += padding; break;
+							case SectionType::Data:   sectionSizes.dataSize += padding; break;
+							case SectionType::BSS:    sectionSizes.bssSize += padding; break;
+							default: break;
+						}
+					}
+
+					switch (_currentSection.value())
 						{
 							case SectionType::Text:
 								error(statement.line(), "Variable data statement cannot be in the @text section");
@@ -138,20 +165,31 @@ namespace ceres::casm
 					}
 					else
 					{
-						ast.push_back(RelocatableStatement::makeData(statement.line(), size.value(), currentOffset(), ResolvedDataStatement{ data.isConstant, data.name, dataType, literalValue }));
+						_ast.push_back(RelocatableStatement::makeData(statement.line(), size.value(), currentOffset(), ResolvedDataStatement{ data.isConstant, data.name, dataType, literalValue }));
 						currentOffset() += size.value();
 					}
 				}
 				else if (statement.isImport())
 				{
 					auto& imp = statement.asImport();
-					auto moduleUnit = _translationUnit.state().loadTranslationUnit(imp.moduleName.str());
-					if (!moduleUnit)
-						error(statement.line(), "Failed to load translation unit for module '{}'", imp.moduleName.str());
+					// Relative imports resolve against the importing file, so a module travels with the
+					// files it belongs to instead of depending on the working directory.
+					std::filesystem::path modulePath{ imp.moduleName.str() };
+					if (modulePath.is_relative() && !_sourcePath.empty())
+						modulePath = _sourcePath.parent_path() / modulePath;
 
-					if (!_translationUnit.hasImportedModule(imp.moduleName.str()))
+					const std::string resolvedPath = modulePath.lexically_normal().string();
+
+					if (_translationUnit.state().isBeingLoaded(resolvedPath))
+						error(statement.line(), "Import cycle: '{}' is already being assembled", imp.moduleName);
+
+					auto moduleUnit = _translationUnit.state().loadTranslationUnit(resolvedPath);
+					if (!moduleUnit)
+						error(statement.line(), "Failed to load module '{}' (looked for {})", imp.moduleName, resolvedPath);
+
+					if (!_translationUnit.hasImportedModule(resolvedPath))
 					{
-						_translationUnit.addImportedModule(imp.moduleName.str());
+						_translationUnit.addImportedModule(resolvedPath);
 						symbolTable.importSymbols(moduleUnit->get());
 						macroTable.importMacros(moduleUnit->get());
 						
@@ -166,7 +204,9 @@ namespace ceres::casm
 				}
 				else if (statement.isMacroLabel())
 				{
-					// TODO: Handle macro label statements
+					// Only meaningful inside a macro body, where expansion turns it into a real label
+					// carrying a name unique to that expansion.
+					error(statement.line(), "Macro label used outside a macro body: {}", statement.asMacroLabel().name);
 				}
 				else if (statement.isInstruction())
 				{
@@ -175,9 +215,9 @@ namespace ceres::casm
 
 					auto& instruction = statement.asInstruction();
 					for (auto& operand : instruction.operands)
-						symbolTable.tryResolveOperand(statement.line(), operand, lastParentLabel, unresolvedSymbols);
+						symbolTable.tryResolveOperand(statement.line(), operand, _lastParentLabel, _unresolvedSymbols);
 
-					ast.push_back(RelocatableStatement::makeInstruction(statement.line(), currentOffset(), std::move(instruction)));
+					_ast.push_back(RelocatableStatement::makeInstruction(statement.line(), currentOffset(), std::move(instruction)));
 
 					auto sizeOpt = InstructionInfo::findMaxSizeInBytes(instruction.mnemonic);
 					if (!sizeOpt.has_value() || sizeOpt.value() == 0)
@@ -189,21 +229,108 @@ namespace ceres::casm
 				}
 				else if (statement.isMacroCall())
 				{
-					// TODO: Handle macro call statements
+					// Anything that is not a known mnemonic parses as a macro call, so this is also where a
+					// misspelled instruction is caught instead of being silently discarded.
+					auto expanded = expandMacroCall(statement.line(), statement.asMacroCall(), expansionDepth);
+					for (auto& expandedStatement : expanded)
+						processStatement(expandedStatement, expansionDepth + 1);
 				}
 				else
 				{
 					error(statement.line(), "Unknown statement type");
 				}
 			}
-			catch (const AssemblerError& error)
-			{
-				errorHandler.reportError(error);
-			}
+		}
+	}
+
+	std::vector<Statement> TranslationUnitBuilder::expandMacroCall(u32 line, const MacroCallStatement& call, u32 expansionDepth)
+	{
+		if (expansionDepth >= MaxMacroExpansionDepth)
+			error(line, "Macro expansion nested more than {} levels deep; '{}' is probably recursive", MaxMacroExpansionDepth, call.name);
+
+		const auto macroOpt = _translationUnit.macroTable().getMacro(
+			MacroSignature::make(call.name.view(), static_cast<u32>(call.arity())));
+
+		if (!macroOpt.has_value())
+			error(line, "Unknown mnemonic or macro '{}' taking {} operand(s)", call.name, call.arity());
+
+		const Macro& macro = macroOpt.value().get();
+
+		// Each expansion is numbered so that the labels it introduces cannot collide with the ones
+		// from another use of the same macro.
+		const u32 instanceId = ++_macroExpansionCounter;
+
+		std::vector<Statement> expanded;
+		expanded.reserve(macro.body().size());
+
+		for (const Statement& bodyStatement : macro.body())
+			expanded.push_back(substituteMacroStatement(bodyStatement, macro, call, instanceId));
+
+		return expanded;
+	}
+
+	Statement TranslationUnitBuilder::substituteMacroStatement(const Statement& statement, const Macro& macro, const MacroCallStatement& call, u32 instanceId)
+	{
+		const u32 line = statement.line();
+
+		if (statement.isMacroLabel())
+			return Statement::makeLabel(line, makeHygienicLabel(statement.asMacroLabel().name, instanceId), LabelLevel::File);
+
+		if (statement.isInstruction())
+		{
+			const InstructionStatement& instruction = statement.asInstruction();
+
+			std::vector<Operand> operands;
+			operands.reserve(instruction.operands.size());
+			for (const Operand& operand : instruction.operands)
+				operands.push_back(substituteMacroOperand(line, operand, macro, call, instanceId));
+
+			return Statement::makeInstruction(line, instruction.mnemonic, std::move(operands));
 		}
 
-		_translationUnit.setAST(std::move(ast));
-		_translationUnit.setUnresolvedSymbols(std::move(unresolvedSymbols));
+		if (statement.isMacroCall())
+		{
+			const MacroCallStatement& nested = statement.asMacroCall();
+
+			std::vector<Operand> arguments;
+			arguments.reserve(nested.arguments.size());
+			for (const Operand& argument : nested.arguments)
+				arguments.push_back(substituteMacroOperand(line, argument, macro, call, instanceId));
+
+			return Statement::makeMacroCall(line, nested.name, std::move(arguments));
+		}
+
+		// Sections, labels and data declarations carry nothing to substitute.
+		return statement;
+	}
+
+	Operand TranslationUnitBuilder::substituteMacroOperand(u32 line, const Operand& operand, const Macro& macro, const MacroCallStatement& call, u32 instanceId)
+	{
+		if (operand.isMacroParameter())
+		{
+			const Identifier name = operand.asMacroParameter().name;
+			const auto index = macro.parameterIndex(std::string(name.view()));
+
+			if (!index.has_value())
+				error(line, "'${}' is not a parameter of macro '{}'", name, macro.name());
+			if (index.value() >= call.arguments.size())
+				error(line, "Macro '{}' expects {} argument(s) but was given {}", macro.name(), macro.parameterCount(), call.arguments.size());
+
+			return call.arguments[index.value()];
+		}
+
+		if (operand.isMacroLabel())
+			return Operand::makeIdentifier(makeHygienicLabel(operand.asMacroLabel().name, instanceId), false);
+
+		return operand;
+	}
+
+	Identifier TranslationUnitBuilder::makeHygienicLabel(Identifier macroLabel, u32 instanceId)
+	{
+		// The generated name is not a valid identifier in the source language, so it cannot collide
+		// with anything the programmer can write.
+		return _translationUnit.state().stringPool().makeIdentifier(
+			std::format("%%{}#{}", macroLabel.view(), instanceId));
 	}
 
 	DataType TranslationUnitBuilder::resolveDataType(u32 line, const DataTypeReference& dataType, bool allowUnsizedArrays) const

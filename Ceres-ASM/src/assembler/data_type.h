@@ -62,6 +62,24 @@ namespace ceres::casm
 		constexpr DataType asScalar() const noexcept { return DataType{ _scalarCode, 1 }; }
 		constexpr DataType asUnsizedArray() const noexcept { return DataType{ _scalarCode, 0 }; }
 
+		// Natural alignment of the element type. A u32 read from an odd address works today only
+		// because the VM assembles integers byte by byte; aligning keeps that an implementation
+		// detail rather than a requirement.
+		constexpr u32 alignment() const noexcept
+		{
+			switch (_scalarCode)
+			{
+				case DataTypeScalarCode::U8:
+				case DataTypeScalarCode::I8:  return 1;
+				case DataTypeScalarCode::U16:
+				case DataTypeScalarCode::I16: return 2;
+				case DataTypeScalarCode::U32:
+				case DataTypeScalarCode::I32:
+				case DataTypeScalarCode::F32: return 4;
+				default: return 1;
+			}
+		}
+
 		constexpr std::optional<u32> sizeInBytes() const noexcept
 		{
 			if (_numElements == 0)

@@ -554,6 +554,11 @@ namespace ceres::vm
 		forceinline void TRAP(const Instruction inst) noexcept { triggerInterrupt(InterruptNumber::Trap); }
 		forceinline void RESET(const Instruction inst) noexcept { triggerInterrupt(InterruptNumber::Reset); }
 		forceinline void INT(const Instruction inst) noexcept { triggerInterrupt(static_cast<InterruptNumber>(inst.imm8())); }
+		// Without these the interrupt flag could never be set, so every user interrupt was
+		// unreachable: triggerInterrupt drops numbers >= 16 while the flag is clear.
+		forceinline void CLI(const Instruction inst) noexcept { _flags.clear<ExecutionFlag::Interrupt>(); advancePC(); }
+		forceinline void STI(const Instruction inst) noexcept { _flags.set<ExecutionFlag::Interrupt>(); advancePC(); }
+
 		forceinline void IRET(const Instruction inst) noexcept
 		{
 			// Restore PC and flags from the stack
@@ -676,6 +681,10 @@ namespace ceres::vm
 		forceinline void JSR(const Instruction inst) noexcept { executeJumpRegIfFlag<ExecutionFlag::Sign>(inst); }
 		forceinline void JNS(const Instruction inst) noexcept { executeJumpIfNotFlag<ExecutionFlag::Sign>(inst); }
 		forceinline void JNSR(const Instruction inst) noexcept { executeJumpRegIfNotFlag<ExecutionFlag::Sign>(inst); }
+		forceinline void JO(const Instruction inst) noexcept { executeJumpIfFlag<ExecutionFlag::Overflow>(inst); }
+		forceinline void JOR(const Instruction inst) noexcept { executeJumpRegIfFlag<ExecutionFlag::Overflow>(inst); }
+		forceinline void JNO(const Instruction inst) noexcept { executeJumpIfNotFlag<ExecutionFlag::Overflow>(inst); }
+		forceinline void JNOR(const Instruction inst) noexcept { executeJumpRegIfNotFlag<ExecutionFlag::Overflow>(inst); }
 		forceinline void CALL(const Instruction inst) noexcept
 		{
 			if (!push<u32>((_pc + Instruction::SizeInBytes).value())) // Push return address onto the stack
@@ -849,6 +858,8 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::RESET)] = &ExecutionEngine::RESET;
 				handlers[static_cast<u8>(Opcode::INT)] = &ExecutionEngine::INT;
 				handlers[static_cast<u8>(Opcode::IRET)] = &ExecutionEngine::IRET;
+				handlers[static_cast<u8>(Opcode::CLI)] = &ExecutionEngine::CLI;
+				handlers[static_cast<u8>(Opcode::STI)] = &ExecutionEngine::STI;
 
 				// Arithmetic
 				handlers[static_cast<u8>(Opcode::ADD)] = &ExecutionEngine::ADD;
@@ -932,6 +943,10 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::CALL)] = &ExecutionEngine::CALL;
 				handlers[static_cast<u8>(Opcode::CALLR)] = &ExecutionEngine::CALLR;
 				handlers[static_cast<u8>(Opcode::RET)] = &ExecutionEngine::RET;
+				handlers[static_cast<u8>(Opcode::JO)] = &ExecutionEngine::JO;
+				handlers[static_cast<u8>(Opcode::JOR)] = &ExecutionEngine::JOR;
+				handlers[static_cast<u8>(Opcode::JNO)] = &ExecutionEngine::JNO;
+				handlers[static_cast<u8>(Opcode::JNOR)] = &ExecutionEngine::JNOR;
 
 				// Stack
 				handlers[static_cast<u8>(Opcode::PUSH)] = &ExecutionEngine::PUSH;

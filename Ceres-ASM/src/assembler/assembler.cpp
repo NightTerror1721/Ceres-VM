@@ -77,7 +77,7 @@ namespace ceres::casm
 	{
 		try
 		{
-			TranslationUnitBuilder builder{ *_state };
+			TranslationUnitBuilder builder{ *_state, filePath };
 			builder.build(std::move(statements));
 			return builder.release();
 		}
@@ -135,7 +135,12 @@ namespace ceres::casm
 		if (hasErrors())
 			return std::nullopt;
 
+		// Marked in progress across the build so a circular import is reported rather than
+		// recursing until the stack runs out.
+		_state->beginLoading(filePath);
 		auto translationUnit = translateStatementsToUnit(source, std::move(statements), filePath);
+		_state->endLoading(filePath);
+
 		if (!translationUnit.has_value())
 			return std::nullopt;
 

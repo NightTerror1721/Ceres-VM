@@ -27,6 +27,8 @@ namespace ceres::casm
 		{ "RESET", Mnemonic::RESET },
 		{ "INT", Mnemonic::INT },
 		{ "IRET", Mnemonic::IRET },
+		{ "CLI", Mnemonic::CLI },
+		{ "STI", Mnemonic::STI },
 
 		{ "ADD", Mnemonic::ADD },
 		{ "ADC", Mnemonic::ADC },
@@ -72,6 +74,8 @@ namespace ceres::casm
 		{ "JNC", Mnemonic::JNC },
 		{ "JS", Mnemonic::JS },
 		{ "JNS", Mnemonic::JNS },
+		{ "JO", Mnemonic::JO },
+		{ "JNO", Mnemonic::JNO },
 		{ "CALL", Mnemonic::CALL },
 		{ "RET", Mnemonic::RET },
 
@@ -109,6 +113,8 @@ namespace ceres::casm
 		{ Mnemonic::RESET, "RESET" },
 		{ Mnemonic::INT, "INT" },
 		{ Mnemonic::IRET, "IRET" },
+		{ Mnemonic::CLI, "CLI" },
+		{ Mnemonic::STI, "STI" },
 
 		{ Mnemonic::ADD, "ADD" },
 		{ Mnemonic::ADC, "ADC" },
@@ -154,6 +160,8 @@ namespace ceres::casm
 		{ Mnemonic::JNC, "JNC" },
 		{ Mnemonic::JS, "JS" },
 		{ Mnemonic::JNS, "JNS" },
+		{ Mnemonic::JO, "JO" },
+		{ Mnemonic::JNO, "JNO" },
 		{ Mnemonic::CALL, "CALL" },
 		{ Mnemonic::RET, "RET" },
 

@@ -85,10 +85,24 @@ namespace ceres::casm
 		);
 	}
 
+	// Mirrors alignCurrentOffset() in the translation unit: both have to insert the same padding
+	// or the bytes drift away from the addresses the linker handed out.
+	void BinaryEmitter::padToAlignment(std::vector<u8>& buffer, u32 alignment)
+	{
+		if (alignment <= 1)
+			return;
+
+		const usize misaligned = buffer.size() % alignment;
+		if (misaligned != 0)
+			buffer.resize(buffer.size() + (alignment - misaligned), 0);
+	}
+
 	void BinaryEmitter::emitData(const RelocatableStatement& statement, bool isRodata)
 	{
 		const ResolvedDataStatement& data = statement.asData();
 		std::vector<u8>& buffer = isRodata ? _rodataBuffer : _dataBuffer;
+
+		padToAlignment(buffer, data.dataType.alignment());
 		
 		if (data.value.has_value())
 		{

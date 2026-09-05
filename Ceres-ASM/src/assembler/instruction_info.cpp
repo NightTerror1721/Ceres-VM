@@ -75,6 +75,8 @@ namespace ceres::casm
 		inst(Opcode::RESET, Mnemonic::RESET),
 		inst(Opcode::INT, Mnemonic::INT, OpcodeParameterType::IMM8),
 		inst(Opcode::IRET, Mnemonic::IRET),
+		inst(Opcode::CLI, Mnemonic::CLI),
+		inst(Opcode::STI, Mnemonic::STI),
 
 		inst(Opcode::ADD, Mnemonic::ADD, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
 		inst(Opcode::ADDI, Mnemonic::ADD, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::IMM16),
@@ -265,6 +267,12 @@ namespace ceres::casm
 		inst(Opcode::CALL, Mnemonic::CALL, OpcodeParameterType::SIMM24),
 		inst(Opcode::CALLR, Mnemonic::CALL, OpcodeParameterType::RS),
 		inst(Opcode::RET, Mnemonic::RET),
+		inst(Opcode::JO, Mnemonic::JO, OpcodeParameterType::REL_ADDR),
+		inst(Opcode::JO, Mnemonic::JO, OpcodeParameterType::SIMM24),
+		inst(Opcode::JOR, Mnemonic::JO, OpcodeParameterType::RS),
+		inst(Opcode::JNO, Mnemonic::JNO, OpcodeParameterType::REL_ADDR),
+		inst(Opcode::JNO, Mnemonic::JNO, OpcodeParameterType::SIMM24),
+		inst(Opcode::JNOR, Mnemonic::JNO, OpcodeParameterType::RS),
 
 		inst(Opcode::PUSH, Mnemonic::PUSH, OpcodeParameterType::RS),
 		inst(Opcode::POP, Mnemonic::POP, OpcodeParameterType::RD),

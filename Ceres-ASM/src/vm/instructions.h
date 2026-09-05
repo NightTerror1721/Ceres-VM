@@ -134,6 +134,8 @@ namespace ceres::vm
 		static constexpr Instruction RESET() noexcept { return make(Opcode::RESET); }
 		static constexpr Instruction INT(u8 imm8) noexcept { return make(Opcode::INT, 0, 0, 0, imm8); }
 		static constexpr Instruction IRET() noexcept { return make(Opcode::IRET); }
+		static constexpr Instruction CLI() noexcept { return make(Opcode::CLI); }
+		static constexpr Instruction STI() noexcept { return make(Opcode::STI); }
 
 		// Arithmetic
 		static constexpr Instruction ADD(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::ADD, rd, rs, rt); }
@@ -215,6 +217,10 @@ namespace ceres::vm
 		static constexpr Instruction CALL(i24 simm24) noexcept { return make(Opcode::CALL, simm24); }
 		static constexpr Instruction CALLR(u8 rs) noexcept { return make(Opcode::CALLR, 0, rs); }
 		static constexpr Instruction RET() noexcept { return make(Opcode::RET); }
+		static constexpr Instruction JO(i24 simm24) noexcept { return make(Opcode::JO, simm24); }
+		static constexpr Instruction JOR(u8 rs) noexcept { return make(Opcode::JOR, 0, rs); }
+		static constexpr Instruction JNO(i24 simm24) noexcept { return make(Opcode::JNO, simm24); }
+		static constexpr Instruction JNOR(u8 rs) noexcept { return make(Opcode::JNOR, 0, rs); }
 
 		// Stack Operations
 		static constexpr Instruction PUSH(u8 rs) noexcept { return make(Opcode::PUSH, 0, rs); }

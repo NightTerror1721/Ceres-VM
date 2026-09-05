@@ -459,6 +459,9 @@ namespace ceres::casm
 		if (identifier == "let") return KeywordType::Let;
 		if (identifier == "const") return KeywordType::Constant;
 		if (identifier == "global") return KeywordType::Global;
+		if (identifier == "import") return KeywordType::Import;
+		if (identifier == "macro") return KeywordType::Macro;
+		if (identifier == "endmacro") return KeywordType::EndMacro;
 
 		return std::nullopt;
 	}

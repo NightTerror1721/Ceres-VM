@@ -8,6 +8,7 @@
 #include <string_view>
 #include <expected>
 #include <flat_set>
+#include <filesystem>
 
 namespace ceres::casm
 {
@@ -77,9 +78,19 @@ namespace ceres::casm
 		Address _dataOffset = 0; // Current offset in the data section
 		Address _rodataOffset = 0; // Current offset in the read-only data section
 		Address _bssOffset = 0; // Current offset in the BSS section
+		std::filesystem::path _sourcePath; // File this unit was parsed from
 		std::optional<SectionType> _currentSection; // Current section being processed
 		bool _built = false; // Flag indicating whether the translation unit has been built
 		bool _released = false; // Flag indicating whether the translation unit has been released
+
+		// Were locals of build() until macro expansion made statement processing recursive.
+		std::vector<RelocatableStatement> _ast;
+		std::vector<UnresolvedSymbol> _unresolvedSymbols;
+		std::string_view _lastParentLabel;
+		u32 _macroExpansionCounter = 0;
+
+		// A macro that expands to itself would otherwise hang the assembler.
+		static inline constexpr u32 MaxMacroExpansionDepth = 32;
 
 	public:
 		TranslationUnitBuilder() = delete;
@@ -91,7 +102,11 @@ namespace ceres::casm
 		TranslationUnitBuilder& operator=(TranslationUnitBuilder&&) noexcept = default;
 
 	public:
-		explicit TranslationUnitBuilder(AssemblyState& state) noexcept : _translationUnit(state) {}
+		// The source path is kept so that an `import` resolves relative to the file doing the
+		// importing, not to whatever directory the assembler happens to run from.
+		explicit TranslationUnitBuilder(AssemblyState& state, std::filesystem::path sourcePath = {}) noexcept :
+			_translationUnit(state), _sourcePath(std::move(sourcePath))
+		{}
 
 		void build(std::vector<Statement>&& statements);
 
@@ -109,6 +124,13 @@ namespace ceres::casm
 		}
 
 	private:
+		void processStatement(Statement& statement, u32 expansionDepth);
+
+		std::vector<Statement> expandMacroCall(u32 line, const MacroCallStatement& call, u32 expansionDepth);
+		Statement substituteMacroStatement(const Statement& statement, const Macro& macro, const MacroCallStatement& call, u32 instanceId);
+		Operand substituteMacroOperand(u32 line, const Operand& operand, const Macro& macro, const MacroCallStatement& call, u32 instanceId);
+		Identifier makeHygienicLabel(Identifier macroLabel, u32 instanceId);
+
 		DataType resolveDataType(u32 line, const DataTypeReference& dataType, bool allowUnsizedArrays) const;
 		LiteralValue resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays = false, std::optional<DataTypeScalarCode> targetScalarCode = std::nullopt) const;
 		std::pair<DataType, LiteralValue> resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const;
@@ -118,6 +140,23 @@ namespace ceres::casm
 		std::expected<u32, std::string_view> sizeOf(u32 line, DataType dataType, const LiteralValue& value) const;
 
 		std::optional<std::reference_wrapper<const LiteralValue>> getConstantValue(u32 line, std::string_view name) const noexcept;
+
+		// Rounds the current offset up so the next item starts on a suitable boundary, and reports
+		// how many padding bytes that cost so the section size can follow.
+		u32 alignCurrentOffset(u32 alignment)
+		{
+			if (alignment <= 1)
+				return 0;
+
+			Address& offset = currentOffset();
+			const u32 misaligned = offset.value() % alignment;
+			if (misaligned == 0)
+				return 0;
+
+			const u32 padding = alignment - misaligned;
+			offset += padding;
+			return padding;
+		}
 
 		Address& currentOffset()
 		{

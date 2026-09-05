@@ -13,6 +13,8 @@ namespace ceres::vm
 		RESET = 0x03, // [] - Reset the virtual machine to its initial state.
 		INT = 0x04, // [imm8] - Trigger an interrupt with the given interrupt number.
 		IRET = 0x05, // [] - Return from an interrupt handler, restoring the previous state of the virtual machine.
+		CLI = 0x06, // [] - Clear the interrupt flag, masking user interrupts.
+		STI = 0x07, // [] - Set the interrupt flag, allowing user interrupts to be delivered.
 
 		// Arithmetic //
 		ADD = 0x10, // [rd, rs, rt] - rd = rs + rt
@@ -94,6 +96,10 @@ namespace ceres::vm
 		CALL = 0x61, // [simm24] - Call the function at the given address, pushing the return address onto the call stack.
 		CALLR = 0x62, // [rs] - Call the function at the address contained in the given register, pushing the return address onto the call
 		RET = 0x63, // [] - Return from the current function, popping the return address from the call stack and jumping to it.
+		JO = 0x64, // [simm24] - PC = (PC + simm24): Jump if the overflow flag is set.
+		JOR = 0x65, // [rs] - PC = rs: Jump if the overflow flag is set.
+		JNO = 0x66, // [simm24] - PC = (PC + simm24): Jump if the overflow flag is not set.
+		JNOR = 0x67, // [rs] - PC = rs: Jump if the overflow flag is not set.
 
 		// Stack Operations //
 		PUSH = 0x70, // [rs] - Push the value of the given register onto the stack.

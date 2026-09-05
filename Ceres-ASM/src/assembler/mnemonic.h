@@ -12,6 +12,8 @@ namespace ceres::casm
 		RESET, // RESET
 		INT, // INT
 		IRET, // IRET
+		CLI, // CLI
+		STI, // STI
 
 		ADD, // ADD, ADDI, FADD
 		ADC, // ADDC, ADDCI
@@ -57,6 +59,8 @@ namespace ceres::casm
 		JNC, // JNC, JNCR
 		JS, // JS, JSR
 		JNS, // JNS, JNSR
+		JO, // JO, JOR
+		JNO, // JNO, JNOR
 		CALL, // CALL, CALLR
 		RET, // RET
 

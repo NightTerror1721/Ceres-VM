@@ -1,0 +1,333 @@
+// Macros: declaration, expansion, parameter substitution and label hygiene.
+
+#include "framework.h"
+#include "assemble_helper.h"
+#include "vm/ceresvm.h"
+#include "vm/devices.h"
+#include "vm/memory.h"
+#include <string>
+
+using namespace ceres;
+using namespace ceres::vm;
+using namespace ceres::testing;
+
+namespace
+{
+	class CapturingTerminal final : public IODevice
+	{
+	private:
+		std::string _output;
+
+	public:
+		const std::string& output() const noexcept { return _output; }
+
+		void attachTo(IOPorts& ports)
+		{
+			ports.attach(default_ports::TERM_STATUS, *this);
+			ports.attach(default_ports::TERM_OUT, *this);
+			ports.attach(default_ports::TERM_IN, *this);
+		}
+
+		u8 readPortUnsignedByte(PortNumber) override { return 0; }
+		i8 readPortSignedByte(PortNumber) override { return 0; }
+		u16 readPortUnsignedHalfword(PortNumber) override { return 0; }
+		i16 readPortSignedHalfword(PortNumber) override { return 0; }
+		u32 readPortUnsignedWord(PortNumber) override { return 0; }
+		void readPort(PortNumber, Address, u32) override {}
+
+		void writePortByte(PortNumber port, u8 value) override
+		{
+			if (port == default_ports::TERM_OUT)
+				_output.push_back(static_cast<char>(value));
+		}
+		void writePortHalfword(PortNumber port, u16 value) override { writePortByte(port, static_cast<u8>(value)); }
+		void writePortWord(PortNumber port, u32 value) override { writePortByte(port, static_cast<u8>(value)); }
+		void writePort(PortNumber port, Address address, u32 size) override
+		{
+			if (port != default_ports::TERM_OUT || size == 0)
+				return;
+			for (u8 byte : memory().peekBytes(address, size))
+				_output.push_back(static_cast<char>(byte));
+		}
+	};
+
+	struct RunResult
+	{
+		bool assembled = false;
+		std::string errors;
+		std::string output;
+	};
+
+	RunResult assembleAndRun(std::string_view source)
+	{
+		RunResult result;
+
+		AssembleResult assembled = assembleSource(source, "macros");
+		if (!assembled.ok())
+		{
+			result.errors = assembled.joinedErrors();
+			return result;
+		}
+		result.assembled = true;
+
+		CeresVM vm{};
+		SystemControlDevice sysctl{ [&vm]() { vm.shutdown(); }, [&vm]() { vm.shutdown(); } };
+		sysctl.attachTo(vm.io());
+
+		CapturingTerminal terminal{};
+		terminal.attachTo(vm.io());
+
+		if (auto loaded = vm.loadProgram(assembled.program.value()); !loaded)
+		{
+			result.errors = loaded.error();
+			result.assembled = false;
+			return result;
+		}
+
+		(void)vm.run();
+		result.output = terminal.output();
+		return result;
+	}
+
+	constexpr std::string_view shutdown =
+		"    li r0, 1\r\n"
+		"    outb 0xFF, r0\r\n";
+}
+
+TEST(macros, a_macro_without_parameters_expands_in_place)
+{
+	AssembleResult r = assembleSource(
+		"macro two_nops\r\n"
+		"    nop\r\n"
+		"    nop\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    two_nops\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	// Two NOPs and a RET: the macro contributed real instructions, not a placeholder.
+	CHECK_EQ(r.words().size(), 3u);
+	CHECK(Instruction(r.words()[0]).opcode() == Opcode::NOP);
+	CHECK(Instruction(r.words()[1]).opcode() == Opcode::NOP);
+	CHECK(Instruction(r.words()[2]).opcode() == Opcode::RET);
+}
+
+TEST(macros, parameters_are_substituted_positionally)
+{
+	AssembleResult r = assembleSource(
+		"macro load_pair $first, $second\r\n"
+		"    li $first, 11\r\n"
+		"    li $second, 22\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    load_pair r4, r7\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto words = r.words();
+	CHECK_EQ(words.size(), 3u);
+	CHECK_EQ(Instruction(words[0]).rd(), u8{ 4 });
+	CHECK_EQ(Instruction(words[0]).imm16(), u16{ 11 });
+	CHECK_EQ(Instruction(words[1]).rd(), u8{ 7 });
+	CHECK_EQ(Instruction(words[1]).imm16(), u16{ 22 });
+}
+
+TEST(macros, an_immediate_argument_reaches_the_encoding)
+{
+	AssembleResult r = assembleSource(
+		"macro set $reg, $value\r\n"
+		"    li $reg, $value\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    set r2, 1234\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(Instruction(r.words()[0]).imm16(), u16{ 1234 });
+}
+
+TEST(macros, labels_are_hygienic_across_two_uses_of_the_same_macro)
+{
+	// The whole point of %%labels: using a macro twice in the same scope must not redefine its
+	// own internal label.
+	AssembleResult r = assembleSource(
+		"macro skip_next $reg\r\n"
+		"    cmp $reg, 0\r\n"
+		"    jz %%done\r\n"
+		"    nop\r\n"
+		"%%done:\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    skip_next r1\r\n"
+		"    skip_next r2\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto words = r.words();
+	CHECK_EQ(words.size(), 7u);   // (cmp, jz, nop) twice, then ret
+
+	// Each JZ must skip its own NOP, not the other expansion's.
+	CHECK_EQ(Instruction(words[1]).simm24().signedValue(), 2 * static_cast<i32>(Instruction::Size));
+	CHECK_EQ(Instruction(words[4]).simm24().signedValue(), 2 * static_cast<i32>(Instruction::Size));
+}
+
+TEST(macros, a_macro_can_call_another_macro)
+{
+	AssembleResult r = assembleSource(
+		"macro inner $reg\r\n"
+		"    li $reg, 5\r\n"
+		"endmacro\r\n"
+		"macro outer $reg\r\n"
+		"    inner $reg\r\n"
+		"    add $reg, $reg, 1\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    outer r3\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto words = r.words();
+	CHECK_EQ(words.size(), 3u);
+	CHECK(Instruction(words[0]).opcode() == Opcode::LI);
+	CHECK_EQ(Instruction(words[0]).rd(), u8{ 3 });
+	CHECK(Instruction(words[1]).opcode() == Opcode::ADDI);
+}
+
+TEST(macros, overloading_by_argument_count_picks_the_right_body)
+{
+	// Macros are keyed by name and arity, so two macros may share a name.
+	AssembleResult r = assembleSource(
+		"macro emit $a\r\n"
+		"    li $a, 1\r\n"
+		"endmacro\r\n"
+		"macro emit $a, $b\r\n"
+		"    li $a, 2\r\n"
+		"    li $b, 3\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    emit r1\r\n"
+		"    emit r2, r3\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto words = r.words();
+	CHECK_EQ(words.size(), 4u);
+	CHECK_EQ(Instruction(words[0]).imm16(), u16{ 1 });
+	CHECK_EQ(Instruction(words[1]).imm16(), u16{ 2 });
+	CHECK_EQ(Instruction(words[2]).imm16(), u16{ 3 });
+}
+
+TEST(macros, a_call_with_the_wrong_argument_count_is_reported)
+{
+	AssembleResult r = assembleSource(
+		"macro needs_two $a, $b\r\n"
+		"    li $a, 1\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    needs_two r1\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("Unknown mnemonic or macro") != std::string::npos);
+}
+
+TEST(macros, a_recursive_macro_is_reported_instead_of_hanging)
+{
+	AssembleResult r = assembleSource(
+		"macro forever $a\r\n"
+		"    forever $a\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    forever r1\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("recursive") != std::string::npos);
+}
+
+TEST(macros, a_macro_label_outside_a_macro_body_is_reported)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"%%stray:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+}
+
+TEST(macros, an_unterminated_macro_is_reported)
+{
+	AssembleResult r = assembleSource(
+		"macro never_closed $a\r\n"
+		"    li $a, 1\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("endmacro") != std::string::npos);
+}
+
+TEST(macros, an_expanded_macro_runs)
+{
+	// End to end: the expansion has to survive layout, linking and execution.
+	RunResult r = assembleAndRun(std::format(
+		"macro print_char $reg, $code\r\n"
+		"    li $reg, $code\r\n"
+		"    outb 0x01, $reg\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    print_char r1, 72\r\n"
+		"    print_char r2, 105\r\n"
+		"{}", shutdown));
+
+	CHECK(r.assembled);
+	if (!r.assembled) { Registry::instance().recordFailure(r.errors); return; }
+	CHECK_EQ(r.output, std::string{ "Hi" });
+}
+
+TEST(macros, a_hygienic_loop_inside_a_macro_runs_twice_independently)
+{
+	RunResult r = assembleAndRun(std::format(
+		"macro count_down $reg, $from, $char\r\n"
+		"    li $reg, $from\r\n"
+		"%%loop:\r\n"
+		"    li r9, $char\r\n"
+		"    outb 0x01, r9\r\n"
+		"    sub $reg, $reg, 1\r\n"
+		"    cmp $reg, 0\r\n"
+		"    jnz %%loop\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    count_down r1, 2, 65\r\n"
+		"    count_down r2, 3, 66\r\n"
+		"{}", shutdown));
+
+	CHECK(r.assembled);
+	if (!r.assembled) { Registry::instance().recordFailure(r.errors); return; }
+	CHECK_EQ(r.output, std::string{ "AABBB" });
+}

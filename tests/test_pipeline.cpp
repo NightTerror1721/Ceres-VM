@@ -268,12 +268,10 @@ TEST(pipeline, a_program_without_a_global_main_is_rejected)
 	CHECK(r.joinedErrors().find("main") != std::string::npos);
 }
 
-TEST_KNOWN_FAILURE(pipeline, an_unknown_mnemonic_is_reported_not_silently_dropped,
-	"SE-21: an unrecognised mnemonic is parsed as a macro call and then discarded")
+TEST(pipeline, an_unknown_mnemonic_is_reported_not_silently_dropped)
 {
-	// parseLabelOrInstruction falls back to a macro call for anything that is not a known
-	// mnemonic, and TranslationUnitBuilder still has a TODO where macro calls should be handled.
-	// A typo therefore assembles to nothing at all, with no diagnostic.
+	// Anything that is not a known mnemonic parses as a macro call. Once macro expansion was
+	// implemented, a call that resolves to no macro became a diagnostic instead of silence.
 	AssembleResult r = assembleSource(
 		"@text\r\n"
 		"global main:\r\n"

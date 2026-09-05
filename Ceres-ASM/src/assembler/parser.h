@@ -186,6 +186,14 @@ namespace ceres::casm
 		LiteralValueReferenceElement parseLiteralValueElement(std::optional<DataTypeScalarCode> expectedScalarCode);
 		Operand parseOperand();
 
+		// Constant expressions over integer literals, with the usual precedence. Folded here
+		// because the parser is the only place that sees the operator tokens; identifiers are not
+		// foldable yet, since a constant is not resolved until the translation unit is built.
+		u32 parseConstantExpression();
+		u32 parseConstantTerm();
+		u32 parseConstantFactor();
+		bool atConstantOperator() const noexcept;
+
 	private:
 		[[noreturn]] void error(std::string_view message) const
 		{

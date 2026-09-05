@@ -199,44 +199,49 @@ namespace ceres::casm
 	Statement Parser::parseMacroLabel()
 	{
 		u32 line = _cursor.current().line();
-		_cursor.consume(TokenType::Dot, "Expected '.' for macro label declaration");
 
+		// Reached with the %%identifier as the current token; there is no leading dot.
 		Token identifierToken = _cursor.consume(TokenType::DoublePercentIdentifier, "Expected identifier for macro label name");
-		Identifier macroLabelName = identifierToken.identifierValue();
-		if (!_cursor.current().isEndOfFile())
-			error("Expected end of line or end of file after macro label declaration");
+		_cursor.consume(TokenType::Colon, "Expected ':' after macro label declaration");
 
-		return Statement::makeMacroLabel(line, macroLabelName);
+		return Statement::makeMacroLabel(line, identifierToken.identifierValue());
 	}
-
 	Statement Parser::parseMacroDeclaration()
 	{
 		u32 line = _cursor.current().line();
 		_cursor.consume(KeywordType::Macro, "Expected 'macro' keyword for macro declaration");
 
 		Token identifierToken = _cursor.consume(TokenType::Identifier, "Expected identifier for macro name");
-
 		Identifier macroName = identifierToken.identifierValue();
-		std::vector<Identifier> parameters;
 
+		std::vector<Identifier> parameters;
 		while (!_cursor.isCurrentEndOfLineOrEndOfFile())
 		{
-			Token paramToken = _cursor.consume(TokenType::DollarIdentifier, "Expected identifier for macro parameter");
+			Token paramToken = _cursor.consume(TokenType::DollarIdentifier, "Expected $identifier for macro parameter");
 			parameters.push_back(paramToken.identifierValue());
+
+			if (_cursor.match(TokenType::Comma))
+				_cursor.next();
 		}
 
-		if (!_cursor.current().isEndOfFile())
-			error("Expected end of line or end of file after macro parameter list");
+		// The parameter list ends the header line; the body runs until endmacro.
+		_cursor.consumeEndOfLineOrEndOfFile("Expected end of line after macro parameter list");
 
 		std::vector<Statement> bodyStatements;
 		bool endOfMacroFound = false;
 
-		while (!endOfMacroFound && !_cursor.isCurrentEndOfLineOrEndOfFile())
+		while (!_cursor.isAtEnd())
 		{
+			if (_cursor.match(TokenType::EndOfLine))
+			{
+				_cursor.next();
+				continue;
+			}
+
 			if (_cursor.match(KeywordType::EndMacro))
 			{
+				_cursor.next();
 				endOfMacroFound = true;
-				_cursor.next(); // Consume 'endmacro' keyword
 				break;
 			}
 
@@ -246,11 +251,10 @@ namespace ceres::casm
 		}
 
 		if (!endOfMacroFound)
-			error("Expected 'endmacro' keyword to close macro declaration");
+			error("Expected 'endmacro' to close the declaration of macro '{}'", macroName.view());
 
 		return Statement::makeMacroDeclaration(line, macroName, std::move(parameters), std::move(bodyStatements));
 	}
-
 	DataTypeReference Parser::parseDataType()
 	{
 		Token dataTypeToken = _cursor.consume(TokenType::DataType, "Expected data type after ':' in data declaration");
@@ -316,7 +320,34 @@ namespace ceres::casm
 				break;
 
 			case TokenType::LiteralInteger:
-				literalValue = LiteralValueReference::makeU32(token.integerValue());
+				// The token was already consumed, so fold what follows onto it.
+				if (atConstantOperator())
+				{
+					u32 value = token.integerValue();
+					while (_cursor.match(TokenType::Asterisk) || _cursor.match(TokenType::Slash))
+					{
+						const bool isDivision = _cursor.match(TokenType::Slash);
+						_cursor.next();
+						const u32 rhs = parseConstantFactor();
+						if (isDivision && rhs == 0)
+							error("Division by zero in constant expression");
+						value = isDivision
+							? static_cast<u32>(static_cast<i32>(value) / static_cast<i32>(rhs))
+							: static_cast<u32>(static_cast<i32>(value) * static_cast<i32>(rhs));
+					}
+					while (_cursor.match(TokenType::Plus) || _cursor.match(TokenType::Minus))
+					{
+						const bool isSubtraction = _cursor.match(TokenType::Minus);
+						_cursor.next();
+						const u32 rhs = parseConstantTerm();
+						value = isSubtraction
+							? static_cast<u32>(static_cast<i32>(value) - static_cast<i32>(rhs))
+							: static_cast<u32>(static_cast<i32>(value) + static_cast<i32>(rhs));
+					}
+					literalValue = LiteralValueReference::makeU32(value);
+				}
+				else
+					literalValue = LiteralValueReference::makeU32(token.integerValue());
 				break;
 
 			case TokenType::LiteralFloat:
@@ -402,6 +433,87 @@ namespace ceres::casm
 		}
 	}
 
+	bool Parser::atConstantOperator() const noexcept
+	{
+		return _cursor.match(TokenType::Plus) || _cursor.match(TokenType::Minus) ||
+			_cursor.match(TokenType::Asterisk) || _cursor.match(TokenType::Slash);
+	}
+
+	u32 Parser::parseConstantFactor()
+	{
+		if (_cursor.match(TokenType::Minus))
+		{
+			_cursor.next();
+			return static_cast<u32>(-static_cast<i32>(parseConstantFactor()));
+		}
+
+		if (_cursor.match(TokenType::Plus))
+		{
+			_cursor.next();
+			return parseConstantFactor();
+		}
+
+		if (_cursor.match(TokenType::LiteralInteger))
+		{
+			const u32 value = _cursor.current().integerValue();
+			_cursor.next();
+			return value;
+		}
+
+		if (_cursor.match(TokenType::LiteralChar))
+		{
+			const u32 value = static_cast<u32>(static_cast<u8>(_cursor.current().charValue()));
+			_cursor.next();
+			return value;
+		}
+
+		if (_cursor.match(TokenType::Identifier))
+			error("Constant expressions cannot reference '{}' yet: identifiers are only usable on their own", _cursor.current().lexeme());
+
+		error("Expected a number in constant expression, got {}", _cursor.current().lexeme());
+	}
+
+	u32 Parser::parseConstantTerm()
+	{
+		u32 value = parseConstantFactor();
+
+		while (_cursor.match(TokenType::Asterisk) || _cursor.match(TokenType::Slash))
+		{
+			const bool isDivision = _cursor.match(TokenType::Slash);
+			_cursor.next();
+
+			const u32 rhs = parseConstantFactor();
+			if (isDivision)
+			{
+				if (rhs == 0)
+					error("Division by zero in constant expression");
+				value = static_cast<u32>(static_cast<i32>(value) / static_cast<i32>(rhs));
+			}
+			else
+				value = static_cast<u32>(static_cast<i32>(value) * static_cast<i32>(rhs));
+		}
+
+		return value;
+	}
+
+	u32 Parser::parseConstantExpression()
+	{
+		u32 value = parseConstantTerm();
+
+		while (_cursor.match(TokenType::Plus) || _cursor.match(TokenType::Minus))
+		{
+			const bool isSubtraction = _cursor.match(TokenType::Minus);
+			_cursor.next();
+
+			const u32 rhs = parseConstantTerm();
+			value = isSubtraction
+				? static_cast<u32>(static_cast<i32>(value) - static_cast<i32>(rhs))
+				: static_cast<u32>(static_cast<i32>(value) + static_cast<i32>(rhs));
+		}
+
+		return value;
+	}
+
 	Operand Parser::parseOperand()
 	{
 		Token token = _cursor.current();
@@ -483,12 +595,8 @@ namespace ceres::casm
 		}
 
 		// Handle immediate operand (literal integer)
-		if (_cursor.match(TokenType::LiteralInteger))
-		{
-			u32 value = _cursor.current().integerValue();
-			_cursor.next(); // Consume the literal integer
-			return Operand::makeImmediate(value);
-		}
+		if (_cursor.match(TokenType::LiteralInteger) || _cursor.match(TokenType::LiteralChar))
+			return Operand::makeImmediate(parseConstantExpression());
 
 		if (_cursor.match(TokenType::Dot) && _cursor.peek().isIdentifier())
 		{

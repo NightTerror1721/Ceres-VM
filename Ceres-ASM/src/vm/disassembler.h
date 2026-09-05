@@ -67,6 +67,8 @@ namespace ceres::vm
 				case Opcode::RESET:  return { "RESET", Shape::None };
 				case Opcode::INT:    return { "INT",   Shape::Imm8 };
 				case Opcode::IRET:   return { "IRET",  Shape::None };
+				case Opcode::CLI:    return { "CLI",   Shape::None };
+				case Opcode::STI:    return { "STI",   Shape::None };
 
 				case Opcode::ADD:    return { "ADD",   Shape::RdRsRt };
 				case Opcode::ADDI:   return { "ADDI",  Shape::RdRsImm16 };
@@ -144,6 +146,10 @@ namespace ceres::vm
 				case Opcode::CALL:   return { "CALL",  Shape::Simm24 };
 				case Opcode::CALLR:  return { "CALLR", Shape::Rs };
 				case Opcode::RET:    return { "RET",   Shape::None };
+				case Opcode::JO:     return { "JO",    Shape::Simm24 };
+				case Opcode::JOR:    return { "JOR",   Shape::Rs };
+				case Opcode::JNO:    return { "JNO",   Shape::Simm24 };
+				case Opcode::JNOR:   return { "JNOR",  Shape::Rs };
 
 				case Opcode::PUSH:   return { "PUSH",  Shape::Rs };
 				case Opcode::POP:    return { "POP",   Shape::Rd };

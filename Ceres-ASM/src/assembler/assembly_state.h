@@ -11,6 +11,7 @@
 #include <functional>
 #include <ranges>
 #include <vector>
+#include <algorithm>
 
 namespace ceres::casm
 {
@@ -38,6 +39,7 @@ namespace ceres::casm
 		std::unordered_map<std::string, std::string> _sourceFileCache; // Cache for source file contents
 		std::unordered_map<std::string, TranslationUnit> _translationUnitCache; // Cache for translation units
 		std::vector<std::string> _translationUnitOrder; // Load order, so linking is reproducible
+		std::vector<std::string> _unitsBeingLoaded; // Import cycle guard: a unit is cached only once built
 		MemoryMap _memoryMap;
 		SymbolTable _globalSymbolTable;
 		StringPool _stringPool;
@@ -110,6 +112,21 @@ namespace ceres::casm
 			if (_loadTranslationUnitFn)
 				return _loadTranslationUnitFn(filePath);
 			return std::nullopt;
+		}
+
+		// A unit is only added to the cache once it has finished building, so a cycle would
+		// otherwise recurse until the stack ran out.
+		bool isBeingLoaded(const std::string& filePath) const noexcept
+		{
+			return std::find(_unitsBeingLoaded.begin(), _unitsBeingLoaded.end(), filePath) != _unitsBeingLoaded.end();
+		}
+
+		void beginLoading(const std::string& filePath) { _unitsBeingLoaded.push_back(filePath); }
+
+		void endLoading(const std::string& filePath) noexcept
+		{
+			if (const auto it = std::find(_unitsBeingLoaded.begin(), _unitsBeingLoaded.end(), filePath); it != _unitsBeingLoaded.end())
+				_unitsBeingLoaded.erase(it);
 		}
 
 	public:
