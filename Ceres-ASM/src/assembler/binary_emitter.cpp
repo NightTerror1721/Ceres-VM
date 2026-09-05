@@ -1,4 +1,5 @@
 #include "binary_emitter.h"
+#include <optional>
 
 namespace ceres::casm
 {
@@ -111,6 +112,8 @@ namespace ceres::casm
 				return;
 			}
 
+			const usize bufferStart = buffer.size();
+
 			for (const auto& scalarValue : value.elements())
 			{
 				switch (type.scalarCode())
@@ -148,6 +151,18 @@ namespace ceres::casm
 						return;
 				}
 			}
+
+			// A declaration may be larger than its initialiser (`let buf: u8[64] = "hi"`). The linker
+			// already reserved the declared size, so the remainder has to be written out as zeroes or
+			// every later symbol sits at the wrong address.
+			const usize written = buffer.size() - bufferStart;
+			if (written > size)
+			{
+				reportError(statement.line(), "Data statement emitted {} bytes but only {} were reserved", written, size);
+				return;
+			}
+			if (written < size)
+				buffer.resize(bufferStart + size, 0);
 		}
 		else
 		{
@@ -165,6 +180,63 @@ namespace ceres::casm
 			}
 
 			buffer.resize(buffer.size() + size, 0);
+		}
+	}
+
+	namespace
+	{
+		// The raw value an operand contributes to an immediate field, before shifting.
+		std::optional<u32> immediateSourceValue(const Operand& operand) noexcept
+		{
+			if (operand.isVariable())
+				return operand.asVariable().address.value();
+			if (operand.isLabel())
+				return operand.asLabel().address.value();
+			if (operand.isImmediate())
+				return operand.asImmediate().value;
+			return std::nullopt;
+		}
+
+		// True when truncating to `bits` loses nothing, reading the value as either signed or
+		// unsigned. Same rule the literal narrowing uses, so `-1` fits a byte and `70000` does not.
+		constexpr bool fitsInBits(u32 value, u32 bits) noexcept
+		{
+			if (bits >= 32)
+				return true;
+
+			const u32 mask = (1u << bits) - 1u;
+			const u32 truncated = value & mask;
+			const u32 signExtended = (truncated & (1u << (bits - 1))) != 0 ? (truncated | ~mask) : truncated;
+
+			return value == truncated || value == signExtended;
+		}
+
+		constexpr u32 immediateFieldWidth(OpcodeParameterType type) noexcept
+		{
+			switch (type)
+			{
+				case OpcodeParameterType::IMM8: return 8;
+				case OpcodeParameterType::IMM16:
+				case OpcodeParameterType::SIMM16: return 16;
+				case OpcodeParameterType::IMM24:
+				case OpcodeParameterType::SIMM24:
+				case OpcodeParameterType::REL_ADDR: return 24;
+				default: return 32;
+			}
+		}
+
+		constexpr std::string_view immediateFieldName(OpcodeParameterType type) noexcept
+		{
+			switch (type)
+			{
+				case OpcodeParameterType::IMM8: return "an 8-bit immediate";
+				case OpcodeParameterType::IMM16: return "a 16-bit immediate";
+				case OpcodeParameterType::SIMM16: return "a signed 16-bit immediate";
+				case OpcodeParameterType::IMM24: return "a 24-bit immediate";
+				case OpcodeParameterType::SIMM24: return "a signed 24-bit immediate";
+				case OpcodeParameterType::REL_ADDR: return "a 24-bit relative displacement";
+				default: return "an immediate";
+			}
 		}
 	}
 
@@ -282,49 +354,38 @@ namespace ceres::casm
 							break;
 
 						case OpcodeParameterType::IMM8:
-							if (operandInfo.isVariable())
-								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asVariable().address.value() >> param.fixedValueShift()));
-							else if (operandInfo.isLabel())
-								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asLabel().address.value() >> param.fixedValueShift()));
-							else // if (operandInfo.isImmediate())
-								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asImmediate().value >> param.fixedValueShift()));
-							break;
-
 						case OpcodeParameterType::IMM16:
-							if (operandInfo.isVariable())
-								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asVariable().address.value() >> param.fixedValueShift()));
-							else if (operandInfo.isLabel())
-								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asLabel().address.value() >> param.fixedValueShift()));
-							else // if (operandInfo.isImmediate())
-								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asImmediate().value >> param.fixedValueShift()));
-							break;
-
 						case OpcodeParameterType::SIMM16:
-							if (operandInfo.isVariable())
-								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asVariable().address.value() >> param.fixedValueShift()));
-							else if (operandInfo.isLabel())
-								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asLabel().address.value() >> param.fixedValueShift()));
-							else // if (operandInfo.isImmediate())
-								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asImmediate().value >> param.fixedValueShift()));
-							break;
-
 						case OpcodeParameterType::IMM24:
-							if (operandInfo.isVariable())
-								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asVariable().address.value() >> param.fixedValueShift()));
-							else if (operandInfo.isLabel())
-								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asLabel().address.value() >> param.fixedValueShift()));
-							else // if (operandInfo.isImmediate())
-								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asImmediate().value >> param.fixedValueShift()));
-							break;
-
 						case OpcodeParameterType::SIMM24:
-							if (operandInfo.isVariable())
-								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asVariable().address.value() >> param.fixedValueShift()));
-							else if (operandInfo.isLabel())
-								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asLabel().address.value() >> param.fixedValueShift()));
-							else // if (operandInfo.isImmediate())
-								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asImmediate().value >> param.fixedValueShift()));
+						{
+							const auto sourceValue = immediateSourceValue(operandInfo);
+							if (!sourceValue.has_value())
+							{
+								reportError(statement.line(), "Operand {} cannot supply an immediate value", operandIndex);
+								return;
+							}
+
+							const u32 shifted = *sourceValue >> param.fixedValueShift();
+							const u32 width = immediateFieldWidth(param.type());
+
+							// Truncating here used to be silent: `li r0, 70000` quietly became `li r0, 4464`.
+							if (!fitsInBits(shifted, width))
+							{
+								reportError(statement.line(), "Value {} does not fit in {}", shifted, immediateFieldName(param.type()));
+								return;
+							}
+
+							switch (param.type())
+							{
+								case OpcodeParameterType::IMM8:   encodedInstruction.setImm8(static_cast<u8>(shifted)); break;
+								case OpcodeParameterType::IMM16:  encodedInstruction.setImm16(static_cast<u16>(shifted)); break;
+								case OpcodeParameterType::SIMM16: encodedInstruction.setSImm16(static_cast<i16>(shifted)); break;
+								case OpcodeParameterType::IMM24:  encodedInstruction.setImm24(static_cast<u24>(shifted)); break;
+								default:                          encodedInstruction.setSImm24(static_cast<i24>(shifted)); break;
+							}
 							break;
+						}
 
 						case OpcodeParameterType::RD_IMM16:
 						{
@@ -386,6 +447,15 @@ namespace ceres::casm
 								Address currentAddress = lastSectionAddress(SectionType::Text);
 								Address targetAddress = operandInfo.asLabel().address;
 								i32 relativeOffset = static_cast<i32>(targetAddress.value()) - static_cast<i32>(currentAddress.value());
+
+								// simm24 reaches +/- 8 MiB. Past that the displacement wraps and the branch
+								// lands somewhere arbitrary.
+								if (!fitsInBits(static_cast<u32>(relativeOffset), 24))
+								{
+									reportError(statement.line(), "Branch target is {} bytes away, out of range for a 24-bit displacement", relativeOffset);
+									return;
+								}
+
 								encodedInstruction.setSImm24(static_cast<i24>(relativeOffset));
 							}
 							else // if (operandInfo.isImmediate())

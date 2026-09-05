@@ -38,7 +38,9 @@ namespace ceres::casm
 			constexpr ValueType& operator=(const ValueType&) noexcept = default;
 			constexpr ValueType& operator=(ValueType&&) noexcept = default;
 
-			constexpr bool operator==(const ValueType& other) const noexcept { return __raw == other.__raw; }
+			// Deliberately deleted: only LiteralScalar knows which member is active, and __raw holds
+			// indeterminate bytes for anything narrower than 32 bits. Use LiteralScalar::operator==.
+			constexpr bool operator==(const ValueType& other) const = delete;
 		};
 
 	private:
@@ -53,6 +55,13 @@ namespace ceres::casm
 
 		constexpr LiteralScalar& operator=(const LiteralScalar&) noexcept = default;
 		constexpr LiteralScalar& operator=(LiteralScalar&&) noexcept = default;
+
+		// Compares the tag and the value read through the active union member. A defaulted
+		// comparison would have gone through the union and read indeterminate bytes.
+		constexpr bool operator==(const LiteralScalar& other) const noexcept
+		{
+			return _scalarCode == other._scalarCode && rawBits() == other.rawBits();
+		}
 
 	private:
 		constexpr explicit LiteralScalar(DataTypeScalarCode scalarCode, ValueType value) noexcept :

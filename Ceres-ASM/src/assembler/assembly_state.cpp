@@ -40,6 +40,8 @@ namespace ceres::casm
 	TranslationUnit& AssemblyState::cacheTranslationUnit(const std::string& filePath, TranslationUnit&& translationUnit) noexcept
 	{
 		auto [it, inserted] = _translationUnitCache.emplace(filePath, std::move(translationUnit));
+		if (inserted)
+			_translationUnitOrder.push_back(it->first);
 		return it->second;
 	}
 }

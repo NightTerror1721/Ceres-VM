@@ -151,10 +151,10 @@ TEST(vm, jump_is_relative_to_the_jump_instruction_itself)
 	CHECK_EQ(m.pc().value(), entry + 8);
 }
 
-TEST_KNOWN_FAILURE(vm, a_backward_call_lands_before_the_call_site, "VM-04: CALL zero-extends its i24 displacement")
+TEST(vm, a_backward_call_lands_before_the_call_site)
 {
-	// CALL widens its displacement with zeroes instead of sign, so a backward call jumps about
-	// 16 MiB forward. JP gets this right; CALL does not.
+	// CALL used to widen its displacement with zeroes instead of sign, sending a backward call
+	// roughly 16 MiB forward. Fixed by sign-extending like JP already did.
 	const u32 entry = Memory::UnrestrictedSegmentStart.value();
 
 	Machine m{
@@ -207,10 +207,10 @@ TEST(vm, conditional_jump_is_taken_only_when_the_flag_is_set)
 
 // --- Stack ----------------------------------------------------------------------------------
 
-TEST_KNOWN_FAILURE(vm, push_then_pop_restores_the_value, "VM-03: POP reads its destination from Rs")
+TEST(vm, push_then_pop_restores_the_value)
 {
-	// The factory encodes the destination in Rd but the handler reads Rs, so every POP lands in
-	// r0 regardless of what was asked for.
+	// The factory encodes the destination in Rd; the handler used to read Rs, so every POP
+	// landed in r0 regardless of what was asked for.
 	Machine m{
 		Instruction::LI(1, 0x2222),
 		Instruction::PUSH(1),

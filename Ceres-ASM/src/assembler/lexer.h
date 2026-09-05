@@ -170,11 +170,11 @@ namespace ceres::casm
 	private:
 		void skipWhitespaceAndComments() noexcept;
 
-		Token scanIdentifierOrKeyword(usize startPosition, u32 startColumn) noexcept;
-		Token scanSpecialIdentifier(usize startPosition, u32 startColumn, SpecialIdentifierType type) noexcept;
-		Token scanNumberLiteral(usize startPosition, u32 startColumn) noexcept;
-		Token scanStringLiteral(usize startPosition, u32 startColumn) noexcept;
-		Token scanCharLiteral(usize startPosition, u32 startColumn) noexcept;
+		Token scanIdentifierOrKeyword(usize startPosition, u32 startLine, u32 startColumn) noexcept;
+		Token scanSpecialIdentifier(usize startPosition, u32 startLine, u32 startColumn, SpecialIdentifierType type) noexcept;
+		Token scanNumberLiteral(usize startPosition, u32 startLine, u32 startColumn) noexcept;
+		Token scanStringLiteral(usize startPosition, u32 startLine, u32 startColumn) noexcept;
+		Token scanCharLiteral(usize startPosition, u32 startLine, u32 startColumn) noexcept;
 
 		static std::optional<KeywordType> checkKeyword(std::string_view identifier) noexcept;
 

@@ -101,6 +101,9 @@ int main(int argc, char** argv)
 			<< "  bss=" << header.bssSize
 			<< "  entry=0x" << std::hex << header.entryPoint << std::dec << std::endl;
 		std::cerr << Disassembler::listing(program.text(), Memory::UnrestrictedSegmentStart);
+
+		// Asking for a listing means inspecting the output, not running it.
+		return 0;
 	}
 
 	if (auto result = vm.loadProgram(program); !result)

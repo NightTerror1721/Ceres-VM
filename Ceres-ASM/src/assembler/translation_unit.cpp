@@ -84,8 +84,10 @@ namespace ceres::casm
 					if (literalValue.has_value() && !literalValue->matchDataType(dataType))
 						error(statement.line(), "Literal value does not match the specified data type");
 
-					if (!size.has_value() || size.value() == 0)
+					if (!size.has_value())
 						error(statement.line(), "Failed to determine size of data statement: " + std::string(size.error()));
+					if (size.value() == 0)
+						error(statement.line(), "Data statement has a size of zero");
 
 					if (data.isConstant)
 					{

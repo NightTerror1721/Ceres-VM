@@ -8,6 +8,7 @@
 #include "io_ports.h"
 #include <limits>
 #include <cmath>
+#include <optional>
 
 namespace ceres::vm
 {
@@ -113,19 +114,50 @@ namespace ceres::vm
 		forceinline bool halting() noexcept { return _flags.halting(); }
 		forceinline bool trap() noexcept { return _flags.trap(); }
 
-		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
-		forceinline void push(T value) noexcept
+		// The stack grows down from the end of memory. Below the unrestricted segment it would run
+		// into the BIOS and the interrupt vectors; the checked write already refuses those addresses,
+		// so without this the overflow was silent and execution carried on with garbage.
+		forceinline bool hasStackRoom(u32 bytes) const noexcept
 		{
+			return sp() >= Memory::UnrestrictedSegmentStartValue + bytes;
+		}
+
+		forceinline bool hasStackData(u32 bytes) const noexcept
+		{
+			return static_cast<u64>(sp()) + bytes <= static_cast<u64>(_memory.size());
+		}
+
+		// Returns false when the push faulted. The caller must abort the instruction: the fault
+		// handler has already redirected the PC, and finishing the instruction would overwrite it.
+		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
+		forceinline bool push(T value) noexcept
+		{
+			if (!hasStackRoom(sizeof(T)))
+			{
+				triggerInterrupt(InterruptNumber::StackOverflow);
+				return false;
+			}
+
 			sp(sp() - sizeof(T));
 			if constexpr (FloatingPoint<T>)
 				write<u32>(Address(sp()), std::bit_cast<u32>(value));
 			else
 				write(Address(sp()), value);
+			return true;
 		}
 
 		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
-		forceinline T pop() noexcept
+		// Empty when the pop faulted; see push() for why the caller has to bail out.
+		forceinline std::optional<T> pop() noexcept
 		{
+			// Popping past the top of memory means the stack is unbalanced: a RET without its CALL,
+			// or one POP too many. Same fault class as an overflow.
+			if (!hasStackData(sizeof(T)))
+			{
+				triggerInterrupt(InterruptNumber::StackOverflow);
+				return std::nullopt;
+			}
+
 			if constexpr (FloatingPoint<T>)
 			{
 				const T value = std::bit_cast<T>(read<u32>(Address(sp())));
@@ -525,11 +557,15 @@ namespace ceres::vm
 		forceinline void IRET(const Instruction inst) noexcept
 		{
 			// Restore PC and flags from the stack
-			const u32 newFlags = pop<u32>();
-			const u32 newPC = pop<u32>();
+			const auto newFlags = pop<u32>();
+			if (!newFlags.has_value())
+				return;
+			const auto newPC = pop<u32>();
+			if (!newPC.has_value())
+				return;
 
-			_pc = Address(newPC);
-			_flags = FlagRegister(newFlags);
+			_pc = Address(*newPC);
+			_flags = FlagRegister(*newFlags);
 
 			advancePC();
 		}
@@ -642,22 +678,30 @@ namespace ceres::vm
 		forceinline void JNSR(const Instruction inst) noexcept { executeJumpRegIfNotFlag<ExecutionFlag::Sign>(inst); }
 		forceinline void CALL(const Instruction inst) noexcept
 		{
-			push<u32>((_pc + Instruction::SizeInBytes).value()); // Push return address onto the stack
-			_pc += Address(inst.simm24()); // Jump to target address
+			if (!push<u32>((_pc + Instruction::SizeInBytes).value())) // Push return address onto the stack
+				return;
+			// signedValue() sign-extends; Address(i24) would zero-extend and send a backward call
+			// roughly 16 MiB forward.
+			_pc += inst.simm24().signedValue(); // Jump to target address
 		}
 		forceinline void CALLR(const Instruction inst) noexcept
 		{
-			push<u32>((_pc + Instruction::SizeInBytes).value()); // Push return address onto the stack
+			if (!push<u32>((_pc + Instruction::SizeInBytes).value())) // Push return address onto the stack
+				return;
 			_pc = Address(getReg(inst.rs())); // Jump to target address
 		}
-		forceinline void RET(const Instruction inst) noexcept { _pc = Address(pop<u32>()); }
+		forceinline void RET(const Instruction inst) noexcept
+		{
+			if (const auto target = pop<u32>())
+				_pc = Address(*target);
+		}
 
-		forceinline void PUSH(const Instruction inst) noexcept { push<u32>(getReg(inst.rs())); advancePC(); }
-		forceinline void POP(const Instruction inst) noexcept { setReg(inst.rs(), pop<u32>()); advancePC(); }
-		forceinline void PUSHF(const Instruction inst) noexcept { push<u32>(_flags.value()); advancePC(); }
-		forceinline void POPF(const Instruction inst) noexcept { _flags = pop<u32>(); advancePC(); }
-		forceinline void FPUSH(const Instruction inst) noexcept { push<f32>(getFloatReg(inst.fs())); advancePC(); }
-		forceinline void FPOP(const Instruction inst) noexcept { setFloatReg(inst.fs(), pop<f32>()); advancePC(); }
+		forceinline void PUSH(const Instruction inst) noexcept { if (push<u32>(getReg(inst.rs()))) advancePC(); }
+		forceinline void POP(const Instruction inst) noexcept { if (const auto v = pop<u32>()) { setReg(inst.rd(), *v); advancePC(); } }
+		forceinline void PUSHF(const Instruction inst) noexcept { if (push<u32>(_flags.value())) advancePC(); }
+		forceinline void POPF(const Instruction inst) noexcept { if (const auto v = pop<u32>()) { _flags = *v; advancePC(); } }
+		forceinline void FPUSH(const Instruction inst) noexcept { if (push<f32>(getFloatReg(inst.fs()))) advancePC(); }
+		forceinline void FPOP(const Instruction inst) noexcept { if (const auto v = pop<f32>()) { setFloatReg(inst.fd(), *v); advancePC(); } }
 
 		forceinline void ITOF(const Instruction inst) noexcept { setFloatReg(inst.fd(), static_cast<f32>(getReg(inst.rs()))); advancePC(); }
 		forceinline void IITOF(const Instruction inst) noexcept { setFloatReg(inst.fd(), static_cast<f32>(static_cast<i32>(getReg(inst.rs())))); advancePC(); }
@@ -793,7 +837,10 @@ namespace ceres::vm
 		using InstructionHandler = void (ExecutionEngine::*)(const Instruction) noexcept;
 		static inline constexpr std::array<InstructionHandler, 256> InstructionHandlers = []() consteval noexcept -> std::array<InstructionHandler, 256>
 		{
-				std::array<InstructionHandler, 256> handlers{ &ExecutionEngine::INVALID };
+				// Aggregate initialisation with a single element only assigns index 0; every other
+				// slot would stay null and calling one is a crash, not an illegal-instruction trap.
+				std::array<InstructionHandler, 256> handlers{};
+				handlers.fill(&ExecutionEngine::INVALID);
 
 				// Control
 				handlers[static_cast<u8>(Opcode::NOP)] = &ExecutionEngine::NOP;
@@ -828,6 +875,7 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::MODI)] = &ExecutionEngine::MODI;
 				handlers[static_cast<u8>(Opcode::IMOD)] = &ExecutionEngine::IMOD;
 				handlers[static_cast<u8>(Opcode::IMODI)] = &ExecutionEngine::IMODI;
+				handlers[static_cast<u8>(Opcode::FNEG)] = &ExecutionEngine::FNEG;
 
 				// Logical
 				handlers[static_cast<u8>(Opcode::AND)] = &ExecutionEngine::AND;

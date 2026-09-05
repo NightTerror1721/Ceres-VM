@@ -240,8 +240,8 @@ namespace ceres::vm
 		static constexpr Instruction INSH(u8 rd, u8 imm8) noexcept { return make(Opcode::INSH, rd, 0, 0, imm8); }
 		static constexpr Instruction INM(u8 rd, u8 rs, u8 imm8) noexcept { return make(Opcode::INM, rd, rs, 0, imm8); }
 		static constexpr Instruction INR(u8 rd, u8 rs) noexcept { return make(Opcode::INR, rd, rs); }
-		static constexpr Instruction INRB(u8 rd, u8 rs) noexcept { return make(Opcode::INR, rd, rs); }
-		static constexpr Instruction INRH(u8 rd, u8 rs) noexcept { return make(Opcode::INR, rd, rs); }
+		static constexpr Instruction INRB(u8 rd, u8 rs) noexcept { return make(Opcode::INRB, rd, rs); }
+		static constexpr Instruction INRH(u8 rd, u8 rs) noexcept { return make(Opcode::INRH, rd, rs); }
 		static constexpr Instruction INRSB(u8 rd, u8 rs) noexcept { return make(Opcode::INRSB, rd, rs); }
 		static constexpr Instruction INRSH(u8 rd, u8 rs) noexcept { return make(Opcode::INRSH, rd, rs); }
 		static constexpr Instruction INRM(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::INRM, rd, rs, rt); }

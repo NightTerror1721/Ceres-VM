@@ -163,8 +163,10 @@ namespace ceres::casm
 						error(line, "Memory operand offset must be a constant symbol, but '{}' is not a constant", symbol.name());
 
 					auto result = Operand::makeFromLiteralValue(symbol.value());
-					if (!result || !result->isImmediate())
+					if (!result)
 						error(line, "Cannot resolve constant symbol '{}' to a valid immediate operand for memory offset. {}", symbol.name(), result.error());
+					if (!result->isImmediate())
+						error(line, "Constant symbol '{}' does not resolve to an immediate value usable as a memory offset", symbol.name());
 
 					operand = Operand::makeMemory(memoryOperand.baseRegIndex, result.value().asImmediate().value);
 				}

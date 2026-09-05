@@ -10,6 +10,7 @@
 #include <string_view>
 #include <functional>
 #include <ranges>
+#include <vector>
 
 namespace ceres::casm
 {
@@ -36,6 +37,7 @@ namespace ceres::casm
 	private:
 		std::unordered_map<std::string, std::string> _sourceFileCache; // Cache for source file contents
 		std::unordered_map<std::string, TranslationUnit> _translationUnitCache; // Cache for translation units
+		std::vector<std::string> _translationUnitOrder; // Load order, so linking is reproducible
 		MemoryMap _memoryMap;
 		SymbolTable _globalSymbolTable;
 		StringPool _stringPool;
@@ -62,8 +64,19 @@ namespace ceres::casm
 
 		TranslationUnit& cacheTranslationUnit(const std::string& filePath, TranslationUnit&& translationUnit) noexcept;
 
-		auto translationUnits() const noexcept { return std::views::values(_translationUnitCache); }
-		auto translationUnits() noexcept { return std::views::values(_translationUnitCache); }
+		// Iterating the cache directly would walk an unordered_map, whose order is unspecified and
+		// can differ between runs. Section offsets are assigned during this walk, so the binary has
+		// to be built in a fixed order to be reproducible.
+		auto translationUnits() const noexcept
+		{
+			return _translationUnitOrder | std::views::transform(
+				[this](const std::string& path) -> const TranslationUnit& { return _translationUnitCache.at(path); });
+		}
+		auto translationUnits() noexcept
+		{
+			return _translationUnitOrder | std::views::transform(
+				[this](const std::string& path) -> TranslationUnit& { return _translationUnitCache.at(path); });
+		}
 
 	public:
 		AssemblyState(const LoadTranslationUnitFn& loadTranslationUnitFn) noexcept :

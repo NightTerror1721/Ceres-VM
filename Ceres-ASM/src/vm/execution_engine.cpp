@@ -34,6 +34,16 @@ namespace ceres::vm
 		if (handlerAddress == 0)
 			return; // Ignore if no handler is defined
 
+		// Saving state needs two words. If they do not fit, this dispatch would push, overflow, and
+		// re-enter here forever. Stop the machine instead: there is nowhere left to record what
+		// happened, so continuing can only make it worse.
+		if (!hasStackRoom(2 * sizeof(u32)))
+		{
+			_flags.set<ExecutionFlag::Trap>();
+			_flags.set<ExecutionFlag::Halting>();
+			return;
+		}
+
 		push<u32>(_flags.value());
 		push<u32>(_pc.value());
 
