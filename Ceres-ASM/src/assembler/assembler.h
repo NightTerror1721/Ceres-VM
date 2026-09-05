@@ -1,3 +1,5 @@
+#pragma once
+
 #include "parser.h"
 #include "translation_unit.h"
 #include "linker.h"

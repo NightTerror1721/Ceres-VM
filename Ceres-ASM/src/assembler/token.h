@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common_defs.h"
+#include "identifier.h"
 #include "data_type.h"
 #include "strings_pool.h"
 #include <string>

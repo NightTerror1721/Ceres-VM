@@ -251,14 +251,28 @@ namespace ceres::casm
 			return true; // All elements have the same type
 		}
 
+		// An unresolved literal has not been given a type yet: integer literals are untyped until
+		// the declaration provides one, so any integer element is compatible with any integer type.
+		// The width check happens when the value is resolved (TranslationUnitBuilder).
 		constexpr bool allElementsMatchDataTypeScalarCode(DataTypeScalarCode expectedType) const noexcept
 		{
+			const bool expectsInteger = DataType::isIntegerScalarCode(expectedType);
+
 			for (const auto& element : _elements)
 			{
-				if (element.isScalar() && element.scalarValue().scalarCode() != expectedType)
-					return false; // Found an element with a different type
+				if (!element.isScalar())
+					continue; // Identifier elements are checked once resolved.
+
+				const DataTypeScalarCode elementCode = element.scalarValue().scalarCode();
+				if (elementCode == expectedType)
+					continue;
+
+				if (expectsInteger && DataType::isIntegerScalarCode(elementCode))
+					continue; // Untyped integer literal; width is validated at resolution time.
+
+				return false; // Found an element with an incompatible type
 			}
-			return true; // All elements match the expected type
+			return true; // All elements are compatible with the expected type
 		}
 
 		constexpr DataTypeScalarCode scalarCode() const noexcept

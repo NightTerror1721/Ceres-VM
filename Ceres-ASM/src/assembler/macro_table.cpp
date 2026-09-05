@@ -7,13 +7,17 @@ namespace ceres::casm
 	{
 		checkRedefinition(0, signature);
 
+		// Read what we need before `signature` is moved into the map.
+		const u32 expectedParameterCount = signature.parameterCount;
+		const usize actualParameterCount = parameters.size();
+
+		if (actualParameterCount != expectedParameterCount)
+			error(0, "Macro parameter count mismatch for '{}': expected {}, got {}", signature.name, expectedParameterCount, actualParameterCount);
+
 		Macro macro = Macro::make(MacroSignature(signature), std::move(parameters), std::move(body));
 		auto [it, inserted] = _macros.emplace(std::move(signature), std::move(macro));
 		if (!inserted)
 			error(0, "Macro redefinition: {}", it->first.name);
-
-		if (it->second.parameterCount() != signature.parameterCount)
-			error(0, "Macro parameter count mismatch for '{}': expected {}, got {}", it->first.name, signature.parameterCount, it->second.parameterCount());
 	}
 
 	OptionalConstRef<Macro> MacroTable::getMacro(const MacroSignature& signature) const noexcept

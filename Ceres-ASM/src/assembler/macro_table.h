@@ -143,6 +143,18 @@ namespace ceres::casm
 			defineMacro(MacroSignature::make(name, static_cast<u32>(parameters.size())), std::move(parameters), std::move(body));
 		}
 
+		// Overload taking the interned form used by the AST. Parameter names are copied out of
+		// the pool because Macro indexes them in a std::unordered_map<std::string, u32>.
+		void defineMacro(Identifier name, std::vector<Identifier>&& parameters, std::vector<Statement>&& body)
+		{
+			std::vector<std::string> parameterNames;
+			parameterNames.reserve(parameters.size());
+			for (Identifier parameter : parameters)
+				parameterNames.emplace_back(parameter.view());
+
+			defineMacro(MacroSignature::make(name.view(), static_cast<u32>(parameterNames.size())), std::move(parameterNames), std::move(body));
+		}
+
 	private:
 		void checkRedefinition(u32 line, const MacroSignature& signature) const;
 

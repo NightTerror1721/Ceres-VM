@@ -67,10 +67,10 @@ namespace ceres::vm
 		LDRSB = 0x46, // [rd, rs, imm16] - rd = *(i8*)(rs + imm16) (load signed byte)
 		LDRSH = 0x47, // [rd, rs, imm16] - rd = *(i16*)(rs + imm16) (load signed halfword)
 		FLDR = 0x49, // [fd, rs, imm16] - fd = *(float*)(rs + imm16) (floating-point load)
-		STR = 0x4A, // [rs, rt, imm16] - *(u32*)(rs + imm16) = rt
-		STRB = 0x4B, // [rs, rt, imm16] - *(u8*)(rs + imm16) = rt
-		STRH = 0x4C, // [rs, rt, imm16] - *(u16*)(rs + imm16) = rt
-		FSTR = 0x4D, // [rs, fd, imm16] - *(float*)(rs + imm16) = fd (floating-point store)
+		STR = 0x4A, // [rd, rs, imm16] - *(u32*)(rd + imm16) = rs. Base in Rd and source in Rs: Rt overlaps imm16.
+		STRB = 0x4B, // [rd, rs, imm16] - *(u8*)(rd + imm16) = rs
+		STRH = 0x4C, // [rd, rs, imm16] - *(u16*)(rd + imm16) = rs
+		FSTR = 0x4D, // [rd, fs, imm16] - *(float*)(rd + imm16) = fs (floating-point store)
 		LEA = 0x4E, // [rd, rs, imm16] - rd = rs + imm16 (load effective address)
 
 		// Control Flow //
@@ -127,7 +127,7 @@ namespace ceres::vm
 		OUT = 0x9C, // [rs, imm8] - Write a word from rs to the I/O port specified by imm8.
 		OUTB = 0x9D, // [rs, imm8] - Write a byte from rs to the I/O port specified by imm8.
 		OUTH = 0x9E, // [rs, imm8] - Write a halfword from rs to the I/O port specified by imm8.
-		OUTM = 0x9F, // [rs, rt, imm8] - Write an array of bytes with size specified by rt from the memory address pointed to by rs to the I/O port specified by imm8.
+		OUTM = 0x9F, // [rs, rt, imm8] - Write an array of bytes with size specified by rt from the memory address pointed to by rs to the I/O port specified by imm8. Assembly operand order is (port, address, size), matching INM.
 		OUTR = 0xA0, // [rs, rt] - Write a word from rs to the I/O port specified by the value in rt.
 		OUTRB = 0xA1, // [rs, rt] - Write a byte from rs to the I/O port specified by the value in rt.
 		OUTRH = 0xA2, // [rs, rt] - Write a halfword from rs to the I/O port specified by the value in rt.

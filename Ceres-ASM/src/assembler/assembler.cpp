@@ -63,7 +63,7 @@ namespace ceres::casm
 	{
 		try
 		{
-			Parser parser{ source, _state->errorHandler() };
+			Parser parser{ source, _state->stringPool(), _state->errorHandler() };
 			return parser.parse();
 		}
 		catch (const std::exception& e)

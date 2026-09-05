@@ -39,8 +39,8 @@ namespace ceres::casm
 	struct MacroDeclarationStatement
 	{
 		Identifier name; // Name of the macro being declared
-		FixedVector<Identifier> parameters; // List of parameter names for the macro
-		FixedVector<Statement> body; // List of statements that make up the macro's body
+		std::vector<Identifier> parameters; // List of parameter names for the macro
+		std::vector<Statement> body; // List of statements that make up the macro's body
 	};
 
 	struct MacroLabelStatement
@@ -51,7 +51,7 @@ namespace ceres::casm
 	struct MacroCallStatement
 	{
 		Identifier name; // Name of the macro being called
-		FixedVector<Operand> arguments; // List of arguments passed to the macro
+		std::vector<Operand> arguments; // List of arguments passed to the macro
 
 		constexpr usize arity() const noexcept { return arguments.size(); }
 	};
@@ -59,7 +59,7 @@ namespace ceres::casm
 	struct InstructionStatement
 	{
 		Mnemonic mnemonic; // Instruction mnemonic (e.g., ADD, SUB, etc.)
-		FixedVector<Operand> operands; // Operands for the instruction (can be registers, immediates, memory operands, etc.)
+		std::vector<Operand> operands; // Operands for the instruction (can be registers, immediates, memory operands, etc.)
 
 		InstructionSignature signature() const noexcept
 		{

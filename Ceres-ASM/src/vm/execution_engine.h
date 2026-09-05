@@ -575,10 +575,10 @@ namespace ceres::vm
 		forceinline void LDRSB(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
 		forceinline void LDRSH(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i16>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
 		forceinline void FLDR(const Instruction inst) noexcept { setFloatReg(inst.fd(), read<f32>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
-		forceinline void STR(const Instruction inst) noexcept { write<u32>(getReg(inst.rs()) + inst.imm16(), getReg(inst.rt())); advancePC(); }
-		forceinline void STRB(const Instruction inst) noexcept { write<u8>(getReg(inst.rs()) + inst.imm16(), static_cast<u8>(getReg(inst.rt()))); advancePC(); }
-		forceinline void STRH(const Instruction inst) noexcept { write<u16>(getReg(inst.rs()) + inst.imm16(), static_cast<u16>(getReg(inst.rt()))); advancePC(); }
-		forceinline void FSTR(const Instruction inst) noexcept { write<f32>(getReg(inst.rs()) + inst.imm16(), getFloatReg(inst.ft())); advancePC(); }
+		forceinline void STR(const Instruction inst) noexcept { write<u32>(getReg(inst.rd()) + inst.imm16(), getReg(inst.rs())); advancePC(); }
+		forceinline void STRB(const Instruction inst) noexcept { write<u8>(getReg(inst.rd()) + inst.imm16(), static_cast<u8>(getReg(inst.rs()))); advancePC(); }
+		forceinline void STRH(const Instruction inst) noexcept { write<u16>(getReg(inst.rd()) + inst.imm16(), static_cast<u16>(getReg(inst.rs()))); advancePC(); }
+		forceinline void FSTR(const Instruction inst) noexcept { write<f32>(getReg(inst.rd()) + inst.imm16(), getFloatReg(inst.fs())); advancePC(); }
 		forceinline void LEA(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs()) + inst.imm16()); advancePC(); }
 
 		forceinline void JP(const Instruction inst) noexcept { _pc += inst.simm24().signedValue(); }

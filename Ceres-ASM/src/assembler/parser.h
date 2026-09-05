@@ -10,10 +10,6 @@ namespace ceres::casm
 {
 	class ParserError : public AssemblerError
 	{
-	private:
-		u32 _line;
-		u32 _column;
-
 	public:
 		using AssemblerError::AssemblerError;
 	};
@@ -41,10 +37,10 @@ namespace ceres::casm
 			_peekedToken(_lexer.nextToken())
 		{}
 
-		inline [[nodiscard]] const Token& current() const noexcept { return _currentToken; }
-		inline [[nodiscard]] const Token& peek() const noexcept { return _peekedToken; }
+		[[nodiscard]] inline const Token& current() const noexcept { return _currentToken; }
+		[[nodiscard]] inline const Token& peek() const noexcept { return _peekedToken; }
 
-		inline [[nodiscard]] bool isAtEnd() const noexcept { return _currentToken.isEndOfFile() || (_currentToken.isInvalid() && _lexer.isAtEnd()); }
+		[[nodiscard]] inline bool isAtEnd() const noexcept { return _currentToken.isEndOfFile() || (_currentToken.isInvalid() && _lexer.isAtEnd()); }
 
 		inline Token next() noexcept
 		{
@@ -100,20 +96,20 @@ namespace ceres::casm
 				next();
 		}
 
-		inline [[nodiscard]] bool match(TokenType expectedType) const noexcept
+		[[nodiscard]] inline bool match(TokenType expectedType) const noexcept
 		{
 			return _currentToken.is(expectedType);
 		}
-		inline [[nodiscard]] bool match(DataType expectedDataType) const noexcept
+		[[nodiscard]] inline bool match(DataType expectedDataType) const noexcept
 		{
 			return _currentToken.isDataType() && _currentToken.dataTypeValue() == expectedDataType;
 		}
-		inline [[nodiscard]] bool match(KeywordType expectedKeywordType) const noexcept
+		[[nodiscard]] inline bool match(KeywordType expectedKeywordType) const noexcept
 		{
 			return _currentToken.isKeyword() && _currentToken.keywordTypeValue() == expectedKeywordType;
 		}
 
-		inline [[nodiscard]] bool matchAny(std::initializer_list<TokenType> expectedTypes) const noexcept
+		[[nodiscard]] inline bool matchAny(std::initializer_list<TokenType> expectedTypes) const noexcept
 		{
 			for (TokenType type : expectedTypes)
 			{
@@ -122,7 +118,7 @@ namespace ceres::casm
 			}
 			return false;
 		}
-		inline [[nodiscard]] bool matchAny(std::initializer_list<DataType> expectedDataTypes) const noexcept
+		[[nodiscard]] inline bool matchAny(std::initializer_list<DataType> expectedDataTypes) const noexcept
 		{
 			for (DataType dataType : expectedDataTypes)
 			{
@@ -131,7 +127,7 @@ namespace ceres::casm
 			}
 			return false;
 		}
-		inline [[nodiscard]] bool matchAny(std::initializer_list<KeywordType> expectedKeywordTypes) const noexcept
+		[[nodiscard]] inline bool matchAny(std::initializer_list<KeywordType> expectedKeywordTypes) const noexcept
 		{
 			for (KeywordType keywordType : expectedKeywordTypes)
 			{
@@ -141,12 +137,12 @@ namespace ceres::casm
 			return false;
 		}
 
-		inline [[nodiscard]] bool isCurrentInvalid() const noexcept
+		[[nodiscard]] inline bool isCurrentInvalid() const noexcept
 		{
 			return _currentToken.isInvalid();
 		}
 
-		inline [[nodiscard]] bool isCurrentEndOfLineOrEndOfFile() const noexcept
+		[[nodiscard]] inline bool isCurrentEndOfLineOrEndOfFile() const noexcept
 		{
 			return _currentToken.isEndOfInput();
 		}

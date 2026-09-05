@@ -2,6 +2,7 @@
 
 #include "registers.h"
 #include "address.h"
+#include <limits>
 
 namespace ceres::vm
 {

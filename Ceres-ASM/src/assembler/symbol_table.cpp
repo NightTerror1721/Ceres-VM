@@ -96,7 +96,7 @@ namespace ceres::casm
 					error(line, "Unresolved symbol: {}", identifierOperand.name);
 				{
 					UnresolvedSymbol unresolvedSymbol = {
-						.name = identifierOperand.name,
+						.name = std::string(identifierOperand.name.view()),
 						.parentName = identifierOperand.isLocal ? std::string(parentName) : std::string(),
 						.line = line
 					};
@@ -150,7 +150,7 @@ namespace ceres::casm
 						error(line, "Unresolved symbol: {}", identifierOperand.name);
 
 					UnresolvedSymbol unresolvedSymbol = {
-						.name = identifierOperand.name,
+						.name = std::string(identifierOperand.name.view()),
 						.parentName = identifierOperand.isLocal ? std::string(parentName) : std::string(),
 						.line = line
 					};

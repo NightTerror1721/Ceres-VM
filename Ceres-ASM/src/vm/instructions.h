@@ -188,10 +188,10 @@ namespace ceres::vm
 		static constexpr Instruction LDRSB(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDRSB, rd, rs, imm16); }
 		static constexpr Instruction LDRSH(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDRSH, rd, rs, imm16); }
 		static constexpr Instruction FLDR(u8 fd, u8 rs, u16 imm16) noexcept { return make(Opcode::FLDR, fd, rs, imm16); }
-		static constexpr Instruction STR(u8 rs, u8 rt, u16 imm16) noexcept { return make(Opcode::STR, rs, rt, imm16); }
-		static constexpr Instruction STRB(u8 rs, u8 rt, u16 imm16) noexcept { return make(Opcode::STRB, rs, rt, imm16); }
-		static constexpr Instruction STRH(u8 rs, u8 rt, u16 imm16) noexcept { return make(Opcode::STRH, rs, rt, imm16); }
-		static constexpr Instruction FSTR(u8 rs, u8 fd, u16 imm16) noexcept { return make(Opcode::FSTR, rs, fd, imm16); }
+		static constexpr Instruction STR(u8 rdBase, u8 rsValue, u16 imm16) noexcept { return make(Opcode::STR, rdBase, rsValue, imm16); }
+		static constexpr Instruction STRB(u8 rdBase, u8 rsValue, u16 imm16) noexcept { return make(Opcode::STRB, rdBase, rsValue, imm16); }
+		static constexpr Instruction STRH(u8 rdBase, u8 rsValue, u16 imm16) noexcept { return make(Opcode::STRH, rdBase, rsValue, imm16); }
+		static constexpr Instruction FSTR(u8 rdBase, u8 fsValue, u16 imm16) noexcept { return make(Opcode::FSTR, rdBase, fsValue, imm16); }
 		static constexpr Instruction LEA(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::LEA, rd, rs, imm16); }
 
 		// Control Flow

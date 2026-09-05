@@ -110,7 +110,7 @@ namespace ceres::casm
 
 	private:
 		DataType resolveDataType(u32 line, const DataTypeReference& dataType, bool allowUnsizedArrays) const;
-		LiteralValue resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays = false) const;
+		LiteralValue resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays = false, std::optional<DataTypeScalarCode> targetScalarCode = std::nullopt) const;
 		std::pair<DataType, LiteralValue> resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const;
 
 		std::expected<u32, std::string_view> sizeOf(u32 line, DataType dataType) const;

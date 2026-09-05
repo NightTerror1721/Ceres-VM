@@ -3,7 +3,7 @@ const EXIT_CODE = 0x01
 const SYS_CTRL = 0xFF
 
 @rodata
-    let HELLO_MSG: u8[17] = "Hello, CeresVM!"
+    let HELLO_MSG: u8[16] = "Hello, CeresVM!"
 
 @text
 global main:
@@ -28,7 +28,7 @@ print:
     mov r3, r1  // Save the original pointer
     call strlen
     mov r2, r0  // Length of the string
-    outm OUT_WRITE, r2, r3
+    outm OUT_WRITE, r3, r2  // port, address, size
     ret
 
 strlen:

@@ -113,7 +113,7 @@ namespace ceres::casm
 		bool isConstant = keyword == KeywordType::Constant;
 
 		Token identifierToken = _cursor.consume(TokenType::Identifier, "Expected identifier after 'let' or 'const'");
-		std::string_view name = identifierToken.lexeme();
+		Identifier name = identifierToken.identifierValue();
 
 		std::optional<DataTypeReference> dataType = std::nullopt;
 		if (_cursor.match(TokenType::Colon))
@@ -134,7 +134,12 @@ namespace ceres::casm
 		else if (isConstant)
 			error("Expected '=' and initializer for constant data declaration");
 
-		return Statement::makeData(line, isConstant, name, std::move(dataType), std::move(initialValue));
+		return Statement::makeData(
+			line,
+			isConstant,
+			name,
+			dataType.value_or(DataTypeReference::Invalid),
+			initialValue.value_or(LiteralValueReference::makeEmpty()));
 	}
 
 	Statement Parser::parseImportDeclaration()
@@ -143,7 +148,7 @@ namespace ceres::casm
 		_cursor.consume(KeywordType::Import, "Expected 'import' keyword for import declaration");
 
 		Token moduleNameToken = _cursor.consume(TokenType::LiteralString, "Expected module name after 'import' keyword");
-		std::string_view moduleName = moduleNameToken.stringValue();
+		LiteralString moduleName = moduleNameToken.literalStringValue();
 		return Statement::makeImport(line, moduleName);
 	}
 
@@ -167,7 +172,7 @@ namespace ceres::casm
 		if (_cursor.match(TokenType::Colon))
 		{
 			_cursor.next(); // Consume ':'
-			return Statement::makeLabel(line, identifierToken.lexeme(), labelLevel);
+			return Statement::makeLabel(line, identifierToken.identifierValue(), labelLevel);
 		}
 
 		if (labelLevel != LabelLevel::File)
@@ -188,7 +193,7 @@ namespace ceres::casm
 			return Statement::makeInstruction(line, *mnemonic, std::move(operands));
 
 		// If the identifier is not a known mnemonic, treat it as a macro call
-		return Statement::makeMacroCall(line, identifierToken.lexeme(), std::move(operands));
+		return Statement::makeMacroCall(line, identifierToken.identifierValue(), std::move(operands));
 	}
 
 	Statement Parser::parseMacroLabel()
@@ -197,7 +202,7 @@ namespace ceres::casm
 		_cursor.consume(TokenType::Dot, "Expected '.' for macro label declaration");
 
 		Token identifierToken = _cursor.consume(TokenType::DoublePercentIdentifier, "Expected identifier for macro label name");
-		std::string_view macroLabelName = identifierToken.stringValue();
+		Identifier macroLabelName = identifierToken.identifierValue();
 		if (!_cursor.current().isEndOfFile())
 			error("Expected end of line or end of file after macro label declaration");
 
@@ -211,13 +216,13 @@ namespace ceres::casm
 
 		Token identifierToken = _cursor.consume(TokenType::Identifier, "Expected identifier for macro name");
 
-		std::string_view macroName = identifierToken.lexeme();
-		std::vector<std::string> parameters;
+		Identifier macroName = identifierToken.identifierValue();
+		std::vector<Identifier> parameters;
 
 		while (!_cursor.isCurrentEndOfLineOrEndOfFile())
 		{
 			Token paramToken = _cursor.consume(TokenType::DollarIdentifier, "Expected identifier for macro parameter");
-			parameters.push_back(std::string(paramToken.stringValue()));
+			parameters.push_back(paramToken.identifierValue());
 		}
 
 		if (!_cursor.current().isEndOfFile())
@@ -271,7 +276,7 @@ namespace ceres::casm
 			else if (_cursor.match(TokenType::Identifier))
 			{
 				Token arraySizeToken = _cursor.consume(TokenType::Identifier, "Expected identifier for array size in data declaration");
-				std::string_view arraySizeIdentifierName = arraySizeToken.lexeme();
+				Identifier arraySizeIdentifierName = arraySizeToken.identifierValue();
 				if (!isValidIdentifierName(arraySizeIdentifierName))
 					error("Invalid identifier used for array size in data declaration");
 
@@ -307,7 +312,7 @@ namespace ceres::casm
 		switch (token.type())
 		{
 			case TokenType::Identifier:
-				literalValue = LiteralValueReference::makeIdentifier(token.lexeme());
+				literalValue = LiteralValueReference::makeIdentifier(token.identifierValue());
 				break;
 
 			case TokenType::LiteralInteger:
@@ -327,7 +332,7 @@ namespace ceres::casm
 				break;
 
 			case TokenType::LiteralString:
-				literalValue = LiteralValueReference::makeString(token.stringValue());
+				literalValue = LiteralValueReference::makeString(token.literalStringValue());
 				break;
 
 			case TokenType::BracketOpen:
@@ -370,7 +375,7 @@ namespace ceres::casm
 		switch (token.type())
 		{
 			case TokenType::Identifier:
-				return LiteralValueReferenceElement(token.lexeme());
+				return LiteralValueReferenceElement(token.identifierValue());
 
 			case TokenType::LiteralInteger:
 				if (expectedScalarCode.has_value() && !DataType::isIntegerScalarCode(*expectedScalarCode))
@@ -406,7 +411,7 @@ namespace ceres::casm
 		{
 			_cursor.next(); // Consume '['
 			Token baseRegToken = _cursor.consume(TokenType::Identifier, "Expected register identifier after '[' for memory operand");
-			const auto baseReg = RegisterInfo::get(baseRegToken.lexeme());
+			const auto baseReg = RegisterInfo::get(baseRegToken.identifierValue());
 			if (!baseReg.has_value())
 				error("Invalid register '{}' for memory operand", baseRegToken.lexeme());
 			if (baseReg->isFloatingPoint)
@@ -434,7 +439,7 @@ namespace ceres::casm
 			}
 			else if (_cursor.match(TokenType::Identifier))
 			{
-				memOp = Operand::makeMemory(baseReg->index, _cursor.current().lexeme());
+				memOp = Operand::makeMemory(baseReg->index, _cursor.current().identifierValue());
 				_cursor.next(); // Consume the identifier
 			}
 			else
@@ -448,7 +453,7 @@ namespace ceres::casm
 		if (_cursor.match(TokenType::Identifier))
 		{
 			Token regToken = _cursor.current();
-			const auto regInfo = RegisterInfo::get(regToken.lexeme());
+			const auto regInfo = RegisterInfo::get(regToken.identifierValue());
 			if (regInfo.has_value())
 			{
 				_cursor.next(); // Consume the register identifier
@@ -458,7 +463,7 @@ namespace ceres::casm
 			}
 
 			_cursor.next(); // Consume the register identifier
-			return Operand::makeIdentifier(regToken.lexeme(), false);
+			return Operand::makeIdentifier(regToken.identifierValue(), false);
 		}
 
 		// Handle macro parameter operand (e.g., $param)
@@ -466,7 +471,7 @@ namespace ceres::casm
 		{
 			Token macroParamToken = _cursor.current();
 			_cursor.next(); // Consume the macro parameter identifier
-			return Operand::makeMacroParameter(macroParamToken.stringValue());
+			return Operand::makeMacroParameter(macroParamToken.identifierValue());
 		}
 
 		// Handle macro label operand (e.g., %%label)
@@ -474,7 +479,7 @@ namespace ceres::casm
 		{
 			Token macroLabelToken = _cursor.current();
 			_cursor.next(); // Consume the macro label identifier
-			return Operand::makeMacroLabel(macroLabelToken.stringValue());
+			return Operand::makeMacroLabel(macroLabelToken.identifierValue());
 		}
 
 		// Handle immediate operand (literal integer)
@@ -490,7 +495,7 @@ namespace ceres::casm
 			Token localLabelToken = _cursor.peek();
 			_cursor.next(); // Consume '.'
 			_cursor.next(); // Consume the identifier
-			return Operand::makeIdentifier(localLabelToken.lexeme(), true);
+			return Operand::makeIdentifier(localLabelToken.identifierValue(), true);
 		}
 
 		error("Unexpected token {} in operand", _cursor.current().lexeme());

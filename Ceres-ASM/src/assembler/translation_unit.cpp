@@ -56,25 +56,25 @@ namespace ceres::casm
 					DataType dataType = DataType::Invalid;
 					std::optional<LiteralValue> literalValue = std::nullopt;
 					std::expected<u32, std::string_view> size = 0;
-					if (data.value.has_value())
+					if (!data.value.empty())
 					{
-						if (data.dataType.has_value())
+						if (data.dataType.isValid())
 						{
-							auto result = resolveLiteralValue(statement.line(), data.dataType.value(), data.value.value());
+							auto result = resolveLiteralValue(statement.line(), data.dataType, data.value);
 							dataType = result.first;
 							literalValue = std::move(result.second);
 							size = sizeOf(statement.line(), dataType, literalValue.value());
 						}
 						else
 						{
-							literalValue = resolveLiteralValue(statement.line(), data.value.value(), false);
+							literalValue = resolveLiteralValue(statement.line(), data.value, false);
 							dataType = literalValue.value().dataType();
 							size = sizeOf(statement.line(), literalValue.value());
 						}
 					}
-					else if (data.dataType.has_value())
+					else if (data.dataType.isValid())
 					{
-						dataType = resolveDataType(statement.line(), data.dataType.value(), false);
+						dataType = resolveDataType(statement.line(), data.dataType, false);
 						size = sizeOf(statement.line(), dataType);
 					}
 
@@ -143,13 +143,13 @@ namespace ceres::casm
 				else if (statement.isImport())
 				{
 					auto& imp = statement.asImport();
-					auto moduleUnit = _translationUnit.state().loadTranslationUnit(imp.moduleName);
+					auto moduleUnit = _translationUnit.state().loadTranslationUnit(imp.moduleName.str());
 					if (!moduleUnit)
-						error(statement.line(), "Failed to load translation unit for module '{}'", imp.moduleName);
+						error(statement.line(), "Failed to load translation unit for module '{}'", imp.moduleName.str());
 
-					if (!_translationUnit.hasImportedModule(imp.moduleName))
+					if (!_translationUnit.hasImportedModule(imp.moduleName.str()))
 					{
-						_translationUnit.addImportedModule(imp.moduleName);
+						_translationUnit.addImportedModule(imp.moduleName.str());
 						symbolTable.importSymbols(moduleUnit->get());
 						macroTable.importMacros(moduleUnit->get());
 						
@@ -236,7 +236,7 @@ namespace ceres::casm
 		return DataType::makeSizedArray(dataType.scalarCode(), numElements);
 	}
 
-	LiteralValue TranslationUnitBuilder::resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays) const
+	LiteralValue TranslationUnitBuilder::resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays, std::optional<DataTypeScalarCode> targetScalarCode) const
 	{
 		if (value.empty())
 		{
@@ -245,9 +245,31 @@ namespace ceres::casm
 			return LiteralValue::makeEmpty();
 		}
 
+		// Integer literals are untyped in source: `42` carries no width of its own. When the
+		// declaration states one, every element is re-tagged to it here, and only here is the
+		// value checked against the width it has to fit in.
+		const auto narrow = [&](LiteralScalar scalar, usize index) -> LiteralScalar
+		{
+			if (!targetScalarCode.has_value() || scalar.scalarCode() == *targetScalarCode)
+				return scalar;
+
+			auto coerced = scalar.coerceTo(*targetScalarCode);
+			if (!coerced.has_value())
+			{
+				if (!scalar.isInteger() || !DataType::isIntegerScalarCode(*targetScalarCode))
+					error(line, "Element {} is of type {}, which cannot be converted to the declared type {}",
+						index, DataType::scalarCodeToString(scalar.scalarCode()), DataType::scalarCodeToString(*targetScalarCode));
+
+				error(line, "Element {} does not fit in the declared type {}: the value needs more than {} bits",
+					index, DataType::scalarCodeToString(*targetScalarCode), LiteralScalar::bitWidthOf(*targetScalarCode));
+			}
+			return coerced.value();
+		};
+
 		std::vector<LiteralScalar> resolvedElements;
 		resolvedElements.reserve(value.size());
 
+		usize index = 0;
 		for (const auto& elem : value.elements())
 		{
 			if (elem.isIdentifier())
@@ -258,16 +280,17 @@ namespace ceres::casm
 				const auto& resolvedValue = constantValue.value().get();
 				if (!resolvedValue.isScalar())
 					error(line, "Identifier literal array element value must resolve to a scalar constant");
-				resolvedElements.push_back(resolvedValue.first());
+				resolvedElements.push_back(narrow(resolvedValue.first(), index));
 			}
 			else if (elem.isScalar())
 			{
-				resolvedElements.push_back(elem.scalarValue());
+				resolvedElements.push_back(narrow(elem.scalarValue(), index));
 			}
 			else
 			{
 				error(line, "Unknown literal value reference element type");
 			}
+			++index;
 		}
 
 		return LiteralValue::make(std::move(resolvedElements));
@@ -276,7 +299,7 @@ namespace ceres::casm
 	std::pair<DataType, LiteralValue> TranslationUnitBuilder::resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const
 	{
 		DataType resolvedDataType = resolveDataType(line, expectedDataType, true);
-		LiteralValue resolvedValue = resolveLiteralValue(line, value, !resolvedDataType.hasUnknownSize());
+		LiteralValue resolvedValue = resolveLiteralValue(line, value, !resolvedDataType.hasUnknownSize(), resolvedDataType.scalarCode());
 		if (!resolvedValue.matchDataType(resolvedDataType))
 			error(line, "Resolved literal value does not match the expected data type");
 

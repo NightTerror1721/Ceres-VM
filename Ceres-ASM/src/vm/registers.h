@@ -2,6 +2,7 @@
 
 #include "common/types.h"
 #include "common/int24.h"
+#include <limits>
 #include <compare>
 #include <array>
 

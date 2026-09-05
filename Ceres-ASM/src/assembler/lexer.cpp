@@ -320,7 +320,8 @@ namespace ceres::casm
 
    Token Lexer::scanStringLiteral(usize startPosition, u32 startColumn) noexcept
 	{
-		std::string stringContentBuilder{ 16 }; // Start with a small capacity to avoid unnecessary allocations for short strings
+		std::string stringContentBuilder;
+		stringContentBuilder.reserve(16); // Start with a small capacity to avoid unnecessary allocations for short strings
 
 		while (_source && *_source != '"')
 		{

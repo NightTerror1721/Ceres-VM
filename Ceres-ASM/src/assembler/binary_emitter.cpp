@@ -283,66 +283,102 @@ namespace ceres::casm
 
 						case OpcodeParameterType::IMM8:
 							if (operandInfo.isVariable())
-								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asVariable().address.value() << param.fixedValueShift()));
+								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asVariable().address.value() >> param.fixedValueShift()));
 							else if (operandInfo.isLabel())
-								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asLabel().address.value() << param.fixedValueShift()));
+								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asLabel().address.value() >> param.fixedValueShift()));
 							else // if (operandInfo.isImmediate())
-								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asImmediate().value << param.fixedValueShift()));
+								encodedInstruction.setImm8(static_cast<u8>(operandInfo.asImmediate().value >> param.fixedValueShift()));
 							break;
 
 						case OpcodeParameterType::IMM16:
 							if (operandInfo.isVariable())
-								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asVariable().address.value() << param.fixedValueShift()));
+								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asVariable().address.value() >> param.fixedValueShift()));
 							else if (operandInfo.isLabel())
-								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asLabel().address.value() << param.fixedValueShift()));
+								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asLabel().address.value() >> param.fixedValueShift()));
 							else // if (operandInfo.isImmediate())
-								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asImmediate().value << param.fixedValueShift()));
+								encodedInstruction.setImm16(static_cast<u16>(operandInfo.asImmediate().value >> param.fixedValueShift()));
 							break;
 
 						case OpcodeParameterType::SIMM16:
 							if (operandInfo.isVariable())
-								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asVariable().address.value() << param.fixedValueShift()));
+								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asVariable().address.value() >> param.fixedValueShift()));
 							else if (operandInfo.isLabel())
-								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asLabel().address.value() << param.fixedValueShift()));
+								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asLabel().address.value() >> param.fixedValueShift()));
 							else // if (operandInfo.isImmediate())
-								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asImmediate().value << param.fixedValueShift()));
+								encodedInstruction.setSImm16(static_cast<i16>(operandInfo.asImmediate().value >> param.fixedValueShift()));
 							break;
 
 						case OpcodeParameterType::IMM24:
 							if (operandInfo.isVariable())
-								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asVariable().address.value() << param.fixedValueShift()));
+								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asVariable().address.value() >> param.fixedValueShift()));
 							else if (operandInfo.isLabel())
-								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asLabel().address.value() << param.fixedValueShift()));
+								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asLabel().address.value() >> param.fixedValueShift()));
 							else // if (operandInfo.isImmediate())
-								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asImmediate().value << param.fixedValueShift()));
+								encodedInstruction.setImm24(static_cast<u24>(operandInfo.asImmediate().value >> param.fixedValueShift()));
 							break;
 
 						case OpcodeParameterType::SIMM24:
 							if (operandInfo.isVariable())
-								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asVariable().address.value() << param.fixedValueShift()));
+								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asVariable().address.value() >> param.fixedValueShift()));
 							else if (operandInfo.isLabel())
-								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asLabel().address.value() << param.fixedValueShift()));
+								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asLabel().address.value() >> param.fixedValueShift()));
 							else // if (operandInfo.isImmediate())
-								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asImmediate().value << param.fixedValueShift()));
+								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asImmediate().value >> param.fixedValueShift()));
 							break;
 
 						case OpcodeParameterType::RD_IMM16:
-							encodedInstruction.setRd(operandInfo.asMemory().baseRegIndex);
-							if (operandInfo.asMemory().isIdentifierOffset())
-								encodedInstruction.setImm16(static_cast<u16>(instruction.operands[operandIndex + 1].asMemory().immediateOffset().value));
+						{
+							const MemoryOperand& memoryOperand = operandInfo.asMemory();
+							encodedInstruction.setRd(memoryOperand.baseRegIndex);
+
+							if (memoryOperand.isImmediateOffset())
+								encodedInstruction.setImm16(static_cast<u16>(memoryOperand.immediateOffset().value));
+							else if (memoryOperand.isIdentifierOffset())
+							{
+								// The linker rewrites symbolic offsets into immediates, so reaching this
+								// point means the symbol was never resolved.
+								reportError(statement.line(), "Unresolved symbolic offset '{}' in memory operand", memoryOperand.identifierOffset().name.view());
+								return;
+							}
+							// No offset at all (e.g. [r1]) leaves imm16 at zero.
 							break;
+						}
 
 						case OpcodeParameterType::RS_IMM16:
-							encodedInstruction.setRs(operandInfo.asMemory().baseRegIndex);
-							if (operandInfo.asMemory().isIdentifierOffset())
-								encodedInstruction.setImm16(static_cast<u16>(instruction.operands[operandIndex + 1].asMemory().immediateOffset().value));
+						{
+							const MemoryOperand& memoryOperand = operandInfo.asMemory();
+							encodedInstruction.setRs(memoryOperand.baseRegIndex);
+
+							if (memoryOperand.isImmediateOffset())
+								encodedInstruction.setImm16(static_cast<u16>(memoryOperand.immediateOffset().value));
+							else if (memoryOperand.isIdentifierOffset())
+							{
+								// The linker rewrites symbolic offsets into immediates, so reaching this
+								// point means the symbol was never resolved.
+								reportError(statement.line(), "Unresolved symbolic offset '{}' in memory operand", memoryOperand.identifierOffset().name.view());
+								return;
+							}
+							// No offset at all (e.g. [r1]) leaves imm16 at zero.
 							break;
+						}
 
 						case OpcodeParameterType::RT_IMM16:
-							encodedInstruction.setRt(operandInfo.asMemory().baseRegIndex);
-							if (operandInfo.asMemory().isIdentifierOffset())
-								encodedInstruction.setImm16(static_cast<u16>(instruction.operands[operandIndex + 1].asMemory().immediateOffset().value));
+						{
+							const MemoryOperand& memoryOperand = operandInfo.asMemory();
+							encodedInstruction.setRt(memoryOperand.baseRegIndex);
+
+							if (memoryOperand.isImmediateOffset())
+								encodedInstruction.setImm16(static_cast<u16>(memoryOperand.immediateOffset().value));
+							else if (memoryOperand.isIdentifierOffset())
+							{
+								// The linker rewrites symbolic offsets into immediates, so reaching this
+								// point means the symbol was never resolved.
+								reportError(statement.line(), "Unresolved symbolic offset '{}' in memory operand", memoryOperand.identifierOffset().name.view());
+								return;
+							}
+							// No offset at all (e.g. [r1]) leaves imm16 at zero.
 							break;
+						}
 
 						case OpcodeParameterType::REL_ADDR:
 							if (operandInfo.isLabel())

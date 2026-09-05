@@ -2,6 +2,7 @@
 
 #include "common_defs.h"
 #include "strings_pool.h"
+#include "common/string_utils.h"
 #include <compare>
 #include <string>
 #include <string_view>

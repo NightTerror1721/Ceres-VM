@@ -1,6 +1,7 @@
 #pragma once
 
 #include "memory.h"
+#include <cstring>
 #include <initializer_list>
 #include <span>
 #include <ranges>
