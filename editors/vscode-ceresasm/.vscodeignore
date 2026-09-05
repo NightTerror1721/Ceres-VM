@@ -1,0 +1,18 @@
+# npm workspaces symlink the local packages into node_modules; vsce's zipper can't follow them
+# and the extension never requires them by package name anyway (main points at client/out directly).
+node_modules/ceresasm-client
+node_modules/ceresasm-server
+
+# Source and build metadata not needed at runtime - only the compiled .js in client/out and
+# server/out ship.
+client/src/**
+server/src/**
+**/*.ts
+**/*.d.ts
+**/*.map
+tsconfig*.json
+.vscode/**
+.gitignore
+
+# Local dev/test scratch that shouldn't have been left around, if any.
+**/*.tsbuildinfo

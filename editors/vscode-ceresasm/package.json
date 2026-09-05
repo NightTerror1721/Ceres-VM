@@ -4,7 +4,7 @@
   "description": "Language support for CASM, the assembler of the Ceres virtual machine: syntax highlighting and live diagnostics from the real ceres compiler.",
   "version": "0.1.0",
   "publisher": "ceresasm",
-  "license": "SEE LICENSE IN ../../LICENSE",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
     "url": "https://github.com/Krampus1721/CeresASM"
