@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <compare>
 #include <stdexcept>
+#include <format>
 
 namespace ceres::casm
 {
@@ -339,3 +340,32 @@ namespace ceres::casm
 	inline LiteralString StringPool::makeLiteralString(const ValueType& str) noexcept { return LiteralString::makeFromStringPool(*this, str); }
 	inline LiteralString StringPool::makeLiteralString(ValueType&& str) noexcept { return LiteralString::makeFromStringPool(*this, std::move(str)); }
 }
+
+// Without these, std::format picks the range formatter (PooledString exposes begin/end) and an
+// identifier prints as ['m', 'a', 'i', 'n'] instead of main.
+template <>
+struct std::formatter<ceres::casm::Identifier> : std::formatter<std::string_view>
+{
+	auto format(const ceres::casm::Identifier& value, std::format_context& ctx) const
+	{
+		return std::formatter<std::string_view>::format(value.view(), ctx);
+	}
+};
+
+template <>
+struct std::formatter<ceres::casm::LiteralString> : std::formatter<std::string_view>
+{
+	auto format(const ceres::casm::LiteralString& value, std::format_context& ctx) const
+	{
+		return std::formatter<std::string_view>::format(value.view(), ctx);
+	}
+};
+
+template <>
+struct std::formatter<ceres::casm::NullableIdentifier> : std::formatter<std::string_view>
+{
+	auto format(const ceres::casm::NullableIdentifier& value, std::format_context& ctx) const
+	{
+		return std::formatter<std::string_view>::format(value.isNull() ? std::string_view{ "<null>" } : value.view(), ctx);
+	}
+};

@@ -280,7 +280,7 @@ namespace ceres::casm
 				if (!isValidIdentifierName(arraySizeIdentifierName))
 					error("Invalid identifier used for array size in data declaration");
 
-				_cursor.next(); // Consume array size token
+				// consume() above already advanced past the identifier; advancing again ate the ']'.
 				_cursor.consume(TokenType::BracketClose, "Expected ']' after array size in data declaration");
 				return DataTypeReference::make(dataType.scalarCode(), arraySizeIdentifierName);
 			}

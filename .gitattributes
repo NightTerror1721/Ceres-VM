@@ -1,0 +1,13 @@
+# Let Git normalise text files in the index; the working tree follows core.autocrlf.
+* text=auto
+
+# These must keep LF wherever they are checked out: a shell script with CRLF line endings
+# fails to run, and the CI workflow is consumed by a Linux runner.
+*.sh  text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Visual Studio rewrites project files with CRLF, so pin them and avoid spurious diffs.
+*.vcxproj text eol=crlf
+*.filters text eol=crlf
+*.sln     text eol=crlf

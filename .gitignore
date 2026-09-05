@@ -416,3 +416,9 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Test runner binary built by tests/build.sh
+/tests/ceres-tests
+/tests/ceres-tests.exe
+/ceres
+/ceres.exe

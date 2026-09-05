@@ -21,8 +21,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{0f9f1c73-885a-49f3-8b6e-829e4601ec17}</ProjectGuid>
-    <RootNamespace>CeresASM</RootNamespace>
+    <ProjectGuid>{7c3a1d52-4b18-4a6f-9d21-6f0c5e83b4aa}</ProjectGuid>
+    <RootNamespace>CeresASMTests</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -71,12 +71,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <OutDir>$(ProjectDir)build\$(Platform)\$(Configuration)\</OutDir>
-    <IntDir>temp\$(Platform)\$(Configuration)\</IntDir>
+    <OutDir>$(ProjectDir)build\tests\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>temp\tests\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <OutDir>$(ProjectDir)build\$(Platform)\$(Configuration)\</OutDir>
-    <IntDir>temp\$(Platform)\$(Configuration)\</IntDir>
+    <OutDir>$(ProjectDir)build\tests\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>temp\tests\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -114,7 +114,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp23</LanguageStandard>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
-      <AdditionalIncludeDirectories>src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src;..\tests;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -131,7 +131,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp23</LanguageStandard>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
-      <AdditionalIncludeDirectories>src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src;..\tests;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -151,10 +151,13 @@
     <ClCompile Include="src\assembler\parser.cpp" />
     <ClCompile Include="src\assembler\symbol_table.cpp" />
     <ClCompile Include="src\assembler\translation_unit.cpp" />
-    <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\vm\ceresvm.cpp" />
     <ClCompile Include="src\vm\execution_engine.cpp" />
     <ClCompile Include="src\vm\program.cpp" />
+    <ClCompile Include="..\tests\main.cpp" />
+    <ClCompile Include="..\tests\test_encoding.cpp" />
+    <ClCompile Include="..\tests\test_pipeline.cpp" />
+    <ClCompile Include="..\tests\test_vm.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\assembler\assembler.h" />
@@ -194,6 +197,8 @@
     <ClInclude Include="src\vm\ceresvm.h" />
     <ClInclude Include="src\vm\devices.h" />
     <ClInclude Include="src\vm\disassembler.h" />
+    <ClInclude Include="..\tests\framework.h" />
+    <ClInclude Include="..\tests\assemble_helper.h" />
     <ClInclude Include="src\vm\execution_engine.h" />
     <ClInclude Include="src\vm\fregisters.h" />
     <ClInclude Include="src\vm\interrupts.h" />

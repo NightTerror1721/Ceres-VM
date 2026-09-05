@@ -42,5 +42,13 @@ namespace ceres::vm
 		constexpr void shutdown() noexcept { _isPoweredOn = false; }
 
 		IOPorts& io() noexcept { return _ioPorts; }
+
+		// Exposed so a test or a debugger can set up and inspect machine state directly,
+		// without going through a full Program.
+		Memory& memory() noexcept { return _memory; }
+		const Memory& memory() const noexcept { return _memory; }
+
+		ExecutionEngine& engine() noexcept { return _engine; }
+		const ExecutionEngine& engine() const noexcept { return _engine; }
 	};
 }

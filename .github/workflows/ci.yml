@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # The project's real toolchain. Only the x64 configurations set stdcpp23 and the include
+  # directory, so those are the ones built here.
+  msvc:
+    name: MSVC (x64)
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build the assembler and VM
+        run: msbuild Ceres-ASM\Ceres-ASM.vcxproj -p:Configuration=${{ matrix.configuration }} -p:Platform=x64 -m
+
+      - name: Build the test suite
+        run: msbuild Ceres-ASM\Ceres-ASM-Tests.vcxproj -p:Configuration=${{ matrix.configuration }} -p:Platform=x64 -m
+
+      - name: Run the test suite
+        run: Ceres-ASM\build\tests\x64\${{ matrix.configuration }}\Ceres-ASM-Tests.exe
+
+  # A second compiler is not redundant: four missing #includes went unnoticed for as long as
+  # MSVC was the only thing building this, because it supplies them transitively.
+  gcc:
+    name: GCC 15
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GCC 15
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y g++-15
+
+      - name: Build and run the test suite
+        env:
+          CXX: g++-15
+        run: sh tests/build.sh
+
+      - name: Build the assembler and run the shipped example
+        env:
+          CXX: g++-15
+        run: |
+          cd Ceres-ASM/src
+          $CXX -std=c++23 -Wall -Wextra -Wno-unused-parameter -I. -o ../../ceres main.cpp vm/*.cpp assembler/*.cpp
+          cd ../..
+          cd Ceres-ASM && ../ceres examples/main.casm

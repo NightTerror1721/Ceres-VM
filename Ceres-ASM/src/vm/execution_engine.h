@@ -34,6 +34,15 @@ namespace ceres::vm
 		void reset() noexcept;
 		void step() noexcept;
 
+	public:
+		// Read-only observability. Tests (and any future debugger) need to inspect the machine
+		// state between steps; nothing here can mutate it.
+		constexpr const GeneralPurposeRegisterPool& registers() const noexcept { return _registers; }
+		constexpr const FloatingPointRegisterPool& fregisters() const noexcept { return _fregisters; }
+		constexpr const FlagRegister& flags() const noexcept { return _flags; }
+		constexpr Address programCounter() const noexcept { return _pc; }
+		constexpr bool isHalted() const noexcept { return _flags.halting(); }
+
 	private:
 		inline void handleReset() noexcept { reset(); }
 		void handleHalt() noexcept;

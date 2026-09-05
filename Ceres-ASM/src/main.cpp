@@ -2,8 +2,11 @@
 #include "vm/ceresvm.h"
 #include "vm/devices.h"
 #include "assembler/assembler.h"
+#include "vm/disassembler.h"
+#include <filesystem>
+#include <string_view>
 
-int main()
+int main(int argc, char** argv)
 {
 	using namespace ceres;
 	using namespace ceres::vm;
@@ -54,11 +57,30 @@ int main()
 
 	Program program = Program::make(header, programBytes, {}, {});*/
 
+	// A real command line belongs to a later pass; this is just enough to point the assembler at
+	// a different file and to dump what it produced.
+	std::filesystem::path sourcePath = "examples/main.casm";
+	bool showListing = false;
+
+	for (int i = 1; i < argc; ++i)
+	{
+		const std::string_view argument = argv[i];
+		if (argument == "--listing")
+			showListing = true;
+		else if (argument.starts_with("--"))
+		{
+			std::cerr << "Unknown option '" << argument << "'. Usage: ceres [source.casm] [--listing]" << std::endl;
+			return 2;
+		}
+		else
+			sourcePath = argument;
+	}
+
 	ceres::casm::Assembler assembler{};
-	auto programOpt = assembler.assemble({ "examples/main.casm" });
+	auto programOpt = assembler.assemble({ sourcePath });
 	if (!programOpt.has_value())
 	{
-		std::cerr << "Failed to assemble program: " << std::endl;
+		std::cerr << "Failed to assemble " << sourcePath.string() << std::endl;
 		if (assembler.hasErrors())
 		{
 			for (const auto& error : assembler.errors())
@@ -68,6 +90,18 @@ int main()
 	}
 
 	Program program = std::move(programOpt.value());
+
+	if (showListing)
+	{
+		const ProgramHeader& header = program.header();
+		std::cerr << "; " << sourcePath.string()
+			<< "  text=" << header.textSize
+			<< "  rodata=" << header.rodataSize
+			<< "  data=" << header.dataSize
+			<< "  bss=" << header.bssSize
+			<< "  entry=0x" << std::hex << header.entryPoint << std::dec << std::endl;
+		std::cerr << Disassembler::listing(program.text(), Memory::UnrestrictedSegmentStart);
+	}
 
 	if (auto result = vm.loadProgram(program); !result)
 	{
