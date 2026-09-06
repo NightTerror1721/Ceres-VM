@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <iostream>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,8 +19,9 @@ namespace
 	constexpr std::string_view UsageText =
 		"Ceres - assembler and virtual machine\n"
 		"\n"
-		"  ceres asm <source.casm> [-o <output.cres>] [--listing] [--json]\n"
-		"      Assemble a source file. Without -o the program is only checked.\n"
+		"  ceres asm <source.casm> [<source2.casm> ...] [-o <output.cres>] [--listing] [--json]\n"
+		"      Assemble one or more source files into a single linked program.\n"
+		"      Without -o the program is only checked.\n"
 		"      --json prints diagnostics as a JSON array on stdout instead of\n"
 		"      human-readable text on stderr, for editor tooling.\n"
 		"\n"
@@ -32,9 +34,12 @@ namespace
 		"A bare path is shorthand for 'run'.\n";
 
 	// Set by the assembling commands so a failure prints every diagnostic, not just the first.
-	void reportAssemblyErrors(const casm::Assembler& assembler, const std::filesystem::path& path)
+	void reportAssemblyErrors(const casm::Assembler& assembler, std::span<const std::filesystem::path> paths)
 	{
-		std::cerr << "Failed to assemble " << path.string() << '\n';
+		std::cerr << "Failed to assemble";
+		for (const auto& path : paths)
+			std::cerr << ' ' << path.string();
+		std::cerr << '\n';
 		for (const auto& error : assembler.errors())
 		{
 			if (!error.file.empty())
@@ -42,6 +47,11 @@ namespace
 			else
 				std::cerr << "  [line " << error.line << "] " << error.message << '\n';
 		}
+	}
+
+	void reportAssemblyErrors(const casm::Assembler& assembler, const std::filesystem::path& path)
+	{
+		reportAssemblyErrors(assembler, std::span<const std::filesystem::path>(&path, 1));
 	}
 
 	// Minimal escaper for the fixed shape of message text the assembler produces; not a general
@@ -174,7 +184,8 @@ namespace
 	struct Options
 	{
 		std::string_view command;
-		std::filesystem::path input;
+		// 'asm' may take several; 'run' and 'disasm' always resolve to exactly one entry.
+		std::vector<std::filesystem::path> inputs;
 		std::filesystem::path output;
 		bool listing = false;
 		bool json = false;
@@ -245,12 +256,21 @@ namespace
 				std::cerr << "Missing input file for '" << options.command << "'\n";
 				return std::nullopt;
 			}
-			options.input = positional[1];
+
+			for (usize i = 1; i < positional.size(); ++i)
+				options.inputs.emplace_back(positional[i]);
+
+			// Only 'asm' links several sources into one program; 'run'/'disasm' need one entry.
+			if (options.command != "asm" && options.inputs.size() > 1)
+			{
+				std::cerr << "'" << options.command << "' takes a single input file\n";
+				return std::nullopt;
+			}
 		}
 		else
 		{
 			options.command = "run";
-			options.input = positional[0];
+			options.inputs.emplace_back(positional[0]);
 		}
 
 		return options;
@@ -271,28 +291,31 @@ int main(int argc, char** argv)
 
 	const Options& options = optionsOpt.value();
 
-	if (!std::filesystem::exists(options.input))
+	for (const auto& input : options.inputs)
 	{
-		std::cerr << "No such file: " << options.input.string() << '\n';
-		return 1;
+		if (!std::filesystem::exists(input))
+		{
+			std::cerr << "No such file: " << input.string() << '\n';
+			return 1;
+		}
 	}
 
 	if (options.command == "asm")
 	{
 		casm::Assembler assembler{};
-		auto program = assembler.assemble({ options.input });
+		auto program = assembler.assemble(options.inputs);
 		const bool failed = !program.has_value() || assembler.hasErrors();
 
 		if (options.json)
 			printJsonDiagnostics(assembler);
 		else if (failed)
-			reportAssemblyErrors(assembler, options.input);
+			reportAssemblyErrors(assembler, std::span<const std::filesystem::path>(options.inputs));
 
 		if (failed)
 			return 1;
 
 		if (options.listing)
-			printListing(program.value(), options.input);
+			printListing(program.value(), options.inputs.front());
 
 		if (!options.output.empty())
 		{
@@ -309,21 +332,21 @@ int main(int argc, char** argv)
 
 	if (options.command == "disasm")
 	{
-		auto program = loadProgram(options.input);
+		auto program = loadProgram(options.inputs.front());
 		if (!program.has_value())
 			return 1;
 
-		printListing(program.value(), options.input);
+		printListing(program.value(), options.inputs.front());
 		return 0;
 	}
 
 	// run
-	auto program = loadProgram(options.input);
+	auto program = loadProgram(options.inputs.front());
 	if (!program.has_value())
 		return 1;
 
 	if (options.listing)
-		printListing(program.value(), options.input);
+		printListing(program.value(), options.inputs.front());
 
 	return runProgram(program.value(), options.memorySize);
 }
