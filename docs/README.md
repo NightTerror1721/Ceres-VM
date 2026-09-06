@@ -38,6 +38,11 @@ the assembler does internally at each stage of the build.
 18. [Annotated examples](18-Annotated-Examples.md) — a line-by-line walkthrough of a full program.
 19. [Known limitations](19-Known-Limitations.md) — what the project doesn't do yet.
 
+### Learn by doing
+
+20. [Tutorial práctico (Spanish)](20-Tutorial-Practico.md) — progressive exercises building up to
+    two playable terminal games (rock-paper-scissors and tic-tac-toe).
+
 ## Quick start
 
 ```bash

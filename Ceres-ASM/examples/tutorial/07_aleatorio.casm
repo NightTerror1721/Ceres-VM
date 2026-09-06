@@ -1,0 +1,72 @@
+// Ejercicio 7: Números "aleatorios"
+//
+// Objetivo: Ceres no tiene una fuente de números aleatorios de verdad (el
+// puerto 0xFE está reservado pero no implementado todavía), y el contador de
+// "ticks" del timer (0x10) TAMPOCO sirve como semilla: la wiki es clara en
+// que el número de instrucciones ejecutadas es idéntico en cada ejecución,
+// así que sembrar con él da siempre la misma secuencia (pruébalo: es justo
+// lo que NO queremos). El único valor de toda la máquina que de verdad
+// cambia entre ejecuciones es el reloj de pared en segundos, puerto 0x11
+// (RTC_TIME) — la propia wiki lo señala como "la única cosa aquí que no es
+// determinista".
+//
+// Con esa semilla generamos pseudo-aleatoriedad nosotros mismos con un
+// generador congruencial lineal (LCG), como hacían los ordenadores de 8
+// bits: semilla = semilla * A + C (mod 2^32, que en Ceres sale gratis:
+// "mul" ya trunca el resultado a 32 bits).
+//
+// Esta subrutina "next_random" es la pieza que reutilizaremos en el juego de
+// piedra-papel-tijera para que la máquina elija su jugada.
+//
+// PRUEBA TÚ MISMO:
+//   Ejecuta el programa dos veces seguidas muy rápido: como RTC_TIME solo
+//   cambia una vez por segundo, es posible que veas la misma secuencia si
+//   ambas ejecuciones caen en el mismo segundo. Cambia el módulo de 6 a 2
+//   para simular una moneda al aire.
+
+const CLOCK_PORT = 0x11
+const TERM_OUT    = 0x01
+const SYS_CTRL    = 0xFF
+const NEWLINE     = 10
+
+@data
+    let seed: u32 = 0
+
+@text
+global main:
+    in CLOCK_PORT, r1     // r1 = segundos desde 1970 (semilla inicial)
+    stv r1, seed
+
+    li r4, 0              // contador de vueltas
+.loop:
+    call next_random       // r0 = numero pseudoaleatorio 0-31
+    mod r0, r0, 6           // r0 = 0-5, como un dado
+    add r0, r0, '0'
+    outb TERM_OUT, r0
+    li r5, NEWLINE
+    outb TERM_OUT, r5
+
+    add r4, r4, 1
+    li r6, 8
+    cmp r4, r6
+    jnz .loop
+
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+// next_random() -> r0 = siguiente numero de la secuencia (32 bits completos,
+// el llamador decide con que "mod" se queda). Actualiza la variable "seed".
+next_random:
+    ldv r1, seed
+    ldv r2, LCG_A
+    mul r1, r1, r2         // r1 = seed * A (se trunca a 32 bits solo)
+    ldv r2, LCG_C
+    add r1, r1, r2         // r1 = seed * A + C
+    stv r1, seed
+    mov r0, r1
+    ret
+
+@data
+    let LCG_A: u32 = 1103515245
+    let LCG_C: u32 = 12345

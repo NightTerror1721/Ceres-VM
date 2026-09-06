@@ -1,0 +1,59 @@
+// Ejercicio 4: Cuenta atrás
+//
+// Objetivo: practicar bucles con cmp/jz/jnz sin necesitar entrada del
+// usuario. Cuenta desde 5 hasta 1 y luego imprime "Despegue!".
+//
+// PRUEBA TÚ MISMO:
+//   Cambia el punto de partida a 9. Después haz una segunda versión que
+//   cuente HACIA ARRIBA de 1 a 5 usando "jc"/"jnc" en vez de "cmp"+"jz"
+//   (pista: cmp i, LIMITE y comprueba el acarreo, como en el ejercicio 3).
+
+const TERM_OUT = 0x01
+const SYS_CTRL = 0xFF
+const NEWLINE  = 10
+
+@rodata
+    let LIFTOFF: u8[] = "Despegue!\n"
+
+@text
+global main:
+    li r4, 5            // r4 = contador
+
+.loop:
+    cmp r4, 0
+    jz .liftoff
+
+    add r5, r4, '0'     // convertir el contador a caracter ascii
+    outb TERM_OUT, r5
+    li r6, NEWLINE
+    outb TERM_OUT, r6
+
+    sub r4, r4, 1
+    jp .loop
+
+.liftoff:
+    la r1, LIFTOFF
+    call print
+
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+print:
+    mov r3, r1
+    call strlen
+    mov r2, r0
+    outm TERM_OUT, r3, r2
+    ret
+
+strlen:
+    xor r0, r0, r0
+.loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .end
+    add r0, r0, 1
+    add r1, r1, 1
+    jp .loop
+.end:
+    ret

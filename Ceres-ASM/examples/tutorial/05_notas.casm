@@ -1,0 +1,86 @@
+// Ejercicio 5: Media de notas
+//
+// Objetivo: practicar arrays en memoria y direccionamiento con desplazamiento
+// ([reg + offset]). Suma 5 notas guardadas en @data y calcula su media
+// (división entera). Imprime el resultado como uno o dos dígitos.
+//
+// PRUEBA TÚ MISMO:
+//   Añade una sexta nota (recuerda actualizar NUM_NOTAS Y el array) y
+//   comprueba que la media cambia. Después escribe una subrutina
+//   "print_uint" genérica que imprima cualquier número de 0 a 99 sin usar la
+//   rama especial que hay más abajo para el caso de dos cifras.
+
+const TERM_OUT   = 0x01
+const SYS_CTRL   = 0xFF
+const NEWLINE    = 10
+const NUM_NOTAS  = 5
+
+@data
+    let notas: u8[NUM_NOTAS] = [7, 9, 6, 8, 10]
+
+@rodata
+    let PREFIX: u8[] = "Media = "
+
+@text
+global main:
+    la r1, PREFIX
+    call print
+
+    la r5, notas        // r5 = puntero al array
+    li r4, 0             // r4 = suma acumulada
+    li r6, 0             // r6 = indice i
+
+.sum_loop:
+    li r7, NUM_NOTAS
+    cmp r6, r7
+    jz .sum_done
+
+    ldrb r8, [r5 + 0]    // notas[i]
+    add r4, r4, r8
+
+    add r5, r5, 1        // siguiente elemento (u8 = 1 byte)
+    add r6, r6, 1
+    jp .sum_loop
+
+.sum_done:
+    li r7, NUM_NOTAS
+    div r4, r4, r7        // r4 = media entera = suma / NUM_NOTAS
+
+    // Imprime r4 como uno o dos dígitos decimales (0-99)
+    li r7, 10
+    cmp r4, r7
+    jc .un_digito         // acarreo => r4 < 10
+
+    div r8, r4, r7        // r8 = decenas
+    mod r4, r4, r7        // r4 = unidades
+    add r8, r8, '0'
+    outb TERM_OUT, r8
+
+.un_digito:
+    add r4, r4, '0'
+    outb TERM_OUT, r4
+    li r7, NEWLINE
+    outb TERM_OUT, r7
+
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+print:
+    mov r3, r1
+    call strlen
+    mov r2, r0
+    outm TERM_OUT, r3, r2
+    ret
+
+strlen:
+    xor r0, r0, r0
+.loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .end
+    add r0, r0, 1
+    add r1, r1, 1
+    jp .loop
+.end:
+    ret

@@ -101,10 +101,10 @@ shift by an effective zero.
 | `ldrsb rd, [rs + imm16]` | `LDRSB` `0x46` | reg + reg + imm16 | `rd = sign_extend(*(i8*)(rs + imm16))`. Never faults on alignment. |
 | `ldrsh rd, [rs + imm16]` | `LDRSH` `0x47` | reg + reg + imm16 | `rd = sign_extend(*(i16*)(rs + imm16))`. Alignment-checked (2 bytes). |
 | `ldr fd, [rs + imm16]` | `FLDR` `0x49` | float reg + int reg + imm16 | `fd = *(float*)(rs + imm16)`. Alignment-checked (4 bytes). |
-| `str [rd + imm16], rs` | `STR` `0x4A` | reg + reg + imm16 | `*(u32*)(rd + imm16) = rs`. **Base is `rd`, value is `rs`** — see [Instruction format](04-Instruction-Format.md#the-critical-overlap-imm16-and-rt) for why. Alignment-checked. |
-| `strb [rd + imm16], rs` | `STRB` `0x4B` | reg + reg + imm16 | `*(u8*)(rd + imm16) = rs`. Never faults on alignment. |
-| `strh [rd + imm16], rs` | `STRH` `0x4C` | reg + reg + imm16 | `*(u16*)(rd + imm16) = rs`. Alignment-checked. |
-| `str [rd + imm16], fs` | `FSTR` `0x4D` | reg + float reg + imm16 | `*(float*)(rd + imm16) = fs`. Alignment-checked. |
+| `str rs, [rd + imm16]` | `STR` `0x4A` | reg + reg + imm16 | `*(u32*)(rd + imm16) = rs`. **Base is `rd`, value is `rs`, and the value comes first in the written syntax** — see [Instruction format](04-Instruction-Format.md#the-critical-overlap-imm16-and-rt) for why. Alignment-checked. |
+| `strb rs, [rd + imm16]` | `STRB` `0x4B` | reg + reg + imm16 | `*(u8*)(rd + imm16) = rs`. Never faults on alignment. |
+| `strh rs, [rd + imm16]` | `STRH` `0x4C` | reg + reg + imm16 | `*(u16*)(rd + imm16) = rs`. Alignment-checked. |
+| `str fs, [rd + imm16]` | `FSTR` `0x4D` | reg + float reg + imm16 | `*(float*)(rd + imm16) = fs`. Alignment-checked. |
 | `lea rd, [rs + imm16]` | `LEA` `0x4E` | reg + reg + imm16 | `rd = rs + imm16` (computes the address, doesn't dereference it). |
 
 None of the memory instructions touch the flags register.
@@ -205,11 +205,11 @@ automatically:
 
 | Assembly | Imm. port opcode | Reg. port opcode | Semantics |
 | --- | --- | --- | --- |
-| `in rd, port` | `IN` `0x90` | `INR` `0x96` | `rd = (u32)` word read from `port`. |
-| `inb rd, port` | `INB` `0x91` | `INRB` `0x97` | `rd = (u8)` byte read from `port` (zero-extended). |
-| `inh rd, port` | `INH` `0x92` | `INRH` `0x98` | `rd = (u16)` halfword read (zero-extended). |
-| `insb rd, port` | `INSB` `0x93` | `INRSB` `0x99` | `rd = sign_extend((i8)` byte read`)`. |
-| `insh rd, port` | `INSH` `0x94` | `INRSH` `0x9A` | `rd = sign_extend((i16)` halfword read`)`. |
+| `in port, rd` | `IN` `0x90` | `INR` `0x96` | `rd = (u32)` word read from `port`. |
+| `inb port, rd` | `INB` `0x91` | `INRB` `0x97` | `rd = (u8)` byte read from `port` (zero-extended). |
+| `inh port, rd` | `INH` `0x92` | `INRH` `0x98` | `rd = (u16)` halfword read (zero-extended). |
+| `insb port, rd` | `INSB` `0x93` | `INRSB` `0x99` | `rd = sign_extend((i8)` byte read`)`. |
+| `insh port, rd` | `INSH` `0x94` | `INRSH` `0x9A` | `rd = sign_extend((i16)` halfword read`)`. |
 | `inm port, rd, rs` | `INM` `0x95` | `INRM` `0x9B` | Block read: reads `rs` bytes from `port` into memory starting at address `rd`. Operand order in assembly is **port, address, size**. |
 | `out port, rs` | `OUT` `0x9C` | `OUTR` `0xA0` | Writes the 32-bit value in `rs` to `port`. |
 | `outb port, rs` | `OUTB` `0x9D` | `OUTRB` `0xA1` | Writes the low byte of `rs` to `port`. |

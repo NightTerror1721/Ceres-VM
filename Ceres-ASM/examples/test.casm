@@ -58,7 +58,7 @@ global main:
 
     // 12. Direccionamiento Relativo a Base (Memoria)
     LI R7, 1
-    STRB [R5 + 0], R7       // player_active[i] = 1
+    STRB R7, [R5 + 0]       // player_active[i] = 1
     LDRB R8, [R5 + 0]       // Leer de vuelta para testear LDRB
 
     ADD R4, R4, 1           // i++

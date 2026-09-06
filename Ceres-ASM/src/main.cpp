@@ -4,6 +4,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "vm/ceresvm.h"
@@ -158,8 +159,24 @@ namespace
 		};
 		systemControl.attachTo(vm.io());
 
-		TerminalDevice terminal{};
+		// Heap-allocated and deliberately never freed: the background reader thread below
+		// stays blocked in a stdin read for as long as the process lives, so the device it
+		// writes into must outlive this function's return rather than being torn down by
+		// the CLI process's own shutdown.
+		TerminalDevice& terminal = *new TerminalDevice();
 		terminal.attachTo(vm.io());
+
+		// The engine's step loop is single-threaded and can't poll stdin without blocking
+		// the whole VM, so a separate thread feeds keystrokes into TerminalDevice's own
+		// thread-safe ring buffer (pushInput) as they arrive. Input is line-buffered by the
+		// host terminal, same as any shell command: a program reading port 0x02 sees nothing
+		// until the user presses Enter, then the whole line (including '\n') at once.
+		std::thread([&terminal]()
+		{
+			char c;
+			while (std::cin.get(c))
+				terminal.pushInput(c);
+		}).detach();
 
 		// Gives the machine a clock and, with it, the only asynchronous interrupt source it
 		// has. Disarmed until a program writes to the command port.
