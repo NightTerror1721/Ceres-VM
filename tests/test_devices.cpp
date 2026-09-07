@@ -303,3 +303,92 @@ TEST(devices, writing_zero_disarms_the_timer)
 	timer.arm(0);
 	CHECK(!timer.isArmed());
 }
+
+// --- The terminal's output sink ----------------------------------------------------------------
+
+TEST(devices, terminal_output_goes_to_the_installed_sink_instead_of_stdout)
+{
+	// OUTB writes one byte; OUT writes a whole word, low byte first. Together they cover both
+	// paths through emitByte.
+	Machine m{
+		Instruction::LI(1, 'C'),
+		Instruction::OUTB(1, TerminalDevice::OutputPort),
+		Instruction::LI(2, 0x0000'6165), // 'e', 'a', 0, 0
+		Instruction::OUT(2, TerminalDevice::OutputPort),
+	};
+
+	TerminalDevice terminal{};
+	terminal.attachTo(m.vm().io());
+
+	std::string captured;
+	terminal.setOutputSink([&captured](u8 byte) { captured.push_back(static_cast<char>(byte)); });
+
+	m.step(4);
+
+	CHECK_EQ(captured.size(), usize{ 5 });
+	CHECK(captured.starts_with("Cea"));
+}
+
+TEST(devices, a_multi_byte_character_reaches_the_sink_one_byte_at_a_time)
+{
+	// 'á' is 0xC3 0xA1 in UTF-8. The device hands over bytes, not characters: a consumer that
+	// decoded each one on its own would produce two replacement characters instead of one letter.
+	Machine m{
+		Instruction::LI(1, 0xC3),
+		Instruction::OUTB(1, TerminalDevice::OutputPort),
+		Instruction::LI(1, 0xA1),
+		Instruction::OUTB(1, TerminalDevice::OutputPort),
+	};
+
+	TerminalDevice terminal{};
+	terminal.attachTo(m.vm().io());
+
+	std::vector<u8> captured;
+	terminal.setOutputSink([&captured](u8 byte) { captured.push_back(byte); });
+
+	m.step(4);
+
+	CHECK_EQ(captured.size(), usize{ 2 });
+	if (captured.size() == 2)
+	{
+		CHECK_EQ(captured[0], u8{ 0xC3 });
+		CHECK_EQ(captured[1], u8{ 0xA1 });
+	}
+}
+
+TEST(devices, the_engine_counts_the_instructions_it_retires)
+{
+	Machine m{
+		Instruction::LI(1, 1),
+		Instruction::LI(2, 2),
+		Instruction::ADD(3, 1, 2),
+	};
+
+	CHECK_EQ(m.vm().engine().executedInstructions(), u64{ 0 });
+	m.step(3);
+	CHECK_EQ(m.vm().engine().executedInstructions(), u64{ 3 });
+
+	// HALT retires like any other instruction, but the idle spins after it do not.
+	m.vm().engine().reset();
+	CHECK_EQ(m.vm().engine().executedInstructions(), u64{ 0 });
+}
+
+TEST(devices, a_debugger_can_write_the_machine_state_back)
+{
+	Machine m{ Instruction::NOP(), Instruction::NOP() };
+	ExecutionEngine& engine = m.vm().engine();
+
+	CHECK(engine.setRegister(3, 0xDEADBEEF));
+	CHECK_EQ(m.reg(3), 0xDEADBEEFu);
+
+	CHECK(engine.setFloatRegister(2, 1.5f));
+	CHECK_EQ(m.vm().engine().fregisters().getValue(2), 1.5f);
+
+	// Out of range is rejected rather than corrupting whatever sits past the array.
+	CHECK(!engine.setRegister(16, 1));
+	CHECK(!engine.setFloatRegister(16, 1.0f));
+
+	const Address target = Memory::UnrestrictedSegmentStart + Address(Instruction::Size);
+	engine.setProgramCounter(target);
+	CHECK_EQ(m.pc().value(), target.value());
+}

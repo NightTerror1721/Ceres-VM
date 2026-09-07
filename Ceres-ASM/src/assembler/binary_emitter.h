@@ -1,6 +1,7 @@
 #pragma once
 
 #include "linker.h"
+#include "debug/debug_info.h"
 #include "vm/program.h"
 #include "vm/instructions.h"
 
@@ -17,6 +18,12 @@ namespace ceres::casm
 		// reportError() below attribute to the right file without threading it through every call.
 		std::string_view _currentFile;
 
+		// Off by default: every instruction emitted adds a line entry, and nothing but a debugger
+		// or an annotated listing has any use for them.
+		bool _emitDebugInfo = false;
+		debug::DebugInfoBuilder _debugBuilder;
+		debug::DebugInfo _debugInfo; // Released from the builder at the end of emit()
+
 	public:
 		BinaryEmitter() = delete;
 		BinaryEmitter(const BinaryEmitter&) noexcept = delete;
@@ -27,8 +34,9 @@ namespace ceres::casm
 		BinaryEmitter& operator=(BinaryEmitter&&) noexcept = default;
 
 	public:
-		explicit BinaryEmitter(AssemblyState& state) noexcept :
-			_state(state)
+		explicit BinaryEmitter(AssemblyState& state, bool emitDebugInfo = false) noexcept :
+			_state(state),
+			_emitDebugInfo(emitDebugInfo)
 		{}
 
 		inline const std::span<const u8> textBuffer() const noexcept { return _textBuffer; }
@@ -40,14 +48,24 @@ namespace ceres::casm
 	public:
 		std::optional<vm::Program> emit();
 
+		// Only meaningful after emit() and only when the emitter was asked for it; empty otherwise.
+		// Moved out rather than copied: the tables are the largest thing the emitter builds.
+		debug::DebugInfo takeDebugInfo() noexcept { return std::move(_debugInfo); }
+
 	private:
 		void emitData(const RelocatableStatement& statement, bool isRodata);
+		void recordDebugSymbols();
 		static inline constexpr usize SectionAlignment = 4;
 
 		void padToAlignment(std::vector<u8>& buffer, u32 alignment);
 		void padSectionToAlignment(std::vector<u8>& buffer, usize unitStart);
 		void emitInstruction(const RelocatableStatement& statement);
 		Address lastSectionAddress(SectionType sectionType);
+
+		// Called once per machine word actually written to .text, so a pseudo-instruction that
+		// expands to three words contributes three entries and the padding NOPs are marked as
+		// such. `flags` carries everything except FirstOfLine, which only the builder can know.
+		void recordDebugLine(const RelocatableStatement& statement, Address address, u16 flags);
 
 	private:
 		template <typename T>

@@ -55,9 +55,11 @@ A handful of literal kinds are not accepted as instruction *operands* today (the
 
 ## No debugger
 
-There is `--listing` (see [CLI and assembly pipeline](16-CLI-and-Assembly-Pipeline.md)), which prints
-a static address/opcode/instruction dump of `.text` — but no interactive stepping, no breakpoints, and
-no way to inspect register/memory state while a program is running.
+The information a debugger needs now exists: `ceres asm --debug` records a line table and a symbol
+table, and `--listing` annotates every word with the source line it came from (see
+[Debug information](21-Debug-Information.md)). What is still missing is the debugger itself — there
+is no interactive stepping, no breakpoints, and no way to inspect register or memory state while a
+program is running.
 
 ## Things that are easy to mistake for bugs, but are intentional
 

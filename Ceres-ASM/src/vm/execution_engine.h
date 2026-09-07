@@ -24,6 +24,11 @@ namespace ceres::vm
 		IOPorts& _ioPorts;
 		InterruptController& _interrupts;
 
+		// Instructions retired since the last reset. The timer already counts in executed
+		// instructions rather than wall clock, so this is the machine's own notion of time and
+		// the only clock a debugger can step against deterministically.
+		u64 _executedInstructions = 0;
+
 	public:
 		explicit ExecutionEngine(Memory& memory, IOPorts& ioPorts, InterruptController& interrupts) :
 			_memory(memory), _ioPorts(ioPorts), _interrupts(interrupts)
@@ -47,6 +52,32 @@ namespace ceres::vm
 		constexpr const FlagRegister& flags() const noexcept { return _flags; }
 		constexpr Address programCounter() const noexcept { return _pc; }
 		constexpr bool isHalted() const noexcept { return _flags.halting(); }
+		constexpr u64 executedInstructions() const noexcept { return _executedInstructions; }
+
+	public:
+		// Write access, for a debugger: setting a register from the editor's variables view,
+		// jumping to the cursor, restoring a snapshot. Kept apart from the read-only block above
+		// and out of the private helpers the instruction handlers use, so a call from inside the
+		// machine itself reads as the mistake it would be. Each one rejects an out-of-range index
+		// rather than trusting a caller that is, by definition, outside the machine.
+		bool setRegister(u8 index, u32 value) noexcept
+		{
+			if (index >= GeneralPurposeRegisterPool::Count)
+				return false;
+			_registers.setValue(index, value);
+			return true;
+		}
+
+		bool setFloatRegister(u8 index, f32 value) noexcept
+		{
+			if (index >= FloatingPointRegisterPool::Count)
+				return false;
+			_fregisters.setValue(index, value);
+			return true;
+		}
+
+		void setFlags(FlagRegister flags) noexcept { _flags = flags; }
+		void setProgramCounter(Address address) noexcept { _pc = address; }
 
 	private:
 		inline void handleReset() noexcept { reset(); }

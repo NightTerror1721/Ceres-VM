@@ -17,7 +17,7 @@ those.
 
 ```sh
 cd Ceres-ASM/src
-g++ -std=c++23 -I. -o ceres main.cpp vm/*.cpp assembler/*.cpp
+g++ -std=c++23 -I. -o ceres main.cpp vm/*.cpp assembler/*.cpp debug/*.cpp
 ```
 
 The test suite is a second executable, `Ceres-ASM/Ceres-ASM-Tests.vcxproj`, or:
@@ -32,9 +32,9 @@ sh tests/build.sh
 
 | Command | What it does |
 | --- | --- |
-| `ceres asm <source.casm> [-o <out.cres>] [--listing]` | Assemble. Without `-o` the source is only checked. |
+| `ceres asm <source.casm> [-o <out.cres>] [--listing] [--debug]` | Assemble. Without `-o` the source is only checked. `--debug` records the line and symbol tables and, with `-o`, appends them to the `.cres`. |
 | `ceres run <file.casm\|file.cres>` | Run, assembling first if given source. `--memory <bytes>` sets the machine size. |
-| `ceres disasm <file.casm\|file.cres>` | Print the text section as address, encoded word and instruction. |
+| `ceres disasm <file.casm\|file.cres> [--debug]` | Print the text section as address, encoded word and instruction. With `--debug`, annotated with the source line each word came from. |
 
 A bare path is shorthand for `run`.
 
@@ -342,11 +342,13 @@ The assembler and the VM work end to end. What is not done:
   until after parsing, so the parser cannot fold them.
 - **`parseOperand` gaps.** Float, character and string literals are not accepted as operands, and
   a `%%label` cannot start a statement outside a macro body.
-- **Debugger.** There is `--listing`, but no stepping or breakpoints.
+- **Debugger.** `--debug` now records where every instruction came from — a line table, a symbol
+  table, and an annotated listing — but there is still no stepping, no breakpoints and no way to
+  inspect a running machine. See [the wiki page](docs/21-Debug-Information.md).
 
 ## Tests
 
-108 cases, 335 assertions, run with `sh tests/build.sh`. CI builds with MSVC and GCC 15 and runs
+123 cases, 458 assertions, run with `sh tests/build.sh`. CI builds with MSVC and GCC 15 and runs
 the suite on both.
 
 A test that pins a bug which is still open is marked `TEST_KNOWN_FAILURE`: it asserts the correct

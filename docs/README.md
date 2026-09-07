@@ -37,6 +37,7 @@ the assembler does internally at each stage of the build.
 17. [Errors and diagnostics](17-Errors-and-Diagnostics.md) — the error message format, `--json` output.
 18. [Annotated examples](18-Annotated-Examples.md) — a line-by-line walkthrough of a full program.
 19. [Known limitations](19-Known-Limitations.md) — what the project doesn't do yet.
+21. [Debug information](21-Debug-Information.md) — the line and symbol tables, `--debug`, and how they ride along in a `.cres`.
 
 ### Learn by doing
 

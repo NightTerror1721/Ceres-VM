@@ -6,6 +6,7 @@ namespace ceres::casm
 	std::optional<vm::Program> Assembler::assemble(std::span<const std::filesystem::path> sourceFiles)
 	{
 		_state.reset();
+		_debugInfo = debug::DebugInfo{};
 		_state = std::make_unique<AssemblyState>(
 			[&](const std::string& filePath) -> OptionalRef<TranslationUnit>
 			{
@@ -109,8 +110,11 @@ namespace ceres::casm
 	{
 		try
 		{
-			BinaryEmitter emitter{ *_state };
-			return emitter.emit();
+			BinaryEmitter emitter{ *_state, _options.emitDebugInfo };
+			auto program = emitter.emit();
+			if (program.has_value())
+				_debugInfo = emitter.takeDebugInfo();
+			return program;
 		}
 		catch (const std::exception& e)
 		{

@@ -151,6 +151,7 @@
     <ClCompile Include="src\assembler\parser.cpp" />
     <ClCompile Include="src\assembler\symbol_table.cpp" />
     <ClCompile Include="src\assembler\translation_unit.cpp" />
+    <ClCompile Include="src\debug\debug_info.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\vm\ceresvm.cpp" />
     <ClCompile Include="src\vm\execution_engine.cpp" />
@@ -189,6 +190,7 @@
     <ClInclude Include="src\common\memory.h" />
     <ClInclude Include="src\common\string_utils.h" />
     <ClInclude Include="src\common\types.h" />
+    <ClInclude Include="src\debug\debug_info.h" />
     <ClInclude Include="src\vm\address.h" />
     <ClInclude Include="src\vm\bios.h" />
     <ClInclude Include="src\vm\ceresvm.h" />

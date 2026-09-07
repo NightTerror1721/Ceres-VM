@@ -20,8 +20,15 @@ back:
 │ .rodata (rodataSize) │
 ├─────────────────────┤
 │ .data   (dataSize)   │
+├─────────────────────┤
+│ debug section (opt.) │
 └─────────────────────┘
 ```
+
+The debug section is present only when `flags` has bit 0 set, which `ceres asm --debug` does. It is
+a little-endian `u32` byte count followed by that many bytes, so a reader with no interest in it can
+skip it without knowing its layout — and a reader that predates it never looks past `.data` at all.
+See [Debug information](21-Debug-Information.md).
 
 `.bss` is **not** present in the file at all — it occupies no space on disk, exactly like an ELF
 `.bss` section. The VM allocates and zero-fills it when the program is loaded.
@@ -54,7 +61,7 @@ struct ProgramHeader
 | --- | --- |
 | `magic` | Always `0x43524553` — the ASCII bytes `CRES`. Loading rejects any file that doesn't start with this. |
 | `version` | Format version; currently always `1`. |
-| `flags` | Reserved for future use; currently unused by the loader. |
+| `flags` | Bit 0 (`ProgramFlags::HasDebugInfo`) says a debug section follows the data section; every other bit is still reserved. See [Debug information](21-Debug-Information.md). |
 | `entryPoint` | The absolute address execution starts at (the resolved address of the `main` label). |
 | `textSize` / `rodataSize` / `dataSize` / `bssSize` | Byte sizes of each section, as computed by the linker (each rounded up to a 4-byte boundary — see [Labels and symbols](12-Labels-and-Symbols.md)). |
 | `minimumStack` | Reserved; not currently populated with a meaningful value by the emitter. |
@@ -108,4 +115,5 @@ in the `.cres` file itself.
 
 - [Memory](02-Memory.md) — the full memory map this format is placed into.
 - [CLI and assembly pipeline](16-CLI-and-Assembly-Pipeline.md) — how `ceres asm`/`run`/`disasm` decide which path to take.
+- [Debug information](21-Debug-Information.md) — the optional trailing section and why it is a flag rather than a version bump.
 - [Labels and symbols](12-Labels-and-Symbols.md) — how the linker computes the sizes stored in the header.

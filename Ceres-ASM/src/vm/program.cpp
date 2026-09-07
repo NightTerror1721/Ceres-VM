@@ -3,18 +3,82 @@
 
 namespace ceres::vm
 {
+	namespace
+	{
+		// Reads the optional trailing debug section. A truncated one is dropped rather than
+		// failing the load: nothing needs it to run the program, so a half-copied file should
+		// still execute — it just cannot be debugged.
+		std::vector<Program::ByteType> readDebugSection(std::istream& stream, const ProgramHeader& header)
+		{
+			if ((header.flags & ProgramFlags::HasDebugInfo) == 0)
+				return {};
+
+			Program::ByteType lengthPrefix[4]{};
+			stream.read(reinterpret_cast<char*>(lengthPrefix), sizeof(lengthPrefix));
+			if (!stream)
+				return {};
+
+			const u32 size =
+				static_cast<u32>(lengthPrefix[0]) |
+				(static_cast<u32>(lengthPrefix[1]) << 8) |
+				(static_cast<u32>(lengthPrefix[2]) << 16) |
+				(static_cast<u32>(lengthPrefix[3]) << 24);
+
+			if (size == 0)
+				return {};
+
+			std::vector<Program::ByteType> section(size);
+			stream.read(reinterpret_cast<char*>(section.data()), size);
+			if (!stream)
+				return {};
+
+			return section;
+		}
+
+		std::vector<Program::ByteType> readDebugSection(std::span<const Program::ByteType> bytes, usize offset, const ProgramHeader& header)
+		{
+			if ((header.flags & ProgramFlags::HasDebugInfo) == 0)
+				return {};
+
+			if (offset + sizeof(u32) > bytes.size())
+				return {};
+
+			const u32 size =
+				static_cast<u32>(bytes[offset]) |
+				(static_cast<u32>(bytes[offset + 1]) << 8) |
+				(static_cast<u32>(bytes[offset + 2]) << 16) |
+				(static_cast<u32>(bytes[offset + 3]) << 24);
+
+			const usize start = offset + sizeof(u32);
+			if (size == 0 || start + size > bytes.size())
+				return {};
+
+			return std::vector<Program::ByteType>(bytes.begin() + start, bytes.begin() + start + size);
+		}
+	}
+
 	Program Program::make(
 		const ProgramHeader& header,
 		std::span<const ByteType> text,
 		std::span<const ByteType> rodata,
-		std::span<const ByteType> data
+		std::span<const ByteType> data,
+		std::span<const ByteType> debugSection
 	)
 	{
+		// The flag is derived from what was actually handed over rather than trusted from the
+		// caller's header, so the two can never disagree about whether a debug section is there.
+		ProgramHeader adjusted = header;
+		if (debugSection.empty())
+			adjusted.flags &= static_cast<u16>(~ProgramFlags::HasDebugInfo);
+		else
+			adjusted.flags |= ProgramFlags::HasDebugInfo;
+
 		return Program(
-			header,
+			adjusted,
 			std::vector<ByteType>(text.begin(), text.end()),
 			std::vector<ByteType>(rodata.begin(), rodata.end()),
-			std::vector<ByteType>(data.begin(), data.end())
+			std::vector<ByteType>(data.begin(), data.end()),
+			std::vector<ByteType>(debugSection.begin(), debugSection.end())
 		);
 	}
 
@@ -35,6 +99,21 @@ namespace ceres::vm
 		writeSection(_text);
 		writeSection(_rodata);
 		writeSection(_data);
+
+		// Last, and behind a length prefix, so a reader that does not care about debug information
+		// never has to look at it and a reader that does never has to guess where it ends.
+		if (!_debugSection.empty())
+		{
+			const u32 size = static_cast<u32>(_debugSection.size());
+			const char lengthPrefix[4] = {
+				static_cast<char>(size & 0xFF),
+				static_cast<char>((size >> 8) & 0xFF),
+				static_cast<char>((size >> 16) & 0xFF),
+				static_cast<char>((size >> 24) & 0xFF)
+			};
+			stream.write(lengthPrefix, sizeof(lengthPrefix));
+			stream.write(reinterpret_cast<const char*>(_debugSection.data()), static_cast<std::streamsize>(_debugSection.size()));
+		}
 
 		if (!stream)
 			return std::unexpected("Failed while writing the program");
@@ -83,7 +162,7 @@ namespace ceres::vm
 		if (!file)
 			return std::unexpected("Failed to read data segment from file: " + filePath.string());
 
-		return Program(header, std::move(text), std::move(rodata), std::move(data));
+		return Program(header, std::move(text), std::move(rodata), std::move(data), readDebugSection(file, header));
 	}
 
 	std::expected<Program, std::string> Program::loadFromBytes(std::span<const ByteType> bytes)
@@ -111,7 +190,7 @@ namespace ceres::vm
 		std::vector<Program::ByteType> data(header->dataSize);
 		std::copy(bytes.data() + sizeof(ProgramHeader) + header->textSize + header->rodataSize, bytes.data() + expectedSize, data.begin());
 
-		return Program(*header, std::move(text), std::move(rodata), std::move(data));
+		return Program(*header, std::move(text), std::move(rodata), std::move(data), readDebugSection(bytes, expectedSize, *header));
 	}
 
 	std::expected<Program, std::string> Program::loadFromStream(std::istream& stream)
@@ -148,7 +227,7 @@ namespace ceres::vm
 		if (!stream)
 			return std::unexpected("Failed to read data segment from stream");
 
-		return Program(header, std::move(text), std::move(rodata), std::move(data));
+		return Program(header, std::move(text), std::move(rodata), std::move(data), readDebugSection(stream, header));
 	}
 
 	std::expected<Program, std::string> Program::loadFromMemory(const void* memory, usize size)
@@ -178,7 +257,8 @@ namespace ceres::vm
 		std::vector<Program::ByteType> data(header->dataSize);
 		std::copy(basePtr + sizeof(ProgramHeader) + header->textSize + header->rodataSize, basePtr + expectedSize, data.begin());
 
-		return Program(*header, std::move(text), std::move(rodata), std::move(data));
+		return Program(*header, std::move(text), std::move(rodata), std::move(data),
+			readDebugSection(std::span<const ByteType>(basePtr, size), expectedSize, *header));
 	}
 
 	std::expected<Program, std::string> Program::loadFromString(const std::string& str)

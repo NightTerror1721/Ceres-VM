@@ -52,6 +52,6 @@ jobs:
           CXX: g++-15
         run: |
           cd Ceres-ASM/src
-          $CXX -std=c++23 -Wall -Wextra -Wno-unused-parameter -I. -o ../../ceres main.cpp vm/*.cpp assembler/*.cpp
+          $CXX -std=c++23 -Wall -Wextra -Wno-unused-parameter -I. -o ../../ceres main.cpp vm/*.cpp assembler/*.cpp debug/*.cpp
           cd ../..
           cd Ceres-ASM && ../ceres examples/main.casm

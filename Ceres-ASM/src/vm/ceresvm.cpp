@@ -4,7 +4,7 @@ namespace ceres::vm
 {
 	std::expected<void, std::string> CeresVM::loadProgram(const Program& program) noexcept
 	{
-		if (_isPoweredOn)
+		if (isPoweredOn())
 			return std::unexpected("Cannot load a program while the VM is powered on. Please reset the VM before loading a new program.");
 
 		const ProgramHeader& header = program.header();
@@ -54,12 +54,12 @@ namespace ceres::vm
 
 	std::expected<void, std::string> CeresVM::run() noexcept
 	{
-		if (_isPoweredOn)
+		if (isPoweredOn())
 			return std::unexpected("VM is already powered on. Please reset the VM before running a new program.");
 
-		_isPoweredOn = true;
+		_isPoweredOn.store(true, std::memory_order_release);
 
-		while (_isPoweredOn)
+		while (isPoweredOn())
 			_engine.step();
 
 		return {};

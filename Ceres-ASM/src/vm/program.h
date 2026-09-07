@@ -29,6 +29,19 @@ namespace ceres::vm
 	};
 	#pragma pack(pop)
 
+	// Bits of ProgramHeader::flags, which was reserved and unused until debug information needed
+	// somewhere to announce itself. Using a flag rather than raising `version` is deliberate: the
+	// version check rejects anything newer than it knows, so a `ceres` built before this change
+	// would refuse a file it can in fact run perfectly well, whereas a flag it does not recognise
+	// simply leaves the trailing bytes unread.
+	namespace ProgramFlags
+	{
+		// A debug section follows the data section: a little-endian u32 byte count, then that many
+		// bytes. The count is written here rather than inside the section so that Program can skip
+		// or capture it without knowing anything about its contents.
+		inline constexpr u16 HasDebugInfo = 1 << 0;
+	}
+
 	class Program
 	{
 	public:
@@ -39,6 +52,9 @@ namespace ceres::vm
 		std::vector<ByteType> _text;
 		std::vector<ByteType> _rodata;
 		std::vector<ByteType> _data;
+		// Opaque here on purpose: its layout belongs to ceres::debug, and the VM has no business
+		// knowing it. Program only has to carry it from one end of a file to the other.
+		std::vector<ByteType> _debugSection;
 
 	public:
 		Program() = delete;
@@ -50,11 +66,12 @@ namespace ceres::vm
 		Program& operator=(Program&&) = default;
 
 	private:
-		Program(const ProgramHeader& header, std::vector<ByteType>&& text, std::vector<ByteType>&& rodata, std::vector<ByteType>&& data) :
+		Program(const ProgramHeader& header, std::vector<ByteType>&& text, std::vector<ByteType>&& rodata, std::vector<ByteType>&& data, std::vector<ByteType>&& debugSection = {}) :
 			_header(header),
 			_text(std::move(text)),
 			_rodata(std::move(rodata)),
-			_data(std::move(data))
+			_data(std::move(data)),
+			_debugSection(std::move(debugSection))
 		{}
 
 	public:
@@ -63,12 +80,16 @@ namespace ceres::vm
 		std::span<const ByteType> rodata() const noexcept { return _rodata; }
 		std::span<const ByteType> data() const noexcept { return _data; }
 
+		bool hasDebugSection() const noexcept { return !_debugSection.empty(); }
+		std::span<const ByteType> debugSection() const noexcept { return _debugSection; }
+
 	public:
 		static Program make(
 			const ProgramHeader& header,
 			std::span<const ByteType> text,
 			std::span<const ByteType> rodata,
-			std::span<const ByteType> data
+			std::span<const ByteType> data,
+			std::span<const ByteType> debugSection = {}
 		);
 
 		// Program could be loaded five different ways and written none, which is why the assembler

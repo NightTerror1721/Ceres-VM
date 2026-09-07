@@ -120,6 +120,9 @@ namespace ceres::vm
 
 	class FloatingPointRegisterPool
 	{
+	public:
+		// Public, like GeneralPurposeRegisterPool::Count: anything outside the machine that
+		// indexes the bank - a debugger, a register view - has to be able to bound-check first.
 		static inline constexpr usize Count = GeneralPurposeRegisterPool::Count;
 		static inline constexpr usize Size = Count * FloatingPointRegister::Size;
 

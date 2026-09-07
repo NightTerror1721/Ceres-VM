@@ -5,6 +5,7 @@
 #include "linker.h"
 #include "binary_emitter.h"
 #include "assembly_state.h"
+#include "debug/debug_info.h"
 #include <filesystem>
 #include <vector>
 #include <memory>
@@ -14,6 +15,9 @@ namespace ceres::casm
 	struct AssemblerOptions
 	{
 		std::filesystem::path outputPath;
+		// Costs an extra table the size of .text and is of no use to a plain build, so the caller
+		// has to ask (ceres asm --debug, or anything that is about to start a debug session).
+		bool emitDebugInfo = false;
 	};
 
 	class Assembler
@@ -21,6 +25,9 @@ namespace ceres::casm
 	private:
 		AssemblerOptions _options;
 		std::unique_ptr<AssemblyState> _state = nullptr;
+		// Outlives _state deliberately: the tables own their strings, so the debug information
+		// stays usable after the assembly state that produced it has been thrown away.
+		debug::DebugInfo _debugInfo;
 
 	public:
 		Assembler() = default;
@@ -46,6 +53,9 @@ namespace ceres::casm
 		{
 			return assemble(std::span<const std::filesystem::path>(sourceFiles));
 		}
+
+		// Empty unless AssemblerOptions::emitDebugInfo was set and assemble() succeeded.
+		const debug::DebugInfo& debugInfo() const noexcept { return _debugInfo; }
 
 		bool hasErrors() const noexcept { return _state ? _state->errorHandler().hasErrors() : false; }
 		std::span<const AssemblerErrorEntry> errors() const noexcept { return _state ? _state->errorHandler().errors() : std::span<const AssemblerErrorEntry>{}; }

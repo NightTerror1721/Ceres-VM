@@ -27,6 +27,11 @@ namespace ceres::casm
 	private:
 		std::string_view _file; // View into AssemblyState's interned path storage (see Statement::_file)
 		u32 _line; // Line number in the source code where the statement is located
+		// Carried through from Statement: where the user's own code is, as opposed to where the
+		// instruction was written. See Statement::_expansionFile.
+		std::string_view _expansionFile;
+		u32 _expansionLine = 0;
+		u16 _macroDepth = 0; // 0 for a statement written by hand
 		u32 _size = 0; // Size of the statement in bytes (set during assembly)
 		std::optional<vm::Address> _address; // Address in program memory where the statement will be located (set during assembly)
 		RelocatableStatementVariant _value;
@@ -58,6 +63,20 @@ namespace ceres::casm
 	public:
 		constexpr std::string_view file() const noexcept { return _file; }
 		constexpr u32 line() const noexcept { return _line; }
+
+		// Empty/zero means the statement was never macro-expanded, in which case the expansion
+		// site *is* the statement's own site. Resolving that here keeps every caller from having
+		// to remember the special case.
+		constexpr std::string_view expansionFile() const noexcept { return _expansionFile.empty() ? _file : _expansionFile; }
+		constexpr u32 expansionLine() const noexcept { return _expansionLine == 0 ? _line : _expansionLine; }
+		constexpr u16 macroDepth() const noexcept { return _macroDepth; }
+
+		constexpr void setExpansionSite(std::string_view file, u32 line, u16 macroDepth) noexcept
+		{
+			_expansionFile = file;
+			_expansionLine = line;
+			_macroDepth = macroDepth;
+		}
 
 		constexpr bool hasAddress() const noexcept { return _address.has_value(); }
 		constexpr vm::Address address() const noexcept { return _address.value(); }

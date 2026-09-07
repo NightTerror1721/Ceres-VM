@@ -4,6 +4,7 @@
 #include "interrupt_controller.h"
 #include "bios.h"
 #include "program.h"
+#include <atomic>
 #include <expected>
 #include <string>
 
@@ -18,7 +19,10 @@ namespace ceres::vm
 		BIOS _bios;
 		ExecutionEngine _engine;
 
-		bool _isPoweredOn = false;
+		// Atomic because it is the machine's only stop signal, and the thread that sets it is not
+		// always the thread running the step loop: a debugger's "pause" arrives from whatever
+		// thread is servicing the editor while run() is still spinning.
+		std::atomic<bool> _isPoweredOn{ false };
 
 	public:
 		explicit CeresVM(usize memorySize = Memory::DefaultSize) :
@@ -40,8 +44,8 @@ namespace ceres::vm
 		std::expected<void, std::string> run() noexcept;
 
 	public:
-		constexpr bool isPoweredOn() const noexcept { return _isPoweredOn; }
-		constexpr void shutdown() noexcept { _isPoweredOn = false; }
+		bool isPoweredOn() const noexcept { return _isPoweredOn.load(std::memory_order_acquire); }
+		void shutdown() noexcept { _isPoweredOn.store(false, std::memory_order_release); }
 
 		IOPorts& io() noexcept { return _ioPorts; }
 		InterruptController& interrupts() noexcept { return _interrupts; }

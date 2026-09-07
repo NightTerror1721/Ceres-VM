@@ -5,6 +5,7 @@
 // is a public API decision, and these tests do not need to make it.
 
 #include "assembler/assembler.h"
+#include "debug/debug_info.h"
 #include "vm/disassembler.h"
 #include "vm/memory.h"
 #include <filesystem>
@@ -19,6 +20,10 @@ namespace ceres::testing
 	{
 		std::optional<vm::Program> program;
 		std::vector<std::string> errors;
+		// Empty unless assembleSource was asked for debug information. The path is kept because
+		// the line table is keyed on it and the temporary file is gone by the time a test looks.
+		debug::DebugInfo debugInfo;
+		std::string sourcePath;
 
 		bool ok() const noexcept { return program.has_value() && errors.empty(); }
 
@@ -61,12 +66,13 @@ namespace ceres::testing
 		}
 	};
 
-	inline AssembleResult assembleSource(std::string_view source, std::string_view fileStem = "snippet")
+	inline AssembleResult assembleSource(std::string_view source, std::string_view fileStem = "snippet", bool withDebugInfo = false)
 	{
 		AssembleResult result;
 
 		std::filesystem::path path =
 			std::filesystem::temp_directory_path() / std::format("ceres_test_{}.casm", fileStem);
+		result.sourcePath = path.string();
 
 		{
 			std::ofstream file(path, std::ios::binary | std::ios::trunc);
@@ -78,8 +84,9 @@ namespace ceres::testing
 			file.write(source.data(), static_cast<std::streamsize>(source.size()));
 		}
 
-		casm::Assembler assembler{};
+		casm::Assembler assembler{ casm::AssemblerOptions{ .emitDebugInfo = withDebugInfo } };
 		result.program = assembler.assemble({ path });
+		result.debugInfo = assembler.debugInfo();
 		for (const auto& error : assembler.errors())
 			result.errors.push_back(std::format("[line {}] {}", error.line, error.message));
 

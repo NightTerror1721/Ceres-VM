@@ -11,6 +11,7 @@
 #include "vm/devices.h"
 #include "vm/disassembler.h"
 #include "assembler/assembler.h"
+#include "debug/debug_info.h"
 
 namespace
 {
@@ -21,16 +22,21 @@ namespace
 		"Ceres - assembler and virtual machine\n"
 		"\n"
 		"  ceres asm <source.casm> [<source2.casm> ...] [-o <output.cres>] [--listing] [--json]\n"
+		"                          [--debug] [--emit-debug-json]\n"
 		"      Assemble one or more source files into a single linked program.\n"
 		"      Without -o the program is only checked.\n"
 		"      --json prints diagnostics as a JSON array on stdout instead of\n"
 		"      human-readable text on stderr, for editor tooling.\n"
+		"      --debug records the line and symbol tables; with -o they are appended\n"
+		"      to the .cres file. --emit-debug-json prints them on stdout as JSON and\n"
+		"      implies --debug.\n"
 		"\n"
 		"  ceres run <file.casm|file.cres> [--memory <bytes>]\n"
 		"      Run a program, assembling it first if given a source file.\n"
 		"\n"
-		"  ceres disasm <file.casm|file.cres>\n"
+		"  ceres disasm <file.casm|file.cres> [--debug]\n"
 		"      Print the text section as address, encoded word and instruction.\n"
+		"      With --debug, annotated with the source file and line each word came from.\n"
 		"\n"
 		"A bare path is shorthand for 'run'.\n";
 
@@ -106,22 +112,17 @@ namespace
 		std::cout << "]\n";
 	}
 
-	std::optional<Program> assembleFile(const std::filesystem::path& path)
+	// A program together with whatever could be learned about where its instructions came from.
+	// The debug information is empty unless it was asked for and actually available.
+	struct LoadedProgram
 	{
-		casm::Assembler assembler{};
-		auto program = assembler.assemble({ path });
-
-		if (!program.has_value() || assembler.hasErrors())
-		{
-			reportAssemblyErrors(assembler, path);
-			return std::nullopt;
-		}
-		return program;
-	}
+		Program program;
+		debug::DebugInfo debugInfo;
+	};
 
 	// A .cres is loaded as-is; anything else is assembled first. Keeps every command able to take
 	// either form without the caller having to care.
-	std::optional<Program> loadProgram(const std::filesystem::path& path)
+	std::optional<LoadedProgram> loadProgram(const std::filesystem::path& path, bool wantDebugInfo)
 	{
 		if (path.extension() == ".cres")
 		{
@@ -131,13 +132,35 @@ namespace
 				std::cerr << "Failed to load " << path.string() << ": " << loaded.error() << '\n';
 				return std::nullopt;
 			}
-			return std::move(loaded.value());
+
+			debug::DebugInfo debugInfo;
+			if (wantDebugInfo && loaded->hasDebugSection())
+			{
+				// A file whose debug section this build cannot read is still perfectly runnable,
+				// so this is a warning rather than a failure to load.
+				auto parsed = debug::DebugInfo::deserialize(loaded->debugSection());
+				if (parsed.has_value())
+					debugInfo = std::move(parsed.value());
+				else
+					std::cerr << "Ignoring debug section in " << path.string() << ": " << parsed.error() << '\n';
+			}
+
+			return LoadedProgram{ std::move(loaded.value()), std::move(debugInfo) };
 		}
 
-		return assembleFile(path);
+		casm::Assembler assembler{ casm::AssemblerOptions{ .emitDebugInfo = wantDebugInfo } };
+		auto program = assembler.assemble({ path });
+
+		if (!program.has_value() || assembler.hasErrors())
+		{
+			reportAssemblyErrors(assembler, path);
+			return std::nullopt;
+		}
+
+		return LoadedProgram{ std::move(program.value()), assembler.debugInfo() };
 	}
 
-	void printListing(const Program& program, const std::filesystem::path& path)
+	void printListing(const Program& program, const std::filesystem::path& path, const debug::DebugInfo& debugInfo)
 	{
 		const ProgramHeader& header = program.header();
 		std::cout << "; " << path.string()
@@ -146,7 +169,46 @@ namespace
 			<< "  data=" << header.dataSize
 			<< "  bss=" << header.bssSize
 			<< "  entry=0x" << std::hex << header.entryPoint << std::dec << '\n';
-		std::cout << Disassembler::listing(program.text(), Memory::UnrestrictedSegmentStart);
+
+		if (debugInfo.isEmpty())
+		{
+			std::cout << Disassembler::listing(program.text(), Memory::UnrestrictedSegmentStart);
+			return;
+		}
+
+		// The same three columns as the plain listing, plus where each word came from. The location
+		// shown is the expansion site, so a macro call reads as the one line the programmer wrote
+		// rather than as a run of lines from somewhere inside the macro's body.
+		const auto text = program.text();
+		const usize count = text.size() / Instruction::Size;
+		for (usize i = 0; i < count; ++i)
+		{
+			const usize offset = i * Instruction::Size;
+			const u32 address = Memory::UnrestrictedSegmentStart.value() + static_cast<u32>(offset);
+			const Instruction::RawType raw =
+				static_cast<Instruction::RawType>(text[offset]) |
+				(static_cast<Instruction::RawType>(text[offset + 1]) << 8) |
+				(static_cast<Instruction::RawType>(text[offset + 2]) << 16) |
+				(static_cast<Instruction::RawType>(text[offset + 3]) << 24);
+
+			std::cout << std::format("{:08x}  {:08x}  {:<28}",
+				address, raw, Disassembler::disassemble(Instruction(raw)));
+
+			if (const auto location = debugInfo.locationOf(address); location.has_value())
+			{
+				std::cout << std::format("; {}:{}{}{}",
+					std::filesystem::path(location->expansionFile).filename().string(),
+					location->expansionLine,
+					location->isMacroExpansion() ? " (macro)" : "",
+					location->isPadding() ? " (padding)" : "");
+			}
+
+			std::cout << '\n';
+		}
+
+		if (const usize remainder = text.size() % Instruction::Size; remainder != 0)
+			std::cout << std::format("{:08x}  <{} trailing byte(s)>\n",
+				Memory::UnrestrictedSegmentStart.value() + static_cast<u32>(count * Instruction::Size), remainder);
 	}
 
 	int runProgram(const Program& program, usize memorySize)
@@ -206,6 +268,8 @@ namespace
 		std::filesystem::path output;
 		bool listing = false;
 		bool json = false;
+		bool debugInfo = false;
+		bool debugJson = false;
 		usize memorySize = Memory::DefaultSize;
 	};
 
@@ -236,6 +300,16 @@ namespace
 			else if (argument == "--json")
 			{
 				options.json = true;
+			}
+			else if (argument == "--debug")
+			{
+				options.debugInfo = true;
+			}
+			else if (argument == "--emit-debug-json")
+			{
+				// Asking to see the tables is asking for them to be built.
+				options.debugJson = true;
+				options.debugInfo = true;
 			}
 			else if (argument == "--memory")
 			{
@@ -319,7 +393,7 @@ int main(int argc, char** argv)
 
 	if (options.command == "asm")
 	{
-		casm::Assembler assembler{};
+		casm::Assembler assembler{ casm::AssemblerOptions{ .emitDebugInfo = options.debugInfo } };
 		auto program = assembler.assemble(options.inputs);
 		const bool failed = !program.has_value() || assembler.hasErrors();
 
@@ -332,7 +406,10 @@ int main(int argc, char** argv)
 			return 1;
 
 		if (options.listing)
-			printListing(program.value(), options.inputs.front());
+			printListing(program.value(), options.inputs.front(), assembler.debugInfo());
+
+		if (options.debugJson)
+			std::cout << assembler.debugInfo().toJson() << '\n';
 
 		if (!options.output.empty())
 		{
@@ -349,21 +426,25 @@ int main(int argc, char** argv)
 
 	if (options.command == "disasm")
 	{
-		auto program = loadProgram(options.inputs.front());
-		if (!program.has_value())
+		auto loaded = loadProgram(options.inputs.front(), options.debugInfo);
+		if (!loaded.has_value())
 			return 1;
 
-		printListing(program.value(), options.inputs.front());
+		printListing(loaded->program, options.inputs.front(), loaded->debugInfo);
+
+		if (options.debugJson)
+			std::cout << loaded->debugInfo.toJson() << '\n';
+
 		return 0;
 	}
 
 	// run
-	auto program = loadProgram(options.inputs.front());
-	if (!program.has_value())
+	auto loaded = loadProgram(options.inputs.front(), options.debugInfo);
+	if (!loaded.has_value())
 		return 1;
 
 	if (options.listing)
-		printListing(program.value(), options.inputs.front());
+		printListing(loaded->program, options.inputs.front(), loaded->debugInfo);
 
-	return runProgram(program.value(), options.memorySize);
+	return runProgram(loaded->program, options.memorySize);
 }

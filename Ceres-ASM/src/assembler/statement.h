@@ -91,6 +91,13 @@ namespace ceres::casm
 		// statement, the file the macro body itself came from).
 		std::string_view _file;
 		u32 _line = 0; // Line number in the source code where the statement is located
+		// Where the *user's own code* is, which for a macro-expanded statement is the call site
+		// rather than the macro body above. Equal to _file/_line for anything written by hand.
+		// A debugger steps through these: stepping through _file/_line instead would bounce the
+		// cursor back into the macro's definition on every expanded instruction. Views into the
+		// same interned path storage as _file.
+		std::string_view _expansionFile;
+		u32 _expansionLine = 0;
 		StatementVariant _value;
 
 	public:
@@ -106,12 +113,25 @@ namespace ceres::casm
 		 explicit Statement(std::string_view file, u32 line, StatementVariant&& value) noexcept :
 			 _file(file),
 			 _line(line),
+			 _expansionFile(file),
+			 _expansionLine(line),
 			_value(std::move(value))
 		 {}
 
 	public:
 		constexpr std::string_view file() const noexcept { return _file; }
 		constexpr u32 line() const noexcept { return _line; }
+
+		constexpr std::string_view expansionFile() const noexcept { return _expansionFile; }
+		constexpr u32 expansionLine() const noexcept { return _expansionLine; }
+
+		// Called on every statement a macro expansion produces, with the site of the outermost
+		// call: a macro invoking another macro still lands the user on the line they wrote.
+		constexpr void setExpansionSite(std::string_view file, u32 line) noexcept
+		{
+			_expansionFile = file;
+			_expansionLine = line;
+		}
 
 		constexpr bool isSection() const noexcept { return std::holds_alternative<SectionStatement>(_value); }
 		constexpr bool isLabel() const noexcept { return std::holds_alternative<LabelStatement>(_value); }

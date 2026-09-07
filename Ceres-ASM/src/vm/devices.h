@@ -231,10 +231,18 @@ namespace ceres::vm
 		static inline constexpr u8 TxReadyMask = 0x02; // Bit 1 indicates if the terminal is ready to accept output (always ready in this simple implementation).
 		static inline constexpr usize MaxInputBufferSize = 64; // Maximum size of the input buffer.
 
+	public:
+		// Where a byte written to the output port ends up. `ceres run` leaves it empty and the
+		// bytes go to stdout, which is what a plain terminal program wants; a debugger installs
+		// one so the program's output can be forwarded to the editor instead of racing with a
+		// protocol sharing that same stream.
+		using OutputSink = std::function<void(u8)>;
+
 	private:
 		std::array<u8, MaxInputBufferSize> _buffer{};
 		std::atomic<usize> _head{0};
 		std::atomic<usize> _tail{0};
+		OutputSink _outputSink;
 
 	public:
 		TerminalDevice() = default;
@@ -286,6 +294,28 @@ namespace ceres::vm
 		void pushInput(char input)
 		{
 			pushInput(std::string_view(&input, 1));
+		}
+
+		void setOutputSink(OutputSink sink) { _outputSink = std::move(sink); }
+		void clearOutputSink() { _outputSink = nullptr; }
+
+	private:
+		// The single place output leaves the device. Bytes are handed over one at a time and
+		// deliberately not decoded here: a multi-byte UTF-8 sequence is written by the program as
+		// several separate port writes, so only the consumer knows where a character ends.
+		void emitByte(u8 value)
+		{
+			if (_outputSink)
+			{
+				_outputSink(value);
+				return;
+			}
+
+			// Cast to char (not just u8) so std::format picks the character formatter: the
+			// integer formatter's 'c' presentation additionally demands the value fit in a
+			// *signed* char, which throws format_error and aborts the process for any byte
+			// >= 0x80 — i.e. any accented letter or multi-byte UTF-8 sequence.
+			std::print("{:c}", static_cast<char>(value));
 		}
 
 	public:
@@ -355,25 +385,25 @@ namespace ceres::vm
 		{
 			if (port == OutputPort)
 			{
-				std::print("{:c}", value); // Output the byte as a character to the terminal.
+				emitByte(value);
 			}
 		}
 		void writePortHalfword(PortNumber port, u16 value) override
 		{
 			if (port == OutputPort)
 			{
-				std::print("{:c}", static_cast<char>(value & 0xFF)); // Output the lower byte as a character.
-				std::print("{:c}", static_cast<char>((value >> 8) & 0xFF)); // Output the upper byte as a character.
+				emitByte(static_cast<u8>(value & 0xFF)); // Output the lower byte as a character.
+				emitByte(static_cast<u8>((value >> 8) & 0xFF)); // Output the upper byte as a character.
 			}
 		}
 		void writePortWord(PortNumber port, u32 value) override
 		{
 			if (port == OutputPort)
 			{
-				std::print("{:c}", static_cast<char>(value & 0xFF)); // Output the lowest byte as a character.
-				std::print("{:c}", static_cast<char>((value >> 8) & 0xFF)); // Output the second byte as a character.
-				std::print("{:c}", static_cast<char>((value >> 16) & 0xFF)); // Output the third byte as a character.
-				std::print("{:c}", static_cast<char>((value >> 24) & 0xFF)); // Output the highest byte as a character.
+				emitByte(static_cast<u8>(value & 0xFF)); // Output the lowest byte as a character.
+				emitByte(static_cast<u8>((value >> 8) & 0xFF)); // Output the second byte as a character.
+				emitByte(static_cast<u8>((value >> 16) & 0xFF)); // Output the third byte as a character.
+				emitByte(static_cast<u8>((value >> 24) & 0xFF)); // Output the highest byte as a character.
 			}
 		}
 		void writePort(PortNumber port, Address address, u32 size) override
@@ -382,7 +412,7 @@ namespace ceres::vm
 			{
 				auto buffer = memory().peekMutBytes(address, size);
 				for (u32 i = 0; i < buffer.size(); ++i)
-					std::print("{:c}", buffer[i]); // Output each byte as a character to the terminal.
+					emitByte(buffer[i]); // Output each byte as a character to the terminal.
 			}
 		}
 	};

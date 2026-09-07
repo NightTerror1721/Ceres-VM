@@ -139,7 +139,7 @@ namespace ceres::casm
 	private:
 		void processStatement(Statement& statement, u32 expansionDepth);
 
-		std::vector<Statement> expandMacroCall(u32 line, const MacroCallStatement& call, u32 expansionDepth);
+		std::vector<Statement> expandMacroCall(const Statement& callStatement, u32 expansionDepth);
 		Statement substituteMacroStatement(const Statement& statement, const Macro& macro, const MacroCallStatement& call, u32 instanceId);
 		Operand substituteMacroOperand(u32 line, const Operand& operand, const Macro& macro, const MacroCallStatement& call, u32 instanceId);
 		Identifier makeHygienicLabel(Identifier macroLabel, u32 instanceId);

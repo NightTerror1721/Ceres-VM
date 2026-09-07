@@ -6,7 +6,7 @@
 
 ```bash
 cd Ceres-ASM/src
-g++ -std=c++23 -I. -o ceres main.cpp vm/*.cpp assembler/*.cpp
+g++ -std=c++23 -I. -o ceres main.cpp vm/*.cpp assembler/*.cpp debug/*.cpp
 ```
 
 (`std::print` needs `-lstdc++exp` on MinGW.) MSVC builds from
@@ -19,9 +19,9 @@ from the command line.
 
 | Command | What it does |
 | --- | --- |
-| `ceres asm <source.casm> [-o <output.cres>] [--listing] [--json]` | Assembles a source file. Without `-o`, the source is only checked (parsed, translated, linked, emitted in memory) and discarded — useful as a pure syntax/semantics check. |
+| `ceres asm <source.casm> [-o <output.cres>] [--listing] [--json] [--debug] [--emit-debug-json]` | Assembles a source file. Without `-o`, the source is only checked (parsed, translated, linked, emitted in memory) and discarded — useful as a pure syntax/semantics check. |
 | `ceres run <file.casm\|file.cres> [--memory <bytes>]` | Runs a program, assembling it first if given a `.casm` source file. |
-| `ceres disasm <file.casm\|file.cres>` | Prints the `.text` section as address, encoded word, and disassembled instruction, one per line. |
+| `ceres disasm <file.casm\|file.cres> [--debug]` | Prints the `.text` section as address, encoded word, and disassembled instruction, one per line. |
 | *(bare path)* | Shorthand for `run` — `ceres program.casm` is exactly `ceres run program.casm`. |
 
 Global flags:
@@ -29,8 +29,10 @@ Global flags:
 | Flag | Applies to | Effect |
 | --- | --- | --- |
 | `-o <path>` / `--output <path>` | `asm` | Write the assembled `.cres` to `<path>`. Without it, `asm` only validates and reports errors. |
-| `--listing` | `asm`, `run` | Print an address/opcode/instruction listing of `.text` (via the disassembler) before running/after assembling. |
+| `--listing` | `asm`, `run` | Print an address/opcode/instruction listing of `.text` (via the disassembler) before running/after assembling. Gains a source-location column when combined with `--debug`. |
 | `--json` | `asm` | Print diagnostics as a JSON array on stdout instead of human-readable text on stderr — meant for editor tooling to parse. See [Errors and diagnostics](17-Errors-and-Diagnostics.md). |
+| `--debug` | `asm`, `run`, `disasm` | Build the line and symbol tables (see [Debug information](21-Debug-Information.md)). With `-o`, they are appended to the `.cres`. With `--listing`, each word is annotated with the source line it came from. On `disasm` of a `.cres`, reads back the tables the file already carries. |
+| `--emit-debug-json` | `asm`, `disasm` | Print the debug tables as JSON on stdout. Implies `--debug`. |
 | `--memory <bytes>` | `run` | Overrides the VM's memory size (default 16 MiB — see [Memory](02-Memory.md)). |
 | `-h` / `--help` | any | Prints usage and exits. |
 
@@ -51,6 +53,7 @@ stages in order, stopping at the first one that reports an error:
 4. Emit
         BinaryEmitter: walk the fully-resolved AST and write out the final
         .text / .rodata / .data byte buffers, producing a vm::Program
+        (and, when asked, the debug tables built from that same walk)
 ```
 
 ### 1. Parsing (per file)

@@ -3,6 +3,26 @@
 
 namespace ceres::casm
 {
+	namespace
+	{
+		// The two enumerations happen to agree today, but debug::ScalarType is a file format and
+		// DataTypeScalarCode is an implementation detail, so they are translated rather than cast.
+		u8 toDebugScalarType(DataTypeScalarCode code) noexcept
+		{
+			switch (code)
+			{
+				case DataTypeScalarCode::U8:  return static_cast<u8>(debug::ScalarType::U8);
+				case DataTypeScalarCode::U16: return static_cast<u8>(debug::ScalarType::U16);
+				case DataTypeScalarCode::U32: return static_cast<u8>(debug::ScalarType::U32);
+				case DataTypeScalarCode::I8:  return static_cast<u8>(debug::ScalarType::I8);
+				case DataTypeScalarCode::I16: return static_cast<u8>(debug::ScalarType::I16);
+				case DataTypeScalarCode::I32: return static_cast<u8>(debug::ScalarType::I32);
+				case DataTypeScalarCode::F32: return static_cast<u8>(debug::ScalarType::F32);
+				default:                      return static_cast<u8>(debug::ScalarType::Invalid);
+			}
+		}
+	}
+
 	std::optional<vm::Program> BinaryEmitter::emit()
 	{
 		Address entryPoint = Address::Null;
@@ -88,12 +108,102 @@ namespace ceres::casm
 			.minimumStack = 1024 // For now, we can set this to 1024. In the future, we might want to calculate the minimum stack size based on the program's requirements.
 		};
 
+		std::vector<u8> debugSection;
+		if (_emitDebugInfo)
+		{
+			recordDebugSymbols();
+			_debugInfo = _debugBuilder.release();
+			debugSection = _debugInfo.serialize();
+		}
+
 		return vm::Program::make(
 			header,
-			std::move(_textBuffer),
-			std::move(_rodataBuffer),
-			std::move(_dataBuffer)
+			_textBuffer,
+			_rodataBuffer,
+			_dataBuffer,
+			debugSection
 		);
+	}
+
+	// Addresses here are the ones the linker handed out, already relocated to where the loader will
+	// place each section, so nothing downstream has to adjust them.
+	void BinaryEmitter::recordDebugSymbols()
+	{
+		for (const auto& unit : _state.get().translationUnits())
+		{
+			for (const auto& [name, symbol] : unit.symbolTable().getAllSymbols())
+			{
+				debug::SymbolEntry entry;
+				entry.nameOffset = _debugBuilder.internString(name);
+				entry.address = symbol.hasAddress() ? symbol.address().value() : 0;
+
+				switch (symbol.type())
+				{
+					case SymbolType::Label:    entry.kind = static_cast<u8>(debug::SymbolKind::Label); break;
+					case SymbolType::Constant: entry.kind = static_cast<u8>(debug::SymbolKind::Constant); break;
+					case SymbolType::Variable: entry.kind = static_cast<u8>(debug::SymbolKind::Variable); break;
+				}
+
+				// A constant occupies no memory, so it belongs to no section however the symbol
+				// table happens to have tagged it.
+				if (symbol.isConstant())
+				{
+					entry.section = static_cast<u8>(debug::SymbolSection::None);
+				}
+				else
+				{
+					switch (symbol.section())
+					{
+						case SectionType::Text:   entry.section = static_cast<u8>(debug::SymbolSection::Text); break;
+						case SectionType::Rodata: entry.section = static_cast<u8>(debug::SymbolSection::Rodata); break;
+						case SectionType::Data:   entry.section = static_cast<u8>(debug::SymbolSection::Data); break;
+						case SectionType::BSS:    entry.section = static_cast<u8>(debug::SymbolSection::BSS); break;
+					}
+				}
+
+				if (symbol.isGlobal())
+					entry.flags |= debug::SymbolFlag::Global;
+				if (symbol.isReadonly())
+					entry.flags |= debug::SymbolFlag::Readonly;
+
+				if (symbol.hasDataType())
+				{
+					const DataType dataType = symbol.dataType();
+					entry.scalarType = toDebugScalarType(dataType.scalarCode());
+					entry.elementCount = dataType.numElements();
+					entry.size = dataType.sizeInBytes().value_or(0);
+				}
+
+				// Only a scalar constant carries a value a debugger can show; an array one would
+				// need the whole literal, which is not worth a variable-length record here.
+				if (symbol.isConstant() && symbol.hasValue() && symbol.value().isScalar())
+				{
+					const LiteralScalar& scalar = symbol.value().elements().front();
+					entry.scalarType = toDebugScalarType(scalar.scalarCode());
+					entry.value = scalar.rawBits();
+					entry.flags |= debug::SymbolFlag::HasValue;
+				}
+
+				_debugBuilder.addSymbol(entry);
+			}
+		}
+	}
+
+	void BinaryEmitter::recordDebugLine(const RelocatableStatement& statement, Address address, u16 flags)
+	{
+		debug::LineEntry entry;
+		entry.address = address.value();
+		entry.fileId = _debugBuilder.internFile(statement.file());
+		entry.line = statement.line();
+		entry.expansionFileId = _debugBuilder.internFile(statement.expansionFile());
+		entry.expansionLine = statement.expansionLine();
+		entry.macroDepth = statement.macroDepth();
+		entry.flags = flags;
+
+		if (statement.macroDepth() > 0)
+			entry.flags |= debug::LineFlag::MacroExpansion;
+
+		_debugBuilder.addLine(entry);
 	}
 
 	// Mirrors alignCurrentOffset() in the translation unit: both have to insert the same padding
@@ -512,11 +622,18 @@ namespace ceres::casm
 			}
 
 			remainingOpcodes--;
+			if (_emitDebugInfo)
+				recordDebugLine(statement, lastSectionAddress(SectionType::Text), debug::LineFlag::None);
 			writeToBuffer(_textBuffer, encodedInstruction);
 		}
 
 		while (remainingOpcodes > 0)
 		{
+			// Filler for the size the assembler reserved before it knew which overload would be
+			// chosen. Marked so a debugger can step straight through instead of stopping on a NOP
+			// the programmer never wrote.
+			if (_emitDebugInfo)
+				recordDebugLine(statement, lastSectionAddress(SectionType::Text), debug::LineFlag::PseudoPadding);
 			writeToBuffer(_textBuffer, vm::Instruction::NOP());
 			remainingOpcodes--;
 		}

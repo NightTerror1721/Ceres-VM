@@ -228,6 +228,7 @@ namespace ceres::casm
 						symbolTable.tryResolveOperand(statement.file(), statement.line(), operand, _lastParentLabel, _unresolvedSymbols);
 
 					_ast.push_back(RelocatableStatement::makeInstruction(statement.file(), statement.line(), currentOffset(), std::move(instruction)));
+					_ast.back().setExpansionSite(statement.expansionFile(), statement.expansionLine(), static_cast<u16>(expansionDepth));
 
 					auto sizeOpt = InstructionInfo::findMaxSizeInBytes(instruction.mnemonic);
 					if (!sizeOpt.has_value() || sizeOpt.value() == 0)
@@ -241,7 +242,7 @@ namespace ceres::casm
 				{
 					// Anything that is not a known mnemonic parses as a macro call, so this is also where a
 					// misspelled instruction is caught instead of being silently discarded.
-					auto expanded = expandMacroCall(statement.line(), statement.asMacroCall(), expansionDepth);
+					auto expanded = expandMacroCall(statement, expansionDepth);
 					for (auto& expandedStatement : expanded)
 						processStatement(expandedStatement, expansionDepth + 1);
 				}
@@ -253,8 +254,11 @@ namespace ceres::casm
 		}
 	}
 
-	std::vector<Statement> TranslationUnitBuilder::expandMacroCall(u32 line, const MacroCallStatement& call, u32 expansionDepth)
+	std::vector<Statement> TranslationUnitBuilder::expandMacroCall(const Statement& callStatement, u32 expansionDepth)
 	{
+		const u32 line = callStatement.line();
+		const MacroCallStatement& call = callStatement.asMacroCall();
+
 		if (expansionDepth >= MaxMacroExpansionDepth)
 			error(line, "Macro expansion nested more than {} levels deep; '{}' is probably recursive", MaxMacroExpansionDepth, call.name);
 
@@ -274,7 +278,15 @@ namespace ceres::casm
 		expanded.reserve(macro.body().size());
 
 		for (const Statement& bodyStatement : macro.body())
+		{
 			expanded.push_back(substituteMacroStatement(bodyStatement, macro, call, instanceId));
+
+			// Every statement the expansion produces points back at the code the user wrote, not
+			// at the macro body it was copied from. For a nested expansion the call statement's
+			// own site has already been rewritten by the outer pass, so this propagates the
+			// *outermost* call site all the way down rather than the immediate one.
+			expanded.back().setExpansionSite(callStatement.expansionFile(), callStatement.expansionLine());
+		}
 
 		return expanded;
 	}

@@ -426,3 +426,10 @@ FodyWeavers.xsd
 /tests/ceres-tests.exe
 /ceres
 /ceres.exe
+
+# The debug-information module is source, not a Visual Studio build directory - but the
+# "[Dd]ebug/" rule near the top of this file cannot tell the two apart. Both lines are needed:
+# git will not look inside an excluded directory, so the directory itself has to be re-included
+# before anything in it can be.
+!/Ceres-ASM/src/debug/
+!/Ceres-ASM/src/debug/**

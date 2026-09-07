@@ -10,6 +10,7 @@ namespace ceres::vm
 		_flags = FlagRegister();
 		_pc = _memory.readUnchecked<Address::ValueType>(0_addr); // Initialize PC to the value at address 0 (reset vector)
 		_registers.sp() = static_cast<Register::ValueType>(_memory.size()); // Initialize stack pointer to the end of memory
+		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
 	}
 
 	void ExecutionEngine::handleHalt() noexcept
@@ -85,6 +86,7 @@ namespace ceres::vm
 
 		const Instruction instruction = fetch();
 		execute(instruction);
+		++_executedInstructions;
 		_ioPorts.tick();
 	}
 }
