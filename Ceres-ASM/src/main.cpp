@@ -13,6 +13,7 @@
 #include "assembler/assembler.h"
 #include "debug/debug_info.h"
 #include "debug/debug_cli.h"
+#include "debug/debug_server.h"
 #include "debug/debug_session.h"
 
 namespace
@@ -41,9 +42,11 @@ namespace
 		"      With --debug, annotated with the source file and line each word came from.\n"
 		"\n"
 		"  ceres debug <file.casm|file.cres> [<source2.casm> ...] [--memory <bytes>]\n"
-		"                                    [--no-stop-on-entry]\n"
+		"                                    [--no-stop-on-entry] [--server]\n"
 		"      Run a program under an interactive debugger: breakpoints, stepping by\n"
 		"      source line, registers, memory and a reconstructed call stack.\n"
+		"      --server speaks newline-delimited JSON on stdin/stdout instead, for an\n"
+		"      editor to drive.\n"
 		"\n"
 		"A bare path is shorthand for 'run'.\n";
 
@@ -278,6 +281,7 @@ namespace
 		bool debugInfo = false;
 		bool debugJson = false;
 		bool stopOnEntry = true;
+		bool server = false;
 		usize memorySize = Memory::DefaultSize;
 	};
 
@@ -322,6 +326,10 @@ namespace
 			else if (argument == "--no-stop-on-entry")
 			{
 				options.stopOnEntry = false;
+			}
+			else if (argument == "--server")
+			{
+				options.server = true;
 			}
 			else if (argument == "--memory")
 			{
@@ -448,6 +456,12 @@ int main(int argc, char** argv)
 		{
 			std::cerr << session.error() << '\n';
 			return 1;
+		}
+
+		if (options.server)
+		{
+			debug::DebugServer server{ *session.value() };
+			return server.run();
 		}
 
 		debug::DebugCLI cli{ *session.value() };

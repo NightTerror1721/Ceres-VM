@@ -343,13 +343,13 @@ The assembler and the VM work end to end. What is not done:
   until after parsing, so the parser cannot fold them.
 - **`parseOperand` gaps.** Float, character and string literals are not accepted as operands, and
   a `%%label` cannot start a statement outside a macro body.
-- **Editor integration.** `ceres debug` is a terminal debugger
-  ([wiki](docs/22-Debugger.md)); there is no VSCode integration for it yet, so breakpoints have to
-  be set by typing rather than by clicking in the gutter.
+- **Watch expressions.** Hover and watch in the debugger are name lookups: `r3` and `counter` work,
+  `[r1 + 4]` and `counter[3]` do not. No conditional breakpoints, logpoints or data breakpoints
+  either. See [the debugger](docs/22-Debugger.md).
 
 ## Tests
 
-142 cases, 578 assertions, run with `sh tests/build.sh`. CI builds with MSVC and GCC 15 and runs
+152 cases, 631 assertions, run with `sh tests/build.sh`. CI builds with MSVC and GCC 15 and runs
 the suite on both.
 
 A test that pins a bug which is still open is marked `TEST_KNOWN_FAILURE`: it asserts the correct

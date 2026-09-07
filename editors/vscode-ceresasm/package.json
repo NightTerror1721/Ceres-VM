@@ -1,7 +1,7 @@
 {
   "name": "ceresasm",
   "displayName": "CeresASM",
-  "description": "Language support for CASM, the assembler of the Ceres virtual machine: syntax highlighting and live diagnostics from the real ceres compiler.",
+  "description": "Language support for CASM, the assembler of the Ceres virtual machine: syntax highlighting, live diagnostics from the real ceres compiler, and a debugger.",
   "version": "0.1.0",
   "publisher": "ceresasm",
   "license": "SEE LICENSE IN LICENSE",
@@ -13,7 +13,8 @@
     "vscode": "^1.85.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Debuggers"
   ],
   "activationEvents": [
     "onLanguage:casm"
@@ -49,6 +50,10 @@
       {
         "command": "ceresAsm.restartServer",
         "title": "CeresASM: Restart Language Server"
+      },
+      {
+        "command": "ceresAsm.sendInput",
+        "title": "CeresASM: Send Input to the Running Program"
       }
     ],
     "configuration": {
@@ -71,7 +76,101 @@
           "description": "Traces the communication between VSCode and the CeresASM language server."
         }
       }
-    }
+    },
+    "breakpoints": [
+      {
+        "language": "casm"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "casm",
+        "label": "CeresASM",
+        "languages": [
+          "casm"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "The .casm source or .cres binary to debug.",
+                "default": "${file}"
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Additional .casm files to link into the same program, as 'ceres asm' would.",
+                "default": []
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Stop before the first instruction instead of running to the first breakpoint.",
+                "default": true
+              },
+              "memory": {
+                "type": "number",
+                "description": "Machine memory in bytes. Defaults to the VM's own 16 MiB.",
+                "default": 16777216
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory for the debugger process. Defaults to the program's own folder.",
+                "default": "${workspaceFolder}"
+              },
+              "ceresPath": {
+                "type": "string",
+                "description": "Path to the ceres executable. Empty uses 'ceresAsm.compilerPath', then autodetection.",
+                "default": ""
+              },
+              "trace": {
+                "type": "boolean",
+                "description": "Print the debugger command line to the Debug Console.",
+                "default": false
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "casm",
+            "request": "launch",
+            "name": "Debug the current CASM file",
+            "program": "${file}",
+            "stopOnEntry": true
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "CeresASM: Debug the current file",
+            "description": "Assemble and debug the .casm file that is open in the editor.",
+            "body": {
+              "type": "casm",
+              "request": "launch",
+              "name": "Debug the current CASM file",
+              "program": "^\"\\${file}\"",
+              "stopOnEntry": true
+            }
+          },
+          {
+            "label": "CeresASM: Debug a built .cres",
+            "description": "Debug an already-assembled program. Assemble it with --debug for source lines.",
+            "body": {
+              "type": "casm",
+              "request": "launch",
+              "name": "Debug program.cres",
+              "program": "^\"\\${workspaceFolder}/program.cres\"",
+              "stopOnEntry": true
+            }
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

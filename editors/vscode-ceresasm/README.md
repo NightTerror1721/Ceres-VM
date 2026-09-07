@@ -28,6 +28,9 @@ Language support for **CASM**, the assembler of the [Ceres](../../README.md) vir
 - Semantic tokens: a second pass of highlighting on top of the syntax grammar that actually knows
   which identifiers are declared consts/variables/labels/macros (vs. plain undeclared text), using
   standard LSP token types so your theme's existing semantic colours apply.
+- **Debugging**: press F5 on a `.casm` file. Breakpoints in the gutter, stepping by source line,
+  registers and flags in the variables view, globals rendered through their declared types, a
+  reconstructed call stack, the disassembly view, and the hex memory viewer. See below.
 
 None of this is fully scope-aware (e.g. completion doesn't filter out-of-scope local labels) —
 this is a lightweight line-based index, not a re-parse of the language. See Known limitations
@@ -39,7 +42,7 @@ You need a built `ceres` executable. From the repository root:
 
 ```sh
 cd Ceres-ASM/src
-g++ -std=c++23 -I. -o ceres.exe main.cpp vm/*.cpp assembler/*.cpp -lstdc++exp
+g++ -std=c++23 -I. -o ceres.exe main.cpp vm/*.cpp assembler/*.cpp debug/*.cpp -lstdc++exp
 ```
 
 The extension looks for it automatically at `Ceres-ASM/src/ceres[.exe]` under each open
@@ -66,6 +69,53 @@ This extension is not published yet. To try it:
 Use the **CeresASM: Restart Language Server** command from the command palette if you change
 `ceresAsm.compilerPath` and diagnostics don't update.
 
+## Debugging
+
+Press **F5** with a `.casm` file open. With no `launch.json` the extension fills one in for the
+active file; otherwise the `casm` debug type takes:
+
+```jsonc
+{
+  "type": "casm",
+  "request": "launch",
+  "name": "Debug the current CASM file",
+  "program": "${file}",     // .casm source, or a .cres built with --debug
+  "sources": [],            // extra .casm files to link in, as `ceres asm` would
+  "stopOnEntry": true,
+  "memory": 16777216,       // machine memory in bytes
+  "ceresPath": "",          // empty uses ceresAsm.compilerPath, then autodetection
+  "trace": false            // print the debugger command line to the Debug Console
+}
+```
+
+What works:
+
+| | |
+| --- | --- |
+| Breakpoints | Click the gutter. Also function breakpoints (by label) and instruction breakpoints in the disassembly view. |
+| Stepping | Step over / into / out by **source line**, plus instruction-level stepping from the disassembly view. |
+| Variables | Registers, flags, float registers and globals. Globals are rendered through their declared types — a `u8[]` shows as a quoted string. |
+| Watch and hover | Register and symbol names. Expressions over them arrive with the evaluator. |
+| Call stack | Reconstructed by watching `CALL`/`RET` go past; interrupt handlers appear as their own frames. |
+| Memory | The hex editor's *View Binary Data* on any variable or register. |
+| Disassembly | *Open Disassembly View*, annotated with the source line each word came from. |
+| Editing state | Set a register from the variables view; the program counter too. |
+
+### Feeding the program input
+
+The debugger owns the Debug Console, so a program reading from the terminal port has no keyboard
+of its own. Type `>` followed by the text into the Debug Console, or run **CeresASM: Send Input to
+the Running Program** from the command palette. Both queue a line into the terminal device — which
+is what the tutorial's two games need.
+
+### How it is wired
+
+The extension does not use `@vscode/debugadapter`. VSCode's inline adapter API hands over
+already-parsed DAP messages, so the library's job — Content-Length framing and a base class — is
+not needed, and the extension keeps a dependency list as short as the rest of the project's.
+`client/src/debugAdapter.ts` translates DAP to the protocol that `ceres debug --server` speaks,
+which is deliberately a different, smaller vocabulary in the machine's own terms.
+
 ## Known limitations
 
 - Diagnostics are computed against a temporary sibling copy of the file being edited (so unsaved
@@ -73,6 +123,13 @@ Use the **CeresASM: Restart Language Server** command from the command palette i
   `import "..."` paths still resolve.
 - The compiler's diagnostic entries don't carry a file name, so errors inside an `import`ed file
   are reported at that file's own line/column but attributed to the document you're editing.
+- Debugging a `.cres` built without `--debug` works, but only in addresses: breakpoints by line
+  come back unverified and there are no source lines. Debug the `.casm` source directly, or
+  assemble with `ceres asm --debug`.
+- The call stack is reconstructed rather than unwound, because `CALL` pushes only a return address
+  and no register tracks frames. Code that unwinds by hand can desynchronise it; the disassembly
+  view is the ground truth.
+- Watch expressions and conditional breakpoints are name lookups only for now.
 - Find references/rename for a `const` or `macro` only reach the current file plus whatever it
   transitively `import`s — not other, unrelated files elsewhere in the workspace that happen to
   import the same one. Renaming a shared constant or macro will warn you when it touched more than

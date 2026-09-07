@@ -159,9 +159,54 @@ terminal device's ring buffer instead.
 registers, memory and disassembly, but no source lines. `s` degrades to stepping one instruction,
 and a line breakpoint says why it cannot be set rather than silently doing nothing.
 
+## In VSCode
+
+The extension in [`editors/vscode-ceresasm`](../editors/vscode-ceresasm/README.md) debugs `.casm`
+files with **F5**: breakpoints in the gutter, stepping by source line, registers and flags in the
+variables view, globals rendered through their declared types, the reconstructed call stack, the
+disassembly view and the hex memory editor.
+
+It works through a third face of the same session:
+
+```
+ceres debug program.casm --server
+```
+
+which speaks newline-delimited JSON on stdin and stdout instead of running a REPL. That protocol is
+deliberately **not** the Debug Adapter Protocol — it is a small vocabulary in the machine's own
+terms (addresses, registers, ports, ticks, sections), and the extension translates. Two reasons:
+DAP's awkward corners stay on the side where a library already handles them, and the protocol stays
+something a script can drive without implementing DAP at all.
+
+```
+→ {"seq":1,"type":"request","command":"setFunctionBreakpoints","arguments":{"names":["print"]}}
+← {"type":"response","request_seq":1,"command":"setFunctionBreakpoints","success":true,"body":{...}}
+→ {"seq":2,"type":"request","command":"configurationDone"}
+← {"type":"event","event":"stopped","body":{"reason":"entry","file":"main.casm","line":10,...}}
+```
+
+Requests are read on their own thread so `pause` can be acted on while the machine is running;
+everything else is queued and handled in order. The program's own output travels as `output`
+events rather than being written to stdout, which it would otherwise corrupt.
+
+### Bytes, not text
+
+The terminal device emits **bytes**: a multi-byte UTF-8 character reaches it as several separate
+port writes. They cross the protocol as hex and are decoded on the editor side with a streaming
+decoder, because the adapter is the first place that can safely know where a character ends.
+Decoding each write on its own would turn every accented letter in the Spanish tutorial into two
+replacement characters.
+
+### Feeding a program its input
+
+The debugger owns the Debug Console, so a program reading port `0x02` has no keyboard of its own.
+Typing `>` followed by text in the Debug Console sends that line to the program, as does the
+**CeresASM: Send Input to the Running Program** command.
+
 ## Related pages
 
 - [Debug information](21-Debug-Information.md) — the line and symbol tables everything here reads.
 - [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — the faults reported above.
 - [Pseudo-instructions](06-Pseudo-Instructions.md) — why one line is several addresses.
 - [Known limitations](19-Known-Limitations.md) — including what the debugger still does not do.
+- [The VSCode extension](../editors/vscode-ceresasm/README.md) — the editor side of all this.

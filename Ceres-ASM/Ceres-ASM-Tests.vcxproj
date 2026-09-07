@@ -152,6 +152,8 @@
     <ClCompile Include="src\assembler\symbol_table.cpp" />
     <ClCompile Include="src\assembler\translation_unit.cpp" />
     <ClCompile Include="src\debug\debug_info.cpp" />
+    <ClCompile Include="src\debug\json.cpp" />
+    <ClCompile Include="src\debug\debug_server.cpp" />
     <ClCompile Include="src\debug\debug_cli.cpp" />
     <ClCompile Include="src\debug\debug_session.cpp" />
     <ClCompile Include="src\vm\ceresvm.cpp" />
@@ -169,6 +171,7 @@
     <ClCompile Include="..\tests\test_devices.cpp" />
     <ClCompile Include="..\tests\test_debug_info.cpp" />
     <ClCompile Include="..\tests\test_debugger.cpp" />
+    <ClCompile Include="..\tests\test_json.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\assembler\assembler.h" />
@@ -204,6 +207,8 @@
     <ClInclude Include="src\common\string_utils.h" />
     <ClInclude Include="src\common\types.h" />
     <ClInclude Include="src\debug\debug_info.h" />
+    <ClInclude Include="src\debug\json.h" />
+    <ClInclude Include="src\debug\debug_server.h" />
     <ClInclude Include="src\debug\debug_cli.h" />
     <ClInclude Include="src\debug\debug_session.h" />
     <ClInclude Include="src\vm\address.h" />
