@@ -103,6 +103,7 @@ What works:
 | Memory | The hex editor's *View Binary Data* on any variable or register. |
 | Disassembly | *Open Disassembly View*, annotated with the source line each word came from. |
 | Editing state | Set a register from the variables view; the program counter too. |
+| Running backwards | Step Back and Reverse Continue, because the machine is deterministic enough for both to be exact rather than approximate. |
 
 ### Feeding the program input
 

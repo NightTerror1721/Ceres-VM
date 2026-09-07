@@ -64,6 +64,11 @@ namespace ceres::vm
 
 		void clearAll() noexcept { _pending.store(0, std::memory_order_release); }
 
+		// The whole pending set as one word, so a debugger restoring a snapshot can put back a
+		// request that had been raised but not yet delivered. Nothing else should need these.
+		u64 pendingMask() const noexcept { return _pending.load(std::memory_order_acquire); }
+		void restorePendingMask(u64 mask) noexcept { _pending.store(mask, std::memory_order_release); }
+
 	private:
 		static constexpr u64 bitOf(InterruptNumber interruptNumber) noexcept
 		{

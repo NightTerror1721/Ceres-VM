@@ -21,7 +21,7 @@ fi
 echo "Building tests with $CXX..."
 # shellcheck disable=SC2086
 "$CXX" $CXXFLAGS -I"$src" -I"$here" -o "$out" \
-	"$here/main.cpp" "$here/test_encoding.cpp" "$here/test_vm.cpp" "$here/test_pipeline.cpp" "$here/test_robustness.cpp" "$here/test_macros.cpp" "$here/test_modules.cpp" "$here/test_language.cpp" "$here/test_program_file.cpp" "$here/test_devices.cpp" "$here/test_debug_info.cpp" "$here/test_debugger.cpp" "$here/test_json.cpp" "$here/test_expression.cpp" \
+	"$here/main.cpp" "$here/test_encoding.cpp" "$here/test_vm.cpp" "$here/test_pipeline.cpp" "$here/test_robustness.cpp" "$here/test_macros.cpp" "$here/test_modules.cpp" "$here/test_language.cpp" "$here/test_program_file.cpp" "$here/test_devices.cpp" "$here/test_debug_info.cpp" "$here/test_debugger.cpp" "$here/test_json.cpp" "$here/test_expression.cpp" "$here/test_history.cpp" \
 	"$src"/vm/*.cpp "$src"/assembler/*.cpp "$src"/debug/*.cpp $LDLIBS
 
 echo "Running..."

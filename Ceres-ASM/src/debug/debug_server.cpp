@@ -316,7 +316,11 @@ namespace ceres::debug
 				{ "logPoints", json::Value(true) },
 				{ "dataBreakpoints", json::Value(true) },
 				{ "exceptionFilters", json::Value(true) },
-				{ "evaluate", json::Value(true) }
+				{ "evaluate", json::Value(true) },
+				{ "coverage", json::Value(true) },
+				// The machine is deterministic, so going backwards is a recording away rather than
+				// out of reach; the session says whether it is actually recording.
+				{ "stepBack", json::Value(_session.history().isEnabled()) }
 			}) }
 		});
 
@@ -396,7 +400,9 @@ namespace ceres::debug
 		// Every command below needs the machine to be up.
 		const bool needsRunningSession =
 			command == "continue" || command == "next" || command == "stepIn" ||
-			command == "stepOut" || command == "stepInstruction" || command == "runTo";
+			command == "stepOut" || command == "stepInstruction" || command == "runTo" ||
+			command == "stepBack" || command == "stepBackInstruction" ||
+			command == "reverseContinue" || command == "runToTick";
 
 		if (needsRunningSession && !_configured)
 		{
@@ -418,6 +424,48 @@ namespace ceres::debug
 
 			respond(request, json::Object{});
 			reportStop(event);
+			return true;
+		}
+
+		if (command == "stepBack" || command == "stepBackInstruction" ||
+			command == "reverseContinue" || command == "runToTick")
+		{
+			StopEvent event{};
+			if (command == "stepBack")                  event = _session.stepBackLine();
+			else if (command == "stepBackInstruction")  event = _session.stepBackInstruction();
+			else if (command == "reverseContinue")      event = _session.reverseContinue();
+			else                                        event = _session.runToTick(arguments["tick"].asU64());
+
+			respond(request, json::Object{});
+			reportStop(event);
+			return true;
+		}
+
+		if (command == "coverage")
+		{
+			json::Array lines;
+			for (const CoverageEntry& entry : _session.coverage())
+			{
+				json::Object out = describeLocation(entry.address);
+				out.insert_or_assign("count", json::Value(entry.count));
+				lines.push_back(json::Value(std::move(out)));
+			}
+
+			respond(request, json::Object{ { "instructions", json::Value(std::move(lines)) } });
+			return true;
+		}
+
+		if (command == "history")
+		{
+			const History& history = _session.history();
+			respond(request, json::Object{
+				{ "enabled", json::Value(history.isEnabled()) },
+				{ "snapshots", json::Value(static_cast<u64>(history.snapshotCount())) },
+				{ "interval", json::Value(history.settings().interval) },
+				{ "oldestTick", json::Value(history.oldestTick()) },
+				{ "currentTick", json::Value(_session.currentTick()) },
+				{ "memoryCost", json::Value(static_cast<u64>(history.memoryCost())) }
+			});
 			return true;
 		}
 

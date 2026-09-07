@@ -42,9 +42,12 @@ namespace
 		"      With --debug, annotated with the source file and line each word came from.\n"
 		"\n"
 		"  ceres debug <file.casm|file.cres> [<source2.casm> ...] [--memory <bytes>]\n"
-		"                                    [--no-stop-on-entry] [--server]\n"
+		"                                    [--no-stop-on-entry] [--server] [--no-history]\n"
 		"      Run a program under an interactive debugger: breakpoints, stepping by\n"
 		"      source line, registers, memory and a reconstructed call stack.\n"
+		"      Execution is recorded so the program can also be run backwards;\n"
+		"      --no-history turns that off, which matters only for a very large\n"
+		"      --memory.\n"
 		"      --server speaks newline-delimited JSON on stdin/stdout instead, for an\n"
 		"      editor to drive.\n"
 		"\n"
@@ -282,6 +285,7 @@ namespace
 		bool debugJson = false;
 		bool stopOnEntry = true;
 		bool server = false;
+		bool recordHistory = true;
 		usize memorySize = Memory::DefaultSize;
 	};
 
@@ -330,6 +334,10 @@ namespace
 			else if (argument == "--server")
 			{
 				options.server = true;
+			}
+			else if (argument == "--no-history")
+			{
+				options.recordHistory = false;
 			}
 			else if (argument == "--memory")
 			{
@@ -449,7 +457,8 @@ int main(int argc, char** argv)
 		auto session = debug::DebugSession::launch(debug::LaunchConfig{
 			.sources = options.inputs,
 			.memorySize = options.memorySize,
-			.stopOnEntry = options.stopOnEntry
+			.stopOnEntry = options.stopOnEntry,
+			.recordHistory = options.recordHistory
 		});
 
 		if (!session.has_value())

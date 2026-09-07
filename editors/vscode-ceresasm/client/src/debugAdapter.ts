@@ -240,6 +240,10 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 					supportsDataBreakpoints: true,
 					supportsExceptionInfoRequest: true,
 					supportsGotoTargetsRequest: true,
+					// The machine counts time in executed instructions rather than wall clock, so
+					// re-running from a snapshot lands in exactly the same place. That is what
+					// makes stepping backwards real here rather than an approximation.
+					supportsStepBack: true,
 					supportsValueFormattingOptions: false,
 					// The machine's seven system exceptions, each one something a CASM program can
 					// actually hit. All are checked by default, which is what the session does when
@@ -432,6 +436,17 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 			case 'stepOut':
 				await this.client.send('stepOut');
 				this.sendResponse(request);
+				return;
+
+			case 'stepBack':
+				await this.client.send(
+					args.granularity === 'instruction' ? 'stepBackInstruction' : 'stepBack');
+				this.sendResponse(request);
+				return;
+
+			case 'reverseContinue':
+				await this.client.send('reverseContinue');
+				this.sendResponse(request, { allThreadsContinued: true });
 				return;
 
 			case 'pause':

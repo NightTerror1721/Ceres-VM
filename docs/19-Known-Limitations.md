@@ -72,8 +72,10 @@ A **watchpoint only detects writes**, and detects them by comparing the watched 
 between instructions rather than by trapping the access. A read is invisible to it, and a write that
 puts back the value that was already there is too.
 
-There is also no way to run a program **backwards**: no step-back, no reverse-continue, and no
-record of where it has been.
+Running **backwards** works, but only as far as the recording reaches: `interval x snapshots`
+instructions, 1.28 million by default. Older than that and the debugger says so rather than landing
+somewhere else. Recording also costs one copy of the machine's memory, which is why `--no-history`
+exists for a session started with a very large `--memory`.
 
 ## Things that are easy to mistake for bugs, but are intentional
 

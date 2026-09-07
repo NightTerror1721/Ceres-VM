@@ -113,11 +113,28 @@ namespace ceres::vm
 		// STI to be delivered and cannot surprise a program that never asked for it.
 		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt0;
 
+		// Everything the timer remembers. Exposed so a debugger can put the whole machine back
+		// where it was: without the timer, a restored snapshot would keep counting from wherever
+		// the live run had got to and fire its interrupt at the wrong moment.
+		struct State
+		{
+			u64 ticks = 0;
+			u64 remaining = 0;
+			bool periodic = false;
+			u64 period = 0;
+		};
+
+		// Where the real-time clock port gets its answer. The default is the host's wall clock,
+		// which is the one thing in this machine that is not deterministic - so a debugger that
+		// replays execution replaces it with a recording.
+		using ClockSource = std::function<u32()>;
+
 	private:
 		u64 _ticks = 0;
 		u64 _remaining = 0;   // 0 means disarmed
 		bool _periodic = false;
 		u64 _period = 0;
+		ClockSource _clockSource;
 
 	public:
 		TimerDevice() = default;
@@ -154,6 +171,19 @@ namespace ceres::vm
 			_period = ticksFromNow;
 		}
 
+		State captureState() const noexcept { return State{ _ticks, _remaining, _periodic, _period }; }
+
+		void restoreState(const State& state) noexcept
+		{
+			_ticks = state.ticks;
+			_remaining = state.remaining;
+			_periodic = state.periodic;
+			_period = state.period;
+		}
+
+		void setClockSource(ClockSource source) { _clockSource = std::move(source); }
+		void clearClockSource() { _clockSource = nullptr; }
+
 	public:
 		void tick() override
 		{
@@ -179,6 +209,8 @@ namespace ceres::vm
 					return static_cast<u32>(_ticks);
 
 				case ClockPort:
+					if (_clockSource)
+						return _clockSource();
 					return static_cast<u32>(std::chrono::duration_cast<std::chrono::seconds>(
 						std::chrono::system_clock::now().time_since_epoch()).count());
 
@@ -298,6 +330,32 @@ namespace ceres::vm
 
 		void setOutputSink(OutputSink sink) { _outputSink = std::move(sink); }
 		void clearOutputSink() { _outputSink = nullptr; }
+
+		// The input ring, so a debugger restoring a snapshot can put back exactly the bytes the
+		// program had not yet read. Copied rather than shared: the live buffer is written from
+		// another thread.
+		struct State
+		{
+			std::array<u8, MaxInputBufferSize> buffer{};
+			usize head = 0;
+			usize tail = 0;
+		};
+
+		State captureState() const noexcept
+		{
+			State state;
+			state.buffer = _buffer;
+			state.head = _head.load(std::memory_order_acquire);
+			state.tail = _tail.load(std::memory_order_acquire);
+			return state;
+		}
+
+		void restoreState(const State& state) noexcept
+		{
+			_buffer = state.buffer;
+			_head.store(state.head, std::memory_order_release);
+			_tail.store(state.tail, std::memory_order_release);
+		}
 
 	private:
 		// The single place output leaves the device. Bytes are handed over one at a time and

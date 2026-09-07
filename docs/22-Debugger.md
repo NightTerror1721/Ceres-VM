@@ -34,6 +34,9 @@ does. `DebugCLI` is one front end over it; the editor integration is another.
 | `fin` | Run until the current subroutine returns |
 | `until <loc>` | Run until an address, symbol or `file:line` is reached |
 | `run` | Restart from the beginning |
+| `rs` `rsi` `rc` | Step back a line, an instruction, or run backwards to the previous breakpoint |
+| `goto <tick>` | Go to a given instruction count |
+| `hist` | How far back the recording reaches, and what it costs |
 | `b <loc>` | Break at `file:line`, a label, a bare line number, or `*0x400` |
 | `b <loc> if <expr>` | Break only when the expression is true |
 | `log <loc> <text>` | Log `{expressions}` and carry on, instead of stopping |
@@ -46,6 +49,7 @@ does. `DebugCLI` is one front end over it; the editor integration is another.
 | `dis [count]` | Disassembly around the program counter |
 | `x <loc> [n]` | Hex dump; `x msg` dumps exactly that variable |
 | `vars` | Globals and constants, rendered through their declared types |
+| `cov` | How many times each line has run; `never` is code nothing reached |
 | `p <expr>` | Evaluate an expression |
 | `set <reg> <value>` | Write a register |
 | `input <text>` | Feed a line to the program's terminal input |
@@ -164,6 +168,77 @@ actually being watched.
 By default every one of the machine's system exceptions stops it. A client can narrow that — in
 VSCode, through the Breakpoints pane's exception checkboxes — and a fault that is not selected goes
 to its handler unremarked, exactly as it would with no debugger attached.
+
+## Running backwards
+
+```
+(ceres) rsi          step back one instruction
+(ceres) rs           step back one source line
+(ceres) rc           run backwards to the previous breakpoint
+(ceres) goto 45000   go to a given instruction count
+```
+
+Nothing in the machine can undo an instruction, so "back" means *start again from a snapshot and
+stop earlier*. That works here and would not on real hardware, for one reason: the timer counts
+executed instructions rather than wall clock, so a program behaves identically on every run. The
+determinism that was a design decision about reproducibility turns out to be the thing that makes
+reverse debugging possible.
+
+Two things are not deterministic, and both are recorded as they happen and served back from the
+recording during a replay:
+
+- **The real-time clock** (port `0x11`), whose value is journalled against the instruction count it
+  was read at.
+- **Whatever the user types**, journalled the same way and pushed into the terminal again at the
+  same point in the replay.
+
+### What a snapshot costs
+
+A snapshot stores the **memory pages that differ from a base image** taken when recording began,
+plus registers, flags, the program counter, the timer's state, the pending interrupt mask, the
+terminal's input ring, and the reconstructed call stack — which cannot be recovered from memory,
+because it was inferred from instructions that have already gone past.
+
+A program's working set is a few pages out of four thousand, so a snapshot costs kilobytes. The
+base image is the real cost, and it is paid once:
+
+```
+(ceres) hist
+  47 snapshots, every 20000 instructions, reaching back to instruction 0 (now at 934112).
+  Memory: 16456 KiB.
+```
+
+`--no-history` turns recording off, which only matters for a machine started with a very large
+`--memory`.
+
+### How far back
+
+`interval × snapshots` instructions, 1.28 million by default. Older than that and the debugger says
+so rather than quietly landing somewhere else:
+
+```
+(ceres) goto 1
+  Instruction 1 is further back than the recorded history reaches; the oldest kept is 22000
+```
+
+`rc` and `rs` walk the whole reachable history once, looking for the last moment before now that
+matches. That is the same replay a step back does anyway, and the alternative — a snapshot per
+instruction — is not affordable.
+
+## Coverage
+
+```
+(ceres) cov
+           1  loop.casm:5
+           2  loop.casm:7
+       never  loop.casm:11
+  -- 13 instructions retired, 3 of 10 words never reached
+```
+
+Every word of `.text` carries a counter, so a **zero means something**: it is code no run has
+reached. Counting is one array increment per instruction — a hash lookup per instruction would be
+felt across a hundred million of them — and it is skipped while replaying, or stepping backwards
+would inflate the numbers every time.
 
 ## The call stack is reconstructed, and says so
 

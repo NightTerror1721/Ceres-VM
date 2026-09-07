@@ -117,6 +117,13 @@ namespace ceres::debug
 			"    until <loc>  run until an address, symbol or file:line is reached\n"
 			"    run          restart the program from the beginning\n"
 			"\n"
+			"  Running backwards (the machine is deterministic, so this is real)\n"
+			"    rs           step back one source line\n"
+			"    rsi          step back one machine instruction\n"
+			"    rc           run backwards to the previous breakpoint\n"
+			"    goto <tick>  go to a given instruction count\n"
+			"    hist         how far back the recording reaches, and what it costs\n"
+			"\n"
 			"  Breakpoints\n"
 			"    b <loc>              break at file:line, a label, or *0x400\n"
 			"    b <loc> if <expr>    break only when the expression is true\n"
@@ -132,6 +139,7 @@ namespace ceres::debug
 			"    dis [count]  disassembly around the program counter\n"
 			"    x <loc> [n]  dump n bytes of memory; `x` alone continues the last dump\n"
 			"    vars         global variables and constants\n"
+			"    cov          how many times each line has run; zero means never reached\n"
 			"    p <expr>     evaluate: r3, sp < 0x1000, total, scores[2], [r1 + 4], u8[r2]\n"
 			"\n"
 			"  Changing things\n"
@@ -559,6 +567,89 @@ namespace ceres::debug
 			}
 			printStop(_session.runToAddress(address.value()));
 			return !_quit;
+		}
+
+		if (command == "rsi")
+		{
+			printStop(_session.stepBackInstruction());
+			return !_quit;
+		}
+
+		if (command == "rs")
+		{
+			printStop(_session.stepBackLine());
+			return !_quit;
+		}
+
+		if (command == "rc")
+		{
+			printStop(_session.reverseContinue());
+			return !_quit;
+		}
+
+		if (command == "goto")
+		{
+			const auto tick = parseNumber(argument(1));
+			if (!tick.has_value())
+			{
+				std::cout << "  Usage: goto <instruction count>\n";
+				return true;
+			}
+			printStop(_session.runToTick(tick.value()));
+			return !_quit;
+		}
+
+		if (command == "hist")
+		{
+			const History& history = _session.history();
+			if (!history.isEnabled())
+			{
+				std::cout << "  Not recording, so this session cannot go backwards.\n";
+				return true;
+			}
+
+			std::cout << std::format(
+				"  {} snapshots, every {} instructions, reaching back to instruction {} (now at {}).\n"
+				"  Memory: {} KiB.\n",
+				history.snapshotCount(), history.settings().interval, history.oldestTick(),
+				_session.currentTick(), history.memoryCost() / 1024);
+			return true;
+		}
+
+		if (command == "cov" || command == "coverage")
+		{
+			const auto entries = _session.coverage();
+			if (entries.empty())
+			{
+				std::cout << "  (nothing to report)\n";
+				return true;
+			}
+
+			// Grouped by source line: an address count is a machine fact, a line count is what a
+			// programmer is looking for. Only the head of each line carries the total.
+			u64 total = 0;
+			usize unreached = 0;
+			for (const CoverageEntry& entry : entries)
+			{
+				total += entry.count;
+				if (entry.count == 0)
+					++unreached;
+
+				if (!entry.location.has_value() ||
+					(entry.location->flags & LineFlag::FirstOfLine) == 0)
+				{
+					continue;
+				}
+
+				std::cout << std::format("  {:>10}  {}:{}\n",
+					entry.count == 0 ? std::string("never") : std::format("{}", entry.count),
+					shortFile(entry.location->expansionFile),
+					entry.location->expansionLine);
+			}
+
+			std::cout << std::format("  -- {} instructions retired, {} of {} words never reached\n",
+				total, unreached, entries.size());
+			return true;
 		}
 
 		if (command == "run" || command == "r")

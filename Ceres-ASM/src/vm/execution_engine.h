@@ -83,6 +83,9 @@ namespace ceres::vm
 
 		void setFlags(FlagRegister flags) noexcept { _flags = flags; }
 		void setProgramCounter(Address address) noexcept { _pc = address; }
+		// Only for restoring a snapshot: the machine's clock has to go back with the rest of it,
+		// or a restored timer would fire against a count that never rewound.
+		void setExecutedInstructions(u64 count) noexcept { _executedInstructions = count; }
 
 	public:
 		// Told about every interrupt the machine takes, with the program counter as it stood when

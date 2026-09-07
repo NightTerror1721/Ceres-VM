@@ -10,10 +10,12 @@
 
 #include "debug_info.h"
 #include "expression.h"
+#include "history.h"
 #include "vm/ceresvm.h"
 #include "vm/devices.h"
 #include "vm/program.h"
 #include <atomic>
+#include <deque>
 #include <expected>
 #include <filesystem>
 #include <functional>
@@ -153,6 +155,20 @@ namespace ceres::debug
 		std::vector<std::filesystem::path> sources;
 		usize memorySize = vm::Memory::DefaultSize;
 		bool stopOnEntry = true;
+		// Recording costs one copy of the machine's memory plus the pages each snapshot dirties,
+		// and buys stepping backwards. Worth it by default; a very large --memory is the case
+		// where it is not.
+		bool recordHistory = true;
+		History::Settings history{};
+	};
+
+	// How many times each instruction has run. The addresses are every word of .text, whether it
+	// ran or not, so a zero is as informative as a large number: it is code nothing reached.
+	struct CoverageEntry
+	{
+		u32 address = 0;
+		u64 count = 0;
+		std::optional<SourceLocation> location;
 	};
 
 	class DebugSession
@@ -192,6 +208,16 @@ namespace ceres::debug
 		std::optional<std::vector<vm::InterruptNumber>> _exceptionFilters;
 
 		std::vector<Frame> _callStack;
+
+		History _history;
+		// Kept alongside the history's snapshots, because the reconstructed call stack cannot be
+		// rebuilt from memory: it is inferred from instructions that have already gone past.
+		std::deque<std::pair<u64, std::vector<Frame>>> _callStackHistory;
+
+		// One counter per word of .text, indexed by address rather than hashed: incrementing a
+		// vector entry costs nothing, and a hash insert per instruction would be felt.
+		std::vector<u64> _executionCounts;
+		u32 _textStart = 0;
 
 		// Set from any thread; read between instructions.
 		std::atomic<bool> _pauseRequested{ false };
@@ -249,6 +275,17 @@ namespace ceres::debug
 		StopEvent runToAddress(u32 address);
 		StopEvent resume(u64 maxInstructions = DefaultStepLimit);
 
+		// Backwards. All of these work by restoring the nearest snapshot and running forward
+		// again, which is only possible because the machine is deterministic; see history.h.
+		StopEvent stepBackInstruction();
+		StopEvent stepBackLine();
+		StopEvent reverseContinue();
+		StopEvent runToTick(u64 tick);
+
+		u64 currentTick() const noexcept;
+		bool canStepBack() const noexcept;
+		const History& history() const noexcept { return _history; }
+
 		// Safe from another thread while resume() is running.
 		void requestPause() noexcept { _pauseRequested.store(true, std::memory_order_release); }
 
@@ -285,6 +322,10 @@ namespace ceres::debug
 		std::vector<DisassembledInstruction> disassemble(u32 address, u32 before, u32 count) const;
 
 		std::vector<VariableView> globals() const;
+
+		// Every word of .text with how many times it has run. Zeroes are the point: they are the
+		// code no run has reached.
+		std::vector<CoverageEntry> coverage() const;
 
 		bool setRegister(std::string_view name, u32 value);
 		bool setProgramCounter(u32 address);
@@ -324,6 +365,14 @@ namespace ceres::debug
 		// Compares every watched range to its snapshot. Returns the one that changed, if any.
 		DataBreakpoint* checkDataBreakpoints();
 		void refreshDataSnapshots();
+
+		// Restores the nearest snapshot at or before `tick` and replays up to it, with recording,
+		// breakpoints and output all suppressed - this is ground the program has already covered
+		// and the user has already seen.
+		bool replayTo(u64 tick);
+		// Walks the whole reachable history looking for the last moment before now that satisfies
+		// `matches`, then goes there. Shared by reverse-continue and step-back-a-line.
+		StopEvent scanBackFor(const std::function<bool()>& matches, std::string_view whatFor);
 
 		void updateCallStack(vm::Instruction executed, u32 pcBefore, u32 pcAfter, u32 spAfter, bool wasHalted);
 		void resetCallStack();

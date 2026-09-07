@@ -225,8 +225,13 @@ namespace ceres::debug
 
 	void DebugSession::pushInput(std::string_view text)
 	{
-		if (_terminal)
-			_terminal->pushInput(text);
+		if (!_terminal)
+			return;
+
+		// Recorded against the moment it arrived, so a replay feeds the program the same
+		// keystrokes at the same points and reaches the same state.
+		_history.recordInput(currentTick(), text);
+		_terminal->pushInput(text);
 	}
 
 	// --- Lifecycle ------------------------------------------------------------------------------
@@ -250,6 +255,28 @@ namespace ceres::debug
 		_started = true;
 		_terminated = false;
 		resetCallStack();
+
+		// One counter per word of .text, so a zero at the end means code nothing reached rather
+		// than an address that was never looked at.
+		_textStart = static_cast<u32>(vm::Memory::UnrestrictedSegmentStartValue);
+		_executionCounts.assign(_program.header().textSize / InstructionSize, 0);
+
+		if (_config.recordHistory)
+		{
+			_history.configure(_config.history);
+			_history.start(*_vm, *_timer, *_terminal);
+			_callStackHistory.clear();
+			_callStackHistory.emplace_back(u64{ 0 }, _callStack);
+
+			// The real-time clock is the machine's one non-deterministic input, so it is recorded
+			// on the way forward and served back from the recording on the way through again.
+			_timer->setClockSource([this]() -> u32
+			{
+				const u32 live = static_cast<u32>(std::chrono::duration_cast<std::chrono::seconds>(
+					std::chrono::system_clock::now().time_since_epoch()).count());
+				return _history.clockValue(currentTick(), live);
+			});
+		}
 
 		if (_config.stopOnEntry)
 			return makeStop(StopReason::Entry);
@@ -286,6 +313,9 @@ namespace ceres::debug
 		_started = false;
 		_terminated = false;
 		_lastInterrupt = {};
+		_history.clear();
+		_callStackHistory.clear();
+		std::ranges::fill(_executionCounts, 0);
 		for (Breakpoint& breakpoint : _breakpoints)
 			breakpoint.hitCount = 0;
 		for (DataBreakpoint& watch : _dataBreakpoints)
@@ -502,6 +532,225 @@ namespace ceres::debug
 		return debug::evaluate(*this, expression);
 	}
 
+	// --- Running backwards ------------------------------------------------------------------------
+
+	u64 DebugSession::currentTick() const noexcept
+	{
+		return _vm->engine().executedInstructions();
+	}
+
+	bool DebugSession::canStepBack() const noexcept
+	{
+		return _history.isEnabled() && currentTick() > _history.oldestTick();
+	}
+
+	bool DebugSession::replayTo(u64 tick)
+	{
+		const auto restored = _history.restoreNearest(tick, *_vm, *_timer, *_terminal);
+		if (!restored.has_value())
+			return false;
+
+		// The call stack cannot be recovered from memory - it is inferred from instructions that
+		// have already gone past - so it is restored from the copy kept alongside the snapshot.
+		_callStack.clear();
+		for (const auto& [snapshotTick, frames] : _callStackHistory)
+		{
+			if (snapshotTick == restored.value())
+			{
+				_callStack = frames;
+				break;
+			}
+		}
+		if (_callStack.empty())
+			resetCallStack();
+
+		// Nothing between here and the target is news: the program has already been there and the
+		// user has already seen its output. Replaying with all of that suppressed is what makes
+		// going back look like going back rather than like running the program twice.
+		_history.beginReplay();
+		OutputHandler savedOutput = std::move(_outputHandler);
+		_outputHandler = nullptr;
+
+		for (const std::string& text : _history.inputsBetween(restored.value(), tick))
+			_terminal->pushInput(text);
+
+		while (currentTick() < tick && _vm->isPoweredOn())
+			stepOnce();
+
+		_outputHandler = std::move(savedOutput);
+		_history.endReplay();
+
+		refreshTopFrame();
+		refreshDataSnapshots();
+		return true;
+	}
+
+	StopEvent DebugSession::runToTick(u64 tick)
+	{
+		if (!_history.isEnabled())
+		{
+			StopEvent event = makeStop(StopReason::Error);
+			event.message = "This session was started without recording, so it cannot go backwards";
+			return event;
+		}
+
+		if (!_history.canReach(tick))
+		{
+			StopEvent event = makeStop(StopReason::Error);
+			event.message = std::format(
+				"Instruction {} is further back than the recorded history reaches; the oldest kept is {}",
+				tick, _history.oldestTick());
+			return event;
+		}
+
+		if (!replayTo(tick))
+		{
+			StopEvent event = makeStop(StopReason::Error);
+			event.message = "Could not restore a snapshot for that moment";
+			return event;
+		}
+
+		return makeStop(StopReason::Step);
+	}
+
+	StopEvent DebugSession::stepBackInstruction()
+	{
+		const u64 now = currentTick();
+		if (now == 0)
+		{
+			StopEvent event = makeStop(StopReason::Entry);
+			event.message = "Already at the first instruction";
+			return event;
+		}
+		return runToTick(now - 1);
+	}
+
+	StopEvent DebugSession::scanBackFor(const std::function<bool()>& matches, std::string_view whatFor)
+	{
+		if (!_history.isEnabled())
+		{
+			StopEvent event = makeStop(StopReason::Error);
+			event.message = "This session was started without recording, so it cannot go backwards";
+			return event;
+		}
+
+		const u64 target = currentTick();
+		const u64 oldest = _history.oldestTick();
+		if (target <= oldest)
+		{
+			StopEvent event = makeStop(StopReason::Step);
+			event.message = std::format("Already at the start of the recorded history ({})", whatFor);
+			return event;
+		}
+
+		// Walk the whole reachable history forward once, remembering the last moment before now
+		// that matched. Cheaper than it sounds: this is the same replay a step back does anyway,
+		// and the alternative - snapshotting every instruction - is not affordable.
+		if (!replayTo(oldest))
+		{
+			StopEvent event = makeStop(StopReason::Error);
+			event.message = "Could not restore a snapshot for that moment";
+			return event;
+		}
+
+		std::optional<u64> found;
+		_history.beginReplay();
+		OutputHandler savedOutput = std::move(_outputHandler);
+		_outputHandler = nullptr;
+
+		while (currentTick() < target && _vm->isPoweredOn())
+		{
+			stepOnce();
+			if (currentTick() < target && matches())
+				found = currentTick();
+		}
+
+		_outputHandler = std::move(savedOutput);
+		_history.endReplay();
+
+		if (!found.has_value())
+		{
+			// Nothing matched, so the honest place to leave the machine is where it started.
+			replayTo(target);
+			StopEvent event = makeStop(StopReason::Step);
+			event.message = std::format("No earlier {} within the recorded history", whatFor);
+			return event;
+		}
+
+		return runToTick(found.value());
+	}
+
+	StopEvent DebugSession::stepBackLine()
+	{
+		const auto here = currentLocation();
+		if (!here.has_value())
+			return stepBackInstruction();
+
+		const u32 line = here->expansionLine;
+		const std::string file{ here->expansionFile };
+
+		return scanBackFor([this, line, file]()
+		{
+			const auto now = currentLocation();
+			if (!now.has_value())
+				return false;
+			if ((now->flags & LineFlag::FirstOfLine) == 0)
+				return false;
+			return now->expansionLine != line || now->expansionFile != file;
+		}, "source line");
+	}
+
+	StopEvent DebugSession::reverseContinue()
+	{
+		StopEvent event = scanBackFor([this]()
+		{
+			Breakpoint* breakpoint = breakpointAt(programCounter());
+			if (breakpoint == nullptr || !breakpoint->verified)
+				return false;
+
+			// The condition is asked, but the hit count is not touched: this is the same ground
+			// being walked again, not new hits.
+			if (breakpoint->options.condition.empty())
+				return true;
+
+			auto value = evaluate(breakpoint->options.condition);
+			return value.has_value() && value->truthy();
+		}, "breakpoint");
+
+		if (event.reason == StopReason::Step)
+		{
+			if (Breakpoint* breakpoint = breakpointAt(programCounter()); breakpoint != nullptr)
+			{
+				event.reason = StopReason::Breakpoint;
+				event.breakpoint = breakpoint->id;
+				// Rebuilt, or the message would still read "step" from when the scan was looking
+				// rather than reporting.
+				event.message = makeStop(StopReason::Breakpoint).message;
+			}
+		}
+		return event;
+	}
+
+	// --- Coverage -----------------------------------------------------------------------------
+
+	std::vector<CoverageEntry> DebugSession::coverage() const
+	{
+		std::vector<CoverageEntry> out;
+		out.reserve(_executionCounts.size());
+
+		for (usize i = 0; i < _executionCounts.size(); ++i)
+		{
+			const u32 address = _textStart + static_cast<u32>(i) * InstructionSize;
+			out.push_back(CoverageEntry{
+				.address = address,
+				.count = _executionCounts[i],
+				.location = _debugInfo.locationOf(address)
+			});
+		}
+
+		return out;
+	}
+
 	StopEvent DebugSession::stepOnce()
 	{
 		if (_terminated || !_started)
@@ -519,6 +768,29 @@ namespace ceres::debug
 		const u32 pcBefore = engine.programCounter().value();
 		const bool wasHalted = engine.isHalted();
 		const vm::Instruction executed = _vm->memory().readInstruction(vm::Address(pcBefore));
+
+		// Counted by index rather than hashed: this runs once per instruction, and a hash insert
+		// per instruction would be felt across a hundred million of them. Not counted while
+		// replaying: this is ground the program has already covered, and counting it again would
+		// make a coverage report grow every time the user stepped backwards.
+		if (!wasHalted && pcBefore >= _textStart && !_history.isReplaying())
+		{
+			const usize slot = (pcBefore - _textStart) / InstructionSize;
+			if (slot < _executionCounts.size())
+				++_executionCounts[slot];
+		}
+
+		// Before the instruction, so the snapshot is of the moment *at* this tick rather than
+		// after it: going back to tick N has to put the machine where it was about to run N.
+		if (_history.isEnabled() && !_history.isReplaying())
+		{
+			if (_history.maybeSnapshot(*_vm, *_timer, *_terminal, engine.executedInstructions()))
+			{
+				_callStackHistory.emplace_back(engine.executedInstructions(), _callStack);
+				while (_callStackHistory.size() > _history.settings().maxSnapshots)
+					_callStackHistory.pop_front();
+			}
+		}
 
 		_lastInterrupt = {};
 		engine.step();
