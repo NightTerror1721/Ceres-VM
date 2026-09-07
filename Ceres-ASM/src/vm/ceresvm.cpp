@@ -52,12 +52,19 @@ namespace ceres::vm
 		return {};
 	}
 
-	std::expected<void, std::string> CeresVM::run() noexcept
+	std::expected<void, std::string> CeresVM::powerOn() noexcept
 	{
 		if (isPoweredOn())
 			return std::unexpected("VM is already powered on. Please reset the VM before running a new program.");
 
 		_isPoweredOn.store(true, std::memory_order_release);
+		return {};
+	}
+
+	std::expected<void, std::string> CeresVM::run() noexcept
+	{
+		if (auto powered = powerOn(); !powered)
+			return powered;
 
 		while (isPoweredOn())
 			_engine.step();

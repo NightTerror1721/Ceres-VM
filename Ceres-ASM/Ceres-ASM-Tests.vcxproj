@@ -152,6 +152,8 @@
     <ClCompile Include="src\assembler\symbol_table.cpp" />
     <ClCompile Include="src\assembler\translation_unit.cpp" />
     <ClCompile Include="src\debug\debug_info.cpp" />
+    <ClCompile Include="src\debug\debug_cli.cpp" />
+    <ClCompile Include="src\debug\debug_session.cpp" />
     <ClCompile Include="src\vm\ceresvm.cpp" />
     <ClCompile Include="src\vm\execution_engine.cpp" />
     <ClCompile Include="src\vm\program.cpp" />
@@ -166,6 +168,7 @@
     <ClCompile Include="..\tests\test_program_file.cpp" />
     <ClCompile Include="..\tests\test_devices.cpp" />
     <ClCompile Include="..\tests\test_debug_info.cpp" />
+    <ClCompile Include="..\tests\test_debugger.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\assembler\assembler.h" />
@@ -201,6 +204,8 @@
     <ClInclude Include="src\common\string_utils.h" />
     <ClInclude Include="src\common\types.h" />
     <ClInclude Include="src\debug\debug_info.h" />
+    <ClInclude Include="src\debug\debug_cli.h" />
+    <ClInclude Include="src\debug\debug_session.h" />
     <ClInclude Include="src\vm\address.h" />
     <ClInclude Include="src\vm\bios.h" />
     <ClInclude Include="src\vm\ceresvm.h" />

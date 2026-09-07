@@ -9,6 +9,7 @@
 #include "interrupt_controller.h"
 #include <limits>
 #include <cmath>
+#include <functional>
 #include <optional>
 
 namespace ceres::vm
@@ -28,6 +29,10 @@ namespace ceres::vm
 		// instructions rather than wall clock, so this is the machine's own notion of time and
 		// the only clock a debugger can step against deterministically.
 		u64 _executedInstructions = 0;
+
+		// Empty unless a debugger is attached; see setInterruptObserver.
+		std::function<void(InterruptNumber, Address, bool)> _interruptObserver;
+
 
 	public:
 		explicit ExecutionEngine(Memory& memory, IOPorts& ioPorts, InterruptController& interrupts) :
@@ -78,6 +83,18 @@ namespace ceres::vm
 
 		void setFlags(FlagRegister flags) noexcept { _flags = flags; }
 		void setProgramCounter(Address address) noexcept { _pc = address; }
+
+	public:
+		// Told about every interrupt the machine takes, with the program counter as it stood when
+		// the interrupt fired — which for a fault is the instruction that caused it, and is
+		// otherwise unrecoverable once the dispatch has redirected the PC into the handler.
+		// `entered` distinguishes a handler actually being run from a request that was masked,
+		// had no handler, or could not be delivered for want of stack.
+		//
+		// Must not throw: it is called from triggerInterrupt, which is noexcept.
+		using InterruptObserver = std::function<void(InterruptNumber number, Address atPc, bool entered)>;
+		void setInterruptObserver(InterruptObserver observer) noexcept { _interruptObserver = std::move(observer); }
+		void clearInterruptObserver() noexcept { _interruptObserver = nullptr; }
 
 	private:
 		inline void handleReset() noexcept { reset(); }

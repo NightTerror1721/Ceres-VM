@@ -26,14 +26,29 @@ namespace ceres::vm
 
 	void ExecutionEngine::triggerInterrupt(InterruptNumber interruptNumber) noexcept
 	{
+		// Captured before anything can redirect it: for a fault this is the instruction that
+		// caused it, and it is the one thing a debugger cannot recover afterwards.
+		const Address faultingPC = _pc;
+		const auto notify = [&](bool entered) noexcept
+		{
+			if (_interruptObserver)
+				_interruptObserver(interruptNumber, faultingPC, entered);
+		};
+
 		if (!_flags.get<ExecutionFlag::Interrupt>() && static_cast<u8>(interruptNumber) >= ReservedInterruptCount)
+		{
+			notify(false);
 			return; // Ignore interrupts if interrupt flag is not set or if the interrupt number is reserved
+		}
 
 		const Address interruptVectorAddress = Address(static_cast<Address::ValueType>(interruptNumber) * Address::Size);
 		const u32 handlerAddress = _memory.readUnchecked<u32>(interruptVectorAddress);
 
 		if (handlerAddress == 0)
+		{
+			notify(false);
 			return; // Ignore if no handler is defined
+		}
 
 		// Saving state needs two words. If they do not fit, this dispatch would push, overflow, and
 		// re-enter here forever. Stop the machine instead: there is nowhere left to record what
@@ -42,6 +57,7 @@ namespace ceres::vm
 		{
 			_flags.set<ExecutionFlag::Trap>();
 			_flags.set<ExecutionFlag::Halting>();
+			notify(false);
 			return;
 		}
 
@@ -57,6 +73,7 @@ namespace ceres::vm
 		_flags.clear<ExecutionFlag::Halting>(); // Clear halting flag to allow execution to continue after handling the interrupt
 		
 		_pc = Address(handlerAddress);
+		notify(true);
 	}
 
 	void ExecutionEngine::step() noexcept

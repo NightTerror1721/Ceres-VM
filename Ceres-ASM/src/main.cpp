@@ -12,6 +12,8 @@
 #include "vm/disassembler.h"
 #include "assembler/assembler.h"
 #include "debug/debug_info.h"
+#include "debug/debug_cli.h"
+#include "debug/debug_session.h"
 
 namespace
 {
@@ -37,6 +39,11 @@ namespace
 		"  ceres disasm <file.casm|file.cres> [--debug]\n"
 		"      Print the text section as address, encoded word and instruction.\n"
 		"      With --debug, annotated with the source file and line each word came from.\n"
+		"\n"
+		"  ceres debug <file.casm|file.cres> [<source2.casm> ...] [--memory <bytes>]\n"
+		"                                    [--no-stop-on-entry]\n"
+		"      Run a program under an interactive debugger: breakpoints, stepping by\n"
+		"      source line, registers, memory and a reconstructed call stack.\n"
 		"\n"
 		"A bare path is shorthand for 'run'.\n";
 
@@ -270,6 +277,7 @@ namespace
 		bool json = false;
 		bool debugInfo = false;
 		bool debugJson = false;
+		bool stopOnEntry = true;
 		usize memorySize = Memory::DefaultSize;
 	};
 
@@ -311,6 +319,10 @@ namespace
 				options.debugJson = true;
 				options.debugInfo = true;
 			}
+			else if (argument == "--no-stop-on-entry")
+			{
+				options.stopOnEntry = false;
+			}
 			else if (argument == "--memory")
 			{
 				if (++i >= argc)
@@ -339,7 +351,7 @@ namespace
 			return std::nullopt;
 
 		// A bare path means 'run', so the common case stays short.
-		if (positional[0] == "asm" || positional[0] == "run" || positional[0] == "disasm")
+		if (positional[0] == "asm" || positional[0] == "run" || positional[0] == "disasm" || positional[0] == "debug")
 		{
 			options.command = positional[0];
 			if (positional.size() < 2)
@@ -351,8 +363,8 @@ namespace
 			for (usize i = 1; i < positional.size(); ++i)
 				options.inputs.emplace_back(positional[i]);
 
-			// Only 'asm' links several sources into one program; 'run'/'disasm' need one entry.
-			if (options.command != "asm" && options.inputs.size() > 1)
+			// 'asm' and 'debug' link several sources into one program; 'run'/'disasm' need one.
+			if (options.command != "asm" && options.command != "debug" && options.inputs.size() > 1)
 			{
 				std::cerr << "'" << options.command << "' takes a single input file\n";
 				return std::nullopt;
@@ -422,6 +434,24 @@ int main(int argc, char** argv)
 		}
 
 		return 0;
+	}
+
+	if (options.command == "debug")
+	{
+		auto session = debug::DebugSession::launch(debug::LaunchConfig{
+			.sources = options.inputs,
+			.memorySize = options.memorySize,
+			.stopOnEntry = options.stopOnEntry
+		});
+
+		if (!session.has_value())
+		{
+			std::cerr << session.error() << '\n';
+			return 1;
+		}
+
+		debug::DebugCLI cli{ *session.value() };
+		return cli.run();
 	}
 
 	if (options.command == "disasm")

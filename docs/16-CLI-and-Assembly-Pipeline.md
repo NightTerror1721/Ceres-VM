@@ -22,6 +22,7 @@ from the command line.
 | `ceres asm <source.casm> [-o <output.cres>] [--listing] [--json] [--debug] [--emit-debug-json]` | Assembles a source file. Without `-o`, the source is only checked (parsed, translated, linked, emitted in memory) and discarded — useful as a pure syntax/semantics check. |
 | `ceres run <file.casm\|file.cres> [--memory <bytes>]` | Runs a program, assembling it first if given a `.casm` source file. |
 | `ceres disasm <file.casm\|file.cres> [--debug]` | Prints the `.text` section as address, encoded word, and disassembled instruction, one per line. |
+| `ceres debug <file.casm\|file.cres> [<source2.casm> ...]` | Runs a program under the interactive debugger. See [The debugger](22-Debugger.md). |
 | *(bare path)* | Shorthand for `run` — `ceres program.casm` is exactly `ceres run program.casm`. |
 
 Global flags:
@@ -33,7 +34,8 @@ Global flags:
 | `--json` | `asm` | Print diagnostics as a JSON array on stdout instead of human-readable text on stderr — meant for editor tooling to parse. See [Errors and diagnostics](17-Errors-and-Diagnostics.md). |
 | `--debug` | `asm`, `run`, `disasm` | Build the line and symbol tables (see [Debug information](21-Debug-Information.md)). With `-o`, they are appended to the `.cres`. With `--listing`, each word is annotated with the source line it came from. On `disasm` of a `.cres`, reads back the tables the file already carries. |
 | `--emit-debug-json` | `asm`, `disasm` | Print the debug tables as JSON on stdout. Implies `--debug`. |
-| `--memory <bytes>` | `run` | Overrides the VM's memory size (default 16 MiB — see [Memory](02-Memory.md)). |
+| `--memory <bytes>` | `run`, `debug` | Overrides the VM's memory size (default 16 MiB — see [Memory](02-Memory.md)). |
+| `--no-stop-on-entry` | `debug` | Start running immediately instead of stopping before the first instruction. |
 | `-h` / `--help` | any | Prints usage and exits. |
 
 ## The assembly pipeline, stage by stage

@@ -35,6 +35,7 @@ sh tests/build.sh
 | `ceres asm <source.casm> [-o <out.cres>] [--listing] [--debug]` | Assemble. Without `-o` the source is only checked. `--debug` records the line and symbol tables and, with `-o`, appends them to the `.cres`. |
 | `ceres run <file.casm\|file.cres>` | Run, assembling first if given source. `--memory <bytes>` sets the machine size. |
 | `ceres disasm <file.casm\|file.cres> [--debug]` | Print the text section as address, encoded word and instruction. With `--debug`, annotated with the source line each word came from. |
+| `ceres debug <file.casm\|file.cres>` | Run under an interactive debugger: breakpoints, stepping by source line, registers, memory, call stack. |
 
 A bare path is shorthand for `run`.
 
@@ -342,13 +343,13 @@ The assembler and the VM work end to end. What is not done:
   until after parsing, so the parser cannot fold them.
 - **`parseOperand` gaps.** Float, character and string literals are not accepted as operands, and
   a `%%label` cannot start a statement outside a macro body.
-- **Debugger.** `--debug` now records where every instruction came from — a line table, a symbol
-  table, and an annotated listing — but there is still no stepping, no breakpoints and no way to
-  inspect a running machine. See [the wiki page](docs/21-Debug-Information.md).
+- **Editor integration.** `ceres debug` is a terminal debugger
+  ([wiki](docs/22-Debugger.md)); there is no VSCode integration for it yet, so breakpoints have to
+  be set by typing rather than by clicking in the gutter.
 
 ## Tests
 
-123 cases, 458 assertions, run with `sh tests/build.sh`. CI builds with MSVC and GCC 15 and runs
+142 cases, 578 assertions, run with `sh tests/build.sh`. CI builds with MSVC and GCC 15 and runs
 the suite on both.
 
 A test that pins a bug which is still open is marked `TEST_KNOWN_FAILURE`: it asserts the correct

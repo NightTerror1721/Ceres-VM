@@ -43,6 +43,12 @@ namespace ceres::vm
 
 		std::expected<void, std::string> run() noexcept;
 
+		// Powers the machine on without running the step loop, for a caller that drives step()
+		// itself — a debugger, which has to decide between one instruction and the next. Without
+		// this, shutdown() would have nothing to switch off and a program writing to the system
+		// control port would look like it had done nothing at all.
+		std::expected<void, std::string> powerOn() noexcept;
+
 	public:
 		bool isPoweredOn() const noexcept { return _isPoweredOn.load(std::memory_order_acquire); }
 		void shutdown() noexcept { _isPoweredOn.store(false, std::memory_order_release); }

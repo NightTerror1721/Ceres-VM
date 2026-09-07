@@ -38,6 +38,7 @@ the assembler does internally at each stage of the build.
 18. [Annotated examples](18-Annotated-Examples.md) — a line-by-line walkthrough of a full program.
 19. [Known limitations](19-Known-Limitations.md) — what the project doesn't do yet.
 21. [Debug information](21-Debug-Information.md) — the line and symbol tables, `--debug`, and how they ride along in a `.cres`.
+22. [The debugger](22-Debugger.md) — `ceres debug`: breakpoints, stepping by source line, the reconstructed call stack.
 
 ### Learn by doing
 

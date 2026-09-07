@@ -53,13 +53,23 @@ A handful of literal kinds are not accepted as instruction *operands* today (the
 - A `%%label` cannot start a statement outside a macro body (it can only be used *as an operand*
   outside one, referencing a hygienic label that was already defined inside some macro's expansion).
 
-## No debugger
+## The debugger is terminal-only, and its call stack is inferred
 
-The information a debugger needs now exists: `ceres asm --debug` records a line table and a symbol
-table, and `--listing` annotates every word with the source line it came from (see
-[Debug information](21-Debug-Information.md)). What is still missing is the debugger itself — there
-is no interactive stepping, no breakpoints, and no way to inspect register or memory state while a
-program is running.
+`ceres debug` gives breakpoints, stepping by source line, registers, memory and a call stack (see
+[The debugger](22-Debugger.md)), but only in the terminal: there is no editor integration, so a
+breakpoint is set by typing `b file:line` rather than by clicking in a gutter.
+
+Two things it cannot do exactly rather than approximately:
+
+- **The call stack is reconstructed, not unwound.** `CALL` pushes only a return address and nothing
+  in the machine tracks frames, so the debugger builds the stack by watching instructions go past.
+  A program that unwinds by hand, or jumps into the middle of a subroutine, can desynchronise it —
+  which is why `bt` marks its output as reconstructed.
+- **A fault is reported after the handler has been entered.** The faulting address is captured and
+  shown, but execution has already been redirected by the time the debugger regains control; there
+  is no way to hold the machine at the faulting instruction itself.
+
+There are also no conditional breakpoints, no watch expressions, and no data breakpoints.
 
 ## Things that are easy to mistake for bugs, but are intentional
 
