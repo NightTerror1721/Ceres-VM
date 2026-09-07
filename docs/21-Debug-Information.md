@@ -63,12 +63,12 @@ macro" and for showing the macro body itself.
 
 ```casm
 macro proc_enter
-    push r4          ; line 24  <- where it was written
-    push r5          ; line 25
+    push r4          // line 24  <- where it was written
+    push r5          // line 25
 endmacro
 
 ask_yes_no:
-    proc_enter       ; line 58  <- where the programmer is
+    proc_enter       // line 58  <- where the programmer is
 ```
 
 Both `push` words report `line = 24` and `25`, `expansionLine = 58`, `macroDepth = 1`.

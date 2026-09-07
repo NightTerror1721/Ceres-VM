@@ -153,8 +153,8 @@ Shift amounts use the low five bits of the operand.
 `mov` `li` `lui` `ldr` `ldrb` `ldrh` `ldrsb` `ldrsh` `str` `strb` `strh` `lea`
 
 ```casm
-ldrb r2, [r1 + 4]     ; load, base then displacement
-strb r6, [r5 + 1]     ; store, value first then destination
+ldrb r2, [r1 + 4]     // load, base then displacement
+strb r6, [r5 + 1]     // store, value first then destination
 ```
 
 ### Control flow · `0x50`–`0x77`
@@ -195,8 +195,8 @@ The port is either an 8-bit immediate or a register; the assembler picks the enc
 operand. Block forms take the port, an address and a size:
 
 ```casm
-outm 0x01, r3, r2     ; port, address, size
-inm  0x02, r3, r2     ; port, address, size
+outm 0x01, r3, r2     // port, address, size
+inm  0x02, r3, r2     // port, address, size
 ```
 
 ## Ports
@@ -222,17 +222,17 @@ Reading a port with no device attached returns all ones.
 ## Sections
 
 ```casm
-@text     ; code
-@rodata   ; immutable data
-@data     ; initialised mutable data
-@bss      ; zero-filled at load time, occupies no space in the file
+@text     // code
+@rodata   // immutable data
+@data     // initialised mutable data
+@bss      // zero-filled at load time, occupies no space in the file
 ```
 
 ## Constants and variables
 
 ```casm
 const MAX_PLAYERS = 4
-const BLOCK       = 16 * 4          ; + - * / with the usual precedence
+const BLOCK       = 16 * 4          // + - * / with the usual precedence
 
 @rodata
     let greeting: u8[16] = "Hello, CeresVM!"
@@ -263,8 +263,8 @@ spelling is kept, so diagnostics say `irq` rather than `u8`. Three of them promi
 underlying scalar does not, and that promise is enforced:
 
 ```casm
-    let vector: irq  = 99      ; error: the largest is 63
-    let flag:   bool = 5       ; error: the largest is 1
+    let vector: irq  = 99      // error: the largest is 63
+    let flag:   bool = 5       // error: the largest is 1
 ```
 
 Every alias is a word that identifiers give up, which is why the list stops here. An integer literal has no type of its own; it takes the declared one, and is
@@ -279,9 +279,9 @@ their type's natural alignment.
 ```casm
 @data
     let grid:  i32[2][3] = [[1, 2, 3], [4, 5, 6]]
-    let a:     i32[][]   = [[1, 2, 3], [4, 5, 6]]   ; both sizes worked out
-    let b:     i32[2][]  = [[1, 2, 3], [4, 5, 6]]   ; only the inner one
-    let names: u8[][8]   = ["ada", "grace"]         ; a string fills a row
+    let a:     i32[][]   = [[1, 2, 3], [4, 5, 6]]   // both sizes worked out
+    let b:     i32[2][]  = [[1, 2, 3], [4, 5, 6]]   // only the inner one
+    let names: u8[][8]   = ["ada", "grace"]         // a string fills a row
 @bss
     let cube:  i16[4][4][4]
 ```
@@ -302,15 +302,15 @@ Dimensions run outermost first, elements are stored row-major, and the rank is c
 ```casm
 const BLOCK   = 64
 const HEADER  = 8
-const PAYLOAD = BLOCK - HEADER      ; constants may refer to earlier constants
+const PAYLOAD = BLOCK - HEADER      // constants may refer to earlier constants
 
 @bss
-    let buffer: u8[BLOCK * 2]       ; and to size an array
+    let buffer: u8[BLOCK * 2]       // and to size an array
 
 @text
-    li r1, sizeof(buffer)           ; bytes
-    li r2, countof(buffer)          ; elements
-    li r3, dimof(grid, 1)           ; the length of one dimension
+    li r1, sizeof(buffer)           // bytes
+    li r2, countof(buffer)          // elements
+    li r3, dimof(grid, 1)           // the length of one dimension
 ```
 
 `+ - * /` with the usual precedence, and parentheses. A constant is evaluated when its own
@@ -328,14 +328,14 @@ A constant, a variable or a macro is private to the file that declares it unless
 `global` prefix, exactly like a label:
 
 ```casm
-global const MAX_PLAYERS = 4        ; visible to any file importing this one
-const INTERNAL_SLACK    = 8         ; private to this file
+global const MAX_PLAYERS = 4        // visible to any file importing this one
+const INTERNAL_SLACK    = 8         // private to this file
 
 @data
-    global let scoreboard: u32[8]   ; exported, address and all
-    let scratch:           u32[8]   ; private
+    global let scoreboard: u32[8]   // exported, address and all
+    let scratch:           u32[8]   // private
 
-global macro print_char $reg, $code ; exported
+global macro print_char $reg, $code // exported
     li $reg, $code
     outb 0x01, $reg
 endmacro
@@ -351,9 +351,9 @@ says so rather than reporting an unresolved symbol:
 ## Labels
 
 ```casm
-global main:      ; exported to the linker; `main` is the required entry point
-helper:           ; visible within the file
-.loop:            ; local to the enclosing non-local label
+global main:      // exported to the linker; `main` is the required entry point
+helper:           // visible within the file
+.loop:            // local to the enclosing non-local label
 ```
 
 A local label is stored as `parent.name`, so each subroutine can have its own `.loop`.
@@ -364,7 +364,7 @@ A local label is stored as `parent.name`, so each subroutine can have its own `.
 ldr r1, [r2]
 ldr r1, [r2 + 4]
 ldr r1, [r2 - 8]
-ldr r1, [r2 + OFFSET]     ; OFFSET must be a constant
+ldr r1, [r2 + OFFSET]     // OFFSET must be a constant
 ```
 
 Write the spaces: `[r5+0]` lexes the `+0` as a signed literal and fails to parse.
@@ -395,9 +395,9 @@ branches do — `ifeq` `ifne` `ifgr` `ifge` `ifls` `ifle` `ifab` `ifae` `ifbl` `
 operand may be a register or an immediate, and a pair of float registers picks `fcmp`:
 
 ```casm
-    ifls r1, r2, .smaller       ; signed
-    ifge r3, 100, .at_least     ; against an immediate
-    ifgr f0, f1, .bigger        ; fcmp, without remembering which flag it sets
+    ifls r1, r2, .smaller       // signed
+    ifge r3, 100, .at_least     // against an immediate
+    ifgr f0, f1, .bigger        // fcmp, without remembering which flag it sets
 ```
 
 `enter` and `leave` are the only instructions that touch `fp` (`r14`), which is otherwise defined
@@ -416,7 +416,7 @@ endmacro
 
 macro count_down $reg, $from
     li $reg, $from
-%%loop:                        ; unique to each expansion
+%%loop:                        // unique to each expansion
     sub $reg, $reg, 1
     cmp $reg, 0
     jnz %%loop
@@ -437,9 +437,9 @@ rather than hanging.
 
 ```casm
     li r1, 1000
-    out 0x12, r1        ; fire an interrupt in 1000 instructions
-    sti                 ; user interrupts are masked until this
-    halt                ; suspended until the timer fires
+    out 0x12, r1        // fire an interrupt in 1000 instructions
+    sti                 // user interrupts are masked until this
+    halt                // suspended until the timer fires
 ```
 
 Time is counted in **executed instructions**, not wall clock, so a program behaves the same on
@@ -501,7 +501,7 @@ warning [game.casm:4] 'SLACK' is declared but never used, and is not global, so 
 
 ```casm
 import "lib/math.casm"
-import "lib/math.casm" as math      ; and now math.PI, math.clamp
+import "lib/math.casm" as math      // and now math.PI, math.clamp
 ```
 
 A relative path resolves against the importing file. What becomes visible is whatever the module

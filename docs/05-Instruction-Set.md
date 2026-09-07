@@ -182,8 +182,8 @@ billion as a `u32`, so against `1`:
     lc  r1, 0xFFFFFFFF
     li  r2, 1
     cmp r1, r2
-    jls .below      ; taken:     -1 < 1
-    jab .above      ; also taken: 0xFFFFFFFF > 1
+    jls .below      // taken:     -1 < 1
+    jab .above      // also taken: 0xFFFFFFFF > 1
 ```
 
 Pick by what the data means, not by which reads better. `jls`/`jge` for `i8`/`i16`/`i32`,
