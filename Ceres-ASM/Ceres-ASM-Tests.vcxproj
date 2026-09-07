@@ -141,6 +141,7 @@
   <ItemGroup>
     <ClCompile Include="src\assembler\assembler.cpp" />
     <ClCompile Include="src\assembler\assembly_state.cpp" />
+    <ClCompile Include="src\assembler\const_expr_eval.cpp" />
     <ClCompile Include="src\assembler\binary_emitter.cpp" />
     <ClCompile Include="src\assembler\instruction_info.cpp" />
     <ClCompile Include="src\assembler\lexer.cpp" />
@@ -183,6 +184,9 @@
     <ClInclude Include="src\assembler\binary_emitter.h" />
     <ClInclude Include="src\assembler\common_defs.h" />
     <ClInclude Include="src\assembler\data_type.h" />
+    <ClInclude Include="src\assembler\data_type_reference.h" />
+    <ClInclude Include="src\assembler\const_expr_eval.h" />
+    <ClInclude Include="src\assembler\const_expr.h" />
     <ClInclude Include="src\assembler\errors.h" />
     <ClInclude Include="src\assembler\identifier.h" />
     <ClInclude Include="src\assembler\instruction_info.h" />
