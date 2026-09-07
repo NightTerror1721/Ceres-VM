@@ -6,8 +6,10 @@ import {
 	FileIndex,
 	getAllTokens,
 	getCleanedLines,
+	LabelSymbol,
 	MacroSymbol,
 	sigilLength,
+	VariableSymbol,
 	SymbolIndexer
 } from './symbolIndex';
 
@@ -42,6 +44,8 @@ function classify(
 	text: string,
 	file: FileIndex,
 	consts: Map<string, ConstSymbol>,
+	variables: Map<string, VariableSymbol>,
+	labels: Map<string, LabelSymbol>,
 	macrosByName: Map<string, MacroSymbol[]>
 ): Classification | null {
 	if (isReservedWord(text)) {
@@ -57,10 +61,12 @@ function classify(
 	if (consts.has(text)) {
 		return { type: typeIndex(SemanticTokenTypes.variable), modifiers: modifierBit(SemanticTokenModifiers.readonly) };
 	}
-	if (file.variables.has(text)) {
+	if (variables.has(text)) {
 		return { type: typeIndex(SemanticTokenTypes.variable), modifiers: 0 };
 	}
-	const label = file.labels.get(text);
+	// This file's labels first, then the global ones an import brings in - a `call` across files is
+	// the ordinary case, not an exotic one.
+	const label = file.labels.get(text) ?? labels.get(text);
 	if (label && label.visibility !== 'local') {
 		return { type: typeIndex(SemanticTokenTypes.function), modifiers: 0 };
 	}
@@ -72,7 +78,7 @@ function classify(
 
 export function provideSemanticTokens(document: TextDocument, indexer: SymbolIndexer): SemanticTokens {
 	const file = indexer.getFileIndex(document.uri);
-	const { consts, macrosByName } = indexer.collectVisibleSymbols(document.uri);
+	const { consts, variables, labels, macrosByName } = indexer.collectVisibleSymbols(document.uri);
 	const lines = getCleanedLines(indexer, document.uri);
 
 	// This file's own declaration sites, keyed by (line, bare-name start char, length), so the
@@ -94,7 +100,7 @@ export function provideSemanticTokens(document: TextDocument, indexer: SymbolInd
 
 	for (let line = 0; line < lines.length; line++) {
 		for (const token of getAllTokens(lines[line])) {
-			const classification = classify(token.text, file, consts, macrosByName);
+			const classification = classify(token.text, file, consts, variables, labels, macrosByName);
 			if (!classification) {
 				continue;
 			}

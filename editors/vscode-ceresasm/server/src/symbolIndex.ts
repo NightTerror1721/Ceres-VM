@@ -12,6 +12,7 @@ import { URI } from 'vscode-uri';
 
 export interface ConstSymbol {
 	kind: 'const';
+	isGlobal: boolean;
 	name: string;
 	uri: string;
 	range: Range;
@@ -20,6 +21,7 @@ export interface ConstSymbol {
 
 export interface VariableSymbol {
 	kind: 'variable';
+	isGlobal: boolean;
 	name: string;
 	uri: string;
 	range: Range;
@@ -40,6 +42,7 @@ export interface LabelSymbol {
 
 export interface MacroSymbol {
 	kind: 'macro';
+	isGlobal: boolean;
 	name: string;
 	arity: number;
 	params: string[];
@@ -157,11 +160,11 @@ export function getCleanedLines(indexer: SymbolIndexer, uri: string): string[] {
 }
 
 const IMPORT_RE = /^(\s*)import\s+"([^"]*)"/;
-const CONST_RE = /^(\s*)const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\S.*?)\s*$/;
-const LET_RE = /^(\s*)let\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:\s*\[[^\]]*\])?)/;
+const CONST_RE = /^(\s*)(global\s+)?const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\S.*?)\s*$/;
+const LET_RE = /^(\s*)(global\s+)?let\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:\s*\[[^\]]*\])*)/;
 const SECTION_RE = /^(\s*)@(text|rodata|data|bss)\b/;
 const LABEL_RE = /^(\s*)(global\s+)?(\.?[A-Za-z_][A-Za-z0-9_]*)\s*:/;
-const MACRO_RE = /^(\s*)macro\s+([A-Za-z_][A-Za-z0-9_]*)\b(.*)$/;
+const MACRO_RE = /^(\s*)(global\s+)?macro\s+([A-Za-z_][A-Za-z0-9_]*)\b(.*)$/;
 const ENDMACRO_RE = /^\s*endmacro\b/;
 const MACRO_PARAM_RE = /\$[A-Za-z_][A-Za-z0-9_]*/g;
 
@@ -203,11 +206,12 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 
 		const macroMatch = MACRO_RE.exec(line);
 		if (macroMatch) {
-			const [, indent, name, rest] = macroMatch;
+			const [, indent, globalPrefix, name, rest] = macroMatch;
 			const params = [...rest.matchAll(MACRO_PARAM_RE)].map((m) => m[0]);
-			const nameStart = indent.length + 'macro '.length;
+			const nameStart = indent.length + (globalPrefix ? globalPrefix.length : 0) + 'macro '.length;
 			const symbol: MacroSymbol = {
 				kind: 'macro',
+				isGlobal: Boolean(globalPrefix),
 				name,
 				arity: params.length,
 				params,
@@ -223,10 +227,11 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 
 		const constMatch = CONST_RE.exec(line);
 		if (constMatch) {
-			const [, indent, name, valueText] = constMatch;
-			const nameStart = indent.length + 'const '.length;
+			const [, indent, globalPrefix, name, valueText] = constMatch;
+			const nameStart = indent.length + (globalPrefix ? globalPrefix.length : 0) + 'const '.length;
 			index.consts.set(name, {
 				kind: 'const',
+				isGlobal: Boolean(globalPrefix),
 				name,
 				uri,
 				range: lineRange(lineNumber, nameStart, nameStart + name.length),
@@ -237,10 +242,11 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 
 		const letMatch = LET_RE.exec(line);
 		if (letMatch) {
-			const [, indent, name, typeText] = letMatch;
-			const nameStart = indent.length + 'let '.length;
+			const [, indent, globalPrefix, name, typeText] = letMatch;
+			const nameStart = indent.length + (globalPrefix ? globalPrefix.length : 0) + 'let '.length;
 			index.variables.set(name, {
 				kind: 'variable',
+				isGlobal: Boolean(globalPrefix),
 				name,
 				uri,
 				range: lineRange(lineNumber, nameStart, nameStart + name.length),
@@ -313,6 +319,8 @@ export function resolveImportPath(fromUri: string, importPath: string): string {
 export interface VisibleSymbols {
 	file: FileIndex;
 	consts: Map<string, ConstSymbol>;
+	variables: Map<string, VariableSymbol>;
+	labels: Map<string, LabelSymbol>; // non-local, by name
 	macros: Map<string, MacroSymbol>; // by `${name}/${arity}`
 	macrosByName: Map<string, MacroSymbol[]>;
 	filesVisited: string[]; // uri, includes the requested file itself
@@ -352,10 +360,16 @@ export class SymbolIndexer {
 		}
 	}
 
-	// Consts and macros propagate through `import`, transitively, cycle-safe; labels and
-	// variables stay file-scoped, matching the language's documented import semantics.
+	// What an `import` makes visible: whatever the imported file declares `global`, transitively and
+	// cycle-safe. The requested file itself contributes everything it declares, global or not.
+	//
+	// Labels come along too. They are not imported the way a constant is - the linker publishes
+	// every global label - but without them a `call` into another file resolves to nothing and the
+	// grammar's fallback paints it as a variable.
 	collectVisibleSymbols(uri: string): VisibleSymbols {
 		const consts = new Map<string, ConstSymbol>();
+		const variables = new Map<string, VariableSymbol>();
+		const labels = new Map<string, LabelSymbol>();
 		const macros = new Map<string, MacroSymbol>();
 		const visited = new Set<string>();
 		const file = this.getFileIndex(uri);
@@ -366,13 +380,25 @@ export class SymbolIndexer {
 			}
 			visited.add(currentUri);
 
+			const isOwnFile = currentUri === uri;
+
 			for (const [name, symbol] of currentIndex.consts) {
-				if (!consts.has(name)) {
+				if ((isOwnFile || symbol.isGlobal) && !consts.has(name)) {
 					consts.set(name, symbol);
 				}
 			}
+			for (const [name, symbol] of currentIndex.variables) {
+				if ((isOwnFile || symbol.isGlobal) && !variables.has(name)) {
+					variables.set(name, symbol);
+				}
+			}
+			for (const symbol of currentIndex.nonLocalLabelOrder) {
+				if ((isOwnFile || symbol.visibility === 'global') && !labels.has(symbol.qualifiedName)) {
+					labels.set(symbol.qualifiedName, symbol);
+				}
+			}
 			for (const [key, symbol] of currentIndex.macros) {
-				if (!macros.has(key)) {
+				if ((isOwnFile || symbol.isGlobal) && !macros.has(key)) {
 					macros.set(key, symbol);
 				}
 			}
@@ -395,7 +421,7 @@ export class SymbolIndexer {
 			macrosByName.set(symbol.name, list);
 		}
 
-		return { file, consts, macros, macrosByName, filesVisited: [...visited] };
+		return { file, consts, variables, labels, macros, macrosByName, filesVisited: [...visited] };
 	}
 
 	// Live buffer text for an open document, otherwise the file's content on disk (empty string
