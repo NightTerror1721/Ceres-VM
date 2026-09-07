@@ -2,7 +2,7 @@
   "name": "ceresasm",
   "displayName": "CeresASM",
   "description": "Language support for CASM, the assembler of the Ceres virtual machine: syntax highlighting, live diagnostics from the real ceres compiler, and a debugger.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "ceresasm",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
