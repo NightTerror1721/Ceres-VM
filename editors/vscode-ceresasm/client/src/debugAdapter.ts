@@ -36,6 +36,16 @@ const enum Scope {
 
 const THREAD_ID = 1;
 
+// The machine's system exceptions, spelled the way the session spells them.
+const EXCEPTION_FILTERS = [
+	'Trap',
+	'IllegalInstruction',
+	'MemoryFault',
+	'DivisionByZero',
+	'StackOverflow',
+	'AlignmentFault'
+];
+
 export interface CeresLaunchArguments {
 	program: string;
 	sources?: string[];
@@ -64,6 +74,9 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 	// trip for state that has not moved.
 	private registers: CeresRegisters | undefined;
 	private globals: CeresVariable[] = [];
+	// Kept so `exceptionInfo` can answer without another round trip: DAP asks for the detail only
+	// after it has already been told the machine stopped on a fault.
+	private lastStop: CeresStop | undefined;
 
 	constructor(private readonly resolveExecutable: () => Promise<string>) {
 		this.client = new CeresProtocolClient((event, body) => this.handleCeresEvent(event, body));
@@ -108,6 +121,16 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 	private handleCeresEvent(event: string, body: Record<string, unknown>): void {
 		switch (event) {
 			case 'output': {
+				// A logpoint arrives as text on the console category: it is the debugger talking,
+				// not the program, so it needs no decoding and no interleaving with program bytes.
+				if (typeof body.text === 'string') {
+					this.sendEvent('output', {
+						category: String(body.category ?? 'console'),
+						output: `${body.text}\n`
+					});
+					return;
+				}
+
 				const hex = String(body.hex ?? '');
 				if (hex.length === 0) {
 					return;
@@ -129,6 +152,7 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 			case 'stopped': {
 				const stop = body as unknown as CeresStop;
 				this.registers = undefined;
+				this.lastStop = stop;
 				this.sendEvent('stopped', {
 					reason: this.mapStopReason(stop.reason),
 					threadId: THREAD_ID,
@@ -170,6 +194,7 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 			case 'step': return 'step';
 			case 'entry': return 'entry';
 			case 'exception': return 'exception';
+			case 'data breakpoint': return 'data breakpoint';
 			case 'pause': return 'pause';
 			// Neither of these is a DAP reason, but both mean "the machine has stopped and is not
 			// coming back on its own", which is what 'pause' renders as.
@@ -209,8 +234,21 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 					supportsTerminateRequest: true,
 					supportsSteppingGranularity: true,
 					supportsEvaluateForHovers: true,
+					supportsConditionalBreakpoints: true,
+					supportsHitConditionalBreakpoints: true,
+					supportsLogPoints: true,
+					supportsDataBreakpoints: true,
+					supportsExceptionInfoRequest: true,
+					supportsGotoTargetsRequest: true,
 					supportsValueFormattingOptions: false,
-					exceptionBreakpointFilters: []
+					// The machine's seven system exceptions, each one something a CASM program can
+					// actually hit. All are checked by default, which is what the session does when
+					// nobody has said otherwise.
+					exceptionBreakpointFilters: EXCEPTION_FILTERS.map((filter) => ({
+						filter,
+						label: filter,
+						default: true
+					}))
 				});
 				return;
 
@@ -230,9 +268,118 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 				await this.setInstructionBreakpoints(request, args);
 				return;
 
-			case 'setExceptionBreakpoints':
-				// The machine always stops on a fault; there is nothing to configure yet.
-				this.sendResponse(request, { breakpoints: [] });
+			case 'setExceptionBreakpoints': {
+				const filters = (args.filters ?? []) as string[];
+				await this.client.send('setExceptionFilters', { filters });
+				this.sendResponse(request, { breakpoints: filters.map(() => ({ verified: true })) });
+				return;
+			}
+
+			case 'exceptionInfo': {
+				const stop = this.lastStop;
+				if (!stop || !stop.exception) {
+					this.sendError(request, 'The machine did not stop on an exception');
+					return;
+				}
+				this.sendResponse(request, {
+					exceptionId: stop.exception,
+					// 'always' rather than 'userUnhandled': every fault here goes to the BIOS stub,
+					// which prints an E and halts, so nothing is ever really handled.
+					breakMode: 'always',
+					description: stop.description,
+					details: {
+						message: stop.exception,
+						// Where it happened, which is not where the program counter now is.
+						stackTrace: stop.exceptionLocation?.file
+							? `at ${stop.exceptionLocation.file}:${stop.exceptionLocation.line}`
+							: `at 0x${(stop.exceptionAddress ?? 0).toString(16)}`
+					}
+				});
+				return;
+			}
+
+			case 'dataBreakpointInfo': {
+				// VSCode asks this before offering "Break on Value Change" in the context menu.
+				// Only a named global has an extent the session can watch; a register does not
+				// live in memory at all.
+				const name = String(args.name ?? '');
+				const variable = (await this.fetchGlobals()).find((candidate) => candidate.name === name);
+				if (!variable || variable.isConstant || variable.size === 0) {
+					this.sendResponse(request, {
+						dataId: null,
+						description: variable?.isConstant
+							? 'A constant occupies no memory, so it cannot change'
+							: 'Only global variables can be watched'
+					});
+					return;
+				}
+
+				this.sendResponse(request, {
+					// The address and size are what is actually watched; the name only makes the
+					// stop message readable.
+					dataId: `${variable.address}:${variable.size}:${variable.name}`,
+					description: `${variable.name} (${variable.size} bytes)`,
+					accessTypes: ['write'],
+					canPersist: false
+				});
+				return;
+			}
+
+			case 'setDataBreakpoints': {
+				const requested = (args.breakpoints ?? []) as { dataId: string }[];
+				const watches = requested.map((breakpoint) => {
+					const [address, size, ...label] = breakpoint.dataId.split(':');
+					return {
+						address: Number(address),
+						size: Number(size),
+						label: label.join(':')
+					};
+				});
+
+				const body = await this.client.send('setDataBreakpoints', { watches });
+				const results = (body.watches ?? []) as { verified: boolean; message?: string }[];
+				this.sendResponse(request, {
+					breakpoints: results.map((result) => ({
+						verified: result.verified,
+						message: result.message
+					}))
+				});
+				return;
+			}
+
+			case 'gotoTargets': {
+				// "Jump to cursor": the line has to have produced code, and the target is where
+				// that line is *entered*, not merely its lowest address.
+				const source = (args.source ?? {}) as { path?: string };
+				const line = Number(args.line ?? 0);
+
+				try {
+					const body = await this.client.send('resolveLine', { file: source.path ?? '', line });
+					const address = Number(body.address ?? 0);
+					this.sendResponse(request, {
+						targets: [{
+							id: address,
+							label: `line ${line}`,
+							line,
+							instructionPointerReference: this.toReference(address)
+						}]
+					});
+				} catch {
+					// No code on that line, so there is nowhere to jump to. An empty list is the
+					// protocol's way of saying so, and VSCode simply offers nothing.
+					this.sendResponse(request, { targets: [] });
+				}
+				return;
+			}
+
+			case 'goto':
+				await this.client.send('goto', { address: Number(args.targetId ?? 0) });
+				this.sendResponse(request);
+				this.sendEvent('stopped', {
+					reason: 'goto',
+					threadId: THREAD_ID,
+					allThreadsStopped: true
+				});
 				return;
 
 			case 'configurationDone':
@@ -376,12 +523,23 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 
 	private async setBreakpoints(request: DapMessage, args: Record<string, unknown>): Promise<void> {
 		const source = (args.source ?? {}) as { path?: string };
-		const requested = (args.breakpoints ?? []) as { line: number }[];
+		const requested = (args.breakpoints ?? []) as {
+			line: number;
+			condition?: string;
+			hitCondition?: string;
+			logMessage?: string;
+		}[];
 		const file = source.path ?? '';
 
+		// The long form carries the condition with each line; the session takes both shapes.
 		const body = await this.client.send('setBreakpoints', {
 			file,
-			lines: requested.map((breakpoint) => breakpoint.line)
+			lines: requested.map((breakpoint) => ({
+				line: breakpoint.line,
+				condition: breakpoint.condition ?? '',
+				hitCondition: breakpoint.hitCondition ?? '',
+				logMessage: breakpoint.logMessage ?? ''
+			}))
 		});
 
 		const results = (body.breakpoints ?? []) as {
@@ -521,10 +679,9 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 			}
 
 			case Scope.Globals: {
-				const body = await this.client.send('globals');
-				this.globals = (body.variables ?? []) as CeresVariable[];
+				const globals = await this.fetchGlobals();
 				this.sendResponse(request, {
-					variables: this.globals.map((variable) => ({
+					variables: globals.map((variable) => ({
 						name: variable.name,
 						value: variable.value,
 						type: variable.isConstant ? `const ${variable.type}` : variable.type,
@@ -561,6 +718,12 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 
 	// --- Evaluate -------------------------------------------------------------------------------
 
+	private async fetchGlobals(): Promise<CeresVariable[]> {
+		const body = await this.client.send('globals');
+		this.globals = (body.variables ?? []) as CeresVariable[];
+		return this.globals;
+	}
+
 	private async evaluate(request: DapMessage, args: Record<string, unknown>): Promise<void> {
 		const expression = String(args.expression ?? '').trim();
 
@@ -573,44 +736,18 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 			return;
 		}
 
-		// Name lookup only, for now: registers, flags and globals by name. Expressions over them
-		// arrive with the evaluator.
-		const registers = await this.ensureRegisters();
-		const registerNames: Record<string, number> = {
-			pc: registers.pc, sp: registers.general[15], fp: registers.general[14], lr: registers.general[13]
-		};
-		for (let i = 0; i < registers.general.length; i++) {
-			registerNames[`r${i}`] = registers.general[i];
-		}
+		// Everything else goes to the machine's own evaluator: registers, flags, symbols, typed
+		// memory loads and arithmetic over them. Hovering something that is not an expression at
+		// all - a mnemonic, a comment - fails, and VSCode simply shows no tooltip.
+		const body = await this.client.send('evaluate', { expression });
+		const address = body.address === undefined ? undefined : Number(body.address);
 
-		if (expression in registerNames) {
-			this.sendResponse(request, { result: this.hex(registerNames[expression]), variablesReference: 0 });
-			return;
-		}
-
-		const floatMatch = /^f(\d{1,2})$/.exec(expression);
-		if (floatMatch) {
-			const index = Number(floatMatch[1]);
-			if (index < registers.floating.length) {
-				this.sendResponse(request, { result: String(registers.floating[index]), variablesReference: 0 });
-				return;
-			}
-		}
-
-		const body = await this.client.send('globals');
-		this.globals = (body.variables ?? []) as CeresVariable[];
-		const variable = this.globals.find((candidate) => candidate.name === expression);
-		if (variable) {
-			this.sendResponse(request, {
-				result: variable.value,
-				type: variable.type,
-				variablesReference: 0,
-				memoryReference: variable.isConstant ? undefined : this.toReference(variable.address)
-			});
-			return;
-		}
-
-		this.sendError(request, `'${expression}' is not a register or a known symbol`);
+		this.sendResponse(request, {
+			result: String(body.result ?? ''),
+			type: String(body.type ?? ''),
+			variablesReference: 0,
+			memoryReference: address === undefined ? undefined : this.toReference(address)
+		});
 	}
 
 	// --- Memory and disassembly -------------------------------------------------------------------

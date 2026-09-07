@@ -95,7 +95,10 @@ What works:
 | Breakpoints | Click the gutter. Also function breakpoints (by label) and instruction breakpoints in the disassembly view. |
 | Stepping | Step over / into / out by **source line**, plus instruction-level stepping from the disassembly view. |
 | Variables | Registers, flags, float registers and globals. Globals are rendered through their declared types — a `u8[]` shows as a quoted string. |
-| Watch and hover | Register and symbol names. Expressions over them arrive with the evaluator. |
+| Watch and hover | Full expressions: `r3`, `counter`, `scores[2]`, `[r1 + 4]`, `u8[r2]`, `sp < 0x1000`. |
+| Conditional breakpoints | Right-click a breakpoint for a condition, a hit count, or a log message. |
+| Watchpoints | *Break on Value Change* on any global in the variables view. |
+| Exceptions | The Breakpoints pane lists the machine's six faults; uncheck one to let it through. |
 | Call stack | Reconstructed by watching `CALL`/`RET` go past; interrupt handlers appear as their own frames. |
 | Memory | The hex editor's *View Binary Data* on any variable or register. |
 | Disassembly | *Open Disassembly View*, annotated with the source line each word came from. |
@@ -129,7 +132,9 @@ which is deliberately a different, smaller vocabulary in the machine's own terms
 - The call stack is reconstructed rather than unwound, because `CALL` pushes only a return address
   and no register tracks frames. Code that unwinds by hand can desynchronise it; the disassembly
   view is the ground truth.
-- Watch expressions and conditional breakpoints are name lookups only for now.
+- A watchpoint only detects writes, and detects them by comparing the watched bytes between
+  instructions rather than by trapping the access: a read is invisible to it, and so is a write
+  that puts back the value that was already there.
 - Find references/rename for a `const` or `macro` only reach the current file plus whatever it
   transitively `import`s — not other, unrelated files elsewhere in the workspace that happen to
   import the same one. Renaming a shared constant or macro will warn you when it touched more than

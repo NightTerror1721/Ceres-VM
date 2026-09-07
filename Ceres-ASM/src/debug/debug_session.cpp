@@ -84,6 +84,7 @@ namespace ceres::debug
 			case StopReason::Pause:      return "pause";
 			case StopReason::Halted:     return "halted";
 			case StopReason::Exception:  return "exception";
+			case StopReason::DataBreakpoint: return "data breakpoint";
 			case StopReason::Exited:     return "exited";
 			case StopReason::StepLimit:  return "step limit";
 			case StopReason::Error:      return "error";
@@ -287,6 +288,11 @@ namespace ceres::debug
 		_lastInterrupt = {};
 		for (Breakpoint& breakpoint : _breakpoints)
 			breakpoint.hitCount = 0;
+		for (DataBreakpoint& watch : _dataBreakpoints)
+			watch.hitCount = 0;
+		// The program image has been reloaded, so every watched range holds its initial value
+		// again; without this the first instruction would look like it had changed everything.
+		refreshDataSnapshots();
 
 		return start();
 	}
@@ -330,6 +336,172 @@ namespace ceres::debug
 		return nullptr;
 	}
 
+	bool DebugSession::hitConditionSatisfied(const Breakpoint& breakpoint) const
+	{
+		std::string_view condition = breakpoint.options.hitCondition;
+		while (!condition.empty() && condition.front() == ' ')
+			condition.remove_prefix(1);
+
+		if (condition.empty())
+			return true;
+
+		const auto parseCount = [](std::string_view text) -> std::optional<u32>
+		{
+			u32 value = 0;
+			if (text.empty())
+				return std::nullopt;
+			for (char c : text)
+			{
+				if (c == ' ')
+					continue;
+				if (c < '0' || c > '9')
+					return std::nullopt;
+				value = value * 10 + static_cast<u32>(c - '0');
+			}
+			return value;
+		};
+
+		// The same handful of shapes every editor's hit-count field accepts.
+		if (condition.starts_with(">="))
+		{
+			const auto n = parseCount(condition.substr(2));
+			return n.has_value() && breakpoint.hitCount >= n.value();
+		}
+		if (condition.starts_with("=="))
+		{
+			const auto n = parseCount(condition.substr(2));
+			return n.has_value() && breakpoint.hitCount == n.value();
+		}
+		if (condition.starts_with(">"))
+		{
+			const auto n = parseCount(condition.substr(1));
+			return n.has_value() && breakpoint.hitCount > n.value();
+		}
+		if (condition.starts_with("%"))
+		{
+			const auto n = parseCount(condition.substr(1));
+			return n.has_value() && n.value() != 0 && (breakpoint.hitCount % n.value()) == 0;
+		}
+
+		// A bare number means "from the nth hit on", which is what VSCode's field documents.
+		const auto n = parseCount(condition);
+		return n.has_value() && breakpoint.hitCount >= n.value();
+	}
+
+	bool DebugSession::shouldStopAt(Breakpoint& breakpoint)
+	{
+		// The condition comes first, and a hit that fails it is not counted: a hit count is "how
+		// many times did this actually trigger", which is what makes the two composable.
+		if (!breakpoint.options.condition.empty())
+		{
+			auto value = evaluate(breakpoint.options.condition);
+			if (!value.has_value())
+			{
+				// A condition that cannot be evaluated stops the machine and says why. Silently
+				// ignoring it would leave the user watching a breakpoint that never fires with no
+				// clue as to why.
+				if (_logHandler)
+				{
+					_logHandler(std::format("Breakpoint {} condition '{}' could not be evaluated: {}",
+						breakpoint.id, breakpoint.options.condition, value.error()));
+				}
+				++breakpoint.hitCount;
+				return true;
+			}
+
+			if (!value->truthy())
+				return false;
+		}
+
+		++breakpoint.hitCount;
+
+		if (!hitConditionSatisfied(breakpoint))
+			return false;
+
+		// A logpoint reports and carries on; that is the whole of what makes it not a breakpoint.
+		if (!breakpoint.options.logMessage.empty())
+		{
+			if (_logHandler)
+				_logHandler(interpolate(*this, breakpoint.options.logMessage));
+			return false;
+		}
+
+		return true;
+	}
+
+	std::expected<BreakpointId, std::string> DebugSession::addDataBreakpoint(u32 address, u32 size, std::string label)
+	{
+		if (size == 0)
+			return std::unexpected("A data breakpoint needs a size");
+		if (address + size > _vm->memory().size())
+			return std::unexpected(std::format("{} bytes at {:#010x} do not fit in memory", size, address));
+
+		DataBreakpoint watch;
+		watch.id = _nextBreakpointId++;
+		watch.address = address;
+		watch.size = size;
+		watch.label = std::move(label);
+		watch.before = readMemory(address, size);
+		_dataBreakpoints.push_back(std::move(watch));
+		return _dataBreakpoints.back().id;
+	}
+
+	bool DebugSession::removeDataBreakpoint(BreakpointId id)
+	{
+		const auto it = std::ranges::find(_dataBreakpoints, id, &DataBreakpoint::id);
+		if (it == _dataBreakpoints.end())
+			return false;
+		_dataBreakpoints.erase(it);
+		return true;
+	}
+
+	void DebugSession::clearDataBreakpoints()
+	{
+		_dataBreakpoints.clear();
+	}
+
+	void DebugSession::refreshDataSnapshots()
+	{
+		for (DataBreakpoint& watch : _dataBreakpoints)
+			watch.before = readMemory(watch.address, watch.size);
+	}
+
+	DataBreakpoint* DebugSession::checkDataBreakpoints()
+	{
+		// Compared between instructions rather than trapped at the access: the machine has no
+		// memory hook, and adding one would put a branch in the hot path of every load and store
+		// for the sake of a feature almost no run uses. The cost here is proportional to the bytes
+		// actually being watched, which is a handful.
+		for (DataBreakpoint& watch : _dataBreakpoints)
+		{
+			const std::vector<u8> now = readMemory(watch.address, watch.size);
+			if (now == watch.before)
+				continue;
+
+			watch.before = now;
+			++watch.hitCount;
+			return &watch;
+		}
+		return nullptr;
+	}
+
+	void DebugSession::setExceptionFilters(std::optional<std::vector<vm::InterruptNumber>> filters)
+	{
+		_exceptionFilters = std::move(filters);
+	}
+
+	bool DebugSession::stopsOn(vm::InterruptNumber number) const noexcept
+	{
+		if (!_exceptionFilters.has_value())
+			return true;
+		return std::ranges::find(_exceptionFilters.value(), number) != _exceptionFilters->end();
+	}
+
+	std::expected<EvalResult, std::string> DebugSession::evaluate(std::string_view expression) const
+	{
+		return debug::evaluate(*this, expression);
+	}
+
 	StopEvent DebugSession::stepOnce()
 	{
 		if (_terminated || !_started)
@@ -368,7 +540,8 @@ namespace ceres::debug
 		// the handler, and the faulting instruction is the thing the user needs to see.
 		if (_lastInterrupt.valid &&
 			static_cast<u8>(_lastInterrupt.number) < vm::ReservedInterruptCount &&
-			_lastInterrupt.number != vm::InterruptNumber::Reset)
+			_lastInterrupt.number != vm::InterruptNumber::Reset &&
+			stopsOn(_lastInterrupt.number))
 		{
 			StopEvent event = makeStop(StopReason::Exception);
 			event.exception = _lastInterrupt.number;
@@ -417,9 +590,17 @@ namespace ceres::debug
 			if (_pauseRequested.exchange(false, std::memory_order_acq_rel))
 				return makeStop(StopReason::Pause);
 
-			if (Breakpoint* breakpoint = breakpointAt(programCounter()); breakpoint != nullptr)
+			if (DataBreakpoint* watch = checkDataBreakpoints(); watch != nullptr)
 			{
-				breakpoint->hitCount++;
+				StopEvent hit = makeStop(StopReason::DataBreakpoint);
+				hit.dataBreakpoint = watch->id;
+				hit.message = std::format("{} changed, {}", watch->label, hit.message);
+				return hit;
+			}
+
+			if (Breakpoint* breakpoint = breakpointAt(programCounter());
+				breakpoint != nullptr && shouldStopAt(*breakpoint))
+			{
 				StopEvent hit = makeStop(StopReason::Breakpoint);
 				hit.breakpoint = breakpoint->id;
 				return hit;
@@ -440,9 +621,9 @@ namespace ceres::debug
 
 		// A breakpoint on the instruction just landed on still counts, so a step and a continue
 		// agree about where the machine is allowed to come to rest.
-		if (Breakpoint* breakpoint = breakpointAt(programCounter()); breakpoint != nullptr)
+		if (Breakpoint* breakpoint = breakpointAt(programCounter());
+			breakpoint != nullptr && shouldStopAt(*breakpoint))
 		{
-			breakpoint->hitCount++;
 			event.reason = StopReason::Breakpoint;
 			event.breakpoint = breakpoint->id;
 			event.message = makeStop(StopReason::Breakpoint).message;
@@ -623,13 +804,14 @@ namespace ceres::debug
 
 	// --- Breakpoints ----------------------------------------------------------------------------
 
-	std::expected<BreakpointId, std::string> DebugSession::addAddressBreakpoint(u32 address)
+	std::expected<BreakpointId, std::string> DebugSession::addAddressBreakpoint(u32 address, BreakpointOptions options)
 	{
 		Breakpoint breakpoint;
 		breakpoint.id = _nextBreakpointId++;
 		breakpoint.kind = BreakpointKind::Address;
 		breakpoint.address = address;
 		breakpoint.verified = true;
+		breakpoint.options = std::move(options);
 		if (const auto location = _debugInfo.locationOf(address); location.has_value())
 		{
 			breakpoint.file = std::string(location->expansionFile);
@@ -639,7 +821,7 @@ namespace ceres::debug
 		return _breakpoints.back().id;
 	}
 
-	std::expected<BreakpointId, std::string> DebugSession::addLineBreakpoint(std::string_view file, u32 line)
+	std::expected<BreakpointId, std::string> DebugSession::addLineBreakpoint(std::string_view file, u32 line, BreakpointOptions options)
 	{
 		if (_debugInfo.isEmpty())
 			return std::unexpected("This program was built without debug information, so it has no line table");
@@ -657,11 +839,12 @@ namespace ceres::debug
 		breakpoint.file = std::string(file);
 		breakpoint.line = line;
 		breakpoint.verified = true;
+		breakpoint.options = std::move(options);
 		_breakpoints.push_back(std::move(breakpoint));
 		return _breakpoints.back().id;
 	}
 
-	std::expected<BreakpointId, std::string> DebugSession::addSymbolBreakpoint(std::string_view symbol)
+	std::expected<BreakpointId, std::string> DebugSession::addSymbolBreakpoint(std::string_view symbol, BreakpointOptions options)
 	{
 		if (_debugInfo.isEmpty())
 			return std::unexpected("This program was built without debug information, so it has no symbol table");
@@ -678,6 +861,7 @@ namespace ceres::debug
 		breakpoint.address = entry->address;
 		breakpoint.symbol = std::string(symbol);
 		breakpoint.verified = true;
+		breakpoint.options = std::move(options);
 		if (const auto location = _debugInfo.locationOf(entry->address); location.has_value())
 		{
 			breakpoint.file = std::string(location->expansionFile);

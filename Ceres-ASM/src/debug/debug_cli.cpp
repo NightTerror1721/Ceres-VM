@@ -1,5 +1,7 @@
 #include "debug_cli.h"
 
+#include "expression.h"
+
 #include <algorithm>
 #include <charconv>
 #include <cstdio>
@@ -63,6 +65,13 @@ namespace ceres::debug
 	int DebugCLI::run()
 	{
 		_session.setOutputHandler([this](std::span<const u8> bytes) { writeOutput(bytes); });
+		// A logpoint is the debugger talking, not the program, so it is marked as such rather than
+		// mixed into the program's own output.
+		_session.setLogHandler([this](std::string_view text)
+		{
+			ensureLineStart();
+			std::cout << "  [log] " << text << '\n';
+		});
 
 		printBanner();
 
@@ -109,9 +118,12 @@ namespace ceres::debug
 			"    run          restart the program from the beginning\n"
 			"\n"
 			"  Breakpoints\n"
-			"    b <loc>      break at file:line, a label, or *0x400\n"
-			"    d <id>       delete a breakpoint; `d` alone deletes them all\n"
-			"    bl           list breakpoints\n"
+			"    b <loc>              break at file:line, a label, or *0x400\n"
+			"    b <loc> if <expr>    break only when the expression is true\n"
+			"    log <loc> <text>     log {expressions} and carry on instead of stopping\n"
+			"    watch <name|addr> [size]   stop when that memory changes\n"
+			"    d <id>       delete a breakpoint or watch; `d` alone deletes them all\n"
+			"    bl           list breakpoints and watches\n"
 			"\n"
 			"  Inspecting\n"
 			"    regs         registers and flags\n"
@@ -120,7 +132,7 @@ namespace ceres::debug
 			"    dis [count]  disassembly around the program counter\n"
 			"    x <loc> [n]  dump n bytes of memory; `x` alone continues the last dump\n"
 			"    vars         global variables and constants\n"
-			"    p <name>     print one variable or constant\n"
+			"    p <expr>     evaluate: r3, sp < 0x1000, total, scores[2], [r1 + 4], u8[r2]\n"
 			"\n"
 			"  Changing things\n"
 			"    set <reg> <value>   write a register (r0-r15, f0-f15, sp, fp, lr, pc)\n"
@@ -159,6 +171,10 @@ namespace ceres::debug
 
 			case StopReason::Breakpoint:
 				std::cout << "Breakpoint " << event.breakpoint << ", " << event.message << '\n';
+				break;
+
+			case StopReason::DataBreakpoint:
+				std::cout << "Watch " << event.dataBreakpoint << ", " << event.message << '\n';
 				break;
 
 			default:
@@ -301,7 +317,8 @@ namespace ceres::debug
 	void DebugCLI::printBreakpoints() const
 	{
 		const auto breakpoints = _session.breakpoints();
-		if (breakpoints.empty())
+		const auto watches = _session.dataBreakpoints();
+		if (breakpoints.empty() && watches.empty())
 		{
 			std::cout << "  (none)\n";
 			return;
@@ -325,6 +342,19 @@ namespace ceres::debug
 
 			std::cout << std::format("  {:>2}  {:<24} {:#010x}  hits: {}\n",
 				breakpoint.id, where, breakpoint.address, breakpoint.hitCount);
+
+			if (!breakpoint.options.condition.empty())
+				std::cout << std::format("        if {}\n", breakpoint.options.condition);
+			if (!breakpoint.options.hitCondition.empty())
+				std::cout << std::format("        hit count {}\n", breakpoint.options.hitCondition);
+			if (!breakpoint.options.logMessage.empty())
+				std::cout << std::format("        log \"{}\"\n", breakpoint.options.logMessage);
+		}
+
+		for (const DataBreakpoint& watch : watches)
+		{
+			std::cout << std::format("  {:>2}  watch {:<18} {:#010x} +{}  hits: {}\n",
+				watch.id, watch.label, watch.address, watch.size, watch.hitCount);
 		}
 	}
 
@@ -543,8 +573,22 @@ namespace ceres::debug
 			const std::string_view target = argument(1);
 			if (target.empty())
 			{
-				std::cout << "  Usage: b file:line | b label | b *0x400\n";
+				std::cout << "  Usage: b file:line | b label | b *0x400 [if <expression>]\n";
 				return true;
+			}
+
+			// Everything after a bare `if` is the condition, taken verbatim so it can contain
+			// spaces: `b 42 if r3 == 10`.
+			BreakpointOptions options;
+			for (usize i = 2; i < tokens.size(); ++i)
+			{
+				if (tokens[i] != "if")
+					continue;
+
+				const usize conditionStart = line.find(" if ", line.find(target));
+				if (conditionStart != std::string::npos)
+					options.condition = line.substr(conditionStart + 4);
+				break;
 			}
 
 			std::expected<BreakpointId, std::string> added = std::unexpected("");
@@ -552,13 +596,14 @@ namespace ceres::debug
 			{
 				const auto address = parseNumber(target.substr(1));
 				added = address.has_value()
-					? _session.addAddressBreakpoint(address.value())
+					? _session.addAddressBreakpoint(address.value(), options)
 					: std::unexpected(std::format("'{}' is not an address", target));
 			}
 			else if (const usize colon = target.rfind(':');
 				colon != std::string_view::npos && parseNumber(target.substr(colon + 1)).has_value())
 			{
-				added = _session.addLineBreakpoint(target.substr(0, colon), parseNumber(target.substr(colon + 1)).value());
+				added = _session.addLineBreakpoint(
+					target.substr(0, colon), parseNumber(target.substr(colon + 1)).value(), options);
 			}
 			else if (const auto lineOnly = parseNumber(target); lineOnly.has_value())
 			{
@@ -566,12 +611,12 @@ namespace ceres::debug
 				// almost always the file being read on screen.
 				const auto here = _session.currentLocation();
 				added = here.has_value()
-					? _session.addLineBreakpoint(here->expansionFile, lineOnly.value())
+					? _session.addLineBreakpoint(here->expansionFile, lineOnly.value(), options)
 					: std::unexpected("There is no current file to take a line number from");
 			}
 			else
 			{
-				added = _session.addSymbolBreakpoint(target);
+				added = _session.addSymbolBreakpoint(target, options);
 			}
 
 			if (added.has_value())
@@ -589,18 +634,105 @@ namespace ceres::debug
 			return true;
 		}
 
+		if (command == "log")
+		{
+			// A logpoint is a breakpoint that reports and carries on, so it is set the same way
+			// with the message taking everything after the location.
+			const std::string_view target = argument(1);
+			if (target.empty() || tokens.size() < 3)
+			{
+				std::cout << "  Usage: log <loc> <message>, where {expressions} are interpolated\n";
+				return true;
+			}
+
+			const usize messageStart = line.find(target) + target.size();
+			BreakpointOptions options;
+			options.logMessage = line.substr(messageStart);
+			while (!options.logMessage.empty() && options.logMessage.front() == ' ')
+				options.logMessage.erase(0, 1);
+
+			std::expected<BreakpointId, std::string> added = std::unexpected("");
+			if (const auto lineOnly = parseNumber(target); lineOnly.has_value())
+			{
+				const auto here = _session.currentLocation();
+				added = here.has_value()
+					? _session.addLineBreakpoint(here->expansionFile, lineOnly.value(), std::move(options))
+					: std::unexpected("There is no current file to take a line number from");
+			}
+			else if (const usize colon = target.rfind(':');
+				colon != std::string_view::npos && parseNumber(target.substr(colon + 1)).has_value())
+			{
+				added = _session.addLineBreakpoint(
+					target.substr(0, colon), parseNumber(target.substr(colon + 1)).value(), std::move(options));
+			}
+			else
+			{
+				added = _session.addSymbolBreakpoint(target, std::move(options));
+			}
+
+			if (added.has_value())
+				std::cout << std::format("  Logpoint {} at {}\n", added.value(), target);
+			else
+				std::cout << "  " << added.error() << '\n';
+			return true;
+		}
+
+		if (command == "watch")
+		{
+			const std::string_view target = argument(1);
+			if (target.empty())
+			{
+				std::cout << "  Usage: watch <variable> | watch 0x1000 [size]\n";
+				return true;
+			}
+
+			u32 address = 0;
+			u32 size = 4;
+
+			// A named variable knows its own extent, which is almost always what you meant.
+			if (const SymbolEntry* symbol = _session.debugInfo().symbolNamed(target);
+				symbol != nullptr && symbol->size > 0)
+			{
+				address = symbol->address;
+				size = symbol->size;
+			}
+			else if (const auto resolved = resolveAddress(target); resolved.has_value())
+			{
+				address = resolved.value();
+			}
+			else
+			{
+				std::cout << "  Cannot work out where '" << target << "' is.\n";
+				return true;
+			}
+
+			if (!argument(2).empty())
+				size = parseNumber(argument(2)).value_or(size);
+
+			auto added = _session.addDataBreakpoint(address, size, std::string(target));
+			if (added.has_value())
+				std::cout << std::format("  Watch {} on {} bytes at {:#010x}\n", added.value(), size, address);
+			else
+				std::cout << "  " << added.error() << '\n';
+			return true;
+		}
+
 		if (command == "d" || command == "delete")
 		{
 			if (argument(1).empty())
 			{
 				_session.clearBreakpoints();
-				std::cout << "  All breakpoints deleted.\n";
+				_session.clearDataBreakpoints();
+				std::cout << "  All breakpoints and watches deleted.\n";
 				return true;
 			}
 
 			const auto id = parseNumber(argument(1));
-			if (!id.has_value() || !_session.removeBreakpoint(id.value()))
-				std::cout << "  No breakpoint " << argument(1) << ".\n";
+			// Breakpoints and watches share one numbering, so one command deletes either.
+			const bool removed = id.has_value() &&
+				(_session.removeBreakpoint(id.value()) || _session.removeDataBreakpoint(id.value()));
+			if (!removed)
+				std::cout << "  No breakpoint or watch " << argument(1) << ".\n";
 			return true;
 		}
 
@@ -678,15 +810,29 @@ namespace ceres::debug
 
 		if (command == "p" || command == "print")
 		{
-			const std::string_view name = argument(1);
-			const auto globals = _session.globals();
-			const auto it = std::ranges::find(globals, name, &VariableView::name);
-			if (it == globals.end())
+			// Everything after the command word, so an expression can contain spaces.
+			const usize expressionStart = line.find(command) + command.size();
+			std::string expression = line.substr(expressionStart);
+			while (!expression.empty() && expression.front() == ' ')
+				expression.erase(0, 1);
+
+			if (expression.empty())
 			{
-				std::cout << "  No variable or constant named '" << name << "'.\n";
+				std::cout << "  Usage: p <expression>\n";
 				return true;
 			}
-			std::cout << std::format("  {} : {} = {}\n", it->name, it->type, it->value);
+
+			auto value = _session.evaluate(expression);
+			if (!value.has_value())
+			{
+				std::cout << "  " << value.error() << '\n';
+				return true;
+			}
+
+			std::cout << std::format("  {} : {} = {}", expression, value->type, value->text);
+			if (value->address.has_value())
+				std::cout << std::format("   at {:#010x}", value->address.value());
+			std::cout << '\n';
 			return true;
 		}
 

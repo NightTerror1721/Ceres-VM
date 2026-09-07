@@ -153,6 +153,7 @@
     <ClCompile Include="src\assembler\translation_unit.cpp" />
     <ClCompile Include="src\debug\debug_info.cpp" />
     <ClCompile Include="src\debug\json.cpp" />
+    <ClCompile Include="src\debug\expression.cpp" />
     <ClCompile Include="src\debug\debug_server.cpp" />
     <ClCompile Include="src\debug\debug_cli.cpp" />
     <ClCompile Include="src\debug\debug_session.cpp" />
@@ -172,6 +173,7 @@
     <ClCompile Include="..\tests\test_debug_info.cpp" />
     <ClCompile Include="..\tests\test_debugger.cpp" />
     <ClCompile Include="..\tests\test_json.cpp" />
+    <ClCompile Include="..\tests\test_expression.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\assembler\assembler.h" />
@@ -208,6 +210,7 @@
     <ClInclude Include="src\common\types.h" />
     <ClInclude Include="src\debug\debug_info.h" />
     <ClInclude Include="src\debug\json.h" />
+    <ClInclude Include="src\debug\expression.h" />
     <ClInclude Include="src\debug\debug_server.h" />
     <ClInclude Include="src\debug\debug_cli.h" />
     <ClInclude Include="src\debug\debug_session.h" />

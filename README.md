@@ -343,13 +343,13 @@ The assembler and the VM work end to end. What is not done:
   until after parsing, so the parser cannot fold them.
 - **`parseOperand` gaps.** Float, character and string literals are not accepted as operands, and
   a `%%label` cannot start a statement outside a macro body.
-- **Watch expressions.** Hover and watch in the debugger are name lookups: `r3` and `counter` work,
-  `[r1 + 4]` and `counter[3]` do not. No conditional breakpoints, logpoints or data breakpoints
-  either. See [the debugger](docs/22-Debugger.md).
+- **Running backwards.** The debugger ([wiki](docs/22-Debugger.md)) has breakpoints, conditions,
+  logpoints, watchpoints and expressions, but only forwards: no step-back and no reverse-continue,
+  even though the machine is deterministic enough to make both possible.
 
 ## Tests
 
-152 cases, 631 assertions, run with `sh tests/build.sh`. CI builds with MSVC and GCC 15 and runs
+163 cases, 722 assertions, run with `sh tests/build.sh`. CI builds with MSVC and GCC 15 and runs
 the suite on both.
 
 A test that pins a bug which is still open is marked `TEST_KNOWN_FAILURE`: it asserts the correct

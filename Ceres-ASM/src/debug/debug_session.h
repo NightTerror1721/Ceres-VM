@@ -9,6 +9,7 @@
 // whole of it can be driven from a test the same way a debugger drives it.
 
 #include "debug_info.h"
+#include "expression.h"
 #include "vm/ceresvm.h"
 #include "vm/devices.h"
 #include "vm/program.h"
@@ -33,6 +34,7 @@ namespace ceres::debug
 		Pause,        // Someone called requestPause()
 		Halted,       // The machine is in HALT with nothing left to wake it
 		Exception,    // A fault or trap was taken
+		DataBreakpoint, // A watched range of memory changed
 		Exited,       // The program shut the machine down
 		StepLimit,    // Ran longer than the caller allowed; nothing is wrong, it just did not finish
 		Error,
@@ -48,6 +50,7 @@ namespace ceres::debug
 		BreakpointId breakpoint = 0;     // Set when reason == Breakpoint
 		vm::InterruptNumber exception{}; // Set when reason == Exception
 		u32 exceptionAddress = 0;        // The instruction that caused it, not the handler it went to
+		BreakpointId dataBreakpoint = 0; // Set when reason == DataBreakpoint
 		std::string message;             // Human-readable summary, always filled in
 	};
 
@@ -56,6 +59,17 @@ namespace ceres::debug
 		Address, // A raw address, from the disassembly view
 		Line,    // A source line, resolved through the line table
 		Symbol,  // A label, for "break on this subroutine"
+	};
+
+	struct BreakpointOptions
+	{
+		// An expression over the machine; empty means unconditional. See expression.h.
+		std::string condition;
+		// "5" (from the fifth hit on), ">5", ">=5", "==5", "%3" (every third).
+		std::string hitCondition;
+		// Non-empty makes this a logpoint: {expressions} in it are interpolated, the message is
+		// reported, and the program carries on instead of stopping.
+		std::string logMessage;
 	};
 
 	struct Breakpoint
@@ -67,6 +81,22 @@ namespace ceres::debug
 		u32 line = 0;       // For Line
 		std::string symbol; // For Symbol
 		bool verified = false; // False when the location could not be resolved to any address
+		// Counts arrivals whose condition held, which is what a hit condition counts against and
+		// what an editor shows.
+		u32 hitCount = 0;
+		BreakpointOptions options;
+	};
+
+	// A watch on a range of memory. Only writes are detected, and by comparing the bytes to a
+	// snapshot between instructions rather than by trapping the access: the machine has no memory
+	// hook, and adding one would put a branch in the hot path of every load and store.
+	struct DataBreakpoint
+	{
+		BreakpointId id = 0;
+		u32 address = 0;
+		u32 size = 0;
+		std::string label;      // What the user asked to watch, for the stop message
+		std::vector<u8> before; // The last bytes seen, to compare the next ones against
 		u32 hitCount = 0;
 	};
 
@@ -137,6 +167,9 @@ namespace ceres::debug
 		static inline constexpr u64 StepLineLimit = 10'000'000;
 
 		using OutputHandler = std::function<void(std::span<const u8>)>;
+		// Where a logpoint's text goes. Separate from OutputHandler because it is the debugger
+		// talking, not the program.
+		using LogHandler = std::function<void(std::string_view)>;
 
 	private:
 		vm::Program _program;
@@ -151,7 +184,12 @@ namespace ceres::debug
 		std::unique_ptr<vm::SystemControlDevice> _systemControl;
 
 		std::vector<Breakpoint> _breakpoints;
+		std::vector<DataBreakpoint> _dataBreakpoints;
 		BreakpointId _nextBreakpointId = 1;
+
+		// Empty optional means every system exception stops the machine, which is the useful
+		// default. A list - even an empty one - means exactly those and no others.
+		std::optional<std::vector<vm::InterruptNumber>> _exceptionFilters;
 
 		std::vector<Frame> _callStack;
 
@@ -162,6 +200,7 @@ namespace ceres::debug
 		bool _terminated = false;
 
 		OutputHandler _outputHandler;
+		LogHandler _logHandler;
 
 		// Filled by the interrupt observer during a step and consumed right after it.
 		struct PendingInterrupt
@@ -214,12 +253,23 @@ namespace ceres::debug
 		void requestPause() noexcept { _pauseRequested.store(true, std::memory_order_release); }
 
 	public:
-		std::expected<BreakpointId, std::string> addLineBreakpoint(std::string_view file, u32 line);
-		std::expected<BreakpointId, std::string> addAddressBreakpoint(u32 address);
-		std::expected<BreakpointId, std::string> addSymbolBreakpoint(std::string_view symbol);
+		std::expected<BreakpointId, std::string> addLineBreakpoint(std::string_view file, u32 line, BreakpointOptions options = {});
+		std::expected<BreakpointId, std::string> addAddressBreakpoint(u32 address, BreakpointOptions options = {});
+		std::expected<BreakpointId, std::string> addSymbolBreakpoint(std::string_view symbol, BreakpointOptions options = {});
 		bool removeBreakpoint(BreakpointId id);
 		void clearBreakpoints();
 		std::span<const Breakpoint> breakpoints() const noexcept { return _breakpoints; }
+
+		// `label` is only used to say what changed when it fires; the address and size are what
+		// is actually watched.
+		std::expected<BreakpointId, std::string> addDataBreakpoint(u32 address, u32 size, std::string label);
+		bool removeDataBreakpoint(BreakpointId id);
+		void clearDataBreakpoints();
+		std::span<const DataBreakpoint> dataBreakpoints() const noexcept { return _dataBreakpoints; }
+
+		// Pass nullopt to stop on every system exception, which is the default.
+		void setExceptionFilters(std::optional<std::vector<vm::InterruptNumber>> filters);
+		bool stopsOn(vm::InterruptNumber number) const noexcept;
 
 	public:
 		RegisterView registers() const;
@@ -239,10 +289,14 @@ namespace ceres::debug
 		bool setRegister(std::string_view name, u32 value);
 		bool setProgramCounter(u32 address);
 
+		// Watches, hover, conditions and logpoint interpolation all come through here.
+		std::expected<EvalResult, std::string> evaluate(std::string_view expression) const;
+
 	public:
 		// Bytes the program writes to the terminal's output port. Set before start(), or the
 		// first few will have gone to stdout already.
 		void setOutputHandler(OutputHandler handler);
+		void setLogHandler(LogHandler handler) { _logHandler = std::move(handler); }
 		void pushInput(std::string_view text);
 
 		const DebugInfo& debugInfo() const noexcept { return _debugInfo; }
@@ -261,6 +315,15 @@ namespace ceres::debug
 
 		StopEvent makeStop(StopReason reason) const;
 		Breakpoint* breakpointAt(u32 address);
+
+		// Condition, then hit count, then log message: a logpoint whose condition is false should
+		// not log, and a hit condition counts only the hits the condition allowed through.
+		bool shouldStopAt(Breakpoint& breakpoint);
+		bool hitConditionSatisfied(const Breakpoint& breakpoint) const;
+
+		// Compares every watched range to its snapshot. Returns the one that changed, if any.
+		DataBreakpoint* checkDataBreakpoints();
+		void refreshDataSnapshots();
 
 		void updateCallStack(vm::Instruction executed, u32 pcBefore, u32 pcAfter, u32 spAfter, bool wasHalted);
 		void resetCallStack();

@@ -123,6 +123,9 @@ namespace ceres::debug
 		if (event.reason == StopReason::Breakpoint)
 			body.insert_or_assign("breakpointId", json::Value(event.breakpoint));
 
+		if (event.reason == StopReason::DataBreakpoint)
+			body.insert_or_assign("dataBreakpointId", json::Value(event.dataBreakpoint));
+
 		if (event.reason == StopReason::Exception)
 		{
 			body.insert_or_assign("exception", json::Value(describe(event.exception)));
@@ -214,7 +217,10 @@ namespace ceres::debug
 				{ "file", json::Value(breakpoint.file) },
 				{ "line", json::Value(breakpoint.line) },
 				{ "symbol", json::Value(breakpoint.symbol) },
-				{ "hitCount", json::Value(breakpoint.hitCount) }
+				{ "hitCount", json::Value(breakpoint.hitCount) },
+				{ "condition", json::Value(breakpoint.options.condition) },
+				{ "hitCondition", json::Value(breakpoint.options.hitCondition) },
+				{ "logMessage", json::Value(breakpoint.options.logMessage) }
 			}));
 		}
 		return out;
@@ -280,6 +286,16 @@ namespace ceres::debug
 			});
 		});
 
+		// A logpoint is the debugger talking, not the program, so it goes to the console category
+		// where an editor renders it differently.
+		_session.setLogHandler([this](std::string_view text)
+		{
+			emitEvent("output", json::Object{
+				{ "category", json::Value("console") },
+				{ "text", json::Value(text) }
+			});
+		});
+
 		emitEvent("initialized", json::Object{
 			{ "protocolVersion", json::Value(ProtocolVersion) },
 			{ "hasDebugInfo", json::Value(!_session.debugInfo().isEmpty()) },
@@ -294,7 +310,13 @@ namespace ceres::debug
 				{ "writeMemory", json::Value(true) },
 				{ "setRegister", json::Value(true) },
 				{ "restart", json::Value(true) },
-				{ "goto", json::Value(true) }
+				{ "goto", json::Value(true) },
+				{ "conditionalBreakpoints", json::Value(true) },
+				{ "hitConditionalBreakpoints", json::Value(true) },
+				{ "logPoints", json::Value(true) },
+				{ "dataBreakpoints", json::Value(true) },
+				{ "exceptionFilters", json::Value(true) },
+				{ "evaluate", json::Value(true) }
 			}) }
 		});
 
@@ -426,8 +448,16 @@ namespace ceres::debug
 			json::Array results;
 			for (const json::Value& entry : arguments["lines"].asArray())
 			{
-				const u32 line = entry.asU32();
-				auto added = _session.addLineBreakpoint(file, line);
+				// A line may arrive as a bare number or as an object carrying a condition; both
+				// shapes are accepted so a script does not have to spell out the long form.
+				const u32 line = entry.isObject() ? entry["line"].asU32() : entry.asU32();
+				BreakpointOptions options{
+					std::string(entry["condition"].asString()),
+					std::string(entry["hitCondition"].asString()),
+					std::string(entry["logMessage"].asString())
+				};
+
+				auto added = _session.addLineBreakpoint(file, line, std::move(options));
 
 				json::Object result{
 					{ "line", json::Value(line) },
@@ -510,6 +540,108 @@ namespace ceres::debug
 			}
 
 			respond(request, json::Object{ { "breakpoints", json::Value(std::move(results)) } });
+			return true;
+		}
+
+		if (command == "setDataBreakpoints")
+		{
+			_session.clearDataBreakpoints();
+
+			json::Array results;
+			for (const json::Value& entry : arguments["watches"].asArray())
+			{
+				const u32 address = entry["address"].asU32();
+				const u32 size = entry["size"].asU32(4);
+				auto added = _session.addDataBreakpoint(address, size, std::string(entry["label"].asString()));
+
+				json::Object result{
+					{ "address", json::Value(address) },
+					{ "size", json::Value(size) },
+					{ "verified", json::Value(added.has_value()) }
+				};
+				if (added.has_value())
+					result.insert_or_assign("id", json::Value(added.value()));
+				else
+					result.insert_or_assign("message", json::Value(added.error()));
+				results.push_back(json::Value(std::move(result)));
+			}
+
+			respond(request, json::Object{ { "watches", json::Value(std::move(results)) } });
+			return true;
+		}
+
+		if (command == "setExceptionFilters")
+		{
+			// A missing 'filters' means every system exception stops the machine, which is the
+			// default; an explicit list - even an empty one - means exactly those.
+			if (!arguments.has("filters") || arguments["filters"].isNull())
+			{
+				_session.setExceptionFilters(std::nullopt);
+			}
+			else
+			{
+				std::vector<vm::InterruptNumber> filters;
+				for (const json::Value& entry : arguments["filters"].asArray())
+				{
+					const std::string_view name = entry.asString();
+					for (u8 number = 0; number < vm::ReservedInterruptCount; ++number)
+					{
+						if (describe(static_cast<vm::InterruptNumber>(number)) == name)
+						{
+							filters.push_back(static_cast<vm::InterruptNumber>(number));
+							break;
+						}
+					}
+				}
+				_session.setExceptionFilters(std::move(filters));
+			}
+
+			respond(request, json::Object{});
+			return true;
+		}
+
+		if (command == "resolveLine")
+		{
+			// Where a line is *entered*, which is not merely its lowest address: a line occupying
+			// several words is only entered at its head. "Jump to cursor" needs exactly this, and
+			// resolving it by setting a throwaway breakpoint would clobber the real ones.
+			const std::string_view file = arguments["file"].asString();
+			const u32 line = arguments["line"].asU32();
+
+			const auto address = _session.debugInfo().firstAddressOfLine(file, line);
+			if (!address.has_value())
+			{
+				fail(request, std::format("No code was emitted for {}:{}", file, line));
+				return true;
+			}
+
+			respond(request, json::Object{
+				{ "file", json::Value(file) },
+				{ "line", json::Value(line) },
+				{ "address", json::Value(address.value()) }
+			});
+			return true;
+		}
+
+		if (command == "evaluate")
+		{
+			auto value = _session.evaluate(arguments["expression"].asString());
+			if (!value.has_value())
+			{
+				fail(request, value.error());
+				return true;
+			}
+
+			json::Object body{
+				{ "result", json::Value(value->text) },
+				{ "type", json::Value(value->type) }
+			};
+			if (value->address.has_value())
+				body.insert_or_assign("address", json::Value(value->address.value()));
+			if (value->integer.has_value())
+				body.insert_or_assign("integer", json::Value(static_cast<double>(value->integer.value())));
+
+			respond(request, std::move(body));
 			return true;
 		}
 

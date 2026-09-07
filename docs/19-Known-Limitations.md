@@ -53,7 +53,7 @@ A handful of literal kinds are not accepted as instruction *operands* today (the
 - A `%%label` cannot start a statement outside a macro body (it can only be used *as an operand*
   outside one, referencing a hygienic label that was already defined inside some macro's expansion).
 
-## The debugger's call stack is inferred, and its expressions are name lookups
+## The debugger's call stack is inferred, and its watchpoints only see writes
 
 `ceres debug` gives breakpoints, stepping by source line, registers, memory and a call stack (see
 [The debugger](22-Debugger.md)), in the terminal and in VSCode alike.
@@ -68,9 +68,12 @@ Two things it cannot do exactly rather than approximately:
   shown, but execution has already been redirected by the time the debugger regains control; there
   is no way to hold the machine at the faulting instruction itself.
 
-Watch expressions and hover are **name lookups**, not an evaluator: `r3` and `contador` work,
-`[r1 + 4]` and `contador[3]` do not. There are also no conditional breakpoints, no logpoints, and
-no data breakpoints.
+A **watchpoint only detects writes**, and detects them by comparing the watched bytes to a snapshot
+between instructions rather than by trapping the access. A read is invisible to it, and a write that
+puts back the value that was already there is too.
+
+There is also no way to run a program **backwards**: no step-back, no reverse-continue, and no
+record of where it has been.
 
 ## Things that are easy to mistake for bugs, but are intentional
 
