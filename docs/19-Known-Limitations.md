@@ -6,22 +6,24 @@ The assembler and the VM work end to end — every example in this wiki assemble
 number of things are explicitly not done yet. This page collects them in one place so they aren't
 mistaken for bugs.
 
-## No enforced calling convention
+## A calling convention is a contract, not a rule
 
-`fp` (`r14`) is defined and named, but **no instruction in the VM reads or writes it specially** — it
-behaves exactly like any other general-purpose register (see
-[Registers and flags](03-Registers-and-Flags.md)). No register is documented as caller-saved or
-callee-saved. The closest thing to an actual convention in the whole project is that `r12` gets
-silently clobbered by three pseudo-instructions (`ldv`, `stv`, and the float form of `la` where a
-scratch register is needed — see [Pseudo-instructions](06-Pseudo-Instructions.md)). Any argument-
-passing or register-preservation convention beyond that (as used informally in
-[Annotated examples](18-Annotated-Examples.md)) is purely a habit the programmer has to maintain by
-hand — nothing enforces it.
+Nothing in the machine enforces one, and nothing ever will: `call` pushes a return address, `ret`
+pops it, and that is the whole of what the hardware knows about subroutines.
 
-Since nothing in the VM enforces a convention, the practical way to get one is to write it as a pair
-of macros and use them consistently — see
-[Macros → Worked example: a calling convention built out of macros](14-Macros.md#worked-example-a-calling-convention-built-out-of-macros)
-for a complete `proc_enter`/`proc_leave` pair that makes a fixed set of registers callee-saved.
+What exists now is a convention **written down** — register roles, a frame shape, and the two macros
+that open and close it — in [`lib/call.casm`](../Ceres-ASM/lib/call.casm), documented in
+[A calling convention](24-Calling-Convention.md) and exercised by
+[`examples/calling_convention.casm`](../Ceres-ASM/examples/calling_convention.casm).
+
+Following it is still discipline. There is no way to write a macro that verifies you preserved `r8`,
+or that you left `sp` where you found it, so the assembler cannot catch a function that breaks the
+contract — only you can. What the macros buy is that the disciplined thing is also the shortest thing
+to write.
+
+One hazard is worth repeating because it is invisible: **`r12` is clobbered by `ldv`, `stv` and the
+float form of `la`**, so it can never hold anything that has to survive one of them, whatever the
+convention says.
 
 ## Most I/O devices are stubs
 

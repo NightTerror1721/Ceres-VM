@@ -225,6 +225,12 @@ import "lib/math.casm" as math
 A private macro that nothing in its own file calls is reported as a warning, like any other private
 declaration — see [Errors and diagnostics](17-Errors-and-Diagnostics.md#warnings).
 
+## Where this is actually used
+
+The calling convention's prologue and epilogue are two exported macros in
+[`lib/call.casm`](../Ceres-ASM/lib/call.casm) — a small, real example of a `global macro` that a
+project imports everywhere. See [A calling convention](24-Calling-Convention.md).
+
 ## Related pages
 
 - [Language syntax](10-Language-Syntax.md) — how the parser distinguishes an instruction from a macro call.
