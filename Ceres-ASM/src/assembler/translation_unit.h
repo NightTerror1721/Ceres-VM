@@ -207,6 +207,7 @@ namespace ceres::casm
 
 		// How the constant expressions in a declaration find their names.
 		ConstExprSymbolLookup symbolLookup() const;
+		void checkAliasBounds(u32 line, DataTypeAlias alias, std::span<const LiteralScalar> values) const;
 		u32 evaluateDimension(u32 line, const ConstExpr& expression) const;
 		LiteralScalar evaluateElement(u32 line, const LiteralValueReferenceElement& element, std::optional<DataTypeScalarCode> targetScalarCode) const;
 

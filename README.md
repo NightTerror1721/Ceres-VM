@@ -246,8 +246,28 @@ const BLOCK       = 16 * 4          ; + - * / with the usual precedence
     let active:   u8[MAX_PLAYERS]
 ```
 
-Scalar types are `u8`, `u16`, `u32`, `i8`, `i16`, `i32` and `f32`, plus the aliases `char`, `bool`,
-`ptr` and `string`. An integer literal has no type of its own; it takes the declared one, and is
+Scalar types are `u8`, `u16`, `u32`, `i8`, `i16`, `i32` and `f32`, plus aliases:
+
+| Alias | Is | For |
+| --- | --- | --- |
+| `char` | `u8` | A character |
+| `bool` | `u8` | `true` or `false`, and nothing else |
+| `string` | `u8[]` | A run of characters with a terminating zero |
+| `ptr` | `u32` | A memory address |
+| `port` | `u8` | An I/O port number |
+| `irq` | `u8` | An interrupt vector number, `0`–`63` |
+| `byte` `half` `word` | `u8` `u16` `u32` | The machine's own vocabulary, so a declaration reads like the `ldrb`/`ldrh`/`ldr` that uses it |
+
+An alias is the same type as what it stands for — `ptr` loads with `ldr` like any `u32` — but the
+spelling is kept, so diagnostics say `irq` rather than `u8`. Three of them promise a range that the
+underlying scalar does not, and that promise is enforced:
+
+```casm
+    let vector: irq  = 99      ; error: the largest is 63
+    let flag:   bool = 5       ; error: the largest is 1
+```
+
+Every alias is a word that identifiers give up, which is why the list stops here. An integer literal has no type of its own; it takes the declared one, and is
 rejected if it does not fit. A string literal is stored with a terminating zero, so
 `"Hello, CeresVM!"` needs `u8[16]`.
 

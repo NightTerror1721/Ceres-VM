@@ -533,3 +533,113 @@ TEST(language, the_string_alias_infers_its_size_from_the_initialiser)
 	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 5 });
 	CHECK_EQ(vm::Instruction(r.words()[1]).imm16(), u16{ 5 });
 }
+
+// Type aliases. Each resolves to an underlying scalar, but the spelling is kept: it is what
+// diagnostics say, and for three of them it is what makes a range check possible.
+TEST(language, ptr_is_a_u32_that_reads_as_an_address)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let head: ptr    = 0\r\n"
+		"    let table: ptr[4]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldv r1, head\r\n"
+		"    li  r2, sizeof(table)\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	// A ptr loads as a full word, exactly as a u32 does.
+	CHECK_EQ(Instruction(r.words()[2]).opcode() == Opcode::LDR, true);
+	CHECK_EQ(Instruction(r.words()[3]).imm16(), u16{ 16 });
+}
+
+TEST(language, the_machine_vocabulary_aliases_are_accepted)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let a: byte = 1\r\n"
+		"    let b: half = 2\r\n"
+		"    let c: word = 3\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, sizeof(a)\r\n"
+		"    li r2, sizeof(b)\r\n"
+		"    li r3, sizeof(c)\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(Instruction(r.words()[0]).imm16(), u16{ 1 });
+	CHECK_EQ(Instruction(r.words()[1]).imm16(), u16{ 2 });
+	CHECK_EQ(Instruction(r.words()[2]).imm16(), u16{ 4 });
+}
+
+// The interrupt vector table has 64 entries and a bool has two values. Nothing about u8 says so.
+TEST(language, an_alias_that_promises_a_range_enforces_it)
+{
+	AssembleResult ok = assembleSource(
+		"@data\r\n"
+		"    let vector: irq  = 16\r\n"
+		"    let channel: port = 0x01\r\n"
+		"    let flag:   bool = true\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+	CHECK(ok.ok());
+	if (!ok.ok()) Registry::instance().recordFailure(ok.joinedErrors());
+
+	AssembleResult tooBig = assembleSource(
+		"@data\r\n"
+		"    let vector: irq = 99\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+	CHECK(!tooBig.ok());
+	CHECK(tooBig.joinedErrors().find("irq") != std::string::npos);
+
+	AssembleResult notABool = assembleSource(
+		"@data\r\n"
+		"    let flag: bool = 5\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+	CHECK(!notABool.ok());
+	CHECK(notABool.joinedErrors().find("bool") != std::string::npos);
+}
+
+TEST(language, an_array_of_a_bounded_alias_is_checked_element_by_element)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let vectors: irq[3] = [1, 2, 90]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("90") != std::string::npos);
+}
+
+// TokenType::LiteralBool and its factory both existed and nothing ever produced one.
+TEST(language, true_and_false_are_boolean_literals)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let yes: bool = true\r\n"
+		"    let no:  bool = false\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto data = r.program->data();
+	CHECK(data.size() >= 2);
+	if (data.size() < 2) return;
+	CHECK_EQ(static_cast<u32>(data[0]), u32{ 1 });
+	CHECK_EQ(static_cast<u32>(data[1]), u32{ 0 });
+}

@@ -20,6 +20,7 @@ namespace ceres::casm
 
 	private:
 		DataTypeScalarCode _scalarCode = DataTypeScalarCode::Invalid;
+		DataTypeAlias _alias = DataTypeAlias::None;
 		std::vector<Dimension> _dimensions;
 		bool _isArray = false; // A scalar has no brackets at all; u8[] has one, empty
 
@@ -36,7 +37,7 @@ namespace ceres::casm
 
 	public:
 		DataTypeReference(DataType dataType) noexcept :
-			_scalarCode(dataType.scalarCode())
+			_scalarCode(dataType.scalarCode()), _alias(dataType.alias())
 		{
 			if (dataType.isScalar())
 				return;
@@ -55,6 +56,7 @@ namespace ceres::casm
 		}
 
 		DataTypeScalarCode scalarCode() const noexcept { return _scalarCode; }
+		DataTypeAlias alias() const noexcept { return _alias; }
 
 		bool isValid() const noexcept { return _scalarCode != DataTypeScalarCode::Invalid; }
 		bool isScalar() const noexcept { return isValid() && !_isArray; }
@@ -110,18 +112,20 @@ namespace ceres::casm
 			if (needsResolution())
 				return std::nullopt;
 			if (_dimensions.empty())
-				return DataType::makeScalar(_scalarCode);
+				return DataType::makeScalar(_scalarCode).withAlias(_alias);
 
 			std::vector<u32> dimensions;
 			dimensions.reserve(_dimensions.size());
 			for (const auto& dimension : _dimensions)
 				dimensions.push_back(dimension->literal().asRawValue());
-			return DataType::makeArray(_scalarCode, dimensions);
+			return DataType::makeArray(_scalarCode, dimensions).withAlias(_alias);
 		}
 
 		std::string toString() const noexcept
 		{
-			std::string result{ DataType::scalarCodeToString(_scalarCode) };
+			std::string result{ _alias == DataTypeAlias::None || _alias == DataTypeAlias::String
+				? DataType::scalarCodeToString(_scalarCode)
+				: DataType::aliasToString(_alias) };
 			for (const auto& dimension : _dimensions)
 				result += dimension.has_value() ? "[" + dimension->toString() + "]" : "[]";
 			return result;
@@ -130,17 +134,19 @@ namespace ceres::casm
 	public:
 		static DataTypeReference make(DataType dataType) noexcept { return DataTypeReference{ dataType }; }
 
-		static DataTypeReference makeScalar(DataTypeScalarCode scalarCode) noexcept
+		static DataTypeReference makeScalar(DataTypeScalarCode scalarCode, DataTypeAlias alias = DataTypeAlias::None) noexcept
 		{
 			DataTypeReference reference;
 			reference._scalarCode = scalarCode;
+			reference._alias = alias;
 			return reference;
 		}
 
-		static DataTypeReference makeArray(DataTypeScalarCode scalarCode, std::vector<Dimension>&& dimensions) noexcept
+		static DataTypeReference makeArray(DataTypeScalarCode scalarCode, std::vector<Dimension>&& dimensions, DataTypeAlias alias = DataTypeAlias::None) noexcept
 		{
 			DataTypeReference reference;
 			reference._scalarCode = scalarCode;
+			reference._alias = alias;
 			reference._dimensions = std::move(dimensions);
 			reference._isArray = true;
 			return reference;

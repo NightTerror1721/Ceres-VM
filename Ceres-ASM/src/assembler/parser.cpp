@@ -288,7 +288,7 @@ namespace ceres::casm
 		{
 			if (dataType.isUnsizedArray()) // the `string` alias, which is u8[] spelled differently
 				return DataTypeReference::make(dataType);
-			return DataTypeReference::makeScalar(dataType.scalarCode());
+			return DataTypeReference::makeScalar(dataType.scalarCode(), dataType.alias());
 		}
 
 		if (!dataType.isScalar())
@@ -317,7 +317,7 @@ namespace ceres::casm
 				error("An array may have at most {} dimensions", DataType::MaxRank);
 		}
 
-		return DataTypeReference::makeArray(dataType.scalarCode(), std::move(dimensions));
+		return DataTypeReference::makeArray(dataType.scalarCode(), std::move(dimensions), dataType.alias());
 	}
 
 	LiteralValueReference Parser::parseLiteralValue(std::optional<DataTypeReference> expectedDataType)

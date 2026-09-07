@@ -152,6 +152,13 @@ namespace ceres::casm
 		if (dataType.has_value())
 			return Token::makeDataType(text, *dataType, startLine, startColumn);
 
+		// TokenType::LiteralBool and its factory both existed; nothing ever produced one, so `true`
+		// and `false` reached the parser as ordinary identifiers and failed to resolve.
+		if (text == "true")
+			return Token::makeLiteralBool(text, true, startLine, startColumn);
+		if (text == "false")
+			return Token::makeLiteralBool(text, false, startLine, startColumn);
+
 		return Token::makeIdentifier(text, _stringPool.makeIdentifier(text), startLine, startColumn);
 	}
 

@@ -180,7 +180,13 @@ export const TYPES: Record<string, string> = {
 	f32: 'IEEE-754 32-bit float.',
 	char: 'Alias for `u8`.',
 	bool: 'Alias for `u8`.',
-	string: 'Alias for an unsized `u8[]`.'
+	string: 'Alias for an unsized `u8[]`.',
+	ptr: 'Alias for `u32`: a memory address.',
+	port: 'Alias for `u8`: an I/O port number.',
+	irq: 'Alias for `u8`: an interrupt vector number, 0-63.',
+	byte: 'Alias for `u8`.',
+	half: 'Alias for `u16`.',
+	word: 'Alias for `u32`.'
 };
 
 export const SECTIONS: Record<string, string> = {

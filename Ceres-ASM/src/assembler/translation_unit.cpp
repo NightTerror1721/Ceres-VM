@@ -357,6 +357,22 @@ namespace ceres::casm
 			std::format("%%{}#{}", macroLabel.view(), instanceId));
 	}
 
+	// An alias that promises a range has to enforce it: nothing else stops an `irq` holding 200 or a
+	// `bool` holding 5, and both are mistakes worth catching where they are written.
+	void TranslationUnitBuilder::checkAliasBounds(u32 line, DataTypeAlias alias, std::span<const LiteralScalar> values) const
+	{
+		const auto bound = DataType::aliasUpperBound(alias);
+		if (!bound.has_value())
+			return;
+
+		for (const LiteralScalar& value : values)
+		{
+			if (value.asRawValue() > bound.value())
+				error(line, "A value of {} does not fit in a '{}': the largest is {}",
+					value.asRawValue(), DataType::aliasToString(alias), bound.value());
+		}
+	}
+
 	ConstExprSymbolLookup TranslationUnitBuilder::symbolLookup() const
 	{
 		return [this](std::string_view name) -> const Symbol*
@@ -462,7 +478,7 @@ namespace ceres::casm
 			error(line, "Invalid data type");
 
 		if (dataType.isScalar())
-			return DataType::makeScalar(dataType.scalarCode());
+			return DataType::makeScalar(dataType.scalarCode()).withAlias(dataType.alias());
 
 		std::vector<u32> dimensions;
 		dimensions.reserve(dataType.rank());
@@ -472,12 +488,12 @@ namespace ceres::casm
 			{
 				if (!allowUnsizedArrays)
 					error(line, "Without an initialiser every dimension needs a size: {} leaves one to be worked out", dataType.toString());
-				return DataType::makeUnsizedArray(dataType.scalarCode());
+				return DataType::makeUnsizedArray(dataType.scalarCode()).withAlias(dataType.alias());
 			}
 			dimensions.push_back(evaluateDimension(line, dimension.value()));
 		}
 
-		return DataType::makeArray(dataType.scalarCode(), dimensions);
+		return DataType::makeArray(dataType.scalarCode(), dimensions).withAlias(dataType.alias());
 	}
 
 	LiteralValue TranslationUnitBuilder::resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays, std::optional<DataTypeScalarCode> targetScalarCode) const
@@ -528,7 +544,8 @@ namespace ceres::casm
 				error(line, "Expected a single value for a declaration of type {}", expectedDataType.toString());
 
 			std::vector<LiteralScalar> single{ evaluateElement(line, value.first(), scalarCode) };
-			return { DataType::makeScalar(scalarCode), LiteralValue::make(std::move(single)) };
+			checkAliasBounds(line, expectedDataType.alias(), single);
+			return { DataType::makeScalar(scalarCode).withAlias(expectedDataType.alias()), LiteralValue::make(std::move(single)) };
 		}
 
 		LiteralShape shape;
@@ -586,7 +603,8 @@ namespace ceres::casm
 			flattenLiteral(line, value.elements(), dimensions, scalarCode, resolvedElements);
 		}
 
-		return { DataType::makeArray(scalarCode, dimensions), LiteralValue::make(std::move(resolvedElements)) };
+		checkAliasBounds(line, expectedDataType.alias(), resolvedElements);
+		return { DataType::makeArray(scalarCode, dimensions).withAlias(expectedDataType.alias()), LiteralValue::make(std::move(resolvedElements)) };
 	}
 
 	std::expected<u32, std::string_view> TranslationUnitBuilder::sizeOf(u32 line, DataType dataType) const
