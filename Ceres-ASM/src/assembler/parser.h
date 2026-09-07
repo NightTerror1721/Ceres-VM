@@ -187,16 +187,20 @@ namespace ceres::casm
 
 		DataTypeReference parseDataType();
 		LiteralValueReference parseLiteralValue(std::optional<DataTypeReference> expectedDataType);
-		LiteralValueReferenceElement parseLiteralValueElement(std::optional<DataTypeScalarCode> expectedScalarCode);
+		std::vector<LiteralValueReferenceElement> parseLiteralGroup();
 		Operand parseOperand();
+		Operand makeImmediateOperand(ConstExpr&& expression);
 
-		// Constant expressions over integer literals, with the usual precedence. Folded here
-		// because the parser is the only place that sees the operator tokens; identifiers are not
-		// foldable yet, since a constant is not resolved until the translation unit is built.
-		u32 parseConstantExpression();
-		u32 parseConstantTerm();
-		u32 parseConstantFactor();
+		// Constant expressions, with the usual precedence, kept as a tree rather than folded on the
+		// spot. The parser sees the operator tokens but not the constants - those are not defined
+		// until the translation unit is built - so folding here is what made `BASE + 4` impossible.
+		ConstExpr parseConstExpr();
+		ConstExpr parseConstTerm();
+		ConstExpr parseConstFactor();
 		bool atConstantOperator() const noexcept;
+
+		// True when the current identifier token starts sizeof(...), countof(...) or dimof(...).
+		bool atConstantQuery() const noexcept;
 
 	private:
 		[[noreturn]] void error(std::string_view message) const

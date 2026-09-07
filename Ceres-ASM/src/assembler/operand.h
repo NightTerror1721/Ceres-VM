@@ -66,6 +66,16 @@ namespace ceres::casm
 		Identifier name; // Macro label name (e.g., "%%label1", "%%label2", etc.)
 	};
 
+	// An immediate the parser could not fold on its own, because it names a constant or asks a
+	// question about a symbol: `li r1, BLOCK * 2`, `li r1, sizeof(buffer)`. Replaced by a plain
+	// immediate as soon as a symbol table is available (SymbolTable::resolveOperand).
+	struct ConstExprOperand
+	{
+		ConstExpr expression;
+
+		bool operator==(const ConstExprOperand&) const = default;
+	};
+
 	class Operand
 	{
 	public:
@@ -79,7 +89,8 @@ namespace ceres::casm
 			VariableOperand,
 			LabelOperand,
 			MacroParameterOperand,
-			MacroLabelOperand
+			MacroLabelOperand,
+			ConstExprOperand
 		>;
 
 	private:
@@ -112,11 +123,13 @@ namespace ceres::casm
 		constexpr bool isLabel() const noexcept { return std::holds_alternative<LabelOperand>(_value); }
 		constexpr bool isMacroParameter() const noexcept { return std::holds_alternative<MacroParameterOperand>(_value); }
 		constexpr bool isMacroLabel() const noexcept { return std::holds_alternative<MacroLabelOperand>(_value); }
+		constexpr bool isConstExpr() const noexcept { return std::holds_alternative<ConstExprOperand>(_value); }
 
 		constexpr const RegisterOperand& asRegister() const noexcept { return std::get<RegisterOperand>(_value); }
 		constexpr const FloatingPointRegisterOperand& asFloatingPointRegister() const noexcept { return std::get<FloatingPointRegisterOperand>(_value); }
 		constexpr const ImmediateOperand& asImmediate() const noexcept { return std::get<ImmediateOperand>(_value); }
 		constexpr const IdentifierOperand& asIdentifier() const noexcept { return std::get<IdentifierOperand>(_value); }
+		const ConstExprOperand& asConstExpr() const noexcept { return std::get<ConstExprOperand>(_value); }
 		constexpr const MemoryOperand& asMemory() const noexcept { return std::get<MemoryOperand>(_value); }
 		constexpr const VariableOperand& asVariable() const noexcept { return std::get<VariableOperand>(_value); }
 		constexpr const LabelOperand& asLabel() const noexcept { return std::get<LabelOperand>(_value); }
@@ -131,8 +144,8 @@ namespace ceres::casm
 				return OperandType::FloatingPointRegister;
 			else if (isImmediate())
 				return OperandType::Immediate;
-			else if (isIdentifier())
-				return OperandType::Invalid; // Identifiers are not directly valid operand types; they need to be resolved to a value
+			else if (isIdentifier() || isConstExpr())
+				return OperandType::Invalid; // Neither is a valid operand type until it is resolved to a value
 			else if (isMemory())
 				return OperandType::RegisterPlusAddress;
 			else if (isVariable())
@@ -185,6 +198,7 @@ namespace ceres::casm
 		}
 		static Operand makeMacroParameter(Identifier name) noexcept { return Operand{ MacroParameterOperand{ name } }; }
 		static Operand makeMacroLabel(Identifier name) noexcept { return Operand{ MacroLabelOperand{ name } }; }
+		static Operand makeConstExpr(ConstExpr&& expression) noexcept { return Operand{ ConstExprOperand{ std::move(expression) } }; }
 
 	public:
 		static std::expected<Operand, std::string_view> makeFromLiteralValue(const LiteralValue& value) noexcept;

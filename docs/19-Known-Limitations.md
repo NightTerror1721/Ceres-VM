@@ -31,25 +31,12 @@ Disk, GPU, mouse/gamepad, audio, and network are all reserved port ranges with n
 reading them returns all-ones and writing them does nothing, exactly like any other unattached port.
 See [I/O devices and ports](07-IO-Devices-and-Ports.md) for the full map.
 
-## Constant expressions can't reference other identifiers
-
-```casm
-const BASE = 0x1000
-const OFFSET = BASE + 4   // rejected: "Constant expressions cannot reference 'BASE' yet:
-                          //            identifiers are only usable on their own"
-```
-
-Constants are folded by the parser **before** any identifier is resolved (identifier resolution only
-happens later, in the translation-unit pass), so the parser has no value to fold an identifier
-reference against. An identifier is only accepted when it's the entire expression by itself, with no
-operator — see [Constants and expressions](13-Constants-and-Expressions.md).
-
 ## Gaps in `parseOperand`
 
 A handful of literal kinds are not accepted as instruction *operands* today (they work fine as
 `let`/`const` initializers, just not directly as, say, an immediate operand to an instruction):
 
-- Float, character, and string literals cannot be used directly as an operand.
+- Float and string literals cannot be used directly as an operand.
 - A `%%label` cannot start a statement outside a macro body (it can only be used *as an operand*
   outside one, referencing a hygienic label that was already defined inside some macro's expansion).
 

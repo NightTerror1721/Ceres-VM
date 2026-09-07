@@ -1,6 +1,7 @@
 #include "translation_unit.h"
 #include "instruction_info.h"
 #include "assembly_state.h"
+#include <array>
 
 namespace ceres::casm
 {
@@ -356,36 +357,127 @@ namespace ceres::casm
 			std::format("%%{}#{}", macroLabel.view(), instanceId));
 	}
 
+	ConstExprSymbolLookup TranslationUnitBuilder::symbolLookup() const
+	{
+		return [this](std::string_view name) -> const Symbol*
+		{
+			auto result = _translationUnit.resolveSymbol(name);
+			return result.has_value() ? &result.value().get() : nullptr;
+		};
+	}
+
+	u32 TranslationUnitBuilder::evaluateDimension(u32 line, const ConstExpr& expression) const
+	{
+		auto value = evaluateConstExpr(expression, symbolLookup());
+		if (!value.has_value())
+			error(line, "Array size '{}' could not be resolved: {}", expression.toString(), value.error());
+		if (value->isFloat())
+			error(line, "Array size '{}' is a floating point value", expression.toString());
+
+		const i32 size = static_cast<i32>(value->asRawValue());
+		if (size <= 0)
+			error(line, "Array size cannot be {}", size);
+
+		return static_cast<u32>(size);
+	}
+
+	LiteralScalar TranslationUnitBuilder::evaluateElement(u32 line, const LiteralValueReferenceElement& element, std::optional<DataTypeScalarCode> targetScalarCode) const
+	{
+		if (element.isGroup())
+			error(line, "Expected a value here, but found a nested initialiser");
+
+		auto value = evaluateConstExpr(element.expression(), symbolLookup());
+		if (!value.has_value())
+			error(line, "{}", value.error());
+
+		// Integer literals are untyped in source: `42` carries no width of its own. When the
+		// declaration states one, every element is re-tagged to it here, and only here is the value
+		// checked against the width it has to fit in.
+		if (!targetScalarCode.has_value() || value->scalarCode() == *targetScalarCode)
+			return value.value();
+
+		auto coerced = value->coerceTo(*targetScalarCode);
+		if (!coerced.has_value())
+		{
+			if (!value->isInteger() || !DataType::isIntegerScalarCode(*targetScalarCode))
+				error(line, "A value of type {} cannot be converted to the declared type {}",
+					DataType::scalarCodeToString(value->scalarCode()), DataType::scalarCodeToString(*targetScalarCode));
+
+			error(line, "A value does not fit in the declared type {}: it needs more than {} bits",
+				DataType::scalarCodeToString(*targetScalarCode), LiteralScalar::bitWidthOf(*targetScalarCode));
+		}
+		return coerced.value();
+	}
+
+	void TranslationUnitBuilder::collectLiteralShape(std::span<const LiteralValueReferenceElement> elements, usize level, LiteralShape& shape)
+	{
+		if (shape.size() <= level)
+			shape.resize(level + 1);
+		shape[level].push_back(static_cast<u32>(elements.size()));
+
+		for (const auto& element : elements)
+		{
+			if (element.isGroup())
+				collectLiteralShape(element.group(), level + 1, shape);
+		}
+	}
+
+	void TranslationUnitBuilder::flattenLiteral(u32 line, std::span<const LiteralValueReferenceElement> elements, std::span<const u32> dimensions,
+		std::optional<DataTypeScalarCode> targetScalarCode, std::vector<LiteralScalar>& out) const
+	{
+		const u32 expected = dimensions.front();
+		if (elements.size() > expected)
+			error(line, "This level of the initialiser has {} elements but the declared size is {}", elements.size(), expected);
+
+		const LiteralScalar zero = LiteralScalar::makeZero(targetScalarCode.value_or(DataTypeScalarCode::U8));
+
+		if (dimensions.size() == 1)
+		{
+			for (const auto& element : elements)
+				out.push_back(evaluateElement(line, element, targetScalarCode));
+
+			// A declared dimension longer than what was written is filled with zeroes, the same way
+			// a short string filling a longer array always has been.
+			out.insert(out.end(), expected - elements.size(), zero);
+			return;
+		}
+
+		u32 innerCount = 1;
+		for (usize i = 1; i < dimensions.size(); ++i)
+			innerCount *= dimensions[i];
+
+		for (const auto& element : elements)
+		{
+			if (!element.isGroup())
+				error(line, "Expected a nested initialiser here: the declared type has {} more dimension(s)", dimensions.size() - 1);
+			flattenLiteral(line, element.group(), dimensions.subspan(1), targetScalarCode, out);
+		}
+
+		out.insert(out.end(), static_cast<usize>(expected - elements.size()) * innerCount, zero);
+	}
+
 	DataType TranslationUnitBuilder::resolveDataType(u32 line, const DataTypeReference& dataType, bool allowUnsizedArrays) const
 	{
 		if (!dataType.isValid())
 			error(line, "Invalid data type");
 
-		if (!dataType.hasNumElementsIdentifier())
+		if (dataType.isScalar())
+			return DataType::makeScalar(dataType.scalarCode());
+
+		std::vector<u32> dimensions;
+		dimensions.reserve(dataType.rank());
+		for (const auto& dimension : dataType.dimensions())
 		{
-			DataType resolvedDataType = dataType.isScalar()
-				? DataType::makeScalar(dataType.scalarCode())
-				: DataType::makeSizedArray(dataType.scalarCode(), dataType.numElementsIntegerValue());
-
-			if (resolvedDataType.hasUnknownSize() && !allowUnsizedArrays)
-				error(line, "Array data type without initial value must have a known size (either a specified size or an identifier for the size)");
-
-			return resolvedDataType;
+			if (!dimension.has_value())
+			{
+				if (!allowUnsizedArrays)
+					error(line, "Without an initialiser every dimension needs a size: {} leaves one to be worked out", dataType.toString());
+				return DataType::makeUnsizedArray(dataType.scalarCode());
+			}
+			dimensions.push_back(evaluateDimension(line, dimension.value()));
 		}
 
-		const auto constValue = getConstantValue(line, dataType.numElementsIdentifier());
-		if (!constValue.has_value())
-			error(line, "Invalid identifier for array size in data type");
-
-		const auto& value = constValue.value().get();
-		if (!value.isScalar() || !DataType::isIntegerScalarCode(value.scalarCode()))
-			error(line, "Identifier for array size in data type must be a constant integer");
-
-		u32 numElements = value.first().asRawValue();
-		if (numElements == 0)
-			error(line, "Array size in data type cannot be zero");
-
-		return DataType::makeSizedArray(dataType.scalarCode(), numElements);
+		return DataType::makeArray(dataType.scalarCode(), dimensions);
 	}
 
 	LiteralValue TranslationUnitBuilder::resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays, std::optional<DataTypeScalarCode> targetScalarCode) const
@@ -397,65 +489,104 @@ namespace ceres::casm
 			return LiteralValue::makeEmpty();
 		}
 
-		// Integer literals are untyped in source: `42` carries no width of its own. When the
-		// declaration states one, every element is re-tagged to it here, and only here is the
-		// value checked against the width it has to fit in.
-		const auto narrow = [&](LiteralScalar scalar, usize index) -> LiteralScalar
+		// With no declared type there is nothing to pad up to, so the shape is whatever was written
+		// and every level of it has to be regular.
+		LiteralShape shape;
+		collectLiteralShape(value.elements(), 0, shape);
+
+		std::vector<u32> dimensions;
+		dimensions.reserve(shape.size());
+		for (usize level = 0; level < shape.size(); ++level)
 		{
-			if (!targetScalarCode.has_value() || scalar.scalarCode() == *targetScalarCode)
-				return scalar;
-
-			auto coerced = scalar.coerceTo(*targetScalarCode);
-			if (!coerced.has_value())
+			const u32 first = shape[level].front();
+			for (u32 length : shape[level])
 			{
-				if (!scalar.isInteger() || !DataType::isIntegerScalarCode(*targetScalarCode))
-					error(line, "Element {} is of type {}, which cannot be converted to the declared type {}",
-						index, DataType::scalarCodeToString(scalar.scalarCode()), DataType::scalarCodeToString(*targetScalarCode));
-
-				error(line, "Element {} does not fit in the declared type {}: the value needs more than {} bits",
-					index, DataType::scalarCodeToString(*targetScalarCode), LiteralScalar::bitWidthOf(*targetScalarCode));
+				if (length != first)
+					error(line, "Cannot work out dimension {}: this level has rows of {} and of {} elements", level, first, length);
 			}
-			return coerced.value();
-		};
+			if (first == 0)
+				error(line, "Cannot work out dimension {}: it is empty", level);
+			dimensions.push_back(first);
+		}
 
 		std::vector<LiteralScalar> resolvedElements;
-		resolvedElements.reserve(value.size());
-
-		usize index = 0;
-		for (const auto& elem : value.elements())
-		{
-			if (elem.isIdentifier())
-			{
-				auto constantValue = getConstantValue(line, elem.identifierValue());
-				if (!constantValue.has_value())
-					error(line, "Cannot resolve identifier literal value that is not a constant");
-				const auto& resolvedValue = constantValue.value().get();
-				if (!resolvedValue.isScalar())
-					error(line, "Identifier literal array element value must resolve to a scalar constant");
-				resolvedElements.push_back(narrow(resolvedValue.first(), index));
-			}
-			else if (elem.isScalar())
-			{
-				resolvedElements.push_back(narrow(elem.scalarValue(), index));
-			}
-			else
-			{
-				error(line, "Unknown literal value reference element type");
-			}
-			++index;
-		}
+		flattenLiteral(line, value.elements(), dimensions, targetScalarCode, resolvedElements);
 
 		return LiteralValue::make(std::move(resolvedElements));
 	}
 
 	std::pair<DataType, LiteralValue> TranslationUnitBuilder::resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const
 	{
-		DataType resolvedDataType = resolveDataType(line, expectedDataType, true);
-		LiteralValue resolvedValue = resolveLiteralValue(line, value, !resolvedDataType.hasUnknownSize(), resolvedDataType.scalarCode());
-		if (!resolvedValue.matchDataType(resolvedDataType))
-			error(line, "Resolved literal value does not match the expected data type");
+		if (!expectedDataType.isValid())
+			error(line, "Invalid data type");
 
-		return { resolvedDataType, std::move(resolvedValue) };
+		const DataTypeScalarCode scalarCode = expectedDataType.scalarCode();
+
+		if (expectedDataType.isScalar())
+		{
+			if (value.size() != 1 || value.first().isGroup())
+				error(line, "Expected a single value for a declaration of type {}", expectedDataType.toString());
+
+			std::vector<LiteralScalar> single{ evaluateElement(line, value.first(), scalarCode) };
+			return { DataType::makeScalar(scalarCode), LiteralValue::make(std::move(single)) };
+		}
+
+		LiteralShape shape;
+		collectLiteralShape(value.elements(), 0, shape);
+
+		const u8 declaredRank = expectedDataType.rank();
+
+		// A flat list against a multidimensional declaration is allowed as long as every size is
+		// written down: there is then exactly one way to cut it up.
+		const bool literalIsFlat = shape.size() == 1;
+		if (!literalIsFlat && shape.size() != declaredRank)
+			error(line, "The initialiser is nested {} level(s) deep but {} declares {}",
+				shape.size(), expectedDataType.toString(), declaredRank);
+
+		std::vector<u32> dimensions;
+		dimensions.reserve(declaredRank);
+		for (u8 level = 0; level < declaredRank; ++level)
+		{
+			const auto& declared = expectedDataType.dimension(level);
+			if (declared.has_value())
+			{
+				dimensions.push_back(evaluateDimension(line, declared.value()));
+				continue;
+			}
+
+			if (literalIsFlat && declaredRank > 1)
+				error(line, "{} needs every size written down when the initialiser is a flat list", expectedDataType.toString());
+
+			// An omitted size is read off the initialiser, which means every row at that level has
+			// to agree - an irregular one is precisely what makes the size impossible to work out.
+			const u32 first = shape[level].front();
+			for (u32 length : shape[level])
+			{
+				if (length != first)
+					error(line, "Cannot work out dimension {} of {}: this level has rows of {} and of {} elements",
+						level, expectedDataType.toString(), first, length);
+			}
+			if (first == 0)
+				error(line, "Cannot work out dimension {} of {}: it is empty", level, expectedDataType.toString());
+			dimensions.push_back(first);
+		}
+
+		std::vector<LiteralScalar> resolvedElements;
+		if (literalIsFlat && declaredRank > 1)
+		{
+			u32 total = 1;
+			for (u32 dimension : dimensions)
+				total *= dimension;
+
+			const std::array<u32, 1> flat{ total };
+			flattenLiteral(line, value.elements(), flat, scalarCode, resolvedElements);
+		}
+		else
+		{
+			flattenLiteral(line, value.elements(), dimensions, scalarCode, resolvedElements);
+		}
+
+		return { DataType::makeArray(scalarCode, dimensions), LiteralValue::make(std::move(resolvedElements)) };
 	}
 
 	std::expected<u32, std::string_view> TranslationUnitBuilder::sizeOf(u32 line, DataType dataType) const
@@ -490,7 +621,7 @@ namespace ceres::casm
 		return sizeOf(line, dataType);
 	}
 
-	std::optional<std::reference_wrapper<const LiteralValue>> TranslationUnitBuilder::getConstantValue(u32 line, std::string_view name) const noexcept
+	std::optional<std::reference_wrapper<const LiteralValue>> TranslationUnitBuilder::getConstantValue([[maybe_unused]] u32 line, std::string_view name) const noexcept
 	{
 		if (auto result = _translationUnit.resolveSymbol(name); result.has_value())
 		{

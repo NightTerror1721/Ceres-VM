@@ -1,4 +1,5 @@
 #include "parser.h"
+#include "const_expr_eval.h"
 
 namespace ceres::casm
 {
@@ -283,175 +284,110 @@ namespace ceres::casm
 		if (!dataType.isValid())
 			error("Invalid data type specified in data declaration");
 
-		if (_cursor.match(TokenType::BracketOpen))
+		if (!_cursor.match(TokenType::BracketOpen))
 		{
-			if (!dataType.isScalar())
-				error("Array size can only be specified for scalar data types (non string types)");
+			if (dataType.isUnsizedArray()) // the `string` alias, which is u8[] spelled differently
+				return DataTypeReference::make(dataType);
+			return DataTypeReference::makeScalar(dataType.scalarCode());
+		}
 
+		if (!dataType.isScalar())
+			error("Array size can only be specified for scalar data types (non string types)");
+
+		// Any dimension may be left empty, not just the outermost: a size is only an error when the
+		// initialiser cannot supply it, which is not something the parser can know yet.
+		std::vector<DataTypeReference::Dimension> dimensions;
+		while (_cursor.match(TokenType::BracketOpen))
+		{
 			_cursor.next(); // Consume '['
-			if (_cursor.match(TokenType::LiteralInteger))
-			{
-				Token arraySizeToken = _cursor.consume(TokenType::LiteralInteger, "Expected literal integer for array size in data declaration");
-				if (arraySizeToken.integerValue() == 0)
-					error("Array size cannot be zero");
 
-				_cursor.consume(TokenType::BracketClose, "Expected ']' after array size in data declaration");
-				return dataType.withNumElements(arraySizeToken.integerValue());
-			}
-			else if (_cursor.match(TokenType::Identifier))
-			{
-				Token arraySizeToken = _cursor.consume(TokenType::Identifier, "Expected identifier for array size in data declaration");
-				Identifier arraySizeIdentifierName = arraySizeToken.identifierValue();
-				if (!isValidIdentifierName(arraySizeIdentifierName))
-					error("Invalid identifier used for array size in data declaration");
-
-				// consume() above already advanced past the identifier; advancing again ate the ']'.
-				_cursor.consume(TokenType::BracketClose, "Expected ']' after array size in data declaration");
-				return DataTypeReference::make(dataType.scalarCode(), arraySizeIdentifierName);
-			}
-			else if (_cursor.match(TokenType::BracketClose))
+			if (_cursor.match(TokenType::BracketClose))
 			{
 				_cursor.next(); // Consume ']'
-				return dataType.asUnsizedArray();
+				dimensions.emplace_back(std::nullopt);
 			}
 			else
 			{
-				error("Expected array size (literal integer or identifier) or ']' for unsized array in data declaration");
+				ConstExpr size = parseConstExpr();
+				_cursor.consume(TokenType::BracketClose, "Expected ']' after array size in data declaration");
+				dimensions.emplace_back(std::move(size));
 			}
+
+			if (dimensions.size() > DataType::MaxRank)
+				error("An array may have at most {} dimensions", DataType::MaxRank);
 		}
-		else
-		{
-			if (dataType.isUnsizedArray()) // string type only
-				return dataType;
-			else
-				return dataType.asScalar();
-		}
+
+		return DataTypeReference::makeArray(dataType.scalarCode(), std::move(dimensions));
 	}
 
 	LiteralValueReference Parser::parseLiteralValue(std::optional<DataTypeReference> expectedDataType)
 	{
-		Token token = _cursor.current();
-		_cursor.next(); // Consume the token
-
 		LiteralValueReference literalValue;
-		switch (token.type())
+
+		if (_cursor.match(TokenType::BracketOpen))
 		{
-			case TokenType::Identifier:
-				literalValue = LiteralValueReference::makeIdentifier(token.identifierValue());
-				break;
-
-			case TokenType::LiteralInteger:
-				// The token was already consumed, so fold what follows onto it.
-				if (atConstantOperator())
-				{
-					u32 value = token.integerValue();
-					while (_cursor.match(TokenType::Asterisk) || _cursor.match(TokenType::Slash))
-					{
-						const bool isDivision = _cursor.match(TokenType::Slash);
-						_cursor.next();
-						const u32 rhs = parseConstantFactor();
-						if (isDivision && rhs == 0)
-							error("Division by zero in constant expression");
-						value = isDivision
-							? static_cast<u32>(static_cast<i32>(value) / static_cast<i32>(rhs))
-							: static_cast<u32>(static_cast<i32>(value) * static_cast<i32>(rhs));
-					}
-					while (_cursor.match(TokenType::Plus) || _cursor.match(TokenType::Minus))
-					{
-						const bool isSubtraction = _cursor.match(TokenType::Minus);
-						_cursor.next();
-						const u32 rhs = parseConstantTerm();
-						value = isSubtraction
-							? static_cast<u32>(static_cast<i32>(value) - static_cast<i32>(rhs))
-							: static_cast<u32>(static_cast<i32>(value) + static_cast<i32>(rhs));
-					}
-					literalValue = LiteralValueReference::makeU32(value);
-				}
-				else
-					literalValue = LiteralValueReference::makeU32(token.integerValue());
-				break;
-
-			case TokenType::LiteralFloat:
-				literalValue = LiteralValueReference::makeF32(token.floatValue());
-				break;
-
-			case TokenType::LiteralChar:
-				literalValue = LiteralValueReference::makeChar(token.charValue());
-				break;
-
-			case TokenType::LiteralBool:
-				literalValue = LiteralValueReference::makeBool(token.boolValue());
-				break;
-
-			case TokenType::LiteralString:
-				literalValue = LiteralValueReference::makeString(token.literalStringValue());
-				break;
-
-			case TokenType::BracketOpen:
-			{
-				std::optional<DataTypeScalarCode> expectedElementType = std::nullopt;
-				if (expectedDataType.has_value())
-					expectedElementType = expectedDataType->scalarCode();
-
-				std::vector<LiteralValueReference::ElementType> arrayElements;
-				while (!_cursor.match(TokenType::BracketClose))
-				{
-					LiteralValueReferenceElement element = parseLiteralValueElement(expectedElementType);
-					arrayElements.push_back(std::move(element));
-					if (_cursor.match(TokenType::Comma))
-						_cursor.next(); // Consume ',' and continue parsing elements
-					else if (!_cursor.match(TokenType::BracketClose))
-						error("Expected ',' or ']' in array literal");
-				}
-				_cursor.consume(TokenType::BracketClose, "Expected ']' to close array literal");
-
-				literalValue = LiteralValueReference::make(std::move(arrayElements));
-			}
-			break;
-
-			default:
-				error("Unexpected token {} in literal value", token.lexeme());
+			literalValue = LiteralValueReference::make(parseLiteralGroup());
+		}
+		else if (_cursor.match(TokenType::LiteralString))
+		{
+			// A string on its own is a flat run of characters, as it has always been.
+			Token token = _cursor.current();
+			_cursor.next();
+			literalValue = LiteralValueReference::makeString(token.literalStringValue());
+		}
+		else
+		{
+			literalValue = LiteralValueReference::makeExpression(parseConstExpr());
 		}
 
-		if (expectedDataType.has_value() && !literalValue.matchDataType(*expectedDataType))
-			error("Expected a literal value of type {}, but got a different type", expectedDataType->toString());
+		// Only worth checking when both sides are plain enough to compare; anything with a nested
+		// group, a constant or an inferred size is settled in TranslationUnitBuilder.
+		if (expectedDataType.has_value())
+		{
+			if (auto concrete = expectedDataType->toLiteralDataType(); concrete.has_value() && !literalValue.matchDataType(*concrete))
+				error("Expected a literal value of type {}, but got a different type", expectedDataType->toString());
+		}
 
 		return literalValue;
 	}
 
-	LiteralValueReferenceElement Parser::parseLiteralValueElement(std::optional<DataTypeScalarCode> expectedScalarCode)
+	// One bracketed level. Nesting is kept rather than flattened here: a dimension may be declared
+	// as a constant that is not resolved yet, so the parser cannot know how many elements a row is
+	// meant to hold, let alone which of them to pad.
+	std::vector<LiteralValueReferenceElement> Parser::parseLiteralGroup()
 	{
-		Token token = _cursor.current();
-		_cursor.next(); // Consume the token
+		_cursor.consume(TokenType::BracketOpen, "Expected '[' to open an array literal");
 
-		switch (token.type())
+		std::vector<LiteralValueReferenceElement> elements;
+		while (!_cursor.match(TokenType::BracketClose))
 		{
-			case TokenType::Identifier:
-				return LiteralValueReferenceElement(token.identifierValue());
+			if (_cursor.isCurrentEndOfLineOrEndOfFile())
+				error("Unterminated array literal: expected ']'");
 
-			case TokenType::LiteralInteger:
-				if (expectedScalarCode.has_value() && !DataType::isIntegerScalarCode(*expectedScalarCode))
-					error("Expected a literal value of type {}, but got an integer literal", DataType::scalarCodeToString(*expectedScalarCode));
-				return LiteralValueReferenceElement(LiteralScalar::make(token.integerValue()));
+			if (_cursor.match(TokenType::BracketOpen))
+			{
+				elements.push_back(LiteralValueReferenceElement::makeGroup(parseLiteralGroup()));
+			}
+			else if (_cursor.match(TokenType::LiteralString))
+			{
+				// A string inside an array fills a whole row, so it is one element, not many.
+				Token token = _cursor.current();
+				_cursor.next();
+				elements.push_back(LiteralValueReferenceElement::makeString(token.literalStringValue()));
+			}
+			else
+			{
+				elements.emplace_back(parseConstExpr());
+			}
 
-			case TokenType::LiteralFloat:
-				if (expectedScalarCode.has_value() && *expectedScalarCode != DataTypeScalarCode::F32)
-					error("Expected a literal value of type {}, but got a float literal", DataType::scalarCodeToString(*expectedScalarCode));
-				return LiteralValueReferenceElement(LiteralScalar::make(token.floatValue()));
-
-			case TokenType::LiteralChar:
-				if (expectedScalarCode.has_value() && *expectedScalarCode != DataTypeScalarCode::U8)
-					error("Expected a literal value of type {}, but got a char literal", DataType::scalarCodeToString(*expectedScalarCode));
-				return LiteralValueReferenceElement(LiteralScalar::make(token.charValue()));
-
-			case TokenType::LiteralBool:
-				if (expectedScalarCode.has_value() && *expectedScalarCode != DataTypeScalarCode::U8)
-					error("Expected a literal value of type {}, but got a bool literal", DataType::scalarCodeToString(*expectedScalarCode));
-				return LiteralValueReferenceElement(LiteralScalar::make(token.boolValue()));
-
-			default:
-				error("Unexpected token {} in literal array value element", token.lexeme());
+			if (_cursor.match(TokenType::Comma))
+				_cursor.next();
+			else if (!_cursor.match(TokenType::BracketClose))
+				error("Expected ',' or ']' in array literal");
 		}
+
+		_cursor.consume(TokenType::BracketClose, "Expected ']' to close array literal");
+		return elements;
 	}
 
 	bool Parser::atConstantOperator() const noexcept
@@ -460,79 +396,139 @@ namespace ceres::casm
 			_cursor.match(TokenType::Asterisk) || _cursor.match(TokenType::Slash);
 	}
 
-	u32 Parser::parseConstantFactor()
+	bool Parser::atConstantQuery() const noexcept
+	{
+		return _cursor.match(TokenType::Identifier)
+			&& ConstExpr::queryFromName(_cursor.current().lexeme()).has_value()
+			&& _cursor.peek().is(TokenType::ParenOpen);
+	}
+
+	ConstExpr Parser::parseConstFactor()
 	{
 		if (_cursor.match(TokenType::Minus))
 		{
 			_cursor.next();
-			return static_cast<u32>(-static_cast<i32>(parseConstantFactor()));
+			return ConstExpr::makeNegate(parseConstFactor());
 		}
 
 		if (_cursor.match(TokenType::Plus))
 		{
 			_cursor.next();
-			return parseConstantFactor();
+			return parseConstFactor();
+		}
+
+		if (_cursor.match(TokenType::ParenOpen))
+		{
+			_cursor.next();
+			ConstExpr inner = parseConstExpr();
+			_cursor.consume(TokenType::ParenClose, "Expected ')' to close a constant expression");
+			return inner;
+		}
+
+		// sizeof / countof / dimof: the only way to get at a size that was never written down,
+		// which is exactly what an inferred array dimension is.
+		if (atConstantQuery())
+		{
+			const ConstExpr::Query query = ConstExpr::queryFromName(_cursor.current().lexeme()).value();
+			const std::string_view queryName = _cursor.current().lexeme();
+			_cursor.next(); // Consume the query name
+			_cursor.consume(TokenType::ParenOpen, "Expected '(' after a size query");
+
+			Token nameToken = _cursor.consume(TokenType::Identifier, "Expected a symbol name inside a size query");
+
+			u32 dimensionIndex = 0;
+			if (query == ConstExpr::Query::DimOf)
+			{
+				_cursor.consume(TokenType::Comma, "dimof takes a symbol and a dimension index");
+				Token indexToken = _cursor.consume(TokenType::LiteralInteger, "Expected a literal dimension index in dimof");
+				dimensionIndex = indexToken.integerValue();
+			}
+			else if (_cursor.match(TokenType::Comma))
+				error("{} takes a single symbol", queryName);
+
+			_cursor.consume(TokenType::ParenClose, "Expected ')' to close a size query");
+			return ConstExpr::makeQuery(query, nameToken.identifierValue(), dimensionIndex);
+		}
+
+		if (_cursor.match(TokenType::Identifier))
+		{
+			Token token = _cursor.current();
+			_cursor.next();
+			return ConstExpr::makeIdentifier(token.identifierValue());
 		}
 
 		if (_cursor.match(TokenType::LiteralInteger))
 		{
 			const u32 value = _cursor.current().integerValue();
 			_cursor.next();
-			return value;
+			return ConstExpr::makeLiteral(LiteralScalar::make(value));
+		}
+
+		if (_cursor.match(TokenType::LiteralFloat))
+		{
+			const f32 value = _cursor.current().floatValue();
+			_cursor.next();
+			return ConstExpr::makeLiteral(LiteralScalar::make(value));
 		}
 
 		if (_cursor.match(TokenType::LiteralChar))
 		{
-			const u32 value = static_cast<u32>(static_cast<u8>(_cursor.current().charValue()));
+			const char value = _cursor.current().charValue();
 			_cursor.next();
-			return value;
+			return ConstExpr::makeLiteral(LiteralScalar::make(value));
 		}
 
-		if (_cursor.match(TokenType::Identifier))
-			error("Constant expressions cannot reference '{}' yet: identifiers are only usable on their own", _cursor.current().lexeme());
+		if (_cursor.match(TokenType::LiteralBool))
+		{
+			const bool value = _cursor.current().boolValue();
+			_cursor.next();
+			return ConstExpr::makeLiteral(LiteralScalar::make(value));
+		}
 
-		error("Expected a number in constant expression, got {}", _cursor.current().lexeme());
+		error("Expected a value in constant expression, got {}", _cursor.current().lexeme());
 	}
 
-	u32 Parser::parseConstantTerm()
+	ConstExpr Parser::parseConstTerm()
 	{
-		u32 value = parseConstantFactor();
+		ConstExpr value = parseConstFactor();
 
 		while (_cursor.match(TokenType::Asterisk) || _cursor.match(TokenType::Slash))
 		{
-			const bool isDivision = _cursor.match(TokenType::Slash);
+			const ConstExpr::Op op = _cursor.match(TokenType::Slash) ? ConstExpr::Op::Divide : ConstExpr::Op::Multiply;
 			_cursor.next();
-
-			const u32 rhs = parseConstantFactor();
-			if (isDivision)
-			{
-				if (rhs == 0)
-					error("Division by zero in constant expression");
-				value = static_cast<u32>(static_cast<i32>(value) / static_cast<i32>(rhs));
-			}
-			else
-				value = static_cast<u32>(static_cast<i32>(value) * static_cast<i32>(rhs));
+			value = ConstExpr::makeBinary(op, std::move(value), parseConstFactor());
 		}
 
 		return value;
 	}
 
-	u32 Parser::parseConstantExpression()
+	ConstExpr Parser::parseConstExpr()
 	{
-		u32 value = parseConstantTerm();
+		ConstExpr value = parseConstTerm();
 
 		while (_cursor.match(TokenType::Plus) || _cursor.match(TokenType::Minus))
 		{
-			const bool isSubtraction = _cursor.match(TokenType::Minus);
+			const ConstExpr::Op op = _cursor.match(TokenType::Minus) ? ConstExpr::Op::Subtract : ConstExpr::Op::Add;
 			_cursor.next();
-
-			const u32 rhs = parseConstantTerm();
-			value = isSubtraction
-				? static_cast<u32>(static_cast<i32>(value) - static_cast<i32>(rhs))
-				: static_cast<u32>(static_cast<i32>(value) + static_cast<i32>(rhs));
+			value = ConstExpr::makeBinary(op, std::move(value), parseConstTerm());
 		}
 
 		return value;
+	}
+
+	// An expression that names nothing can be folded now; one that does has to wait for a symbol
+	// table, so it travels as an operand and is replaced during resolution.
+	Operand Parser::makeImmediateOperand(ConstExpr&& expression)
+	{
+		if (expression.isSelfContained())
+		{
+			auto folded = evaluateConstExpr(expression, nullptr);
+			if (!folded.has_value())
+				error("{}", folded.error());
+			return Operand::makeImmediate(folded->asRawValue());
+		}
+
+		return Operand::makeConstExpr(std::move(expression));
 	}
 
 	Operand Parser::parseOperand()
@@ -595,7 +591,13 @@ namespace ceres::casm
 					: Operand::makeRegister(regInfo->index);
 			}
 
-			_cursor.next(); // Consume the register identifier
+			// A bare identifier is a label or a variable and stays one. It only becomes an
+			// expression when it is followed by an operator, or when it is a size query.
+			if (atConstantQuery() || _cursor.peek().is(TokenType::Plus) || _cursor.peek().is(TokenType::Minus) ||
+				_cursor.peek().is(TokenType::Asterisk) || _cursor.peek().is(TokenType::Slash))
+				return makeImmediateOperand(parseConstExpr());
+
+			_cursor.next(); // Consume the identifier
 			return Operand::makeIdentifier(regToken.identifierValue(), false);
 		}
 
@@ -615,9 +617,9 @@ namespace ceres::casm
 			return Operand::makeMacroLabel(macroLabelToken.identifierValue());
 		}
 
-		// Handle immediate operand (literal integer)
-		if (_cursor.match(TokenType::LiteralInteger) || _cursor.match(TokenType::LiteralChar))
-			return Operand::makeImmediate(parseConstantExpression());
+		// Handle immediate operand: a literal, or an expression over constants and size queries.
+		if (_cursor.match(TokenType::LiteralInteger) || _cursor.match(TokenType::LiteralChar) || _cursor.match(TokenType::ParenOpen))
+			return makeImmediateOperand(parseConstExpr());
 
 		if (_cursor.match(TokenType::Dot) && _cursor.peek().isIdentifier())
 		{

@@ -174,6 +174,22 @@ namespace ceres::casm
 		}
 
 	public:
+		// A typed zero, for the padding that fills a declared dimension the initialiser left short.
+		static constexpr LiteralScalar makeZero(DataTypeScalarCode scalarCode) noexcept
+		{
+			switch (scalarCode)
+			{
+				case DataTypeScalarCode::U8:  return makeU8(0);
+				case DataTypeScalarCode::U16: return makeU16(0);
+				case DataTypeScalarCode::U32: return makeU32(0);
+				case DataTypeScalarCode::I8:  return makeI8(0);
+				case DataTypeScalarCode::I16: return makeI16(0);
+				case DataTypeScalarCode::I32: return makeI32(0);
+				case DataTypeScalarCode::F32: return makeF32(0.0f);
+				default: return makeU8(0);
+			}
+		}
+
 		static constexpr LiteralScalar makeU8(u8 value) noexcept { return LiteralScalar{ DataTypeScalarCode::U8, ValueType{value} }; }
 		static constexpr LiteralScalar makeU16(u16 value) noexcept { return LiteralScalar{ DataTypeScalarCode::U16, ValueType{value} }; }
 		static constexpr LiteralScalar makeU32(u32 value) noexcept { return LiteralScalar{ DataTypeScalarCode::U32, ValueType{value} }; }

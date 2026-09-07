@@ -45,6 +45,8 @@ namespace ceres::casm
 		Slash,			// / (used for const expressions)
 		BracketOpen,	// [ (used for memory access)
 		BracketClose,	// ] (used for memory access)
+		ParenOpen,		// ( (grouping in const expressions, and size queries)
+		ParenClose,		// )
 
 		// Control
 		EndOfLine,		// End of line
@@ -182,6 +184,8 @@ namespace ceres::casm
 				case TokenType::Equals:
 				case TokenType::BracketOpen:
 				case TokenType::BracketClose:
+				case TokenType::ParenOpen:
+				case TokenType::ParenClose:
 					return true;
 				default:
 					return false;
@@ -194,6 +198,8 @@ namespace ceres::casm
 		constexpr bool isEquals() const noexcept { return _type == TokenType::Equals; }
 		constexpr bool isBracketOpen() const noexcept { return _type == TokenType::BracketOpen; }
 		constexpr bool isBracketClose() const noexcept { return _type == TokenType::BracketClose; }
+		constexpr bool isParenOpen() const noexcept { return _type == TokenType::ParenOpen; }
+		constexpr bool isParenClose() const noexcept { return _type == TokenType::ParenClose; }
 
 		constexpr bool isKeyword() const noexcept { return _type == TokenType::Keyword; }
 
@@ -256,6 +262,8 @@ namespace ceres::casm
 		static Token makeSlash(u32 line, u32 column) noexcept { return Token{ TokenType::Slash, "/", {}, line, column }; }
 		static Token makeBracketOpen(u32 line, u32 column) noexcept { return Token{ TokenType::BracketOpen, "[", {}, line, column }; }
 		static Token makeBracketClose(u32 line, u32 column) noexcept { return Token{ TokenType::BracketClose, "]", {}, line, column }; }
+		static Token makeParenOpen(u32 line, u32 column) noexcept { return Token{ TokenType::ParenOpen, "(", {}, line, column }; }
+		static Token makeParenClose(u32 line, u32 column) noexcept { return Token{ TokenType::ParenClose, ")", {}, line, column }; }
 		static Token makeEndOfLine(u32 line, u32 column) noexcept { return Token{ TokenType::EndOfLine, {}, {}, line, column }; }
 		static Token makeEndOfFile(u32 line, u32 column) noexcept { return Token{ TokenType::EndOfFile, {}, {}, line, column }; }
 	};

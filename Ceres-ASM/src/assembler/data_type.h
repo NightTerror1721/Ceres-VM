@@ -7,6 +7,8 @@
 #include <string>
 #include <string_view>
 #include <expected>
+#include <array>
+#include <span>
 
 namespace ceres::casm
 {
@@ -25,9 +27,21 @@ namespace ceres::casm
 
 	class DataType
 	{
+	public:
+		// [][][] is as deep as the syntax goes in practice; a fourth is headroom. Each dimension is
+		// a u16, so a single one caps at 65535 elements - the total is still a u32.
+		static inline constexpr u8 MaxRank = 4;
+
 	private:
 		DataTypeScalarCode _scalarCode = DataTypeScalarCode::Invalid;
-		u32 _numElements = 1; // For arrays, this represents the number of elements. For scalars, this is 1. 0 indicates an unsized array (e.g., string or unsized array).
+		// The *total* number of scalars, which is what every consumer already wanted: sizeInBytes,
+		// alignment, the emitter's flat write loop and ldv/stv all work off this and did not have to
+		// change when arrays gained dimensions. 1 for a scalar, 0 for an array of unknown length.
+		u32 _numElements = 1;
+		// The shape that total was built from, kept only so diagnostics and dimof can report it.
+		// Invariant: _numElements is the product of the first _rank entries. _rank 0 means a scalar.
+		std::array<u16, MaxRank> _dims{};
+		u8 _rank = 0;
 
 	public:
 		constexpr DataType() noexcept = default;
@@ -42,12 +56,32 @@ namespace ceres::casm
 
 	private:
 		constexpr DataType(DataTypeScalarCode scalarCode, u32 numElements) noexcept :
-			_scalarCode(scalarCode), _numElements(numElements)
+			_scalarCode(scalarCode), _numElements(numElements),
+			_dims{ static_cast<u16>(numElements), 0, 0, 0 }, _rank(numElements == 1 ? u8{ 0 } : u8{ 1 })
 		{}
+
+		constexpr DataType(DataTypeScalarCode scalarCode, std::span<const u32> dimensions) noexcept :
+			_scalarCode(scalarCode)
+		{
+			_rank = static_cast<u8>(dimensions.size() < MaxRank ? dimensions.size() : MaxRank);
+			u32 total = 1;
+			for (u8 i = 0; i < _rank; ++i)
+			{
+				_dims[i] = static_cast<u16>(dimensions[i]);
+				total *= dimensions[i];
+			}
+			_numElements = _rank == 0 ? 1 : total;
+		}
 
 	public:
 		constexpr DataTypeScalarCode scalarCode() const noexcept { return _scalarCode; }
 		constexpr u32 numElements() const noexcept { return _numElements; }
+
+		constexpr u8 rank() const noexcept { return _rank; }
+		constexpr bool isMultiDimensional() const noexcept { return _rank > 1; }
+
+		// Dimensions run outermost first, matching the order they are written: i32[2][3] is 2 then 3.
+		constexpr u32 dimension(u8 index) const noexcept { return index < _rank ? _dims[index] : 0; }
 
 		constexpr bool isValid() const noexcept { return _scalarCode != DataTypeScalarCode::Invalid; }
 		constexpr bool isScalar() const noexcept { return isValid() && _numElements == 1; }
@@ -56,6 +90,8 @@ namespace ceres::casm
 		constexpr bool isArray() const noexcept { return isValid() && _numElements != 1; }
 		constexpr bool hasUnknownSize() const noexcept { return !isValid() || _numElements == 0; } // Unsized array (e.g., string or unsized array)
 
+		// Collapses to a one-dimensional array of that many elements - what every existing caller
+		// means by it (a string filling an unsized u8[], a literal fixing an unsized declaration).
 		constexpr DataType withNumElements(u32 numElements) const noexcept { return DataType{ _scalarCode, numElements }; }
 		constexpr DataType withScalarCode(DataTypeScalarCode scalarCode) const noexcept { return DataType{ scalarCode, _numElements }; }
 
@@ -106,7 +142,12 @@ namespace ceres::casm
 		{
 			std::string result{ scalarCodeToString(_scalarCode) };
 
-			if (isSizedArray())
+			if (_rank > 1)
+			{
+				for (u8 i = 0; i < _rank; ++i)
+					result += "[" + std::to_string(_dims[i]) + "]";
+			}
+			else if (isSizedArray())
 				result += "[" + std::to_string(_numElements) + "]";
 			else if (isUnsizedArray())
 				result += "[]";
@@ -118,10 +159,12 @@ namespace ceres::casm
 		static constexpr DataType makeScalar(DataTypeScalarCode scalarCode) noexcept { return DataType{scalarCode, 1}; }
 		static constexpr DataType makeUnsizedArray(DataTypeScalarCode scalarCode) noexcept { return DataType{ scalarCode, 0 }; }
 		static constexpr DataType makeSizedArray(DataTypeScalarCode scalarCode, u32 numElements) noexcept { return DataType{ scalarCode, numElements }; }
+		static constexpr DataType makeArray(DataTypeScalarCode scalarCode, std::span<const u32> dimensions) noexcept { return DataType{ scalarCode, dimensions }; }
 
 		static constexpr DataType makeChar() noexcept { return DataType{ DataTypeScalarCode::U8, 1 }; }
 		static constexpr DataType makeBool() noexcept { return DataType{ DataTypeScalarCode::U8, 1 }; }
 		static constexpr DataType makeString() noexcept { return DataType{ DataTypeScalarCode::U8, 0 }; } // Unsized array of u8 (null-terminated string)
+		static constexpr DataType makePtr() noexcept { return DataType{ DataTypeScalarCode::U32, 1 }; } // A memory address
 
 		static constexpr std::expected<DataType, std::string_view> fromString(std::string_view str) noexcept
 		{
@@ -132,6 +175,7 @@ namespace ceres::casm
 			if (str == "i16") return makeScalar(DataTypeScalarCode::I16);
 			if (str == "i32") return makeScalar(DataTypeScalarCode::I32);
 			if (str == "f32") return makeScalar(DataTypeScalarCode::F32);
+			if (str == "ptr") return makePtr();
 			if (str == "char") return makeChar();
 			if (str == "bool") return makeBool();
 			if (str == "string") return makeString();
@@ -197,81 +241,9 @@ namespace ceres::casm
 	inline constexpr const DataType DataType::Bool = DataType::makeBool();
 	inline constexpr const DataType DataType::String = DataType::makeString(); // Unsized array of u8 (null-terminated string)
 
-	class DataTypeReference
-	{
-	private:
-		DataTypeScalarCode _scalarCode = DataTypeScalarCode::Invalid;
-		u32 _numElements = 1; // 0 indicates an unsized array (e.g., string or unsized array)
-		NullableIdentifier _numElementsIdentifier = nullptr; // Only used if _dataType is an unsized array and the size is specified by an identifier
-
-	public:
-		constexpr DataTypeReference() noexcept = default;
-		constexpr DataTypeReference(const DataTypeReference&) noexcept = default;
-		constexpr DataTypeReference(DataTypeReference&&) noexcept = default;
-		constexpr ~DataTypeReference() noexcept = default;
-
-		constexpr DataTypeReference& operator=(const DataTypeReference&) noexcept = default;
-		constexpr DataTypeReference& operator=(DataTypeReference&&) noexcept = default;
-
-		constexpr bool operator==(const DataTypeReference&) const noexcept = default;
-
-	private:
-		constexpr DataTypeReference(DataTypeScalarCode scalarCode, u32 numElements) noexcept :
-			_scalarCode(scalarCode), _numElements(numElements)
-		{}
-		constexpr DataTypeReference(DataTypeScalarCode scalarCode, Identifier numElementsIdentifier) noexcept :
-			_scalarCode(scalarCode), _numElements(0), _numElementsIdentifier(numElementsIdentifier)
-		{}
-
-	public:
-		constexpr DataTypeReference(DataType dataType) noexcept :
-			_scalarCode(dataType.scalarCode()), _numElements(dataType.numElements())
-		{}
-
-		constexpr DataTypeScalarCode scalarCode() const noexcept { return _scalarCode; }
-
-		constexpr bool hasNumElementsIdentifier() const noexcept { return !_numElementsIdentifier.isNull(); }
-		inline Identifier numElementsIdentifier() const { return static_cast<Identifier>(_numElementsIdentifier); }
-		constexpr u32 numElementsIntegerValue() const noexcept { return !hasNumElementsIdentifier() ? _numElements : 0; }
-
-		constexpr bool isValid() const noexcept { return _scalarCode != DataTypeScalarCode::Invalid; }
-		constexpr bool isScalar() const noexcept { return isValid() && _numElements == 1 && !hasNumElementsIdentifier(); }
-		constexpr bool isUnsizedArray() const noexcept { return isValid() && _numElements == 0 && !hasNumElementsIdentifier(); }
-		constexpr bool isSizedArray() const noexcept { return isValid() && ((_numElements > 1 && !hasNumElementsIdentifier()) || (_numElements == 0 && hasNumElementsIdentifier())); }
-		constexpr bool isArray() const noexcept { return isUnsizedArray() || isSizedArray(); }
-		constexpr bool hasUnknownSize() const noexcept { return !isValid() || (_numElements == 0 && !hasNumElementsIdentifier()); }
-
-		inline std::string toString() const noexcept
-		{
-			std::string result{ DataType::scalarCodeToString(_scalarCode) };
-
-			if (isSizedArray())
-				result += string_utils::concat("[", (hasNumElementsIdentifier() ? _numElementsIdentifier.str() : std::to_string(_numElements)), "]");
-			else if (isUnsizedArray())
-				result += "[]";
-
-			return result;
-		}
-
-	public:
-		static constexpr DataTypeReference make(DataType dataType) noexcept { return DataTypeReference{ dataType }; }
-		static constexpr DataTypeReference make(DataTypeScalarCode scalarCode, u32 numElements = 1) noexcept
-		{
-			return DataTypeReference{ scalarCode, numElements };
-		}
-		static constexpr DataTypeReference make(DataTypeScalarCode scalarCode, Identifier numElementsIdentifier) noexcept
-		{
-			return DataTypeReference{ scalarCode, numElementsIdentifier };
-		}
-
-	public:
-		static const DataTypeReference Invalid;
-	};
-
 	constexpr bool operator!(DataTypeScalarCode code) noexcept
 	{
 		return code == DataTypeScalarCode::Invalid;
 	}
 
-	inline constexpr const DataTypeReference DataTypeReference::Invalid = DataTypeReference{ DataType::Invalid };
 }

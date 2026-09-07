@@ -1,5 +1,6 @@
 #pragma once
 
+#include "data_type_reference.h"
 #include "operand.h"
 #include "literal_value.h"
 #include "mnemonic.h"

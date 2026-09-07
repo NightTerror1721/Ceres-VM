@@ -101,10 +101,11 @@ TEST(language, division_by_zero_in_a_constant_expression_is_reported)
 	CHECK(r.joinedErrors().find("Division by zero") != std::string::npos);
 }
 
-TEST(language, an_identifier_inside_a_larger_expression_is_reported_clearly)
+TEST(language, a_constant_can_appear_inside_a_larger_expression)
 {
-	// Constants are not resolved until the unit is built, so the parser cannot fold them. The
-	// diagnostic has to say that rather than fail obscurely.
+	// The parser used to fold expressions as it read them, which only worked for literals: a
+	// constant does not exist until the unit is built. Keeping the tree instead moves the folding
+	// to where the symbol table is.
 	AssembleResult r = assembleSource(
 		"const BASE = 4\r\n"
 		"@text\r\n"
@@ -112,8 +113,88 @@ TEST(language, an_identifier_inside_a_larger_expression_is_reported_clearly)
 		"    li r1, 2 * BASE\r\n"
 		"    ret\r\n");
 
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 8 });
+}
+
+TEST(language, a_constant_can_be_defined_from_another)
+{
+	AssembleResult r = assembleSource(
+		"const BLOCK   = 64\r\n"
+		"const HEADER  = 8\r\n"
+		"const PAYLOAD = BLOCK - HEADER\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, PAYLOAD\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 56 });
+}
+
+TEST(language, an_expression_respects_precedence_and_parentheses)
+{
+	AssembleResult r = assembleSource(
+		"const N = 3\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, 2 + N * 4\r\n"
+		"    li r2, (2 + N) * 4\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 14 });
+	CHECK_EQ(vm::Instruction(r.words()[1]).imm16(), u16{ 20 });
+}
+
+TEST(language, a_constant_referring_to_one_declared_later_is_still_rejected)
+{
+	// Constants are evaluated in source order, which is what makes a cycle impossible rather than
+	// something that has to be detected.
+	AssembleResult r = assembleSource(
+		"const A = B + 1\r\n"
+		"const B = 2\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
 	CHECK(!r.ok());
-	CHECK(r.joinedErrors().find("cannot reference") != std::string::npos);
+}
+
+TEST(language, an_array_size_can_be_computed_from_a_constant)
+{
+	AssembleResult r = assembleSource(
+		"const ROWS = 4\r\n"
+		"@bss\r\n"
+		"    let grid: u8[ROWS * 2]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, countof(grid)\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 8 });
+}
+
+TEST(language, sizeof_counts_bytes_and_countof_counts_elements)
+{
+	AssembleResult r = assembleSource(
+		"@bss\r\n"
+		"    let values: u32[5]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, countof(values)\r\n"
+		"    li r2, sizeof(values)\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 5 });
+	CHECK_EQ(vm::Instruction(r.words()[1]).imm16(), u16{ 20 });
 }
 
 TEST(language, an_identifier_on_its_own_still_works)
@@ -261,4 +342,174 @@ TEST(language, cli_and_sti_assemble)
 
 	CHECK(Instruction(r.words()[0]).opcode() == Opcode::STI);
 	CHECK(Instruction(r.words()[1]).opcode() == Opcode::CLI);
+}
+
+// Multidimensional arrays. The back end never learned about them: a i32[2][3] and a i32[6] produce
+// identical bytes, so all of this lives in the type and the parser.
+TEST(language, a_two_dimensional_array_is_stored_row_major)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let grid: i32[2][3] = [[1, 2, 3], [4, 5, 6]]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto data = r.program->data();
+	CHECK_EQ(data.size(), usize{ 24 });
+	if (data.size() < 24) return;
+	for (u32 i = 0; i < 6; ++i)
+		CHECK_EQ(static_cast<u32>(data[i * 4]), i + 1);
+}
+
+TEST(language, every_dimension_may_be_left_to_the_initialiser)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let a: i32[][] = [[1, 2, 3], [4, 5, 6]]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, dimof(a, 0)\r\n"
+		"    li r2, dimof(a, 1)\r\n"
+		"    li r3, countof(a)\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 2 });
+	CHECK_EQ(vm::Instruction(r.words()[1]).imm16(), u16{ 3 });
+	CHECK_EQ(vm::Instruction(r.words()[2]).imm16(), u16{ 6 });
+}
+
+TEST(language, an_inner_dimension_may_be_the_inferred_one)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let a: i32[2][] = [[1, 2, 3], [4, 5, 6]]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, dimof(a, 1)\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 3 });
+}
+
+// A declared dimension gives something to pad against, so an irregular initialiser is fine there.
+// An omitted one does not, and the irregularity is exactly what makes the size unknowable.
+TEST(language, a_declared_dimension_pads_a_short_row)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let a: i32[][3] = [[1, 2], [4, 5, 6]]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, dimof(a, 0)\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 2 });
+
+	const auto data = r.program->data();
+	CHECK_EQ(data.size(), usize{ 24 });
+	if (data.size() < 24) return;
+	CHECK_EQ(static_cast<u32>(data[8]), u32{ 0 });  // the padded third element of row 0
+	CHECK_EQ(static_cast<u32>(data[12]), u32{ 4 }); // row 1 starts where it should
+}
+
+TEST(language, an_irregular_initialiser_cannot_supply_an_omitted_size)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let a: i32[][] = [[1, 2], [3, 4, 5]]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("dimension 1") != std::string::npos);
+}
+
+TEST(language, the_initialiser_must_be_nested_as_deeply_as_the_type)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let a: i32[][] = [1, 2, 3]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+}
+
+TEST(language, a_flat_initialiser_works_when_every_size_is_written_down)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let a: i32[2][3] = [1, 2, 3, 4, 5, 6]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(r.program->data().size(), usize{ 24 });
+}
+
+TEST(language, without_an_initialiser_every_dimension_needs_a_size)
+{
+	AssembleResult r = assembleSource(
+		"@bss\r\n"
+		"    let a: u8[][16]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+}
+
+// A string inside an array fills a row rather than being one element, which is what makes a table
+// of fixed-width strings expressible at all.
+TEST(language, a_string_inside_an_array_fills_a_row)
+{
+	AssembleResult r = assembleSource(
+		"@rodata\r\n"
+		"    let names: u8[][8] = [\"ada\", \"grace\"]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, dimof(names, 0)\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 2 });
+
+	const auto rodata = r.program->rodata();
+	CHECK_EQ(rodata.size(), usize{ 16 });
+	if (rodata.size() < 16) return;
+	CHECK_EQ(static_cast<char>(rodata[0]), 'a');
+	CHECK_EQ(static_cast<u32>(rodata[4]), u32{ 0 }); // "ada" plus its zero, then padding
+	CHECK_EQ(static_cast<char>(rodata[8]), 'g');     // the second row starts on its own boundary
+}
+
+TEST(language, a_three_dimensional_array_is_accepted)
+{
+	AssembleResult r = assembleSource(
+		"@bss\r\n"
+		"    let cube: i16[4][4][4]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, countof(cube)\r\n"
+		"    li r2, dimof(cube, 2)\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 64 });
+	CHECK_EQ(vm::Instruction(r.words()[1]).imm16(), u16{ 4 });
 }

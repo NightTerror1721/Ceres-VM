@@ -85,6 +85,8 @@ namespace ceres::casm
 			case '/': return Token::makeSlash(startLine, startColumn);
 			case '[': return Token::makeBracketOpen(startLine, startColumn);
 			case ']': return Token::makeBracketClose(startLine, startColumn);
+			case '(': return Token::makeParenOpen(startLine, startColumn);
+			case ')': return Token::makeParenClose(startLine, startColumn);
 			case '\n': return Token::makeEndOfLine(startLine, startColumn);
 		}
 

@@ -1,6 +1,8 @@
 #pragma once
 
+#include "data_type_reference.h"
 #include "symbol_table.h"
+#include "const_expr_eval.h"
 #include "macro_table.h"
 #include "relocatable_statement.h"
 #include "size.h"
@@ -202,6 +204,20 @@ namespace ceres::casm
 		DataType resolveDataType(u32 line, const DataTypeReference& dataType, bool allowUnsizedArrays) const;
 		LiteralValue resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays = false, std::optional<DataTypeScalarCode> targetScalarCode = std::nullopt) const;
 		std::pair<DataType, LiteralValue> resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const;
+
+		// How the constant expressions in a declaration find their names.
+		ConstExprSymbolLookup symbolLookup() const;
+		u32 evaluateDimension(u32 line, const ConstExpr& expression) const;
+		LiteralScalar evaluateElement(u32 line, const LiteralValueReferenceElement& element, std::optional<DataTypeScalarCode> targetScalarCode) const;
+
+		// The lengths of every sibling group at each nesting level of a literal. Level 0 holds one
+		// entry, the length of the literal itself.
+		using LiteralShape = std::vector<std::vector<u32>>;
+		static void collectLiteralShape(std::span<const LiteralValueReferenceElement> elements, usize level, LiteralShape& shape);
+
+		// Writes the literal out in row-major order, padding each level up to its declared length.
+		void flattenLiteral(u32 line, std::span<const LiteralValueReferenceElement> elements, std::span<const u32> dimensions,
+			std::optional<DataTypeScalarCode> targetScalarCode, std::vector<LiteralScalar>& out) const;
 
 		std::expected<u32, std::string_view> sizeOf(u32 line, DataType dataType) const;
 		std::expected<u32, std::string_view> sizeOf(u32 line, const LiteralValue& value) const;

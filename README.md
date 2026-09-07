@@ -246,13 +246,59 @@ const BLOCK       = 16 * 4          ; + - * / with the usual precedence
     let active:   u8[MAX_PLAYERS]
 ```
 
-Scalar types are `u8`, `u16`, `u32`, `i8`, `i16`, `i32` and `f32`, plus the aliases `char`, `bool`
-and `string`. An integer literal has no type of its own; it takes the declared one, and is
+Scalar types are `u8`, `u16`, `u32`, `i8`, `i16`, `i32` and `f32`, plus the aliases `char`, `bool`,
+`ptr` and `string`. An integer literal has no type of its own; it takes the declared one, and is
 rejected if it does not fit. A string literal is stored with a terminating zero, so
 `"Hello, CeresVM!"` needs `u8[16]`.
 
-An initialiser must fill its declaration exactly. Variables are padded to their type's natural
-alignment.
+A declaration may be longer than its initialiser; the remainder is zero. Variables are padded to
+their type's natural alignment.
+
+### Multidimensional arrays
+
+```casm
+@data
+    let grid:  i32[2][3] = [[1, 2, 3], [4, 5, 6]]
+    let a:     i32[][]   = [[1, 2, 3], [4, 5, 6]]   ; both sizes worked out
+    let b:     i32[2][]  = [[1, 2, 3], [4, 5, 6]]   ; only the inner one
+    let names: u8[][8]   = ["ada", "grace"]         ; a string fills a row
+@bss
+    let cube:  i16[4][4][4]
+```
+
+**Any** dimension may be left empty, not just the outermost. A size is only an error when the
+initialiser cannot supply it:
+
+- A **declared** dimension wins, and a short row is padded with zeroes.
+- An **omitted** dimension is read off the initialiser, so every row at that level has to be the
+  same length — an irregular one is precisely what makes the size unknowable.
+- With **no initialiser** there is nothing to read, so every dimension needs a size.
+- A flat initialiser is accepted for a multidimensional type when every size is written down.
+
+Dimensions run outermost first, elements are stored row-major, and the rank is capped at four.
+
+### Constant expressions
+
+```casm
+const BLOCK   = 64
+const HEADER  = 8
+const PAYLOAD = BLOCK - HEADER      ; constants may refer to earlier constants
+
+@bss
+    let buffer: u8[BLOCK * 2]       ; and to size an array
+
+@text
+    li r1, sizeof(buffer)           ; bytes
+    li r2, countof(buffer)          ; elements
+    li r3, dimof(grid, 1)           ; the length of one dimension
+```
+
+`+ - * /` with the usual precedence, and parentheses. A constant is evaluated when its own
+declaration is reached, so it can only refer to constants already declared above it — which is also
+why a cycle cannot form.
+
+`sizeof`, `countof` and `dimof` are the only way to recover a dimension that was never written
+down, which is what an inferred array size is.
 
 A `const` occupies no memory; it is substituted at its point of use.
 
@@ -410,8 +456,6 @@ The assembler and the VM work end to end. What is not done:
   thing to a convention the project has.
 - **Devices.** Twenty-six ports are reserved and seven are implemented. Disk, GPU, input, audio
   and network are all still stubs.
-- **Constant expressions with identifiers.** `2 * BASE` is rejected: constants are not resolved
-  until after parsing, so the parser cannot fold them.
 - **`parseOperand` gaps.** Float, character and string literals are not accepted as operands, and
   a `%%label` cannot start a statement outside a macro body.
 - **Reverse debugging has a horizon.** The debugger ([wiki](docs/22-Debugger.md)) runs backwards,

@@ -1,5 +1,6 @@
 #include "symbol_table.h"
 #include "translation_unit.h"
+#include "const_expr_eval.h"
 #include "common/string_utils.h"
 
 namespace ceres::casm
@@ -97,6 +98,27 @@ namespace ceres::casm
 
 	Operand& SymbolTable::resolveOperand(std::string_view file, u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>* unresolvedSymbols, const SymbolTable* globalSymbolTable, const TranslationUnit* unit) const
 	{
+		// An immediate the parser could not fold because it names something. Everything it can name
+		// is a constant, so it resolves as soon as there is a table to look in.
+		if (operand.isConstExpr())
+		{
+			const ConstExprSymbolLookup lookup = [&](std::string_view name) -> const Symbol*
+			{
+				if (auto own = get(name); own.has_value())
+					return &own.value().get();
+				auto beyond = lookupBeyond(line, name, unit, globalSymbolTable);
+				return beyond.has_value() ? &beyond.value().get() : nullptr;
+			};
+
+			auto value = evaluateConstExpr(operand.asConstExpr().expression, lookup);
+			if (value.has_value())
+				operand = Operand::makeImmediate(value->asRawValue());
+			else if (unresolvedSymbols == nullptr)
+				error(line, "{}", value.error()); // The linker's pass: nothing left to wait for.
+
+			return operand;
+		}
+
 		if (operand.isIdentifier())
 		{
 			const auto& identifierOperand = operand.asIdentifier();
