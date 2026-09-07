@@ -16,6 +16,7 @@ namespace ceres::casm
 		auto [it, inserted] = _symbols.emplace(std::move(key), std::move(symbol));
 		if (!inserted)
 			error(line, "Redefinition of symbol: {}", it->first);
+		it->second.setLine(line);
 
 		if (!isLocal)
 			_lastParentLabel = it->first;
@@ -31,6 +32,7 @@ namespace ceres::casm
 		auto [it, inserted] = _symbols.emplace(std::move(key), std::move(symbol));
 		if (!inserted)
 			error(line, "Redefinition of symbol: {}", it->first);
+		it->second.setLine(line);
 	}
 
 	void SymbolTable::defineVariable(u32 line, std::string_view name, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType, const LiteralValue* initialValue)
@@ -45,12 +47,16 @@ namespace ceres::casm
 		auto [it, inserted] = _symbols.emplace(std::move(key), std::move(symbol));
 		if (!inserted)
 			error(line, "Redefinition of symbol: {}", it->first);
+		it->second.setLine(line);
 	}
 
 	std::optional<std::reference_wrapper<const Symbol>> SymbolTable::get(std::string_view name) const noexcept
 	{
 		if (const auto it = _symbols.find(std::string(name)); it != _symbols.end())
+		{
+			it->second.markUsed();
 			return std::cref(it->second);
+		}
 		return std::nullopt;
 	}
 
@@ -58,7 +64,10 @@ namespace ceres::casm
 	{
 		std::string fullName = string_utils::concat(parentName, ".", name);
 		if (const auto it = _symbols.find(fullName); it != _symbols.end())
+		{
+			it->second.markUsed();
 			return std::cref(it->second);
+		}
 		return std::nullopt;
 	}
 
@@ -83,6 +92,19 @@ namespace ceres::casm
 	{
 		if (unit != nullptr)
 		{
+			// A qualified name is answered by exactly one module, or by nobody: it must not fall
+			// through to the unqualified search or to the linker's global table.
+			if (const auto qualified = TranslationUnit::splitQualifiedName(name); qualified.has_value())
+			{
+				if (!unit->moduleNamed(qualified->first).has_value())
+					error(line, "No import is named '{}'", qualified->first);
+
+				if (auto found = unit->resolveSymbol(name); found.has_value())
+					return found;
+
+				error(line, "'{}' does not export '{}'", qualified->first, qualified->second);
+			}
+
 			const auto imported = unit->lookupImportedSymbol(name);
 			if (imported.ambiguous)
 				error(line, "'{}' is exported by both '{}' and '{}'", name, imported.foundIn, imported.alsoIn);

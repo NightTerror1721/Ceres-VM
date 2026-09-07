@@ -34,6 +34,11 @@ namespace ceres::casm
 		std::optional<Address> _address;
 		std::optional<DataType> _dataType;
 		std::optional<LiteralValue> _value;
+		// Mutable because every lookup goes through a const reference, and counting a use is not a
+		// change to what the symbol *is*. Only used to tell a private declaration nobody reads from
+		// one that is genuinely load-bearing.
+		mutable u32 _uses = 0;
+		u32 _line = 0; // Where it was declared, so a warning can point at it
 
 	public:
 		Symbol() = delete;
@@ -83,6 +88,11 @@ namespace ceres::casm
 		inline bool isVariable() const noexcept { return _type == SymbolType::Variable; }
 
 		inline void setAddress(Address address) noexcept { _address = address; }
+
+		inline u32 uses() const noexcept { return _uses; }
+		inline void markUsed() const noexcept { ++_uses; }
+		inline u32 line() const noexcept { return _line; }
+		inline void setLine(u32 line) noexcept { _line = line; }
 
 	public:
 		static Symbol makeLabel(std::string&& name, SectionType section, Address address, bool isGlobal) noexcept

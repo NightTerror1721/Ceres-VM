@@ -8,7 +8,9 @@ export interface CompilerDiagnostic {
 	file: string;
 	line: number;
 	column: number;
-	severity: 'error';
+	// The assembler emits warnings too now - an unused private declaration is dead with certainty,
+	// but it does not stop a build.
+	severity: 'error' | 'warning';
 	message: string;
 }
 

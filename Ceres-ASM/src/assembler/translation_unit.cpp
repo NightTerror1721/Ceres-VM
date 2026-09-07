@@ -2,6 +2,7 @@
 #include "instruction_info.h"
 #include "assembly_state.h"
 #include <array>
+#include <algorithm>
 
 namespace ceres::casm
 {
@@ -201,7 +202,42 @@ namespace ceres::casm
 					// Nothing is copied out of the module: it is loaded once per run (AssemblyState
 					// caches units by resolved path) and recorded here as a place to look. Importing
 					// it a second time, directly or through another module, is a no-op.
-					_translationUnit.addDirectImport(resolvedPath);
+					_translationUnit.addDirectImport(resolvedPath, imp.alias.isNull() ? std::string{} : std::string(imp.alias.view()));
+				}
+				else if (statement.isStructDeclaration())
+				{
+					// A struct declares no storage. It defines one constant per field, holding that
+					// field's byte offset, plus the struct's own name holding the total size - so
+					// `[r1 + Entity.y]` is an ordinary constant displacement and `u8[32][Entity]`
+					// is an ordinary array. Nothing downstream has to know structs exist.
+					const StructDeclarationStatement& structDecl = statement.asStructDeclaration();
+
+					u32 offset = 0;
+					u32 widestAlignment = 1;
+					for (const auto& field : structDecl.fields)
+					{
+						const DataType fieldType = resolveDataType(statement.line(), field.dataType, false);
+						const auto fieldSize = fieldType.sizeInBytes();
+						if (!fieldSize.has_value() || fieldSize.value() == 0)
+							error(statement.line(), "Field '{}' of struct '{}' has no size", field.name, structDecl.name);
+
+						const u32 alignment = fieldType.alignment();
+						widestAlignment = std::max(widestAlignment, alignment);
+						if (const u32 misaligned = offset % alignment; misaligned != 0)
+							offset += alignment - misaligned;
+
+						symbolTable.defineConstant(statement.line(),
+							std::format("{}.{}", structDecl.name, field.name),
+							structDecl.isGlobal, LiteralValue::make(offset));
+
+						offset += fieldSize.value();
+					}
+
+					// Rounded up to the widest field, so an array of them stays aligned.
+					if (const u32 misaligned = offset % widestAlignment; misaligned != 0)
+						offset += widestAlignment - misaligned;
+
+					symbolTable.defineConstant(statement.line(), structDecl.name, structDecl.isGlobal, LiteralValue::make(offset));
 				}
 				else if (statement.isMacroDeclaration())
 				{
@@ -664,8 +700,31 @@ namespace ceres::casm
 		return macro.isGlobal();
 	}
 
+	OptionalConstRef<TranslationUnit> TranslationUnit::moduleNamed(std::string_view alias) const
+	{
+		for (const auto& entry : _directImports)
+		{
+			if (entry.alias == alias)
+				return state().getTranslationUnit(entry.path);
+		}
+		return std::nullopt;
+	}
+
 	OptionalConstRef<Symbol> TranslationUnit::resolveSymbol(std::string_view name) const
 	{
+		// A qualified name is answered by exactly one module, so it never has to be disambiguated.
+		if (const auto qualified = splitQualifiedName(name); qualified.has_value())
+		{
+			if (auto module = moduleNamed(qualified->first); module.has_value())
+			{
+				if (auto found = module->get().symbolTable().get(qualified->second);
+					found.has_value() && isExported(found->get()))
+					return found;
+				return std::nullopt;
+			}
+			// Not a module name: fall through, because a local label is stored as `parent.name`.
+		}
+
 		if (auto own = _symbolTable.get(name); own.has_value())
 			return own;
 
@@ -678,6 +737,18 @@ namespace ceres::casm
 
 	OptionalConstRef<Macro> TranslationUnit::resolveMacro(const MacroSignature& signature) const
 	{
+		if (const auto qualified = splitQualifiedName(signature.name); qualified.has_value())
+		{
+			if (auto module = moduleNamed(qualified->first); module.has_value())
+			{
+				const auto bare = MacroSignature::make(qualified->second, signature.parameterCount);
+				if (auto found = module->get().macroTable().getMacro(bare);
+					found.has_value() && isExported(found->get()))
+					return found;
+				return std::nullopt;
+			}
+		}
+
 		if (auto own = _macroTable.getMacro(signature); own.has_value())
 			return own;
 
@@ -694,9 +765,9 @@ namespace ceres::casm
 		std::vector<const TranslationUnit*> visited;
 		visited.push_back(this);
 
-		for (const auto& path : _directImports)
+		for (const auto& entry : _directImports)
 		{
-			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+			if (auto unit = state().getTranslationUnit(entry.path); unit.has_value())
 				unit->get().collectExportedSymbol(name, visited, result);
 		}
 
@@ -709,9 +780,9 @@ namespace ceres::casm
 		std::vector<const TranslationUnit*> visited;
 		visited.push_back(this);
 
-		for (const auto& path : _directImports)
+		for (const auto& entry : _directImports)
 		{
-			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+			if (auto unit = state().getTranslationUnit(entry.path); unit.has_value())
 				unit->get().collectExportedMacro(signature, visited, result);
 		}
 
@@ -724,9 +795,9 @@ namespace ceres::casm
 		std::vector<const TranslationUnit*> visited;
 		visited.push_back(this);
 
-		for (const auto& path : _directImports)
+		for (const auto& entry : _directImports)
 		{
-			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+			if (auto unit = state().getTranslationUnit(entry.path); unit.has_value())
 				unit->get().collectUnexportedSymbol(name, visited, origin);
 		}
 
@@ -739,9 +810,9 @@ namespace ceres::casm
 		std::vector<const TranslationUnit*> visited;
 		visited.push_back(this);
 
-		for (const auto& path : _directImports)
+		for (const auto& entry : _directImports)
 		{
-			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+			if (auto unit = state().getTranslationUnit(entry.path); unit.has_value())
 				unit->get().collectUnexportedMacro(signature, visited, origin);
 		}
 
@@ -760,9 +831,9 @@ namespace ceres::casm
 			return;
 		}
 
-		for (const auto& path : _directImports)
+		for (const auto& entry : _directImports)
 		{
-			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+			if (auto unit = state().getTranslationUnit(entry.path); unit.has_value())
 				unit->get().collectUnexportedSymbol(name, visited, origin);
 		}
 	}
@@ -779,9 +850,9 @@ namespace ceres::casm
 			return;
 		}
 
-		for (const auto& path : _directImports)
+		for (const auto& entry : _directImports)
 		{
-			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+			if (auto unit = state().getTranslationUnit(entry.path); unit.has_value())
 				unit->get().collectUnexportedMacro(signature, visited, origin);
 		}
 	}
@@ -807,9 +878,9 @@ namespace ceres::casm
 			}
 		}
 
-		for (const auto& path : _directImports)
+		for (const auto& entry : _directImports)
 		{
-			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+			if (auto unit = state().getTranslationUnit(entry.path); unit.has_value())
 				unit->get().collectExportedSymbol(name, visited, result);
 		}
 	}
@@ -835,9 +906,9 @@ namespace ceres::casm
 			}
 		}
 
-		for (const auto& path : _directImports)
+		for (const auto& entry : _directImports)
 		{
-			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+			if (auto unit = state().getTranslationUnit(entry.path); unit.has_value())
 				unit->get().collectExportedMacro(signature, visited, result);
 		}
 	}

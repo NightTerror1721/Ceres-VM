@@ -5,6 +5,7 @@
 #include "lexer.h"
 #include "errors.h"
 #include <format>
+#include <unordered_map>
 
 namespace ceres::casm
 {
@@ -154,6 +155,11 @@ namespace ceres::casm
 	{
 	private:
 		std::string_view _file; // View into AssemblyState's interned path storage; empty if none was given
+		// `alias cursor = r5`. Purely lexical, and resolved here rather than in the symbol table:
+		// by the time anything downstream sees the operand it is already an ordinary register, so
+		// nothing else in the pipeline has to know registers can be named. That also makes it
+		// file-scoped - a parser has no imports to consult, they are resolved a stage later.
+		std::unordered_map<std::string, Operand> _registerAliases;
 		ParserCursor _cursor;
 		StringPool& _stringPool;
 		AssemblerErrorHandler& _errorHandler;
@@ -184,6 +190,10 @@ namespace ceres::casm
 		Statement parseLabelOrInstruction();
 		Statement parseMacroLabel();
 		Statement parseMacroDeclaration(bool isGlobal);
+		Statement parseStructDeclaration(bool isGlobal);
+		void parseRegisterAlias();
+		bool atQualifiedName() const noexcept;
+		Identifier parseQualifiedName();
 
 		DataTypeReference parseDataType();
 		LiteralValueReference parseLiteralValue(std::optional<DataTypeReference> expectedDataType);

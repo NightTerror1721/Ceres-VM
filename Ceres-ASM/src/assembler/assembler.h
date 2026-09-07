@@ -70,6 +70,7 @@ namespace ceres::casm
 		std::vector<Statement> parseSource(const std::string& source, const std::filesystem::path& filePath);
 		std::optional<TranslationUnit> translateStatementsToUnit(const std::string& source, std::vector<Statement>&& statements, const std::filesystem::path& filePath);
 		bool linkTranslationUnits();
+		void warnAboutUnusedPrivateDeclarations();
 		std::optional<vm::Program> emitBinary();
 
 		OptionalRef<TranslationUnit> loadTranslationUnit(const std::string& filePath) noexcept;

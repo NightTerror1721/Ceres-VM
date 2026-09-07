@@ -36,6 +36,25 @@ namespace ceres::casm
 	struct ImportStatement
 	{
 		LiteralString moduleName; // Name of the module to import (e.g., "math", "utils", etc.)
+		// `import "lib/math.casm" as math`. Null when the import is unnamed, in which case what the
+		// module exports is reachable by its plain name.
+		NullableIdentifier alias = nullptr;
+	};
+
+	// A record layout. It declares no storage of its own: what it produces is a set of constants -
+	// one field offset each, plus the name itself standing for the total size - which is exactly
+	// what `[r1 + Entity.y]` and `let mobs: u8[32][Entity]` need.
+	struct StructFieldDeclaration
+	{
+		Identifier name;
+		DataTypeReference dataType;
+	};
+
+	struct StructDeclarationStatement
+	{
+		bool isGlobal;
+		Identifier name;
+		std::vector<StructFieldDeclaration> fields;
 	};
 
 	struct MacroDeclarationStatement
@@ -82,6 +101,7 @@ namespace ceres::casm
 			DataStatement,
 			ImportStatement,
 			MacroDeclarationStatement,
+			StructDeclarationStatement,
 			MacroLabelStatement,
 			MacroCallStatement,
 			InstructionStatement
@@ -141,6 +161,7 @@ namespace ceres::casm
 		constexpr bool isData() const noexcept { return std::holds_alternative<DataStatement>(_value); }
 		constexpr bool isImport() const noexcept { return std::holds_alternative<ImportStatement>(_value); }
 		constexpr bool isMacroDeclaration() const noexcept { return std::holds_alternative<MacroDeclarationStatement>(_value); }
+		constexpr bool isStructDeclaration() const noexcept { return std::holds_alternative<StructDeclarationStatement>(_value); }
 		constexpr bool isMacroLabel() const noexcept { return std::holds_alternative<MacroLabelStatement>(_value); }
 		constexpr bool isMacroCall() const noexcept { return std::holds_alternative<MacroCallStatement>(_value); }
 		constexpr bool isInstruction() const noexcept { return std::holds_alternative<InstructionStatement>(_value); }
@@ -150,6 +171,7 @@ namespace ceres::casm
 		constexpr const DataStatement& asData() const noexcept { return std::get<DataStatement>(_value); }
 		constexpr const ImportStatement& asImport() const noexcept { return std::get<ImportStatement>(_value); }
 		constexpr const MacroDeclarationStatement& asMacroDeclaration() const noexcept { return std::get<MacroDeclarationStatement>(_value); }
+		constexpr const StructDeclarationStatement& asStructDeclaration() const noexcept { return std::get<StructDeclarationStatement>(_value); }
 		constexpr const MacroLabelStatement& asMacroLabel() const noexcept { return std::get<MacroLabelStatement>(_value); }
 		constexpr const MacroCallStatement& asMacroCall() const noexcept { return std::get<MacroCallStatement>(_value); }
 		constexpr const InstructionStatement& asInstruction() const noexcept { return std::get<InstructionStatement>(_value); }
@@ -159,6 +181,7 @@ namespace ceres::casm
 		constexpr DataStatement& asData() noexcept { return std::get<DataStatement>(_value); }
 		constexpr ImportStatement& asImport() noexcept { return std::get<ImportStatement>(_value); }
 		constexpr MacroDeclarationStatement& asMacroDeclaration() noexcept { return std::get<MacroDeclarationStatement>(_value); }
+		constexpr StructDeclarationStatement& asStructDeclaration() noexcept { return std::get<StructDeclarationStatement>(_value); }
 		constexpr MacroLabelStatement& asMacroLabel() noexcept { return std::get<MacroLabelStatement>(_value); }
 		constexpr MacroCallStatement& asMacroCall() noexcept { return std::get<MacroCallStatement>(_value); }
 		constexpr InstructionStatement& asInstruction() noexcept { return std::get<InstructionStatement>(_value); }
@@ -184,14 +207,19 @@ namespace ceres::casm
 			return Statement{ file, line, DataStatement{ isConstant, isGlobal, identifier, dataType, value } };
 		}
 
-		static Statement makeImport(std::string_view file, u32 line, LiteralString moduleName) noexcept
+		static Statement makeImport(std::string_view file, u32 line, LiteralString moduleName, NullableIdentifier alias = nullptr) noexcept
 		{
-			return Statement{ file, line, ImportStatement{ moduleName } };
+			return Statement{ file, line, ImportStatement{ moduleName, alias } };
 		}
 
 		static Statement makeMacroDeclaration(std::string_view file, u32 line, bool isGlobal, Identifier name, std::vector<Identifier>&& parameters, std::vector<Statement>&& body) noexcept
 		{
 			return Statement{ file, line, MacroDeclarationStatement{ isGlobal, name, std::move(parameters), std::move(body) } };
+		}
+
+		static Statement makeStructDeclaration(std::string_view file, u32 line, bool isGlobal, Identifier name, std::vector<StructFieldDeclaration>&& fields) noexcept
+		{
+			return Statement{ file, line, StructDeclarationStatement{ isGlobal, name, std::move(fields) } };
 		}
 
 		static Statement makeMacroLabel(std::string_view file, u32 line, Identifier name) noexcept

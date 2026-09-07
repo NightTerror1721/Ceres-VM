@@ -20,6 +20,8 @@ namespace ceres::testing
 	{
 		std::optional<vm::Program> program;
 		std::vector<std::string> errors;
+		// Kept apart from errors: a warning does not stop a build, so ok() must not care about one.
+		std::vector<std::string> warnings;
 		// Empty unless assembleSource was asked for debug information. The path is kept because
 		// the line table is keyed on it and the temporary file is gone by the time a test looks.
 		debug::DebugInfo debugInfo;
@@ -53,16 +55,20 @@ namespace ceres::testing
 			return vm::Disassembler::listing(program->text(), vm::Memory::UnrestrictedSegmentStart);
 		}
 
-		std::string joinedErrors() const
+		std::string joinedErrors() const { return join(errors, "<no errors>"); }
+		std::string joinedWarnings() const { return join(warnings, "<no warnings>"); }
+
+	private:
+		static std::string join(const std::vector<std::string>& lines, const char* whenEmpty)
 		{
 			std::string out;
-			for (const auto& e : errors)
+			for (const auto& line : lines)
 			{
 				if (!out.empty())
 					out += " | ";
-				out += e;
+				out += line;
 			}
-			return out.empty() ? "<no errors>" : out;
+			return out.empty() ? whenEmpty : out;
 		}
 	};
 
@@ -92,8 +98,11 @@ namespace ceres::testing
 		casm::Assembler assembler{ casm::AssemblerOptions{ .emitDebugInfo = withDebugInfo } };
 		result.program = assembler.assemble({ path });
 		result.debugInfo = assembler.debugInfo();
-		for (const auto& error : assembler.errors())
-			result.errors.push_back(std::format("[line {}] {}", error.line, error.message));
+		for (const auto& diagnostic : assembler.errors())
+		{
+			auto& into = diagnostic.isWarning() ? result.warnings : result.errors;
+			into.push_back(std::format("[line {}] {}", diagnostic.line, diagnostic.message));
+		}
 
 		std::error_code ignored;
 		std::filesystem::remove(path, ignored);
@@ -133,8 +142,11 @@ namespace ceres::testing
 
 		casm::Assembler assembler{ casm::AssemblerOptions{ .requireEntryPoint = false } };
 		result.program = assembler.assemble({ path });
-		for (const auto& error : assembler.errors())
-			result.errors.push_back(std::format("[line {}] {}", error.line, error.message));
+		for (const auto& diagnostic : assembler.errors())
+		{
+			auto& into = diagnostic.isWarning() ? result.warnings : result.errors;
+			into.push_back(std::format("[line {}] {}", diagnostic.line, diagnostic.message));
+		}
 
 		std::error_code ignored;
 		std::filesystem::remove(path, ignored);

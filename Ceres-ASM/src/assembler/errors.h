@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/types.h"
+#include <span>
 #include <stdexcept>
 #include <vector>
 
@@ -30,12 +31,23 @@ namespace ceres::casm
 		friend class AssemblerErrorHandler;
 	};
 
+	// Not everything worth saying stops the build. A private declaration nobody uses is certainly
+	// dead - it cannot be reached from outside the unit that declares it - but it is not an error.
+	enum class DiagnosticSeverity : u8
+	{
+		Error = 0,
+		Warning,
+	};
+
 	struct AssemblerErrorEntry
 	{
 		std::string file;
 		u32 line;
 		u32 column;
 		std::string message;
+		DiagnosticSeverity severity = DiagnosticSeverity::Error;
+
+		bool isWarning() const noexcept { return severity == DiagnosticSeverity::Warning; }
 	};
 
 	class AssemblerErrorHandler
@@ -45,6 +57,7 @@ namespace ceres::casm
 
 	private:
 		std::vector<AssemblerErrorEntry> _errors;
+		usize _errorCount = 0; // Warnings live in the same list; only these fail the build.
 
 	public:
 		AssemblerErrorHandler() noexcept = default;
@@ -56,13 +69,20 @@ namespace ceres::casm
 		AssemblerErrorHandler& operator=(AssemblerErrorHandler&&) noexcept = default;
 
 	public:
-		constexpr bool hasErrors() const noexcept { return !_errors.empty(); }
+		constexpr bool hasErrors() const noexcept { return _errorCount > 0; }
+		constexpr bool hasDiagnostics() const noexcept { return !_errors.empty(); }
 
 		constexpr std::span<const AssemblerErrorEntry> errors() const noexcept { return std::span<const AssemblerErrorEntry>(_errors); }
 
 		void reportError(std::string_view file, u32 line, u32 column, std::string_view message) noexcept
 		{
-			_errors.push_back({ std::string(file), line, column, std::string(message) });
+			_errors.push_back({ std::string(file), line, column, std::string(message), DiagnosticSeverity::Error });
+			++_errorCount;
+		}
+
+		void reportWarning(std::string_view file, u32 line, u32 column, std::string_view message) noexcept
+		{
+			_errors.push_back({ std::string(file), line, column, std::string(message), DiagnosticSeverity::Warning });
 		}
 
 		void reportError(const AssemblerError& error) noexcept
@@ -70,12 +90,14 @@ namespace ceres::casm
 			// The one deliberate copy: AssemblerErrorEntry is the external-facing result, meant to
 			// be read after assemble() has returned, so unlike everything upstream of it, it owns
 			// its strings rather than viewing into state that may by then be gone.
-			_errors.push_back(AssemblerErrorEntry{ std::string(error._file), error._line, error._column, error.what() });
+			_errors.push_back(AssemblerErrorEntry{ std::string(error._file), error._line, error._column, error.what(), DiagnosticSeverity::Error });
+			++_errorCount;
 		}
 
 		void clearErrors() noexcept
 		{
 			_errors.clear();
+			_errorCount = 0;
 		}
 
 	public:

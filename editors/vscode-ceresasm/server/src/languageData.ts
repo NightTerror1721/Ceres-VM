@@ -164,7 +164,7 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 export const KEYWORDS: Record<string, string> = {
 	const: 'Declares a compile-time constant. Occupies no memory; substituted at its point of use.',
 	let: "Declares a variable. Must appear inside a section (`@rodata`, `@data` or `@bss`); an initialiser must fill the declared type exactly.",
-	global: 'Marks the following label as exported: visible from other translation units, and required exactly once as `main`.',
+	global: 'Marks the declaration that follows as exported - a label, `const`, `let`, `macro` or `struct`. Without it nothing leaves its own file. Required exactly once as `global main:`.',
 	macro: 'Begins a macro definition, up to the matching `endmacro`. Parameters are written `$name`; macros are keyed by name and argument count.',
 	endmacro: 'Ends a `macro` definition.',
 	import: 'Imports another source file, resolved relative to the importing file. Makes its constants and macros visible; import cycles are reported.'

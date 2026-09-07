@@ -1,4 +1,5 @@
 #include "assembler.h"
+#include <format>
 #include <fstream>
 
 namespace ceres::casm
@@ -32,11 +33,51 @@ namespace ceres::casm
 			return std::nullopt;
 		}
 
+		warnAboutUnusedPrivateDeclarations();
+
 		auto binaryOpt = emitBinary();
 		if (!binaryOpt.has_value() || hasErrors())
 			return std::nullopt;
 
 		return binaryOpt;
+	}
+
+	// `global` created a category the language did not have before: a declaration that provably
+	// cannot be reached from anywhere else. A private one nobody names in its own file is dead with
+	// certainty, which is not something that could be said of anything until now.
+	void Assembler::warnAboutUnusedPrivateDeclarations()
+	{
+		if (!_state)
+			return;
+
+		auto& errorHandler = _state->errorHandler();
+
+		for (const auto& unit : _state->translationUnits())
+		{
+			for (const auto& [name, symbol] : unit.symbolTable().getAllSymbols())
+			{
+				if (symbol.isGlobal() || symbol.uses() > 0)
+					continue;
+				if (!symbol.isConstant() && !symbol.isVariable())
+					continue; // A label that is never jumped to is often an entry point or a marker.
+				// A dotted name is generated, not written: a struct's field offsets, or a local
+				// label. Warning about each unused field of a record would drown the useful ones.
+				if (name.find('.') != std::string::npos)
+					continue;
+
+				errorHandler.reportWarning(unit.file(), symbol.line(), 1,
+					std::format("'{}' is declared but never used, and is not global, so nothing outside this file can use it either", name));
+			}
+
+			for (const auto& [signature, macro] : unit.macroTable().getAllMacros())
+			{
+				if (macro.isGlobal() || macro.uses() > 0)
+					continue;
+
+				errorHandler.reportWarning(unit.file(), 0, 1,
+					std::format("macro '{}' is declared but never used, and is not global", signature.name));
+			}
+		}
 	}
 
 	std::optional<std::string> Assembler::readSourceFile(const std::filesystem::path& filePath)

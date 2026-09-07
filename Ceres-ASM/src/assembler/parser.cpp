@@ -51,15 +51,19 @@ namespace ceres::casm
 					const bool prefixesDeclaration = next.isKeyword() &&
 						(next.keywordTypeValue() == KeywordType::Let ||
 						 next.keywordTypeValue() == KeywordType::Constant ||
-						 next.keywordTypeValue() == KeywordType::Macro);
+						 next.keywordTypeValue() == KeywordType::Macro ||
+						 next.keywordTypeValue() == KeywordType::Struct);
 
 					if (prefixesDeclaration)
 					{
 						const KeywordType declaration = next.keywordTypeValue();
 						_cursor.next(); // Consume 'global'; the declaration keyword is current now
-						statement = declaration == KeywordType::Macro
-							? parseMacroDeclaration(true)
-							: parseDataDeclaration(true);
+						if (declaration == KeywordType::Macro)
+							statement = parseMacroDeclaration(true);
+						else if (declaration == KeywordType::Struct)
+							statement = parseStructDeclaration(true);
+						else
+							statement = parseDataDeclaration(true);
 					}
 					else
 						statement = parseLabelOrInstruction();
@@ -70,6 +74,14 @@ namespace ceres::casm
 					statement = parseImportDeclaration();
 				else if (_cursor.match(KeywordType::Macro))
 					statement = parseMacroDeclaration(false);
+				else if (_cursor.match(KeywordType::Struct))
+					statement = parseStructDeclaration(false);
+				else if (_cursor.match(KeywordType::Alias))
+				{
+					parseRegisterAlias();
+					_cursor.consumeEndOfLineOrEndOfFile("Expected end of line after a register alias");
+					return std::nullopt; // Nothing reaches the AST: the name is substituted at its use.
+				}
 				else
 					error("Unexpected keyword {}", _cursor.current().lexeme());
 				_cursor.consumeEndOfLineOrEndOfFile("Expected comma between operands or end of line after statement");
@@ -164,6 +176,76 @@ namespace ceres::casm
 			initialValue.value_or(LiteralValueReference::makeEmpty()));
 	}
 
+	Statement Parser::parseStructDeclaration(bool isGlobal)
+	{
+		u32 line = _cursor.current().line();
+		_cursor.consume(KeywordType::Struct, "Expected 'struct' keyword for struct declaration");
+
+		Token nameToken = _cursor.consume(TokenType::Identifier, "Expected a name after 'struct'");
+		_cursor.consumeEndOfLineOrEndOfFile("Expected end of line after a struct name");
+
+		std::vector<StructFieldDeclaration> fields;
+		bool closed = false;
+
+		while (!_cursor.isAtEnd())
+		{
+			if (_cursor.match(TokenType::EndOfLine))
+			{
+				_cursor.next();
+				continue;
+			}
+
+			if (_cursor.match(KeywordType::EndStruct))
+			{
+				_cursor.next();
+				closed = true;
+				break;
+			}
+
+			Token fieldToken = _cursor.consume(TokenType::Identifier, "Expected a field name in a struct");
+			_cursor.consume(TokenType::Colon, "Expected ':' after a struct field name");
+
+			DataTypeReference fieldType = parseDataType();
+			if (!fieldType.isValid())
+				error("Invalid data type for field '{}'", fieldToken.lexeme());
+
+			fields.push_back(StructFieldDeclaration{ fieldToken.identifierValue(), std::move(fieldType) });
+			_cursor.consumeEndOfLineOrEndOfFile("Expected end of line after a struct field");
+		}
+
+		if (!closed)
+			error("Expected 'endstruct' to close the declaration of struct '{}'", nameToken.lexeme());
+		if (fields.empty())
+			error("Struct '{}' has no fields", nameToken.lexeme());
+
+		return Statement::makeStructDeclaration(_file, line, isGlobal, nameToken.identifierValue(), std::move(fields));
+	}
+
+	// `alias cursor = r5`, and from here on `cursor` is r5 everywhere a register can be written.
+	void Parser::parseRegisterAlias()
+	{
+		_cursor.consume(KeywordType::Alias, "Expected 'alias' keyword");
+
+		Token nameToken = _cursor.consume(TokenType::Identifier, "Expected a name after 'alias'");
+		const std::string name{ nameToken.lexeme() };
+
+		if (RegisterInfo::get(nameToken.identifierValue()).has_value())
+			error("'{}' is already a register name", name);
+		if (_registerAliases.contains(name))
+			error("'{}' is already an alias", name);
+
+		_cursor.consume(TokenType::Equals, "Expected '=' in a register alias");
+
+		Token registerToken = _cursor.consume(TokenType::Identifier, "Expected a register after '=' in a register alias");
+		const auto registerInfo = RegisterInfo::get(registerToken.identifierValue());
+		if (!registerInfo.has_value())
+			error("'{}' is not a register", registerToken.lexeme());
+
+		_registerAliases.emplace(name, registerInfo->isFloatingPoint
+			? Operand::makeFloatingPointRegister(registerInfo->index)
+			: Operand::makeRegister(registerInfo->index));
+	}
+
 	Statement Parser::parseImportDeclaration()
 	{
 		u32 line = _cursor.current().line();
@@ -171,7 +253,18 @@ namespace ceres::casm
 
 		Token moduleNameToken = _cursor.consume(TokenType::LiteralString, "Expected module name after 'import' keyword");
 		LiteralString moduleName = moduleNameToken.literalStringValue();
-		return Statement::makeImport(_file, line, moduleName);
+
+		// `as` is matched as an ordinary identifier rather than made a keyword, so it stays usable
+		// as a name everywhere else in the language.
+		NullableIdentifier alias = nullptr;
+		if (_cursor.match(TokenType::Identifier) && _cursor.current().lexeme() == "as")
+		{
+			_cursor.next(); // Consume 'as'
+			Token aliasToken = _cursor.consume(TokenType::Identifier, "Expected a name after 'as' in an import");
+			alias = aliasToken.identifierValue();
+		}
+
+		return Statement::makeImport(_file, line, moduleName, alias);
 	}
 
 	Statement Parser::parseLabelOrInstruction()
@@ -187,6 +280,21 @@ namespace ceres::casm
 		{
 			labelLevel = LabelLevel::Local;
 			_cursor.next(); // Consume '.' for local label
+		}
+
+		if (labelLevel == LabelLevel::File && atQualifiedName())
+		{
+			// Only a macro can be called by a qualified name; an instruction is never one.
+			Identifier qualified = parseQualifiedName();
+			std::vector<Operand> qualifiedArguments;
+			while (!_cursor.isCurrentEndOfLineOrEndOfFile())
+			{
+				qualifiedArguments.push_back(parseOperand());
+				if (!_cursor.match(TokenType::Comma))
+					break;
+				_cursor.next();
+			}
+			return Statement::makeMacroCall(_file, line, qualified, std::move(qualifiedArguments));
 		}
 
 		Token identifierToken = _cursor.consume(TokenType::Identifier, "Expected identifier for label or instruction");
@@ -450,6 +558,9 @@ namespace ceres::casm
 			return ConstExpr::makeQuery(query, nameToken.identifierValue(), dimensionIndex);
 		}
 
+		if (atQualifiedName())
+			return ConstExpr::makeIdentifier(parseQualifiedName());
+
 		if (_cursor.match(TokenType::Identifier))
 		{
 			Token token = _cursor.current();
@@ -516,6 +627,28 @@ namespace ceres::casm
 		return value;
 	}
 
+	// `math.PI`: the current token is the module name and a dot follows it *immediately*.
+	//
+	// Adjacency is the only thing separating `math.PI` from `jnz .loop`, a mnemonic followed by a
+	// local label - the lexer throws the space away, so the columns are what is left to read it by.
+	bool Parser::atQualifiedName() const noexcept
+	{
+		if (!_cursor.match(TokenType::Identifier) || !_cursor.peek().is(TokenType::Dot))
+			return false;
+
+		const Token& name = _cursor.current();
+		const Token& dot = _cursor.peek();
+		return dot.line() == name.line() && dot.column() == name.column() + static_cast<u32>(name.lexeme().size());
+	}
+
+	Identifier Parser::parseQualifiedName()
+	{
+		Token moduleToken = _cursor.consume(TokenType::Identifier, "Expected a module name");
+		_cursor.consume(TokenType::Dot, "Expected '.' in a qualified name");
+		Token nameToken = _cursor.consume(TokenType::Identifier, "Expected a name after '.' in a qualified name");
+		return _stringPool.makeIdentifier(std::format("{}.{}", moduleToken.lexeme(), nameToken.lexeme()));
+	}
+
 	// An expression that names nothing can be folded now; one that does has to wait for a symbol
 	// table, so it travels as an operand and is replaced during resolution.
 	Operand Parser::makeImmediateOperand(ConstExpr&& expression)
@@ -540,16 +673,30 @@ namespace ceres::casm
 		{
 			_cursor.next(); // Consume '['
 			Token baseRegToken = _cursor.consume(TokenType::Identifier, "Expected register identifier after '[' for memory operand");
-			const auto baseReg = RegisterInfo::get(baseRegToken.identifierValue());
-			if (!baseReg.has_value())
+
+			u8 baseRegIndex = 0;
+			bool baseIsFloat = false;
+			if (const auto baseReg = RegisterInfo::get(baseRegToken.identifierValue()); baseReg.has_value())
+			{
+				baseRegIndex = baseReg->index;
+				baseIsFloat = baseReg->isFloatingPoint;
+			}
+			else if (const auto alias = _registerAliases.find(std::string(baseRegToken.lexeme())); alias != _registerAliases.end())
+			{
+				// An alias names a register, so it can be a base too.
+				baseIsFloat = alias->second.isFloatingPointRegister();
+				baseRegIndex = baseIsFloat ? alias->second.asFloatingPointRegister().regIndex : alias->second.asRegister().regIndex;
+			}
+			else
 				error("Invalid register '{}' for memory operand", baseRegToken.lexeme());
-			if (baseReg->isFloatingPoint)
+
+			if (baseIsFloat)
 				error("Base register for memory operand must be a general-purpose register, not a floating-point register");
 
 			if (_cursor.match(TokenType::BracketClose))
 			{
 				_cursor.next(); // Consume ']'
-				return Operand::makeMemory(baseReg->index);
+				return Operand::makeMemory(baseRegIndex);
 			}
 
 			bool isMinus = _cursor.match(TokenType::Minus);
@@ -563,12 +710,17 @@ namespace ceres::casm
 				u32 offset = _cursor.current().integerValue();
 				if (isMinus)
 					offset = static_cast<u32>(-static_cast<i32>(offset));
-				memOp = Operand::makeMemory(baseReg->index, offset);
+				memOp = Operand::makeMemory(baseRegIndex, offset);
 				_cursor.next(); // Consume the integer literal
+			}
+			else if (atQualifiedName())
+			{
+				// `[r1 + Entity.y]`: a struct field offset is a constant like any other.
+				memOp = Operand::makeMemory(baseRegIndex, parseQualifiedName());
 			}
 			else if (_cursor.match(TokenType::Identifier))
 			{
-				memOp = Operand::makeMemory(baseReg->index, _cursor.current().identifierValue());
+				memOp = Operand::makeMemory(baseRegIndex, _cursor.current().identifierValue());
 				_cursor.next(); // Consume the identifier
 			}
 			else
@@ -579,6 +731,9 @@ namespace ceres::casm
 		}
 
 		// Handle register operand or identifier operand
+		if (atQualifiedName())
+			return Operand::makeIdentifier(parseQualifiedName(), false);
+
 		if (_cursor.match(TokenType::Identifier))
 		{
 			Token regToken = _cursor.current();
@@ -589,6 +744,12 @@ namespace ceres::casm
 				return regInfo->isFloatingPoint
 					? Operand::makeFloatingPointRegister(regInfo->index)
 					: Operand::makeRegister(regInfo->index);
+			}
+
+			if (const auto alias = _registerAliases.find(std::string(regToken.lexeme())); alias != _registerAliases.end())
+			{
+				_cursor.next();
+				return alias->second;
 			}
 
 			// A bare identifier is a label or a variable and stays one. It only becomes an

@@ -184,7 +184,7 @@ async function validateDocument(document: TextDocument): Promise<void> {
 				const character = Math.max(0, entry.column - 1);
 				const targetUri = !entry.file || entry.file === tempPath ? document.uri : URI.file(entry.file).toString();
 				getBucket(targetUri).push({
-					severity: DiagnosticSeverity.Error,
+					severity: entry.severity === 'warning' ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
 					range: {
 						start: { line, character },
 						end: { line, character: character + 1 }

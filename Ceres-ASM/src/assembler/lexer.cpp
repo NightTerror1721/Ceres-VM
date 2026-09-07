@@ -471,6 +471,9 @@ namespace ceres::casm
 		if (identifier == "import") return KeywordType::Import;
 		if (identifier == "macro") return KeywordType::Macro;
 		if (identifier == "endmacro") return KeywordType::EndMacro;
+		if (identifier == "alias") return KeywordType::Alias;
+		if (identifier == "struct") return KeywordType::Struct;
+		if (identifier == "endstruct") return KeywordType::EndStruct;
 
 		return std::nullopt;
 	}

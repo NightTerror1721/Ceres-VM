@@ -643,3 +643,142 @@ TEST(language, true_and_false_are_boolean_literals)
 	CHECK_EQ(static_cast<u32>(data[0]), u32{ 1 });
 	CHECK_EQ(static_cast<u32>(data[1]), u32{ 0 });
 }
+
+// --- Register aliases -----------------------------------------------------------------------
+
+// Purely lexical, and resolved in the parser: by the time anything downstream sees the operand it
+// is an ordinary register, so nothing else in the pipeline has to know registers can be named.
+TEST(language, a_register_alias_stands_in_for_its_register)
+{
+	AssembleResult r = assembleSource(
+		"alias cursor = r5\r\n"
+		"alias total  = r6\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    clr  total\r\n"
+		"    ldrb total, [cursor + 1]\r\n"
+		"    add  total, total, cursor\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(Instruction(r.words()[0]).rd(), u8{ 6 });
+	CHECK_EQ(Instruction(r.words()[1]).rd(), u8{ 6 });
+	CHECK_EQ(Instruction(r.words()[1]).rs(), u8{ 5 }); // the alias works as a memory base too
+	CHECK_EQ(Instruction(r.words()[2]).rt(), u8{ 5 });
+}
+
+TEST(language, an_alias_cannot_shadow_a_register_or_itself)
+{
+	CHECK(!assembleSource("alias r5 = r6\r\n@text\r\nglobal main:\r\n    ret\r\n").ok());
+	CHECK(!assembleSource("alias a = r1\r\nalias a = r2\r\n@text\r\nglobal main:\r\n    ret\r\n").ok());
+	CHECK(!assembleSource("alias a = nope\r\n@text\r\nglobal main:\r\n    ret\r\n").ok());
+}
+
+// --- Structs --------------------------------------------------------------------------------
+
+// A struct declares no storage: it defines one constant per field offset plus its own name for the
+// total size, which is all `[r1 + Entity.y]` and `u8[32][Entity]` actually need.
+TEST(language, a_struct_lays_its_fields_out_with_alignment)
+{
+	AssembleResult r = assembleSource(
+		"struct Entity\r\n"
+		"    x:      i32\r\n"
+		"    y:      i32\r\n"
+		"    health: u16\r\n"
+		"    flags:  u8\r\n"
+		"endstruct\r\n"
+		"@bss\r\n"
+		"    let player: u8[Entity]\r\n"
+		"    let mobs:   u8[32][Entity]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, Entity.x\r\n"
+		"    li r2, Entity.y\r\n"
+		"    li r3, Entity.health\r\n"
+		"    li r4, Entity.flags\r\n"
+		"    li r5, Entity\r\n"
+		"    li r6, sizeof(mobs)\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(Instruction(r.words()[0]).imm16(), u16{ 0 });
+	CHECK_EQ(Instruction(r.words()[1]).imm16(), u16{ 4 });
+	CHECK_EQ(Instruction(r.words()[2]).imm16(), u16{ 8 });
+	CHECK_EQ(Instruction(r.words()[3]).imm16(), u16{ 10 });
+	// 11 bytes of fields, rounded up to the widest one so an array of them stays aligned.
+	CHECK_EQ(Instruction(r.words()[4]).imm16(), u16{ 12 });
+	CHECK_EQ(Instruction(r.words()[5]).imm16(), u16{ 384 });
+}
+
+TEST(language, a_struct_field_offset_works_as_a_memory_displacement)
+{
+	AssembleResult r = assembleSource(
+		"struct Point\r\n"
+		"    x: i32\r\n"
+		"    y: i32\r\n"
+		"endstruct\r\n"
+		"@bss\r\n"
+		"    let p: u8[Point]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    la  r1, p\r\n"
+		"    ldr r2, [r1 + Point.y]\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(Instruction(r.words()[2]).opcode() == Opcode::LDR, true);
+	CHECK_EQ(Instruction(r.words()[2]).imm16(), u16{ 4 });
+}
+
+// --- Unused private declarations --------------------------------------------------------------
+
+// `global` created a category the language did not have: a declaration that provably cannot be
+// reached from anywhere else, so one nobody names in its own file is dead with certainty.
+TEST(language, an_unused_private_declaration_is_a_warning_not_an_error)
+{
+	AssembleResult r = assembleSource(
+		"const UNUSED = 4\r\n"
+		"const USED   = 7\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, USED\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK(r.joinedWarnings().find("UNUSED") != std::string::npos);
+	CHECK(r.joinedWarnings().find("USED,") == std::string::npos);
+}
+
+TEST(language, an_unused_global_declaration_is_not_warned_about)
+{
+	// It is exported, so something outside this file may well be using it.
+	AssembleResult r = assembleSource(
+		"global const EXPORTED = 4\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	CHECK_EQ(r.warnings.size(), usize{ 0 });
+}
+
+TEST(language, an_unused_private_macro_is_warned_about)
+{
+	AssembleResult r = assembleSource(
+		"macro never_called\r\n"
+		"    nop\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	CHECK(r.joinedWarnings().find("never_called") != std::string::npos);
+}

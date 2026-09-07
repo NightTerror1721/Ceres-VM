@@ -39,7 +39,12 @@ namespace ceres::casm
 		// merged: its symbols and macros stay in its own tables and are found by walking this list
 		// (see resolveSymbol). Merging is what used to make the same declaration arrive twice
 		// through two different import paths.
-		std::vector<std::string> _directImports;
+		struct DirectImport
+		{
+			std::string path;
+			std::string alias; // Empty for a plain `import`; the name given by `as` otherwise
+		};
+		std::vector<DirectImport> _directImports;
 
 	public:
 		TranslationUnit() = delete;
@@ -66,22 +71,32 @@ namespace ceres::casm
 		inline MacroTable& macroTable() noexcept { return _macroTable; }
 		inline SectionSizes& sectionSizes() noexcept { return _sectionSizes; }
 		inline std::vector<RelocatableStatement>& ast() noexcept { return _ast; }
-		inline std::span<const std::string> directImports() const noexcept { return _directImports; }
+		inline std::span<const DirectImport> directImports() const noexcept { return _directImports; }
 
 		inline void setAST(std::vector<RelocatableStatement>&& ast) noexcept { _ast = std::move(ast); }
 		inline void setUnresolvedSymbols(std::vector<UnresolvedSymbol>&& symbols) noexcept { _unresolvedSymbols = std::move(symbols); }
 
 		inline bool hasDirectImport(const std::string& modulePath) const noexcept
 		{
-			return std::find(_directImports.begin(), _directImports.end(), modulePath) != _directImports.end();
+			for (const auto& entry : _directImports)
+			{
+				if (entry.path == modulePath)
+					return true;
+			}
+			return false;
 		}
 
 		// Importing the same module twice adds nothing: the second `import` of a path already in
-		// the list is silently a no-op, which is the implicit "pragma once".
-		inline void addDirectImport(const std::string& modulePath)
+		// the list is silently a no-op, which is the implicit "pragma once". Importing it again
+		// under a name is not a no-op, though - the name is what the second one is for.
+		inline void addDirectImport(const std::string& modulePath, std::string alias = {})
 		{
-			if (!hasDirectImport(modulePath))
-				_directImports.push_back(modulePath);
+			for (auto& entry : _directImports)
+			{
+				if (entry.path == modulePath && entry.alias == alias)
+					return;
+			}
+			_directImports.push_back(DirectImport{ modulePath, std::move(alias) });
 		}
 
 	public:
@@ -103,6 +118,17 @@ namespace ceres::casm
 		// imports. A symbol that is not exported stays invisible from outside the unit that declares it.
 		OptionalConstRef<Symbol> resolveSymbol(std::string_view name) const;
 		OptionalConstRef<Macro> resolveMacro(const MacroSignature& signature) const;
+
+		// `math.PI`. Splits a qualified name and looks only in the module that import named `math`,
+		// which is what makes two libraries exporting the same name usable in one file.
+		OptionalConstRef<TranslationUnit> moduleNamed(std::string_view alias) const;
+		static std::optional<std::pair<std::string_view, std::string_view>> splitQualifiedName(std::string_view name) noexcept
+		{
+			const usize dot = name.find('.');
+			if (dot == std::string_view::npos || dot == 0 || dot + 1 >= name.size())
+				return std::nullopt;
+			return std::pair{ name.substr(0, dot), name.substr(dot + 1) };
+		}
 
 		// The import graph only, skipping this unit's own table - for the callers that have already
 		// looked there and need to know whether an import supplies the name.

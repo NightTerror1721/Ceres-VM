@@ -67,6 +67,7 @@ namespace ceres::casm
 	private:
 		Signature _signature;
 		bool _global = false; // Declared with the 'global' prefix, so it is visible outside its unit
+		mutable u32 _uses = 0; // See Symbol::_uses: counted through a const reference on purpose
 		std::unordered_map<std::string, u32> _parameterIndices; // Map from parameter name to its index
 		std::vector<Statement> _body;
 
@@ -93,6 +94,8 @@ namespace ceres::casm
 		inline std::string_view name() const noexcept { return _signature.name; }
 		inline u32 parameterCount() const noexcept { return _signature.parameterCount; }
 		inline bool isGlobal() const noexcept { return _global; }
+		inline u32 uses() const noexcept { return _uses; }
+		inline void markUsed() const noexcept { ++_uses; }
 		inline std::span<const Statement> body() const noexcept { return _body; }
 
 		inline std::optional<u32> parameterIndex(const std::string& name) const noexcept
@@ -132,6 +135,8 @@ namespace ceres::casm
 		void defineMacro(MacroSignature&& signature, bool isGlobal, std::vector<std::string>&& parameters, std::vector<Statement>&& body);
 
 		OptionalConstRef<Macro> getMacro(const MacroSignature& signature) const noexcept;
+
+		const std::unordered_map<MacroSignature, Macro>& getAllMacros() const noexcept { return _macros; }
 
 	public:
 		void defineMacro(std::string&& name, bool isGlobal, std::vector<std::string>&& parameters, std::vector<Statement>&& body)

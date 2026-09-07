@@ -23,6 +23,9 @@ namespace ceres::casm
 		Import, // 'import' keyword for importing modules or libraries.
 		Macro, // 'macro' keyword for defining macros.
 		EndMacro, // 'endmacro' keyword for ending macro definitions.
+		Alias, // 'alias' keyword for naming a register.
+		Struct, // 'struct' keyword for declaring a record layout.
+		EndStruct, // 'endstruct' keyword for closing one.
 	};
 
 	enum class LabelLevel : u8

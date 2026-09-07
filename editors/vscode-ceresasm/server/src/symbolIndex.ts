@@ -166,6 +166,9 @@ const SECTION_RE = /^(\s*)@(text|rodata|data|bss)\b/;
 const LABEL_RE = /^(\s*)(global\s+)?(\.?[A-Za-z_][A-Za-z0-9_]*)\s*:/;
 const MACRO_RE = /^(\s*)(global\s+)?macro\s+([A-Za-z_][A-Za-z0-9_]*)\b(.*)$/;
 const ENDMACRO_RE = /^\s*endmacro\b/;
+const ALIAS_RE = /^(\s*)alias\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)/;
+const STRUCT_RE = /^(\s*)(global\s+)?struct\s+([A-Za-z_][A-Za-z0-9_]*)\b/;
+const ENDSTRUCT_RE = /^\s*endstruct\b/;
 const MACRO_PARAM_RE = /\$[A-Za-z_][A-Za-z0-9_]*/g;
 
 export function buildFileIndex(uri: string, text: string): FileIndex {
@@ -222,6 +225,38 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 			};
 			index.macros.set(`${name}/${params.length}`, symbol);
 			activeMacro = symbol;
+			continue;
+		}
+
+		const aliasMatch = ALIAS_RE.exec(line);
+		if (aliasMatch) {
+			const [, indent, name, register] = aliasMatch;
+			const nameStart = indent.length + 'alias '.length;
+			index.consts.set(name, {
+				kind: 'const',
+				isGlobal: false, // A register alias is resolved in the parser, so it never leaves its file.
+				name,
+				uri,
+				range: lineRange(lineNumber, nameStart, nameStart + name.length),
+				valueText: register
+			});
+			continue;
+		}
+
+		const structMatch = STRUCT_RE.exec(line);
+		if (structMatch) {
+			const [, indent, globalPrefix, name] = structMatch;
+			const nameStart = indent.length + (globalPrefix ? globalPrefix.length : 0) + 'struct '.length;
+			// The name itself stands for the struct's size, so it reads as a constant like the
+			// field offsets it will generate.
+			index.consts.set(name, {
+				kind: 'const',
+				isGlobal: Boolean(globalPrefix),
+				name,
+				uri,
+				range: lineRange(lineNumber, nameStart, nameStart + name.length),
+				valueText: 'size of ' + name
+			});
 			continue;
 		}
 

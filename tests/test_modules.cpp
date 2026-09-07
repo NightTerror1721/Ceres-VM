@@ -51,8 +51,11 @@ namespace
 
 			casm::Assembler assembler{};
 			result.program = assembler.assemble({ root / entry });
-			for (const auto& error : assembler.errors())
-				result.errors.push_back(std::format("[line {}] {}", error.line, error.message));
+			for (const auto& diagnostic : assembler.errors())
+			{
+				auto& into = diagnostic.isWarning() ? result.warnings : result.errors;
+				into.push_back(std::format("[line {}] {}", diagnostic.line, diagnostic.message));
+			}
 
 			return result;
 		}
@@ -354,4 +357,59 @@ TEST(modules, a_global_constant_travels_through_an_intermediate_module)
 	CHECK(r.ok());
 	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
 	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 21 });
+}
+
+// Named imports: the escape hatch for two modules that export the same name.
+TEST(modules, a_named_import_disambiguates_a_clash)
+{
+	Workspace ws{ "named" };
+	ws.write("math.casm",
+		"global const LIMIT = 10\r\n"
+		"global macro bump $r\r\n"
+		"    inc $r\r\n"
+		"endmacro\r\n");
+	ws.write("fixed.casm", "global const LIMIT = 256\r\n");
+	ws.write("main.casm",
+		"import \"math.casm\"  as math\r\n"
+		"import \"fixed.casm\" as fx\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, math.LIMIT\r\n"
+		"    li r2, fx.LIMIT\r\n"
+		"    math.bump r1\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 10 });
+	CHECK_EQ(vm::Instruction(r.words()[1]).imm16(), u16{ 256 });
+	CHECK_EQ(vm::Instruction(r.words()[2]).opcode() == vm::Opcode::ADDI, true);
+}
+
+TEST(modules, a_qualified_name_says_which_half_is_wrong)
+{
+	Workspace ws{ "qualified_errors" };
+	ws.write("lib.casm", "const HIDDEN = 1\r\nglobal const SHOWN = 2\r\n");
+	ws.write("unknown.casm",
+		"import \"lib.casm\" as lib\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, nope.SHOWN\r\n"
+		"    ret\r\n");
+	ws.write("private.casm",
+		"import \"lib.casm\" as lib\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, lib.HIDDEN\r\n"
+		"    ret\r\n");
+
+	AssembleResult unknownModule = ws.assemble("unknown.casm");
+	CHECK(!unknownModule.ok());
+	CHECK(unknownModule.joinedErrors().find("No import is named 'nope'") != std::string::npos);
+
+	AssembleResult privateName = ws.assemble("private.casm");
+	CHECK(!privateName.ok());
+	CHECK(privateName.joinedErrors().find("does not export 'HIDDEN'") != std::string::npos);
 }

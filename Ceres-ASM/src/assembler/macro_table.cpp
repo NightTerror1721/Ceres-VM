@@ -23,7 +23,10 @@ namespace ceres::casm
 	OptionalConstRef<Macro> MacroTable::getMacro(const MacroSignature& signature) const noexcept
 	{
 		if (const auto it = _macros.find(signature); it != _macros.end())
+		{
+			it->second.markUsed();
 			return it->second;
+		}
 		return std::nullopt;
 	}
 

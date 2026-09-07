@@ -449,10 +449,59 @@ itself. The timer requests `UserInterrupt0` (16), whose vector lives at address 
 `0x10` reads the tick count and `0x11` the real time in seconds, which is the one thing here that
 is not deterministic.
 
+## Register aliases
+
+```casm
+alias cursor = r5
+alias total  = r6
+
+@text
+global main:
+    clr  total
+    ldrb total, [cursor + 1]
+```
+
+A name for a register, usable anywhere one can be written, including as a memory base. Resolved by
+the parser, so it is file-scoped and nothing downstream ever sees it.
+
+## Structs
+
+```casm
+struct Entity
+    x:      i32
+    y:      i32
+    health: u16
+    flags:  u8
+endstruct
+
+@bss
+    let player: u8[Entity]
+    let mobs:   u8[32][Entity]
+
+@text
+    ldr r2, [r1 + Entity.y]
+```
+
+A `struct` reserves no storage. It declares one constant per field, holding that field's byte
+offset, plus the struct's own name holding the total size — rounded up to the widest field, so an
+array of them stays aligned. `Entity.y` is therefore an ordinary constant displacement and
+`u8[32][Entity]` an ordinary array. `global struct` exports the lot.
+
+## Unused private declarations
+
+A `const`, `let` or `macro` that is not `global` and that nothing in its own file names cannot be
+reached from anywhere, so it is reported — as a warning, which does not stop the build:
+
+```
+warning [game.casm:4] 'SLACK' is declared but never used, and is not global, so nothing
+                      outside this file can use it either
+```
+
 ## Imports
 
 ```casm
 import "lib/math.casm"
+import "lib/math.casm" as math      ; and now math.PI, math.clamp
 ```
 
 A relative path resolves against the importing file. What becomes visible is whatever the module
@@ -463,7 +512,9 @@ than a copy of its tables — so importing the same module twice, directly or by
 is a no-op rather than a redefinition. Import cycles are still reported.
 
 When two modules export the same name and a file imports both, the clash is reported at the use,
-naming both files.
+naming both files. Naming the imports is the way out: a qualified name is answered by exactly one
+module, so `math.LIMIT` and `fx.LIMIT` can both be reached from the same file. `as` is matched as an
+ordinary identifier, so it stays usable as a name everywhere else.
 
 ---
 

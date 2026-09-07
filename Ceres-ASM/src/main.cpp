@@ -56,16 +56,20 @@ namespace
 	// Set by the assembling commands so a failure prints every diagnostic, not just the first.
 	void reportAssemblyErrors(const casm::Assembler& assembler, std::span<const std::filesystem::path> paths)
 	{
-		std::cerr << "Failed to assemble";
-		for (const auto& path : paths)
-			std::cerr << ' ' << path.string();
-		std::cerr << '\n';
+		if (assembler.hasErrors())
+		{
+			std::cerr << "Failed to assemble";
+			for (const auto& path : paths)
+				std::cerr << ' ' << path.string();
+			std::cerr << '\n';
+		}
 		for (const auto& error : assembler.errors())
 		{
+			const char* label = error.isWarning() ? "  warning " : "  ";
 			if (!error.file.empty())
-				std::cerr << "  [" << error.file << ":" << error.line << "] " << error.message << '\n';
+				std::cerr << label << "[" << error.file << ":" << error.line << "] " << error.message << '\n';
 			else
-				std::cerr << "  [line " << error.line << "] " << error.message << '\n';
+				std::cerr << label << "[line " << error.line << "] " << error.message << '\n';
 		}
 	}
 
@@ -119,7 +123,7 @@ namespace
 			std::cout << "{\"file\":\"" << jsonEscape(error.file) << "\""
 				<< ",\"line\":" << error.line
 				<< ",\"column\":" << error.column
-				<< ",\"severity\":\"error\""
+				<< ",\"severity\":\"" << (error.isWarning() ? "warning" : "error") << "\""
 				<< ",\"message\":\"" << jsonEscape(error.message) << "\"}";
 		}
 		std::cout << "]\n";
@@ -433,7 +437,7 @@ int main(int argc, char** argv)
 
 		if (options.json)
 			printJsonDiagnostics(assembler);
-		else if (failed)
+		else if (failed || !assembler.errors().empty())
 			reportAssemblyErrors(assembler, std::span<const std::filesystem::path>(options.inputs));
 
 		if (failed)
