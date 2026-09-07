@@ -1,0 +1,52 @@
+// The Ceres calling convention.
+//
+// Nothing in the machine enforces any of this: `call` pushes a return address and `ret` pops it,
+// and that is the whole of what the hardware knows about subroutines. What follows is a contract
+// between the code you write, kept in one place so it is written the same way every time.
+//
+// See docs/24-Calling-Convention.md for the reasoning, the register roles and worked examples.
+//
+//   Arguments   r0-r3, then the caller's outgoing area at [sp + 0], [sp + 4], ...
+//   Return      r0 (f0 for a float)
+//   Callee-saved  r8-r11, f8-f15, fp
+//   Caller-saved  r0-r7, r13, f0-f7, and the flags
+//   Never touch   r12 - ldv, stv and the float form of la clobber it
+//
+// The frame, after `proc_enter`:
+//
+//   [fp + 8], [fp + 12], ...   arguments five and up, as the caller left them
+//   [fp + 4]                   return address, pushed by `call`
+//   [fp + 0]                   saved fp, pushed by `enter`
+//   [sp + 0] .. [sp + N-4]     this function's own frame: outgoing args first, then
+//                              saved registers and locals
+//
+// `sp` must not move between `proc_enter` and `proc_return`. Everything a function needs lives in
+// the frame it reserved once, which is what keeps every `[sp + Frame.field]` valid for the whole
+// body - including across a `call`.
+
+// Opens a frame of $frame_size bytes. Pass a struct's own name and the size comes from it:
+//
+//   struct Frame
+//       outgoing0: u32
+//       saved_r8:  u32
+//       count:     u32
+//   endstruct
+//
+//   my_function:
+//       proc_enter Frame
+//       str r8, [sp + Frame.saved_r8]
+//       ...
+//
+// A function that takes four arguments or fewer, keeps everything in r0-r7 and calls nothing needs
+// no frame at all - just `ret`.
+global macro proc_enter $frame_size
+    enter
+    sub sp, sp, $frame_size
+endmacro
+
+// Closes the frame and returns. `leave` restores sp from fp, so the frame size is not repeated
+// here and a function may have as many exits as it likes.
+global macro proc_return
+    leave
+    ret
+endmacro

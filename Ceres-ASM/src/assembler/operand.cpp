@@ -1,5 +1,6 @@
 #include "operand.h"
 #include "vm/registers.h"
+#include <cctype>
 #include <charconv>
 
 namespace ceres::casm
@@ -44,6 +45,22 @@ namespace ceres::casm
 
 		if (name.size() < 2)
 			return std::nullopt;
+
+		// The three registers that have a role also answer to it. They were named in the VM and in
+		// the wiki from the start, but only ever as documentation: the assembler knew r0-r15 and
+		// f0-f15 and nothing else, so `[sp + 8]` did not parse and a calling convention had to
+		// spell its own frame pointer r14.
+		if (name.size() == 2)
+		{
+			const char first = static_cast<char>(std::tolower(static_cast<unsigned char>(name[0])));
+			const char second = static_cast<char>(std::tolower(static_cast<unsigned char>(name[1])));
+			if (first == 's' && second == 'p')
+				return RegisterInfo{ static_cast<u8>(vm::GeneralPurposeRegisterPool::StackPointerIndex), false };
+			if (first == 'f' && second == 'p')
+				return RegisterInfo{ static_cast<u8>(vm::GeneralPurposeRegisterPool::FramePointerIndex), false };
+			if (first == 'l' && second == 'r')
+				return RegisterInfo{ static_cast<u8>(vm::GeneralPurposeRegisterPool::LinkRegisterIndex), false };
+		}
 
 		bool isFloatingPoint = false;
 		if (name[0] == 'R' || name[0] == 'r')

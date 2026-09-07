@@ -309,3 +309,96 @@ TEST(pipeline, checking_a_file_still_reports_real_errors)
 	CHECK(!r.ok());
 	CHECK(r.joinedErrors().find("70000") != std::string::npos);
 }
+
+// The calling convention end to end: a leaf with no frame, a frame with locals and a call inside
+// it, recursion across a callee-saved register, and arguments five and six read from the caller's
+// outgoing area. Mirrors examples/calling_convention.casm, which prints 120 then 21.
+TEST(pipeline, the_calling_convention_holds_together)
+{
+	RunResult r = assembleAndRun(
+		"@text\r\n"
+		"global main:\r\n"
+		"    enter\r\n"
+		"    sub sp, sp, 8\r\n"          // outgoing area for sum6's fifth and sixth arguments
+		"    li  r0, 5\r\n"
+		"    call factorial\r\n"
+		"    call print_u32\r\n"
+		"    li  r0, 1\r\n"
+		"    li  r1, 2\r\n"
+		"    li  r2, 3\r\n"
+		"    li  r3, 4\r\n"
+		"    li  r4, 5\r\n"
+		"    str r4, [sp + 0]\r\n"
+		"    li  r4, 6\r\n"
+		"    str r4, [sp + 4]\r\n"
+		"    call sum6\r\n"
+		"    call print_u32\r\n"
+		"    li  r0, 1\r\n"
+		"    outb 0xFF, r0\r\n"          // main never returns; it shuts the machine down
+		"    halt\r\n"
+		"print_char:\r\n"                // a leaf: no frame at all
+		"    outb 0x01, r0\r\n"
+		"    ret\r\n"
+		"print_u32:\r\n"
+		"    enter\r\n"
+		"    sub sp, sp, 20\r\n"
+		"    str r8, [sp + 0]\r\n"       // r8 and r9 must survive the calls below
+		"    str r9, [sp + 4]\r\n"
+		"    lea r8, [sp + 8]\r\n"
+		"    clr r9\r\n"
+		"    mov r1, r0\r\n"
+		"    ifne r1, 0, .collect\r\n"
+		"    li  r0, 48\r\n"
+		"    call print_char\r\n"
+		"    jp  .done\r\n"
+		".collect:\r\n"
+		"    mod  r2, r1, 10\r\n"
+		"    add  r2, r2, 48\r\n"
+		"    add  r3, r8, r9\r\n"
+		"    strb r2, [r3 + 0]\r\n"
+		"    inc  r9\r\n"
+		"    div  r1, r1, 10\r\n"
+		"    ifne r1, 0, .collect\r\n"
+		".emit:\r\n"
+		"    dec  r9\r\n"
+		"    add  r3, r8, r9\r\n"
+		"    ldrb r0, [r3 + 0]\r\n"
+		"    call print_char\r\n"
+		"    ifne r9, 0, .emit\r\n"
+		".done:\r\n"
+		"    ldr r8, [sp + 0]\r\n"
+		"    ldr r9, [sp + 4]\r\n"
+		"    leave\r\n"
+		"    ret\r\n"
+		"factorial:\r\n"                 // recursion: n has to outlive the recursive call
+		"    enter\r\n"
+		"    sub sp, sp, 4\r\n"
+		"    str r8, [sp + 0]\r\n"
+		"    mov  r8, r0\r\n"
+		"    ifle r8, 1, .base\r\n"
+		"    sub  r0, r8, 1\r\n"
+		"    call factorial\r\n"
+		"    mul  r0, r0, r8\r\n"
+		"    jp   .done\r\n"
+		".base:\r\n"
+		"    li r0, 1\r\n"
+		".done:\r\n"
+		"    ldr r8, [sp + 0]\r\n"
+		"    leave\r\n"
+		"    ret\r\n"
+		"sum6:\r\n"                      // arguments five and six arrive at [fp + 8] and [fp + 12]
+		"    enter\r\n"
+		"    add r0, r0, r1\r\n"
+		"    add r0, r0, r2\r\n"
+		"    add r0, r0, r3\r\n"
+		"    ldr r1, [fp + 8]\r\n"
+		"    add r0, r0, r1\r\n"
+		"    ldr r1, [fp + 12]\r\n"
+		"    add r0, r0, r1\r\n"
+		"    leave\r\n"
+		"    ret\r\n");
+
+	CHECK(r.assembled);
+	if (!r.assembled) { Registry::instance().recordFailure(r.errors); return; }
+	CHECK_EQ(r.output, std::string{ "12021" });
+}

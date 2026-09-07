@@ -42,6 +42,16 @@ numeric conversion (i.e., they reinterpret the bits, they don't call `(float)` o
 `ITOF`/`itof`, `IITOF`/`iitof`, `FTOI`/`ftoi`, `FTOII`/`ftoii` for actual numeric conversion — see
 [Instruction set → Conversions](05-Instruction-Set.md#conversions).
 
+## Writing a register
+
+`r0`–`r15` and `f0`–`f15`, and the three that have a role also answer to it: `sp`, `fp` and `lr`
+(`r15`, `r14`, `r13`). Names are case-insensitive.
+
+```casm
+    ldr r1, [sp + 8]
+    mov fp, sp
+```
+
 ## Naming registers
 
 A register can be given a name for readability, which is purely lexical and file-scoped:

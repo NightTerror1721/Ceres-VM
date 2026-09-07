@@ -61,6 +61,10 @@ If you already knew this language, these are the parts that moved:
 - **New type aliases**: `ptr`, `port`, `irq`, `byte`, `half`, `word` — [Data types and literals](11-Data-Types-and-Literals.md#aliases).
 - **Register aliases** (`alias cursor = r5`) and **structs** — [Language syntax](10-Language-Syntax.md#register-aliases), [Structs](23-Structs.md).
 - **Warnings**, starting with unused private declarations — [Errors and diagnostics](17-Errors-and-Diagnostics.md#warnings).
+- **Memory displacements are signed.** `[fp - 8]` now reaches below the base instead of 65528 bytes
+  above it, which is what makes a frame pointer usable — and a second reason a `.cres` built before
+  this is rejected — [Instruction format](04-Instruction-Format.md#signed-and-unsigned-immediate-fields).
+- **A calling convention** you can actually import — [A calling convention](24-Calling-Convention.md).
 
 ## Quick start
 
