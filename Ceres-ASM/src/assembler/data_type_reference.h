@@ -42,13 +42,14 @@ namespace ceres::casm
 				return;
 
 			_isArray = true;
-			const u8 rank = dataType.rank();
-			if (rank == 0)
+			if (dataType.isUnsizedArray())
 			{
-				// An unsized array (u8[], i.e. `string`): one dimension, left to the initialiser.
+				// An unsized array (u8[], i.e. `string`) is one dimension left to the initialiser: a
+				// sized array is exactly _rank written-down dimensions, but this has none.
 				_dimensions.emplace_back(std::nullopt);
 				return;
 			}
+			const u8 rank = dataType.rank();
 			for (u8 i = 0; i < rank; ++i)
 				_dimensions.emplace_back(ConstExpr::makeLiteral(LiteralScalar::makeU32(dataType.dimension(i))));
 		}

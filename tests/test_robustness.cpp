@@ -170,22 +170,44 @@ TEST(robustness, a_port_number_wider_than_eight_bits_is_rejected)
 
 // --- SE-07: a declaration larger than its initialiser is padded ----------------------------
 
-TEST(robustness, an_array_smaller_than_its_declaration_is_rejected)
+// The guard in the emitter against a section coming out shorter than the space reserved for it
+// used to be unreachable: the parser demanded that an initialiser fill its declaration exactly.
+// Now a declared size pads, which is the same rule that lets an inner array dimension pad a short
+// row - so this exercises the guard instead of pinning it shut.
+TEST(robustness, a_declaration_longer_than_its_initialiser_is_padded)
 {
 	AssembleResult r = assembleSource(
 		"@rodata\r\n"
 		"    let head: u8[16] = \"hi\"\r\n"
-		"    let tail: u8[3] = \"ab\"\r\n"
+		"    let tail: u8[4] = \"ab\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto rodata = r.program->rodata();
+	CHECK_EQ(rodata.size(), usize{ 20 });
+	if (rodata.size() < 20) return;
+
+	CHECK_EQ(static_cast<char>(rodata[0]), 'h');
+	CHECK_EQ(static_cast<char>(rodata[1]), 'i');
+	CHECK_EQ(static_cast<u32>(rodata[2]), u32{ 0 });  // the string's own terminator
+	CHECK_EQ(static_cast<u32>(rodata[15]), u32{ 0 }); // and the padding out to 16
+	CHECK_EQ(static_cast<char>(rodata[16]), 'a');     // the next variable starts where it should
+}
+
+TEST(robustness, an_initialiser_longer_than_its_declaration_is_still_rejected)
+{
+	AssembleResult r = assembleSource(
+		"@rodata\r\n"
+		"    let head: u8[2] = \"hello\"\r\n"
 		"@text\r\n"
 		"global main:\r\n"
 		"    ret\r\n");
 
 	CHECK(!r.ok());
-
-	// SE-07 guarded against a section being emitted shorter than the space reserved for it.
-	// That turned out to be unreachable from the source language: matchDataType demands the
-	// initialiser fill the declaration exactly, so this never reaches the emitter. The guard
-	// stays as an invariant check; this pins the front-end behaviour that makes it moot.
 }
 
 TEST(robustness, the_header_sizes_match_the_emitted_buffers)

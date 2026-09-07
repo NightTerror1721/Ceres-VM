@@ -513,3 +513,23 @@ TEST(language, a_three_dimensional_array_is_accepted)
 	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 64 });
 	CHECK_EQ(vm::Instruction(r.words()[1]).imm16(), u16{ 4 });
 }
+
+// The `string` alias is `u8[]` spelled differently, so it must take the same road: a size left
+// to the initialiser, not one written down as zero. Regression: the DataType -> DataTypeReference
+// mapping used to confuse the unsized array with a written size of 0 ("Array size cannot be 0").
+TEST(language, the_string_alias_infers_its_size_from_the_initialiser)
+{
+	AssembleResult r = assembleSource(
+		"@rodata\r\n"
+		"    let greeting: string = \"hola\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, countof(greeting)\r\n"
+		"    li r2, sizeof(greeting)\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 5 });
+	CHECK_EQ(vm::Instruction(r.words()[1]).imm16(), u16{ 5 });
+}

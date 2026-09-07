@@ -384,10 +384,12 @@ namespace ceres::casm
 				return false; // Element types do not match the expected scalar type
 
 			if (expectedType.hasUnknownSize() && hasUnknownSize())
-				return false; // Both the expected type and the array have unknown sizes, which is not allowed
+				return false; // Neither side knows a size, so there is nothing to work out
 
-			if (!expectedType.hasUnknownSize() && size() != expectedType.numElements())
-				return false; // Expected a sized array, but the sizes do not match
+			// Only a literal that is too *long* is wrong here. A short one fills a declared size
+			// with zeroes, and saying so precisely is TranslationUnitBuilder's job, not this one's.
+			if (!expectedType.hasUnknownSize() && size() > expectedType.numElements())
+				return false;
 
 			return true; // The array matches the expected data type
 		}
