@@ -40,7 +40,8 @@ See [Debug information](21-Debug-Information.md).
 struct ProgramHeader
 {
     static inline constexpr u32 MagicNumber    = 0x43524553; // 'CRES' in ASCII
-    static inline constexpr u16 CurrentVersion = 1;
+    static inline constexpr u16 CurrentVersion = 2;
+    static inline constexpr u16 MinimumSupportedVersion = 2;
 
     u32 magic;
     u16 version;
@@ -60,7 +61,7 @@ struct ProgramHeader
 | Field | Meaning |
 | --- | --- |
 | `magic` | Always `0x43524553` — the ASCII bytes `CRES`. Loading rejects any file that doesn't start with this. |
-| `version` | Format version; currently always `1`. |
+| `version` | Format version; currently `2`. A file below `MinimumSupportedVersion` is rejected — see [Versioning](#versioning). |
 | `flags` | Bit 0 (`ProgramFlags::HasDebugInfo`) says a debug section follows the data section; every other bit is still reserved. See [Debug information](21-Debug-Information.md). |
 | `entryPoint` | The absolute address execution starts at (the resolved address of the `main` label). |
 | `textSize` / `rodataSize` / `dataSize` / `bssSize` | Byte sizes of each section, as computed by the linker (each rounded up to a 4-byte boundary — see [Labels and symbols](12-Labels-and-Symbols.md)). |
@@ -68,6 +69,40 @@ struct ProgramHeader
 
 The struct is `#pragma pack(push, 1)`, so there's no implicit padding between fields — the on-disk
 layout matches the struct member order exactly, 32 bytes total.
+
+## Versioning
+
+```cpp
+if (header.version > ProgramHeader::CurrentVersion ||
+    header.version < ProgramHeader::MinimumSupportedVersion)
+    return std::unexpected("Unsupported .cres version in file: ...");
+```
+
+Both ends of the range are checked, and the lower one is the interesting half.
+
+The check originally only rejected files **newer** than the current version, and accepted every older
+one. That was fine while the instruction encoding never changed. It stopped being fine when the
+comparison jumps were added: they needed sixteen opcodes where only eight slots were free, so the
+control-flow block grew and pushed the three families above it up (see
+[Instruction set → The opcodes moved](05-Instruction-Set.md#the-opcodes-moved)).
+
+A version 1 file is therefore not a version 2 file with unfamiliar instructions in it. It is a file
+where `0x70` used to mean `PUSH` and now means `JAB`, a conditional jump. Without a lower bound it
+would have loaded cleanly and run as something else entirely, with no error and no trace.
+
+```
+$ ceres run old.cres
+Failed to load old.cres: Unsupported .cres version in file: old.cres
+(this build reads versions 2 to 2; reassemble the source)
+```
+
+The fix is always to reassemble from source; there is no converter, and there is no reason to want
+one — the `.casm` is the artefact worth keeping.
+
+Note the contrast with the debug section, which is announced by a **flag** rather than a version
+bump precisely so that older builds keep reading files they can in fact run (see
+[Debug information](21-Debug-Information.md)). A flag is right when the change is additive; a version
+is right when the meaning of existing bytes changes.
 
 ## Loading a program
 

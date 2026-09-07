@@ -1,0 +1,160 @@
+# Structs
+
+[← Back to index](README.md)
+
+```casm
+struct Entity
+    x:      i32
+    y:      i32
+    health: u16
+    flags:  u8
+endstruct
+```
+
+## What a struct actually is
+
+A `struct` **reserves no storage and declares no type**. It is a generator of constants:
+
+| Generated constant | Value |
+| --- | --- |
+| `Entity.x` | `0` |
+| `Entity.y` | `4` |
+| `Entity.health` | `8` |
+| `Entity.flags` | `10` |
+| `Entity` | `12` — the total size |
+
+That is deliberate, and it is what makes the feature cheap: `[r1 + Entity.y]` is an ordinary
+constant displacement, and `u8[32][Entity]` an ordinary array. Nothing below the parser has to learn
+what a record is — not the symbol table, not the linker, not the emitter, not the VM.
+
+The trade is that a struct is not a *type*: you cannot write `let player: Entity`. You allocate the
+bytes and address them through the offsets.
+
+## Allocating one
+
+```casm
+@bss
+    let player: u8[Entity]          // one entity: 12 bytes
+    let mobs:   u8[32][Entity]      // 32 of them: 384 bytes
+```
+
+`Entity` is a constant holding the size, so `u8[Entity]` is just an array of that many bytes, and
+`u8[32][Entity]` is a two-dimensional one — 32 rows of 12 (see
+[Data types and literals](11-Data-Types-and-Literals.md#multidimensional-arrays)).
+
+## Reading and writing fields
+
+```casm
+@text
+global main:
+    la  r1, player
+    ldr r2, [r1 + Entity.x]         // player.x
+    ldr r3, [r1 + Entity.y]         // player.y
+    ldrh r4, [r1 + Entity.health]   // a u16 field, so a halfword load
+    ldrb r5, [r1 + Entity.flags]
+
+    li  r6, 100
+    strh r6, [r1 + Entity.health]   // player.health = 100
+    ret
+```
+
+The load or store width is **yours to choose** — the offset constant says where the field is, not
+how wide it is. Reading a `u16` field with `ldr` reads four bytes and picks up the next field with
+it. This is the main thing to be careful about.
+
+## Walking an array of them
+
+```casm
+alias base  = r1
+alias index = r2
+alias entry = r3
+
+@text
+    la  base, mobs
+    li  index, 5
+
+    mul entry, index, Entity        // 5 * 12
+    add entry, base, entry          // &mobs[5]
+    ldr r4, [entry + Entity.x]      // mobs[5].x
+```
+
+Multiplying the index by the struct's own name is the idiom: `Entity` *is* the stride.
+
+## Alignment
+
+Fields are laid out in declaration order, each padded up to its own natural alignment, and the total
+is rounded up to the **widest** field's alignment so an array of them stays aligned:
+
+```casm
+struct Entity          //  offset
+    x:      i32        //  0
+    y:      i32        //  4
+    health: u16        //  8
+    flags:  u8         //  10
+endstruct              //  11 bytes of fields, rounded up to 12 (widest field is 4-byte)
+```
+
+Declaring the wide fields first, as above, wastes the least. Interleaving them costs padding:
+
+```casm
+struct Wasteful
+    flags:  u8         //  0
+    x:      i32        //  4  -- three bytes of padding before it
+    health: u16        //  8
+endstruct              //  12 bytes, of which 3 are padding
+```
+
+## Array fields
+
+A field may be an array, including a multidimensional one:
+
+```casm
+struct Tile
+    corners: i16[4]    //  0, 8 bytes
+    id:      u32       //  8
+endstruct              //  12
+```
+
+## Visibility
+
+`global struct` exports **all** of the constants it generates — the field offsets and the size:
+
+```casm
+// lib/entity.casm
+global struct Entity
+    x: i32
+    y: i32
+endstruct
+```
+
+```casm
+import "lib/entity.casm"
+    ldr r2, [r1 + Entity.y]
+```
+
+Without `global` the whole set stays inside the file that declares it, like any other constant (see
+[Modules and import](15-Modules-and-Import.md)).
+
+An imported struct can also be reached through a named import, which is how two libraries that both
+declare an `Entity` stay usable in one file:
+
+```casm
+import "lib/entity.casm" as game
+import "lib/gfx.casm"    as gfx
+
+    ldr r2, [r1 + game.Entity.y]
+```
+
+## Unused fields are not warned about
+
+A private declaration nothing names is normally reported (see
+[Errors and diagnostics](17-Errors-and-Diagnostics.md#warnings)). Struct field offsets are exempt:
+they are generated rather than written, and warning about each unused field of a record would drown
+the warnings that matter.
+
+## Related pages
+
+- [Data types and literals](11-Data-Types-and-Literals.md) — the field types, and the arrays a struct is allocated through.
+- [Constants and expressions](13-Constants-and-Expressions.md) — what the generated offsets are, and `sizeof`.
+- [Instruction set → Memory access](05-Instruction-Set.md#memory-access--0x400x4e) — the load and store widths to address fields with.
+- [Modules and import](15-Modules-and-Import.md) — `global struct`, and reaching one through a named import.

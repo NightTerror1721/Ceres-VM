@@ -6,12 +6,40 @@ A pseudo-instruction is a mnemonic that doesn't correspond to a single real opco
 expands it into a short, fixed sequence of real instructions. From
 [`instruction_info.cpp`](../Ceres-ASM/src/assembler/instruction_info.cpp):
 
+### Addresses and constants
+
 | Written | Expands to | Size |
 | --- | --- | --- |
 | `la rd, symbol` | `lui` + `ori` | 8 bytes |
+| `lc rd, imm32` | `lui` + `ori` | 8 bytes |
 | `ldv rd, variable` | `lui` + `ori` + a load chosen by the variable's declared type | 12 bytes |
 | `stv rs, variable` | `lui` + `ori` + a store chosen by the variable's declared type | 12 bytes |
+
+### Arithmetic and moves
+
+| Written | Expands to | Size |
+| --- | --- | --- |
 | `neg rd, rs` | `imul rd, rs, -1` (integer), or `fneg` (float registers) | 4 bytes |
+| `inc rd` | `addi rd, rd, 1` | 4 bytes |
+| `dec rd` | `subi rd, rd, 1` | 4 bytes |
+| `clr rd` | `li rd, 0` | 4 bytes |
+| `swap rd, rs` | three `xor`s | 12 bytes |
+
+### Control flow
+
+| Written | Expands to | Size |
+| --- | --- | --- |
+| `jmp target` | `jp` | 4 bytes |
+| `jeq target` / `jne target` | `jz` / `jnz` | 4 bytes |
+| `tst rs` | `cmpi rs, 0` | 4 bytes |
+| `ifXX a, b, target` | `cmp`/`cmpi`/`fcmp` + the matching branch | 8 bytes |
+
+### Stack frames
+
+| Written | Expands to | Size |
+| --- | --- | --- |
+| `enter` | `push fp` + `mov fp, sp` | 8 bytes |
+| `leave` | `mov sp, fp` + `pop fp` | 8 bytes |
 
 ## Why `la`/`ldv`/`stv` need two instructions
 
@@ -146,8 +174,96 @@ by `-1` (see [Instruction set → Arithmetic](05-Instruction-Set.md#arithmetic-0
 floating-point form does have a dedicated real opcode (`FNEG`, `0x28`), so `neg f0, f1` compiles to a
 single instruction, not two.
 
+## `lc` — Load Constant
+
+`la` materialises the address of a *symbol*; `lc` does the same for a plain 32-bit **value**:
+
+```casm
+    li r1, 0x1234           // fits in 16 bits, one instruction
+    lc r1, 0x12345678       // does not: lui r1, 0x1234 then ori r1, r1, 0x5678
+```
+
+`li` only reaches 16 bits and `la` only takes symbols, so before `lc` a full-width constant had to
+be written as the `lui`/`ori` pair by hand. Unlike `ldv`/`stv` it needs no scratch register: both
+halves target `rd` directly.
+
+## Comparison and branch in one: `ifXX`
+
+`ifXX a, b, target` writes the comparison and the branch together. There are ten, one per condition,
+matching the jumps in [Instruction set](05-Instruction-Set.md#comparison-jumps--0x680x77):
+
+| Signed | Unsigned | Meaning |
+| --- | --- | --- |
+| `ifeq` | `ifeq` | `a == b` |
+| `ifne` | `ifne` | `a != b` |
+| `ifgr` | `ifab` | `a > b` |
+| `ifge` | `ifae` | `a >= b` |
+| `ifls` | `ifbl` | `a < b` |
+| `ifle` | `ifbe` | `a <= b` |
+
+The second operand may be a register or an immediate, and a pair of float registers picks `FCMP`:
+
+```casm
+    ifls r1, r2, .smaller       // cmp  r1, r2  + jls .smaller
+    ifge r3, 100, .at_least     // cmpi r3, 100 + jge .at_least
+    ifgr f0, f1, .bigger        // fcmp f0, f1  + jab .bigger
+```
+
+The float form is the one worth reaching for: `FCMP` clears Overflow and puts `fs < ft` in Carry, so
+the *unsigned* branch is the correct one after it — `ifXX` picks it so you do not have to remember.
+
+Both words are emitted at consecutive addresses, and the branch's displacement is measured from its
+own address, so an `ifXX` behaves exactly like the `cmp`/jump pair written out.
+
+## `enter` and `leave` — stack frames
+
+```casm
+some_function:
+    enter                   // push fp; mov fp, sp
+    ...
+    leave                   // mov sp, fp; pop fp
+    ret
+```
+
+These are the only instructions in the project that touch `fp` (`r14`), which is otherwise defined
+and unused (see [Registers and flags](03-Registers-and-Flags.md)). They do not make a calling
+convention on their own — nothing saves argument registers, and `ret` still pops the address `call`
+pushed — but they make the frame-pointer half of one something the assembler writes identically
+every time.
+
+## `swap` — exchange without a temporary
+
+```casm
+swap r3, r4
+```
+
+Three `xor`s, so it needs no scratch register and never touches one the programmer did not name:
+
+```casm
+xor r3, r3, r4
+xor r4, r3, r4
+xor r3, r3, r4
+```
+
+Twelve bytes against the eight of `mov`+`mov` through a spare register — the trade is code size for
+not having a spare register to spend.
+
+## The small ones
+
+```casm
+inc r1          // addi r1, r1, 1
+dec r1          // subi r1, r1, 1
+clr r1          // li r1, 0
+tst r1          // cmpi r1, 0
+jmp .done       // jp .done
+```
+
+`tst` exists to make the branch after it readable: `tst r1` then `jz` says "if r1 is zero" more
+plainly than `cmp r1, 0` does, and costs the same single instruction.
+
 ## Related pages
 
 - [Instruction format](04-Instruction-Format.md) — why no single instruction can hold a 32-bit immediate.
 - [Instruction set](05-Instruction-Set.md) — the real opcodes these expand into.
 - [Registers and flags](03-Registers-and-Flags.md) — the role of `r12`/`r13`/`r14`/`r15`.
+- [Constants and expressions](13-Constants-and-Expressions.md) — what can be written as the immediate of an `lc` or an `ifXX`.

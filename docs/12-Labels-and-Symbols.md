@@ -19,6 +19,46 @@ values:
 | `File` | `name:` | The file that defines it, including code that comes *before* the label — labels aren't order-dependent within a file. |
 | `Local` | `.name:` | Only within the same file, and only between this local label's parent and the next non-local label. |
 
+## `global` applies to every declaration, not just labels
+
+A label was once the only thing the language could mark. Now the same prefix governs constants,
+variables, macros and structs, and the rule is uniform:
+
+```casm
+global const MAX_PLAYERS = 4    // exported
+const INTERNAL_SLACK    = 8     // private to this file
+
+@data
+    global let scoreboard: u32[8]   // exported, address and all
+    let scratch:           u32[8]   // private
+
+global macro print_char $reg, $code // exported
+    ...
+endmacro
+
+global struct Entity                // exports every offset constant it generates
+    ...
+endstruct
+```
+
+**Nothing without `global` leaves the file that declares it.** A name a module declares privately is
+reported as exactly that rather than as merely unresolved:
+
+```
+'MAX_PLAYERS' is declared in 'lib/rules.casm' but is not global, so it is not visible here.
+```
+
+Two kinds of symbol behave differently once exported, and the difference matters:
+
+| Kind | How it reaches another file |
+| --- | --- |
+| Labels and variables | Through the **linker's global symbol table**. They have addresses, so they have to be linked; defining the same global one twice is a linker error. |
+| Constants (including struct offsets) and macros | Through **`import`**. They occupy no memory and are substituted at their point of use, so there is nothing to link. |
+
+That is why two independent libraries can each declare `global const MAX` without colliding: neither
+is published to the linker. The clash is only reported if some file imports both *and* uses the name
+— see [Modules and import](15-Modules-and-Import.md#when-two-modules-export-the-same-name).
+
 ## Local labels are namespaced by their parent
 
 A local label `.loop` is internally stored as `parent.loop`, where `parent` is the name of the
@@ -109,9 +149,28 @@ Note that **file-level and local symbols are never merged into the global table*
 declared `global` cross translation-unit boundaries. Two different files can each have their own
 `helper:` (file-level) label without conflict.
 
+Global *constants* are deliberately not merged either, for the reason given above: they have no
+address to link, and publishing them would make two libraries collide over a name neither file
+necessarily uses.
+
+## Unused private symbols
+
+Because a private symbol provably cannot be reached from outside its file, one that nothing inside
+the file names either is dead with certainty — and is reported as a warning:
+
+```
+warning [game.casm:4] 'SLACK' is declared but never used, and is not global, so nothing
+                      outside this file can use it either
+```
+
+Labels are exempt (one nothing jumps to is often an entry point or a table marker), and so are
+struct field offsets, which are generated rather than written. See
+[Errors and diagnostics](17-Errors-and-Diagnostics.md#warnings).
+
 ## Related pages
 
 - [Constants and expressions](13-Constants-and-Expressions.md) — constants live in the same symbol table as labels/variables.
 - [Modules and `import`](15-Modules-and-Import.md) — how symbols and macros travel between files that `import` each other.
 - [The `.cres` binary format](09-CRES-Binary-Format.md) — the section sizes/entry point the linker computes.
 - [CLI and assembly pipeline](16-CLI-and-Assembly-Pipeline.md) — where linking sits in the overall build.
+- [Structs](23-Structs.md) — a `global struct` and the constants it exports.

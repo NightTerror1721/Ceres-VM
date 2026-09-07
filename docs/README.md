@@ -17,7 +17,7 @@ the assembler does internally at each stage of the build.
 3. [Registers and flags](03-Registers-and-Flags.md) — the integer and floating-point register banks, the flags register.
 4. [Instruction format](04-Instruction-Format.md) — the 32-bit encoding, and how fields overlap.
 5. [Instruction set](05-Instruction-Set.md) — full reference for every real instruction, grouped by category.
-6. [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `ldv`, `stv`, `neg`, and how they expand.
+6. [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `lc`, `ldv`, `stv`, `neg`, `ifXX`, `enter`/`leave`, and how they expand.
 7. [I/O devices and ports](07-IO-Devices-and-Ports.md) — the port map, the terminal, the timer, system control.
 8. [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — the vector table, `INT`/`IRET`, hardware faults.
 9. [The `.cres` binary format](09-CRES-Binary-Format.md) — the executable header and the loaded program's memory layout.
@@ -34,7 +34,7 @@ the assembler does internally at each stage of the build.
 ### Tooling and workflow
 
 16. [CLI and assembly pipeline](16-CLI-and-Assembly-Pipeline.md) — the `asm`/`run`/`disasm` commands, the internal pipeline.
-17. [Errors and diagnostics](17-Errors-and-Diagnostics.md) — the error message format, `--json` output.
+17. [Errors and diagnostics](17-Errors-and-Diagnostics.md) — the message format, warnings, `--json` output.
 18. [Annotated examples](18-Annotated-Examples.md) — a line-by-line walkthrough of a full program.
 19. [Known limitations](19-Known-Limitations.md) — what the project doesn't do yet.
 21. [Debug information](21-Debug-Information.md) — the line and symbol tables, `--debug`, and how they ride along in a `.cres`.
@@ -44,6 +44,23 @@ the assembler does internally at each stage of the build.
 
 20. [Tutorial práctico (Spanish)](20-Tutorial-Practico.md) — progressive exercises building up to
     two playable terminal games (rock-paper-scissors and tic-tac-toe).
+
+## What changed recently
+
+If you already knew this language, these are the parts that moved:
+
+- **Visibility.** `global` now applies to `const`, `let`, `macro` and `struct`, not just labels, and
+  nothing without it leaves its file — [Labels and symbols](12-Labels-and-Symbols.md).
+- **Imports** are references rather than copies, so a module is merged once however many routes
+  reach it, and `import ... as name` disambiguates a clash — [Modules and `import`](15-Modules-and-Import.md).
+- **Comparison jumps** (`jgr`/`jge`/`jls`/`jle` signed, `jab`/`jae`/`jbl`/`jbe` unsigned) and the
+  `ifXX` family. Adding them **renumbered every opcode above the control-flow block**, so a `.cres`
+  built before this is rejected rather than misread — [Instruction set](05-Instruction-Set.md), [The `.cres` binary format](09-CRES-Binary-Format.md#versioning).
+- **Constant expressions** may name other constants, use parentheses, and ask `sizeof`/`countof`/`dimof` — [Constants and expressions](13-Constants-and-Expressions.md).
+- **Multidimensional arrays**, with any dimension inferable from the initializer — [Data types and literals](11-Data-Types-and-Literals.md#multidimensional-arrays).
+- **New type aliases**: `ptr`, `port`, `irq`, `byte`, `half`, `word` — [Data types and literals](11-Data-Types-and-Literals.md#aliases).
+- **Register aliases** (`alias cursor = r5`) and **structs** — [Language syntax](10-Language-Syntax.md#register-aliases), [Structs](23-Structs.md).
+- **Warnings**, starting with unused private declarations — [Errors and diagnostics](17-Errors-and-Diagnostics.md#warnings).
 
 ## Quick start
 

@@ -3,8 +3,9 @@
 [← Back to index](README.md)
 
 This page documents every **real** opcode the VM executes — the values of `ceres::vm::Opcode` in
-[`opcodes.h`](../Ceres-ASM/src/vm/opcodes.h). For the four **pseudo-instructions** that expand into
-several real ones (`la`, `ldv`, `stv`, `neg`), see [Pseudo-instructions](06-Pseudo-Instructions.md).
+[`opcodes.h`](../Ceres-ASM/src/vm/opcodes.h). For the **pseudo-instructions** that expand into
+several real ones (`la`, `ldv`, `stv`, `neg`, `lc`, `enter`, `leave`, `swap`, the `ifXX` family and
+the rest), see [Pseudo-instructions](06-Pseudo-Instructions.md).
 
 ## How to read these tables
 
@@ -131,7 +132,7 @@ the *signed literal* `+0`, which the parser doesn't accept there — always writ
 | `h` (`ldrh`/`strh`) | 16-bit | unsigned |
 | `sh` (`ldrsh`) | 16-bit | sign-extended (load only) |
 
-## Control flow · `0x50`–`0x67`
+## Control flow · `0x50`–`0x77`
 
 Every conditional/unconditional jump and `call` has two forms:
 
@@ -140,11 +141,13 @@ Every conditional/unconditional jump and `call` has two forms:
 - **Register** — `mnemonic rs` — absolute target taken from a register. Chosen automatically when the
   operand is a register instead of a label.
 
+### Single-flag jumps
+
 | Assembly | Relative opcode | Register opcode | Condition |
 | --- | --- | --- | --- |
-| `jp target` | `JP` `0x50` | `JPR` `0x51` | Always |
-| `jz target` | `JZ` `0x55` | `JZR` `0x56` | Zero flag set |
-| `jnz target` | `JNZ` `0x57` | `JNZR` `0x58` | Zero flag clear |
+| `jp target` / `jmp target` | `JP` `0x50` | `JPR` `0x51` | Always |
+| `jz target` / `jeq target` | `JZ` `0x55` | `JZR` `0x56` | Zero flag set |
+| `jnz target` / `jne target` | `JNZ` `0x57` | `JNZR` `0x58` | Zero flag clear |
 | `jc target` | `JC` `0x59` | `JCR` `0x5A` | Carry flag set |
 | `jnc target` | `JNC` `0x5B` | `JNCR` `0x5C` | Carry flag clear |
 | `js target` | `JS` `0x5D` | `JSR` `0x5E` | Sign flag set |
@@ -153,6 +156,44 @@ Every conditional/unconditional jump and `call` has two forms:
 | `jno target` | `JNO` `0x66` | `JNOR` `0x67` | Overflow flag clear |
 | `call target` | `CALL` `0x61` | `CALLR` `0x62` | Always; pushes the return address first |
 
+`jmp`, `jeq` and `jne` are aliases, not separate opcodes — the assembler emits `JP`, `JZ` and `JNZ`.
+
+### Comparison jumps · `0x68`–`0x77`
+
+`cmp` sets four flags, but none of the jumps above spells an **ordering**: "greater" needs Sign
+against Overflow, and "above" needs Carry against Zero. These eight read two flags each, so a
+comparison costs one instruction instead of a dance around the single-flag jumps.
+
+| Assembly | Relative opcode | Register opcode | Condition | Flags read |
+| --- | --- | --- | --- | --- |
+| `jgr target` | `JGR` `0x68` | `JGRR` `0x69` | `rs > rt`, **signed** | `!Zero && Sign == Overflow` |
+| `jge target` | `JGE` `0x6A` | `JGER` `0x6B` | `rs >= rt`, signed | `Sign == Overflow` |
+| `jls target` | `JLS` `0x6C` | `JLSR` `0x6D` | `rs < rt`, signed | `Sign != Overflow` |
+| `jle target` | `JLE` `0x6E` | `JLER` `0x6F` | `rs <= rt`, signed | `Zero \|\| Sign != Overflow` |
+| `jab target` | `JAB` `0x70` | `JABR` `0x71` | `rs > rt`, **unsigned** | `!Carry && !Zero` |
+| `jae target` | `JAE` `0x72` | `JAER` `0x73` | `rs >= rt`, unsigned | `!Carry` |
+| `jbl target` | `JBL` `0x74` | `JBLR` `0x75` | `rs < rt`, unsigned | `Carry` |
+| `jbe target` | `JBE` `0x76` | `JBER` `0x77` | `rs <= rt`, unsigned | `Carry \|\| Zero` |
+
+The signed and unsigned halves genuinely differ. `0xFFFFFFFF` is `-1` as an `i32` and about four
+billion as a `u32`, so against `1`:
+
+```casm
+    lc  r1, 0xFFFFFFFF
+    li  r2, 1
+    cmp r1, r2
+    jls .below      ; taken:     -1 < 1
+    jab .above      ; also taken: 0xFFFFFFFF > 1
+```
+
+Pick by what the data means, not by which reads better. `jls`/`jge` for `i8`/`i16`/`i32`,
+`jbl`/`jae` for `u8`/`u16`/`u32`, addresses and sizes.
+
+Writing the comparison and the branch as one instruction is what the `ifXX` pseudo-instructions are
+for — see [Pseudo-instructions](06-Pseudo-Instructions.md#comparison-and-branch-in-one-ifxx).
+
+### Comparison and return
+
 | Assembly | Opcode | Semantics |
 | --- | --- | --- |
 | `cmp rs, rt` | `CMP` `0x52` | Sets Zero/Sign/Carry/Overflow as if computing `rs - rt`, discarding the result. |
@@ -160,39 +201,43 @@ Every conditional/unconditional jump and `call` has two forms:
 | `cmp fs, ft` | `FCMP` `0x54` | Float comparison; sets Zero/Sign, clears Overflow, uses `fs < ft` directly for Carry. |
 | `ret` | `RET` `0x63` | Pops the return address pushed by `call`/`callr` and jumps to it. No operands. |
 
+Because `FCMP` clears Overflow and sets Carry from `fs < ft`, the **unsigned** forms are the ones
+that read a float comparison correctly: `jbl` after `cmp f0, f1` means `f0 < f1`. `ifXX` on a pair
+of float registers picks `FCMP` and the matching branch for you, which is the point of it.
+
 `call`/`callr` push the address of the instruction *following* the call (`pc + 4`) before jumping.
 If the push would overflow the stack, the fault is raised and the jump never happens (see
 [Memory](02-Memory.md#the-stack)).
 
-## Stack operations · `0x70`–`0x75`
+## Stack operations · `0x80`–`0x85`
 
 | Assembly | Opcode | Semantics |
 | --- | --- | --- |
-| `push rs` | `PUSH` `0x70` | `*(u32*)(--sp) = rs`. |
-| `pop rd` | `POP` `0x71` | `rd = *(u32*)(sp); sp += 4`. |
-| `pushf` | `PUSHF` `0x72` | Pushes the full flags register. |
-| `popf` | `POPF` `0x73` | Pops into the flags register (overwrites all flags at once). |
-| `push fs` | `FPUSH` `0x74` | Pushes a float register (4 bytes, bit pattern preserved). |
-| `pop fd` | `FPOP` `0x75` | Pops into a float register. |
+| `push rs` | `PUSH` `0x80` | `*(u32*)(--sp) = rs`. |
+| `pop rd` | `POP` `0x81` | `rd = *(u32*)(sp); sp += 4`. |
+| `pushf` | `PUSHF` `0x82` | Pushes the full flags register. |
+| `popf` | `POPF` `0x83` | Pops into the flags register (overwrites all flags at once). |
+| `push fs` | `FPUSH` `0x84` | Pushes a float register (4 bytes, bit pattern preserved). |
+| `pop fd` | `FPOP` `0x85` | Pops into a float register. |
 
 Every push/pop can raise `StackOverflow` — see [Memory](02-Memory.md#the-stack). When that happens,
 the instruction that triggered it does not complete (e.g. `push` does not advance the PC if the push
 faulted), because the fault handler has already redirected execution to the handler.
 
-## Conversions · `0x80`–`0x85`
+## Conversions · `0x90`–`0x95`
 
 | Assembly | Opcode | Semantics |
 | --- | --- | --- |
-| `itof fd, rs` | `ITOF` `0x80` | `fd = (float)(u32)rs` — treats `rs` as unsigned. |
-| `iitof fd, rs` | `IITOF` `0x81` | `fd = (float)(i32)rs` — treats `rs` as signed. |
-| `ftoi rd, fs` | `FTOI` `0x82` | `rd = (u32)(float)fs` — truncates toward zero, unsigned result. |
-| `ftoii rd, fs` | `FTOII` `0x83` | `rd = (u32)(i32)(float)fs` — truncates toward zero, signed result stored in the register bits. |
-| `mtf fd, rs` | `MTF` `0x84` | Copies the raw 32-bit *bit pattern* of `rs` into `fd`. No numeric conversion. |
-| `mff rd, fs` | `MFF` `0x85` | Copies the raw 32-bit *bit pattern* of `fs` into `rd`. No numeric conversion. |
+| `itof fd, rs` | `ITOF` `0x90` | `fd = (float)(u32)rs` — treats `rs` as unsigned. |
+| `iitof fd, rs` | `IITOF` `0x91` | `fd = (float)(i32)rs` — treats `rs` as signed. |
+| `ftoi rd, fs` | `FTOI` `0x92` | `rd = (u32)(float)fs` — truncates toward zero, unsigned result. |
+| `ftoii rd, fs` | `FTOII` `0x93` | `rd = (u32)(i32)(float)fs` — truncates toward zero, signed result stored in the register bits. |
+| `mtf fd, rs` | `MTF` `0x94` | Copies the raw 32-bit *bit pattern* of `rs` into `fd`. No numeric conversion. |
+| `mff rd, fs` | `MFF` `0x95` | Copies the raw 32-bit *bit pattern* of `fs` into `rd`. No numeric conversion. |
 
 None of the conversions touch the flags register.
 
-## I/O operations · `0x90`–`0xA3`
+## I/O operations · `0xA0`–`0xB3`
 
 Every I/O mnemonic (`in`, `inb`, `inh`, `insb`, `insh`, `inm`, `out`, `outb`, `outh`, `outm`) has two
 forms depending on how the **port number** is specified — the assembler picks between them
@@ -205,16 +250,29 @@ automatically:
 
 | Assembly | Imm. port opcode | Reg. port opcode | Semantics |
 | --- | --- | --- | --- |
-| `in port, rd` | `IN` `0x90` | `INR` `0x96` | `rd = (u32)` word read from `port`. |
-| `inb port, rd` | `INB` `0x91` | `INRB` `0x97` | `rd = (u8)` byte read from `port` (zero-extended). |
-| `inh port, rd` | `INH` `0x92` | `INRH` `0x98` | `rd = (u16)` halfword read (zero-extended). |
-| `insb port, rd` | `INSB` `0x93` | `INRSB` `0x99` | `rd = sign_extend((i8)` byte read`)`. |
-| `insh port, rd` | `INSH` `0x94` | `INRSH` `0x9A` | `rd = sign_extend((i16)` halfword read`)`. |
-| `inm port, rd, rs` | `INM` `0x95` | `INRM` `0x9B` | Block read: reads `rs` bytes from `port` into memory starting at address `rd`. Operand order in assembly is **port, address, size**. |
-| `out port, rs` | `OUT` `0x9C` | `OUTR` `0xA0` | Writes the 32-bit value in `rs` to `port`. |
-| `outb port, rs` | `OUTB` `0x9D` | `OUTRB` `0xA1` | Writes the low byte of `rs` to `port`. |
-| `outh port, rs` | `OUTH` `0x9E` | `OUTRH` `0xA2` | Writes the low halfword of `rs` to `port`. |
-| `outm port, rs, rt` | `OUTM` `0x9F` | `OUTRM` `0xA3` | Block write: writes `rt` bytes from memory address `rs` to `port`. Operand order is **port, address, size**, matching `inm`. |
+| `in port, rd` | `IN` `0xA0` | `INR` `0xA6` | `rd = (u32)` word read from `port`. |
+| `inb port, rd` | `INB` `0xA1` | `INRB` `0xA7` | `rd = (u8)` byte read from `port` (zero-extended). |
+| `inh port, rd` | `INH` `0xA2` | `INRH` `0xA8` | `rd = (u16)` halfword read (zero-extended). |
+| `insb port, rd` | `INSB` `0xA3` | `INRSB` `0xA9` | `rd = sign_extend((i8)` byte read`)`. |
+| `insh port, rd` | `INSH` `0xA4` | `INRSH` `0xAA` | `rd = sign_extend((i16)` halfword read`)`. |
+| `inm port, rd, rs` | `INM` `0xA5` | `INRM` `0xAB` | Block read: reads `rs` bytes from `port` into memory starting at address `rd`. Operand order in assembly is **port, address, size**. |
+| `out port, rs` | `OUT` `0xAC` | `OUTR` `0xB0` | Writes the 32-bit value in `rs` to `port`. |
+| `outb port, rs` | `OUTB` `0xAD` | `OUTRB` `0xB1` | Writes the low byte of `rs` to `port`. |
+| `outh port, rs` | `OUTH` `0xAE` | `OUTRH` `0xB2` | Writes the low halfword of `rs` to `port`. |
+| `outm port, rs, rt` | `OUTM` `0xAF` | `OUTRM` `0xB3` | Block write: writes `rt` bytes from memory address `rs` to `port`. Operand order is **port, address, size**, matching `inm`. |
+
+### The opcodes moved
+
+Adding the comparison jumps left only eight free slots where sixteen were needed, so the control-flow
+block grew to `0x77` and pushed the three families above it up: stack `0x70`→`0x80`, conversions
+`0x80`→`0x90`, I/O `0x90`→`0xA0`. Every family starts on a round boundary again and keeps a gap to
+grow into. Free today: `0x08`–`0x0F`, `0x29`–`0x2F`, `0x3D`–`0x3F`, `0x4F`, `0x78`–`0x7F`,
+`0x86`–`0x8F`, `0x96`–`0x9F`, `0xB4`–`0xFF`.
+
+That is a **binary-breaking** change: a `.cres` written before it has `0x70` meaning `PUSH` where it
+now means `JAB`. The file format's version was raised to 2 and a minimum supported version added, so
+an older file is rejected rather than run as something else — see
+[The CRES binary format](09-CRES-Binary-Format.md#versioning).
 
 None of the I/O instructions touch the flags register. A read from an unattached port returns all
 ones (`0xFF`, `0xFFFF`, `0xFFFFFFFF` depending on width); a write to an unattached port is silently
@@ -224,6 +282,6 @@ which of these are actually backed by a device today.
 ## Related pages
 
 - [Instruction format](04-Instruction-Format.md) — bit-level encoding these tables build on.
-- [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `ldv`, `stv`, `neg`.
+- [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `lc`, `ldv`, `stv`, `neg`, `ifXX`, `enter`/`leave` and the rest.
 - [I/O devices and ports](07-IO-Devices-and-Ports.md) — what's actually listening on each port.
 - [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — `int`/`iret` and hardware-raised faults.

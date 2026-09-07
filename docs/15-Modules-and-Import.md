@@ -103,6 +103,40 @@ While a file is in the middle of being parsed and built, `AssemblyState::isBeing
 immediately with `Import cycle: '{name}' is already being assembled`, instead of recursing until the
 call stack overflows.
 
+## Named imports
+
+Naming an import makes its exports reachable by a prefix:
+
+```casm
+import "lib/math.casm"  as math
+import "lib/fixed.casm" as fx
+
+@text
+global main:
+    li r1, math.LIMIT       // a constant from one module
+    li r2, fx.LIMIT         // and from the other, same name, no ambiguity
+    math.bump r1            // a macro, called by its qualified name
+    ldr r3, [r4 + game.Entity.y]
+```
+
+A qualified name is answered by **exactly one module, or by nobody** — it never falls through to the
+unqualified search or to the linker's global table. That is what makes it a genuine way out of a
+clash rather than a shortcut. Both halves are diagnosed separately:
+
+```
+No import is named 'nope'
+'lib' does not export 'HIDDEN'
+```
+
+The second is the one to watch for: a name the module declares *privately* is not exported, and
+naming the import does not change that.
+
+The module name, the dot and the name must be **adjacent**. Once the lexer has discarded whitespace,
+adjacency is the only thing distinguishing `math.PI` from `jnz .loop` — a mnemonic followed by a
+local label.
+
+An unnamed `import` still works exactly as before, and a module may be imported both ways.
+
 ## When two modules export the same name
 
 ```casm
@@ -125,6 +159,8 @@ variables do link, and defining one of those twice is still a linker error.
 ## Related pages
 
 - [Constants and expressions](13-Constants-and-Expressions.md) — what a `const` actually is once imported.
-- [Macros](14-Macros.md) — macro definitions, which cross an import only when declared `global`.
+- [Macros](14-Macros.md) — macro definitions, which cross an import only when declared `global`, and how to call one by a qualified name.
+- [Structs](23-Structs.md) — `global struct` exports every offset constant it generates.
+- [Language syntax](10-Language-Syntax.md#qualified-names) — the qualified-name grammar.
 - [Labels and symbols](12-Labels-and-Symbols.md) — the global/file/local distinction that governs what a `global` constant or label is.
 - [CLI and assembly pipeline](16-CLI-and-Assembly-Pipeline.md) — how multiple files (via `import` or via multiple command-line inputs) become one linked program.

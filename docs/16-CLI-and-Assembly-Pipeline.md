@@ -29,7 +29,7 @@ Global flags:
 
 | Flag | Applies to | Effect |
 | --- | --- | --- |
-| `-o <path>` / `--output <path>` | `asm` | Write the assembled `.cres` to `<path>`. Without it, `asm` only validates and reports errors. |
+| `-o <path>` / `--output <path>` | `asm` | Write the assembled `.cres` to `<path>`. Without it, `asm` only validates and reports diagnostics — and does **not** require an entry point, since a library module is not a program. See [Checking versus building](#checking-versus-building). |
 | `--listing` | `asm`, `run` | Print an address/opcode/instruction listing of `.text` (via the disassembler) before running/after assembling. Gains a source-location column when combined with `--debug`. |
 | `--json` | `asm` | Print diagnostics as a JSON array on stdout instead of human-readable text on stderr — meant for editor tooling to parse. See [Errors and diagnostics](17-Errors-and-Diagnostics.md). |
 | `--debug` | `asm`, `run`, `disasm` | Build the line and symbol tables (see [Debug information](21-Debug-Information.md)). With `-o`, they are appended to the `.cres`. With `--listing`, each word is annotated with the source line it came from. On `disasm` of a `.cres`, reads back the tables the file already carries. |
@@ -105,6 +105,13 @@ Covered in depth in [Labels and symbols → Linking](12-Labels-and-Symbols.md#li
 the linker computes the shared memory map (summing every unit's aligned section sizes), relocates
 every unit's addresses into that shared image, merges `global` symbols, and does a final resolution
 pass over every instruction's operands.
+
+### 3b. Unused private declarations
+
+Between linking and emitting, the assembler walks every unit's symbols and macros once more, looking
+for declarations that are not `global` and that nothing named. Those cannot be reached from outside
+the file, so one nothing reaches inside it either is dead with certainty — reported as a **warning**,
+which does not stop the build. See [Errors and diagnostics](17-Errors-and-Diagnostics.md#warnings).
 
 ### 4. Emitting the binary
 

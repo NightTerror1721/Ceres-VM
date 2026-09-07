@@ -189,10 +189,46 @@ assembler enforces that `proc_enter` and `proc_leave` always expand to the same 
 sequence, so the convention can't silently drift out of sync between subroutines the way hand-written
 prologues eventually would.
 
+## Visibility
+
+A macro is private to the file that declares it unless it carries `global`:
+
+```casm
+global macro print_char $reg, $code     // usable by any file importing this one
+    li $reg, $code
+    outb 0x01, $reg
+endmacro
+
+macro internal_helper $r                // private to this file
+    ...
+endmacro
+```
+
+This is a change from how macros used to work: every macro defined anywhere in an imported file
+became visible to the importer regardless of any marking. Now they follow the same rule as everything
+else (see [Labels and symbols](12-Labels-and-Symbols.md)). Calling one a module keeps private says
+so:
+
+```
+Macro 'internal_helper' is declared in 'lib/util.casm' but is not global, so it is not visible here
+```
+
+A macro reached through a **named import** is called by its qualified name, which is how two modules
+that both export a `clamp` stay usable in one file:
+
+```casm
+import "lib/math.casm" as math
+
+    math.clamp r1, r2
+```
+
+A private macro that nothing in its own file calls is reported as a warning, like any other private
+declaration — see [Errors and diagnostics](17-Errors-and-Diagnostics.md#warnings).
+
 ## Related pages
 
 - [Language syntax](10-Language-Syntax.md) — how the parser distinguishes an instruction from a macro call.
 - [Labels and symbols](12-Labels-and-Symbols.md) — ordinary label scoping, which `%%label` deliberately works around.
-- [Modules and `import`](15-Modules-and-Import.md) — macros defined in one file become usable in another via `import`.
+- [Modules and `import`](15-Modules-and-Import.md) — how a `global macro` reaches another file, and how to call one by a qualified name.
 - [Registers and flags](03-Registers-and-Flags.md) — the registers the worked example above chooses to treat as callee-saved.
 - [Known limitations](19-Known-Limitations.md) — why the VM itself enforces no calling convention at all.

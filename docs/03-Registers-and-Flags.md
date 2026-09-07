@@ -12,7 +12,7 @@ role beyond "general purpose" — though the VM only actually special-cases one 
 | `r0`–`r11` | — | General purpose. |
 | `r12` | — | General purpose, but **the assembler uses it as scratch space** when materializing a full 32-bit address for `la`, `ldv` and `stv` (see [Pseudo-instructions](06-Pseudo-Instructions.md)). Do not expect its value to survive one of those pseudo-instructions. |
 | `r13` | `lr` (Link Register) | Nothing in the VM itself touches it. `call`/`CALL` push the return address on the stack, and `ret`/`RET` pop it — the link register is defined by convention only, not wired into the hardware. |
-| `r14` | `fp` (Frame Pointer) | Defined as a name, but **no instruction reads or writes it specially**. It behaves exactly like `r0`–`r11`; using it as a frame pointer is purely a convention the programmer would have to enforce themselves. |
+| `r14` | `fp` (Frame Pointer) | No *real* opcode reads or writes it specially, but the `enter` and `leave` [pseudo-instructions](06-Pseudo-Instructions.md#enter-and-leave--stack-frames) do — they are the only things in the project that name it by role. Beyond those, it behaves exactly like `r0`–`r11`. |
 | `r15` | `sp` (Stack Pointer) | Initialized to the top of memory (`memory.size()`) on reset. `PUSH`/`POP`/`CALL`/`RET`/`PUSHF`/`POPF`/interrupt dispatch all read and write it directly. |
 
 The aliases come from `RIndex` in [`registers.h`](../Ceres-ASM/src/vm/registers.h):
@@ -41,6 +41,18 @@ See [Instruction format](04-Instruction-Format.md).
 numeric conversion (i.e., they reinterpret the bits, they don't call `(float)` on an int). Use
 `ITOF`/`itof`, `IITOF`/`iitof`, `FTOI`/`ftoi`, `FTOII`/`ftoii` for actual numeric conversion — see
 [Instruction set → Conversions](05-Instruction-Set.md#conversions).
+
+## Naming registers
+
+A register can be given a name for readability, which is purely lexical and file-scoped:
+
+```casm
+alias cursor = r5
+alias acc    = f2
+```
+
+By the time anything downstream sees the operand it is an ordinary register, so nothing here changes
+— see [Language syntax → Register aliases](10-Language-Syntax.md#register-aliases).
 
 ## Flags register
 
@@ -96,6 +108,22 @@ go straight back to sleep the moment the handler returned, and nothing could eve
 - **Floating-point arithmetic (`FADD`/`FSUB`/`FMUL`/`FDIV`/`FNEG`)**: Zero reflects
   `std::fpclassify(result) == FP_ZERO`; Sign reflects `std::signbit(result)`; Carry is always
   `false`; Overflow is set only when the result becomes `±∞` and neither operand already was.
+
+## Reading the flags after a `cmp`
+
+`cmp` sets all four arithmetic flags, but no single-flag jump spells an **ordering**. The comparison
+jumps read two flags each, and which pair depends on signedness:
+
+| Ordering | Signed | Unsigned |
+| --- | --- | --- |
+| `<` | `Sign != Overflow` (`jls`) | `Carry` (`jbl`) |
+| `>=` | `Sign == Overflow` (`jge`) | `!Carry` (`jae`) |
+| `>` | `!Zero && Sign == Overflow` (`jgr`) | `!Carry && !Zero` (`jab`) |
+| `<=` | `Zero \|\| Sign != Overflow` (`jle`) | `Carry \|\| Zero` (`jbe`) |
+
+`FCMP` clears Overflow and puts `fs < ft` straight into Carry, so after a float comparison it is the
+**unsigned** forms that read correctly. See
+[Instruction set → Comparison jumps](05-Instruction-Set.md#comparison-jumps--0x680x77).
 
 ## Related pages
 
