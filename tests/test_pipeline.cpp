@@ -279,3 +279,33 @@ TEST(pipeline, an_unknown_mnemonic_is_reported_not_silently_dropped)
 
 	CHECK(!r.ok());
 }
+
+// An entry point is a property of a program, not of a translation unit. `ceres asm` with no -o only
+// checks the file - which is what the language server runs on every open document - so a library
+// module without a `main` must not be reported as broken.
+TEST(pipeline, checking_a_file_does_not_demand_an_entry_point)
+{
+	AssembleResult r = checkSource(
+		"const BLOCK = 16\r\n"
+		"@rodata\r\n"
+		"    let banner: u8[4] = \"lib\"\r\n"
+		"@text\r\n"
+		"helper:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+}
+
+TEST(pipeline, checking_a_file_still_reports_real_errors)
+{
+	// Relaxing the entry point must not relax anything else: this diagnostic comes from the
+	// emitter, which a check run still has to go through.
+	AssembleResult r = checkSource(
+		"@text\r\n"
+		"helper:\r\n"
+		"    li r1, 70000\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("70000") != std::string::npos);
+}

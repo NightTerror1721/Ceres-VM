@@ -21,6 +21,9 @@ namespace ceres::casm
 		// Off by default: every instruction emitted adds a line entry, and nothing but a debugger
 		// or an annotated listing has any use for them.
 		bool _emitDebugInfo = false;
+		// Cleared when the caller only wants the file checked, not a runnable program built. See
+		// AssemblerOptions::requireEntryPoint.
+		bool _requireEntryPoint = true;
 		debug::DebugInfoBuilder _debugBuilder;
 		debug::DebugInfo _debugInfo; // Released from the builder at the end of emit()
 
@@ -34,9 +37,10 @@ namespace ceres::casm
 		BinaryEmitter& operator=(BinaryEmitter&&) noexcept = default;
 
 	public:
-		explicit BinaryEmitter(AssemblyState& state, bool emitDebugInfo = false) noexcept :
+		explicit BinaryEmitter(AssemblyState& state, bool emitDebugInfo = false, bool requireEntryPoint = true) noexcept :
 			_state(state),
-			_emitDebugInfo(emitDebugInfo)
+			_emitDebugInfo(emitDebugInfo),
+			_requireEntryPoint(requireEntryPoint)
 		{}
 
 		inline const std::span<const u8> textBuffer() const noexcept { return _textBuffer; }

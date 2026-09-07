@@ -27,12 +27,21 @@ namespace ceres::casm
 	{
 		Address entryPoint = Address::Null;
 		auto mainSymbol = _state.get().globalSymbolTable().get(SymbolTable::EntryPointLabelName);
-		if (!mainSymbol.has_value() || !mainSymbol.value().get().isLabel() || !mainSymbol.value().get().isGlobal() || !mainSymbol.value().get().hasAddress())
+		const bool hasEntryPoint = mainSymbol.has_value() && mainSymbol.value().get().isLabel()
+			&& mainSymbol.value().get().isGlobal() && mainSymbol.value().get().hasAddress();
+
+		if (hasEntryPoint)
+		{
+			entryPoint = mainSymbol.value().get().address();
+		}
+		else if (_requireEntryPoint)
 		{
 			reportError(0, "Entry point label '{}' is not defined or not a global label", SymbolTable::EntryPointLabelName);
 			return std::nullopt;
 		}
-		entryPoint = mainSymbol.value().get().address();
+		// Without an entry point requirement the program below is built and thrown away: everything
+		// the emitter checks per instruction (immediates that do not fit, branches out of range,
+		// unresolved symbolic offsets) is diagnosed exactly as it would be for a real build.
 
 		for (const auto& unit : _state.get().translationUnits())
 		{

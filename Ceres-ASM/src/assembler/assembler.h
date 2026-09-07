@@ -18,6 +18,11 @@ namespace ceres::casm
 		// Costs an extra table the size of .text and is of no use to a plain build, so the caller
 		// has to ask (ceres asm --debug, or anything that is about to start a debug session).
 		bool emitDebugInfo = false;
+		// An entry point is a property of a *program*, not of a translation unit: a library module
+		// has no `main` and is not wrong for it. Checking a single file (ceres asm with no -o, which
+		// is what the language server runs on every open document) would otherwise report a missing
+		// entry point on every module that is not the main one.
+		bool requireEntryPoint = true;
 	};
 
 	class Assembler

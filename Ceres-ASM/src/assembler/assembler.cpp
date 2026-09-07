@@ -110,7 +110,7 @@ namespace ceres::casm
 	{
 		try
 		{
-			BinaryEmitter emitter{ *_state, _options.emitDebugInfo };
+			BinaryEmitter emitter{ *_state, _options.emitDebugInfo, _options.requireEntryPoint };
 			auto program = emitter.emit();
 			if (program.has_value())
 				_debugInfo = emitter.takeDebugInfo();

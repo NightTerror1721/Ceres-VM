@@ -66,6 +66,11 @@ namespace ceres::testing
 		}
 	};
 
+	// What `ceres asm` does with no -o, and what the language server runs on every open document:
+	// the file is checked but no runnable program is demanded of it, so a library module with no
+	// `main` is not an error.
+	inline AssembleResult checkSource(std::string_view source, std::string_view fileStem = "checked");
+
 	inline AssembleResult assembleSource(std::string_view source, std::string_view fileStem = "snippet", bool withDebugInfo = false)
 	{
 		AssembleResult result;
@@ -106,5 +111,34 @@ namespace ceres::testing
 	inline std::string renderWord(u32 word)
 	{
 		return std::format("{:08x}  {}", word, vm::Disassembler::disassemble(vm::Instruction(word)));
+	}
+
+	inline AssembleResult checkSource(std::string_view source, std::string_view fileStem)
+	{
+		AssembleResult result;
+
+		std::filesystem::path path =
+			std::filesystem::temp_directory_path() / std::format("ceres_test_{}.casm", fileStem);
+		result.sourcePath = path.string();
+
+		{
+			std::ofstream file(path, std::ios::binary | std::ios::trunc);
+			if (!file)
+			{
+				result.errors.push_back("could not open temporary file " + path.string());
+				return result;
+			}
+			file.write(source.data(), static_cast<std::streamsize>(source.size()));
+		}
+
+		casm::Assembler assembler{ casm::AssemblerOptions{ .requireEntryPoint = false } };
+		result.program = assembler.assemble({ path });
+		for (const auto& error : assembler.errors())
+			result.errors.push_back(std::format("[line {}] {}", error.line, error.message));
+
+		std::error_code ignored;
+		std::filesystem::remove(path, ignored);
+
+		return result;
 	}
 }

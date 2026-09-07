@@ -421,7 +421,13 @@ int main(int argc, char** argv)
 
 	if (options.command == "asm")
 	{
-		casm::Assembler assembler{ casm::AssemblerOptions{ .emitDebugInfo = options.debugInfo } };
+		// With no -o the source is only checked, so a file that is a library module rather than a
+		// program is not missing anything by having no `main`. This is what the language server
+		// runs on every open document.
+		casm::Assembler assembler{ casm::AssemblerOptions{
+			.emitDebugInfo = options.debugInfo,
+			.requireEntryPoint = !options.output.empty()
+		} };
 		auto program = assembler.assemble(options.inputs);
 		const bool failed = !program.has_value() || assembler.hasErrors();
 
