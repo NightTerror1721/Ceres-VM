@@ -137,8 +137,6 @@ namespace ceres::casm
 		std::optional<std::reference_wrapper<const Symbol>> get(std::string_view name) const noexcept;
 		std::optional<std::reference_wrapper<const Symbol>> getLocal(std::string_view name, std::string_view parentName) const noexcept;
 
-		void importSymbols(const TranslationUnit& translationUnit);
-
 		void relocateSymbols(Address textOffset, Address dataOffset, Address rodataOffset, Address bssOffset);
 
 	public:
@@ -157,13 +155,15 @@ namespace ceres::casm
 			defineVariable(line, name, section, address, isGlobal, isReadonly, dataType, nullptr);
 		}
 
-		Operand& tryResolveOperand(std::string_view file, u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>& unresolvedSymbols) const
+		// `unit` is the translation unit this table belongs to, consulted for names an import
+		// supplies. Null where there is no unit to walk (the global table built by the linker).
+		Operand& tryResolveOperand(std::string_view file, u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>& unresolvedSymbols, const TranslationUnit* unit) const
 		{
-			return resolveOperand(file, line, operand, parentName, &unresolvedSymbols, nullptr);
+			return resolveOperand(file, line, operand, parentName, &unresolvedSymbols, nullptr, unit);
 		}
-		Operand& resolveOperand(u32 line, Operand& operand, std::string_view parentName, const SymbolTable& globalSymbolTable) const
+		Operand& resolveOperand(u32 line, Operand& operand, std::string_view parentName, const SymbolTable& globalSymbolTable, const TranslationUnit* unit) const
 		{
-			return resolveOperand("", line, operand, parentName, nullptr, &globalSymbolTable);
+			return resolveOperand("", line, operand, parentName, nullptr, &globalSymbolTable, unit);
 		}
 
 		const std::unordered_map<std::string, Symbol>& getAllSymbols() const noexcept
@@ -178,7 +178,11 @@ namespace ceres::casm
 
 		void checkRedefinition(u32 line, const std::string& name) const;
 
-		Operand& resolveOperand(std::string_view file, u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>* unresolvedSymbols, const SymbolTable* globalSymbolTable) const;
+		Operand& resolveOperand(std::string_view file, u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>* unresolvedSymbols, const SymbolTable* globalSymbolTable, const TranslationUnit* unit) const;
+
+		// Everything this table cannot answer on its own: the unit's imports first, then the
+		// linker's global table. Reports an ambiguity rather than silently picking one.
+		std::optional<std::reference_wrapper<const Symbol>> lookupBeyond(u32 line, std::string_view name, const TranslationUnit* unit, const SymbolTable* globalSymbolTable) const;
 
 	private:
 		[[noreturn]] void error(u32 line, std::string_view message) const

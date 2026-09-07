@@ -54,7 +54,9 @@ namespace ceres::casm
 				}
 				else
 				{
-					if (unit.symbolTable().get(unresolvedSymbol.name).has_value())
+					// The unit's own table, then whatever its imports export, then the global table
+					// the pass above filled from every unit.
+					if (unit.resolveSymbol(unresolvedSymbol.name).has_value())
 						continue;
 
 					if (globalSymbolTable.get(unresolvedSymbol.name).has_value())
@@ -85,7 +87,7 @@ namespace ceres::casm
 					{
 						InstructionStatement& instructionStatement = statement.asInstruction();
 						for (auto& operand : instructionStatement.operands)
-							unit.symbolTable().resolveOperand(statement.line(), operand, lastParentLabel, globalSymbolTable);
+							unit.symbolTable().resolveOperand(statement.line(), operand, lastParentLabel, globalSymbolTable, &unit);
 
 						auto info = InstructionInfo::find(instructionStatement.signature());
 						if (!info.has_value())

@@ -78,7 +78,24 @@ namespace ceres::casm
 			error(line, "Redefinition of symbol: {}", name);
 	}
 
-	Operand& SymbolTable::resolveOperand(std::string_view file, u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>* unresolvedSymbols, const SymbolTable* globalSymbolTable) const
+	std::optional<std::reference_wrapper<const Symbol>> SymbolTable::lookupBeyond(u32 line, std::string_view name, const TranslationUnit* unit, const SymbolTable* globalSymbolTable) const
+	{
+		if (unit != nullptr)
+		{
+			const auto imported = unit->lookupImportedSymbol(name);
+			if (imported.ambiguous)
+				error(line, "'{}' is exported by both '{}' and '{}'", name, imported.foundIn, imported.alsoIn);
+			if (imported.has())
+				return std::cref(*imported.found);
+		}
+
+		if (globalSymbolTable != nullptr)
+			return globalSymbolTable->get(name);
+
+		return std::nullopt;
+	}
+
+	Operand& SymbolTable::resolveOperand(std::string_view file, u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>* unresolvedSymbols, const SymbolTable* globalSymbolTable, const TranslationUnit* unit) const
 	{
 		if (operand.isIdentifier())
 		{
@@ -87,8 +104,8 @@ namespace ceres::casm
 				? getLocal(identifierOperand.name, parentName)
 				: get(identifierOperand.name);
 
-			if (!value.has_value() && globalSymbolTable != nullptr)
-				value = globalSymbolTable->get(identifierOperand.name);
+			if (!value.has_value() && !identifierOperand.isLocal)
+				value = lookupBeyond(line, identifierOperand.name, unit, globalSymbolTable);
 
 			if (!value.has_value())
 			{
@@ -142,8 +159,8 @@ namespace ceres::casm
 			{
 				const auto& identifierOperand = memoryOperand.identifierOffset();
 				auto value = get(identifierOperand.name);
-				if (!value.has_value() && globalSymbolTable != nullptr)
-					value = globalSymbolTable->get(identifierOperand.name);
+				if (!value.has_value())
+					value = lookupBeyond(line, identifierOperand.name, unit, globalSymbolTable);
 
 				if (!value.has_value())
 				{
@@ -178,20 +195,6 @@ namespace ceres::casm
 		}
 
 		return operand;
-	}
-
-	void SymbolTable::importSymbols(const TranslationUnit& translationUnit)
-	{
-		const auto& externSymbolTable = translationUnit.symbolTable();
-
-		for (const auto& [name, symbol] : externSymbolTable.getAllSymbols())
-		{
-			if (symbol.isConstant())
-			{
-				if (const auto [it, inserted] = _symbols.emplace(name, symbol); !inserted)
-					error(0, "Redefinition of global symbol: {}", it->first);
-			}
-		}
 	}
 
 	void SymbolTable::relocateSymbols(Address textOffset, Address dataOffset, Address rodataOffset, Address bssOffset)

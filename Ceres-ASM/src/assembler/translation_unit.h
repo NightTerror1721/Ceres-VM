@@ -4,10 +4,10 @@
 #include "macro_table.h"
 #include "relocatable_statement.h"
 #include "size.h"
+#include <algorithm>
 #include <vector>
 #include <string_view>
 #include <expected>
-#include <flat_set>
 #include <filesystem>
 
 namespace ceres::casm
@@ -33,7 +33,11 @@ namespace ceres::casm
 		MacroTable _macroTable; // The macro table for the translation unit
 		SectionSizes _sectionSizes; // The sizes of the sections in the translation unit
 		std::vector<UnresolvedSymbol> _unresolvedSymbols; // List of unresolved symbols in the translation unit
-		std::flat_set<std::string> _importedModules; // List of imported modules in the translation unit
+		// The modules this unit imports *directly*, in source order. A module is referenced, never
+		// merged: its symbols and macros stay in its own tables and are found by walking this list
+		// (see resolveSymbol). Merging is what used to make the same declaration arrive twice
+		// through two different import paths.
+		std::vector<std::string> _directImports;
 
 	public:
 		TranslationUnit() = delete;
@@ -60,17 +64,59 @@ namespace ceres::casm
 		inline MacroTable& macroTable() noexcept { return _macroTable; }
 		inline SectionSizes& sectionSizes() noexcept { return _sectionSizes; }
 		inline std::vector<RelocatableStatement>& ast() noexcept { return _ast; }
-		inline std::span<const std::string> importedModules() const noexcept { return _importedModules; }
+		inline std::span<const std::string> directImports() const noexcept { return _directImports; }
 
 		inline void setAST(std::vector<RelocatableStatement>&& ast) noexcept { _ast = std::move(ast); }
 		inline void setUnresolvedSymbols(std::vector<UnresolvedSymbol>&& symbols) noexcept { _unresolvedSymbols = std::move(symbols); }
-		inline void addImportedModule(const std::string& moduleName) { _importedModules.insert(moduleName); }
 
-		inline bool hasImportedModule(const std::string& moduleName) const noexcept
+		inline bool hasDirectImport(const std::string& modulePath) const noexcept
 		{
-			return _importedModules.contains(moduleName);
+			return std::find(_directImports.begin(), _directImports.end(), modulePath) != _directImports.end();
 		}
-		
+
+		// Importing the same module twice adds nothing: the second `import` of a path already in
+		// the list is silently a no-op, which is the implicit "pragma once".
+		inline void addDirectImport(const std::string& modulePath)
+		{
+			if (!hasDirectImport(modulePath))
+				_directImports.push_back(modulePath);
+		}
+
+	public:
+		// What a lookup through the import graph found. `ambiguous` means two different units both
+		// export the name: with nothing merged there is no redefinition error to raise at import
+		// time any more, so the clash is reported where it actually bites, at the use.
+		template <typename T>
+		struct ImportLookup
+		{
+			const T* found = nullptr;
+			std::string_view foundIn;
+			std::string_view alsoIn; // Non-empty only when ambiguous
+			bool ambiguous = false;
+
+			constexpr bool has() const noexcept { return found != nullptr; }
+		};
+
+		// The unit's own table first, at any visibility, then the exported surface of everything it
+		// imports. A symbol that is not exported stays invisible from outside the unit that declares it.
+		OptionalConstRef<Symbol> resolveSymbol(std::string_view name) const;
+		OptionalConstRef<Macro> resolveMacro(const MacroSignature& signature) const;
+
+		// The import graph only, skipping this unit's own table - for the callers that have already
+		// looked there and need to know whether an import supplies the name.
+		ImportLookup<Symbol> lookupImportedSymbol(std::string_view name) const;
+		ImportLookup<Macro> lookupImportedMacro(const MacroSignature& signature) const;
+
+	private:
+		// `visited` is what keeps a diamond honest: a imports b and c, both of which import d, walks
+		// d once instead of finding the same declaration twice and calling it a redefinition.
+		void collectExportedSymbol(std::string_view name, std::vector<const TranslationUnit*>& visited, ImportLookup<Symbol>& result) const;
+		void collectExportedMacro(const MacroSignature& signature, std::vector<const TranslationUnit*>& visited, ImportLookup<Macro>& result) const;
+
+		// What crosses a module boundary. A global symbol stays visible however many imports it
+		// travels through; anything else never leaves the unit that declares it.
+		static bool isExported(const Symbol& symbol) noexcept;
+		static bool isExported(const Macro& macro) noexcept;
 	};
 
 	class TranslationUnitBuilder

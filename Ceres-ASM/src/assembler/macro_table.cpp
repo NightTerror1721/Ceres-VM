@@ -27,16 +27,6 @@ namespace ceres::casm
 		return std::nullopt;
 	}
 
-	void MacroTable::importMacros(const TranslationUnit& translationUnit)
-	{
-		const auto& externMacroTable = translationUnit.macroTable();
-		for (const auto& [signature, macro] : externMacroTable._macros)
-		{
-			if (const auto [it, inserted] = _macros.emplace(signature, macro); !inserted)
-				error(0, "Macro redefinition: {}", it->first.name);
-		}
-	}
-
 	void MacroTable::checkRedefinition(u32 line, const MacroSignature& signature) const
 	{
 		if (_macros.contains(signature))

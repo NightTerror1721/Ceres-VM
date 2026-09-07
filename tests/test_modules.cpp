@@ -175,3 +175,83 @@ TEST(modules, a_missing_module_is_reported_with_the_path_it_looked_for)
 	CHECK(!r.ok());
 	CHECK(r.joinedErrors().find("nowhere.casm") != std::string::npos);
 }
+
+// A diamond - main imports two modules that both import a third - used to fail with "Redefinition
+// of global symbol", because each import copied the whole table of the module it imported, so the
+// shared module's declarations arrived twice by two different routes. Nothing is copied any more.
+TEST(modules, a_module_reached_through_two_paths_is_not_a_redefinition)
+{
+	Workspace ws{ "diamond" };
+	ws.write("shared.casm",
+		"const SHARED = 7\r\n"
+		"macro shared_nop\r\n"
+		"    nop\r\n"
+		"endmacro\r\n");
+	ws.write("left.casm",
+		"import \"shared.casm\"\r\n"
+		"const FROM_LEFT = 1\r\n");
+	ws.write("right.casm",
+		"import \"shared.casm\"\r\n"
+		"const FROM_RIGHT = 2\r\n");
+	ws.write("main.casm",
+		"import \"left.casm\"\r\n"
+		"import \"right.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, SHARED\r\n"
+		"    li r2, FROM_LEFT\r\n"
+		"    li r3, FROM_RIGHT\r\n"
+		"    shared_nop\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	// li r1, 7 - the shared constant reached through both branches still has its one value.
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 7 });
+}
+
+// The other half of not merging: a name that genuinely has two different definitions is no longer
+// caught at import time, so it has to be caught where it is used - and say where both came from.
+TEST(modules, two_modules_exporting_the_same_name_are_reported_at_the_use)
+{
+	Workspace ws{ "ambiguous" };
+	ws.write("left.casm", "const CLASH = 1\r\n");
+	ws.write("right.casm", "const CLASH = 2\r\n");
+	ws.write("main.casm",
+		"import \"left.casm\"\r\n"
+		"import \"right.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, CLASH\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("CLASH") != std::string::npos);
+	CHECK(r.joinedErrors().find("left.casm") != std::string::npos);
+	CHECK(r.joinedErrors().find("right.casm") != std::string::npos);
+}
+
+// Two modules may each declare the same name as long as nothing forces a choice between them.
+TEST(modules, an_unused_clash_between_two_modules_is_not_an_error)
+{
+	Workspace ws{ "unused_clash" };
+	ws.write("left.casm", "const CLASH = 1\r\nconst LEFT_ONLY = 10\r\n");
+	ws.write("right.casm", "const CLASH = 2\r\n");
+	ws.write("main.casm",
+		"import \"left.casm\"\r\n"
+		"import \"right.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, LEFT_ONLY\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(r.ok());
+	if (!r.ok()) Registry::instance().recordFailure(r.joinedErrors());
+}

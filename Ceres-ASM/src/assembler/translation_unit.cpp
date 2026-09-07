@@ -197,15 +197,10 @@ namespace ceres::casm
 					if (!moduleUnit)
 						error(statement.line(), "Failed to load module '{}' (looked for {})", imp.moduleName, resolvedPath);
 
-					if (!_translationUnit.hasImportedModule(resolvedPath))
-					{
-						_translationUnit.addImportedModule(resolvedPath);
-						symbolTable.importSymbols(moduleUnit->get());
-						macroTable.importMacros(moduleUnit->get());
-						
-						for (const auto& importedModule : moduleUnit->get().importedModules())
-							_translationUnit.addImportedModule(importedModule);
-					}
+					// Nothing is copied out of the module: it is loaded once per run (AssemblyState
+					// caches units by resolved path) and recorded here as a place to look. Importing
+					// it a second time, directly or through another module, is a no-op.
+					_translationUnit.addDirectImport(resolvedPath);
 				}
 				else if (statement.isMacroDeclaration())
 				{
@@ -225,7 +220,7 @@ namespace ceres::casm
 
 					auto& instruction = statement.asInstruction();
 					for (auto& operand : instruction.operands)
-						symbolTable.tryResolveOperand(statement.file(), statement.line(), operand, _lastParentLabel, _unresolvedSymbols);
+						symbolTable.tryResolveOperand(statement.file(), statement.line(), operand, _lastParentLabel, _unresolvedSymbols, &_translationUnit);
 
 					_ast.push_back(RelocatableStatement::makeInstruction(statement.file(), statement.line(), currentOffset(), std::move(instruction)));
 					_ast.back().setExpansionSite(statement.expansionFile(), statement.expansionLine(), static_cast<u16>(expansionDepth));
@@ -262,7 +257,7 @@ namespace ceres::casm
 		if (expansionDepth >= MaxMacroExpansionDepth)
 			error(line, "Macro expansion nested more than {} levels deep; '{}' is probably recursive", MaxMacroExpansionDepth, call.name);
 
-		const auto macroOpt = _translationUnit.macroTable().getMacro(
+		const auto macroOpt = _translationUnit.resolveMacro(
 			MacroSignature::make(call.name.view(), static_cast<u32>(call.arity())));
 
 		if (!macroOpt.has_value())
@@ -491,12 +486,132 @@ namespace ceres::casm
 
 	std::optional<std::reference_wrapper<const LiteralValue>> TranslationUnitBuilder::getConstantValue(u32 line, std::string_view name) const noexcept
 	{
-		if (auto result = _translationUnit.symbolTable().get(name); result.has_value())
+		if (auto result = _translationUnit.resolveSymbol(name); result.has_value())
 		{
 			const Symbol& symbol = result.value().get();
 			if (symbol.isConstant())
 				return std::cref(symbol.value());
 		}
 		return std::nullopt;
+	}
+
+	bool TranslationUnit::isExported(const Symbol& symbol) noexcept
+	{
+		return symbol.isConstant();
+	}
+
+	bool TranslationUnit::isExported(const Macro&) noexcept
+	{
+		return true;
+	}
+
+	OptionalConstRef<Symbol> TranslationUnit::resolveSymbol(std::string_view name) const
+	{
+		if (auto own = _symbolTable.get(name); own.has_value())
+			return own;
+
+		const auto imported = lookupImportedSymbol(name);
+		if (!imported.has())
+			return std::nullopt;
+
+		return std::cref(*imported.found);
+	}
+
+	OptionalConstRef<Macro> TranslationUnit::resolveMacro(const MacroSignature& signature) const
+	{
+		if (auto own = _macroTable.getMacro(signature); own.has_value())
+			return own;
+
+		const auto imported = lookupImportedMacro(signature);
+		if (!imported.has())
+			return std::nullopt;
+
+		return std::cref(*imported.found);
+	}
+
+	TranslationUnit::ImportLookup<Symbol> TranslationUnit::lookupImportedSymbol(std::string_view name) const
+	{
+		ImportLookup<Symbol> result;
+		std::vector<const TranslationUnit*> visited;
+		visited.push_back(this);
+
+		for (const auto& path : _directImports)
+		{
+			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+				unit->get().collectExportedSymbol(name, visited, result);
+		}
+
+		return result;
+	}
+
+	TranslationUnit::ImportLookup<Macro> TranslationUnit::lookupImportedMacro(const MacroSignature& signature) const
+	{
+		ImportLookup<Macro> result;
+		std::vector<const TranslationUnit*> visited;
+		visited.push_back(this);
+
+		for (const auto& path : _directImports)
+		{
+			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+				unit->get().collectExportedMacro(signature, visited, result);
+		}
+
+		return result;
+	}
+
+	void TranslationUnit::collectExportedSymbol(std::string_view name, std::vector<const TranslationUnit*>& visited, ImportLookup<Symbol>& result) const
+	{
+		if (std::find(visited.begin(), visited.end(), this) != visited.end())
+			return;
+		visited.push_back(this);
+
+		if (auto own = _symbolTable.get(name); own.has_value() && isExported(own->get()))
+		{
+			const Symbol* symbol = &own->get();
+			if (result.found == nullptr)
+			{
+				result.found = symbol;
+				result.foundIn = _file;
+			}
+			else if (result.found != symbol && !result.ambiguous)
+			{
+				result.ambiguous = true;
+				result.alsoIn = _file;
+			}
+		}
+
+		for (const auto& path : _directImports)
+		{
+			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+				unit->get().collectExportedSymbol(name, visited, result);
+		}
+	}
+
+	void TranslationUnit::collectExportedMacro(const MacroSignature& signature, std::vector<const TranslationUnit*>& visited, ImportLookup<Macro>& result) const
+	{
+		if (std::find(visited.begin(), visited.end(), this) != visited.end())
+			return;
+		visited.push_back(this);
+
+		if (auto own = _macroTable.getMacro(signature); own.has_value() && isExported(own->get()))
+		{
+			const Macro* macro = &own->get();
+			if (result.found == nullptr)
+			{
+				result.found = macro;
+				result.foundIn = _file;
+			}
+			else if (result.found != macro && !result.ambiguous)
+			{
+				result.ambiguous = true;
+				result.alsoIn = _file;
+			}
+		}
+
+		for (const auto& path : _directImports)
+		{
+			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+				unit->get().collectExportedMacro(signature, visited, result);
+		}
 	}
 }

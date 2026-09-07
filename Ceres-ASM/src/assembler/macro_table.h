@@ -131,8 +131,6 @@ namespace ceres::casm
 
 		OptionalConstRef<Macro> getMacro(const MacroSignature& signature) const noexcept;
 
-		void importMacros(const TranslationUnit& translationUnit);
-
 	public:
 		void defineMacro(std::string&& name, std::vector<std::string>&& parameters, std::vector<Statement>&& body)
 		{
