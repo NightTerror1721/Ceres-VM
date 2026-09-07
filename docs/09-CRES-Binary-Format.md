@@ -40,8 +40,8 @@ See [Debug information](21-Debug-Information.md).
 struct ProgramHeader
 {
     static inline constexpr u32 MagicNumber    = 0x43524553; // 'CRES' in ASCII
-    static inline constexpr u16 CurrentVersion = 2;
-    static inline constexpr u16 MinimumSupportedVersion = 2;
+    static inline constexpr u16 CurrentVersion = 3;
+    static inline constexpr u16 MinimumSupportedVersion = 3;
 
     u32 magic;
     u16 version;
@@ -61,7 +61,7 @@ struct ProgramHeader
 | Field | Meaning |
 | --- | --- |
 | `magic` | Always `0x43524553` — the ASCII bytes `CRES`. Loading rejects any file that doesn't start with this. |
-| `version` | Format version; currently `2`. A file below `MinimumSupportedVersion` is rejected — see [Versioning](#versioning). |
+| `version` | Format version; currently `3`. A file below `MinimumSupportedVersion` is rejected — see [Versioning](#versioning). |
 | `flags` | Bit 0 (`ProgramFlags::HasDebugInfo`) says a debug section follows the data section; every other bit is still reserved. See [Debug information](21-Debug-Information.md). |
 | `entryPoint` | The absolute address execution starts at (the resolved address of the `main` label). |
 | `textSize` / `rodataSize` / `dataSize` / `bssSize` | Byte sizes of each section, as computed by the linker (each rounded up to a 4-byte boundary — see [Labels and symbols](12-Labels-and-Symbols.md)). |
@@ -81,14 +81,16 @@ if (header.version > ProgramHeader::CurrentVersion ||
 Both ends of the range are checked, and the lower one is the interesting half.
 
 The check originally only rejected files **newer** than the current version, and accepted every older
-one. That was fine while the instruction encoding never changed. It stopped being fine when the
-comparison jumps were added: they needed sixteen opcodes where only eight slots were free, so the
-control-flow block grew and pushed the three families above it up (see
-[Instruction set → The opcodes moved](05-Instruction-Set.md#the-opcodes-moved)).
+one. That was fine while the instruction encoding never changed. Twice now it has:
 
-A version 1 file is therefore not a version 2 file with unfamiliar instructions in it. It is a file
-where `0x70` used to mean `PUSH` and now means `JAB`, a conditional jump. Without a lower bound it
-would have loaded cleanly and run as something else entirely, with no error and no trace.
+| Change | What the same bytes used to mean |
+| --- | --- |
+| **1 → 2** | The comparison jumps needed sixteen opcodes where eight slots were free, so the control-flow block grew and pushed the three families above it up (see [Instruction set → The opcodes moved](05-Instruction-Set.md#the-opcodes-moved)). `0x70` was `PUSH`; it is now `JAB`. |
+| **2 → 3** | Memory displacements became **signed**. A v2 `[r1 + 65528]` was the only way to write what is now `[r1 - 8]`, so the same sixteen bits address different memory. |
+
+Neither is detectable from the file itself. Without a lower bound an old file would load cleanly and
+run as something else entirely, with no error and no trace — a `PUSH` executed as a conditional jump,
+or a load reaching 64 KiB in the wrong direction.
 
 ```
 $ ceres run old.cres

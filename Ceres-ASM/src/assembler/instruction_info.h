@@ -47,9 +47,9 @@ namespace ceres::casm
 		SIMM16,			// 16-bit signed immediate value
 		IMM24,			// 24-bit immediate value
 		SIMM24,			// 24-bit signed immediate value
-		RD_IMM16,		// Destination register with 16-bit immediate value
-		RS_IMM16,		// Source register with 16-bit immediate value
-		RT_IMM16,		// Target register with 16-bit immediate value
+		RD_SIMM16,		// Destination register with a signed 16-bit displacement
+		RS_SIMM16,		// Source register with a signed 16-bit displacement
+		RT_SIMM16,		// Target register with a signed 16-bit displacement
 		REL_ADDR,		// Relative address (for branch instructions) (similar to SIMM24)
 	};
 
@@ -171,9 +171,9 @@ namespace ceres::casm
 				case OpcodeParameterType::SIMM24:
 					return OperandType::Immediate;
 
-				case OpcodeParameterType::RD_IMM16:
-				case OpcodeParameterType::RS_IMM16:
-				case OpcodeParameterType::RT_IMM16:
+				case OpcodeParameterType::RD_SIMM16:
+				case OpcodeParameterType::RS_SIMM16:
+				case OpcodeParameterType::RT_SIMM16:
 					return OperandType::RegisterPlusAddress;
 
 				case OpcodeParameterType::REL_ADDR:

@@ -363,9 +363,12 @@ A local label is stored as `parent.name`, so each subroutine can have its own `.
 ```casm
 ldr r1, [r2]
 ldr r1, [r2 + 4]
-ldr r1, [r2 - 8]
+ldr r1, [r2 - 8]          // signed: eight bytes *below* the base
 ldr r1, [r2 + OFFSET]     // OFFSET must be a constant
 ```
+
+A displacement is a signed 16-bit field, `-32768` to `32767`. Anything outside that is rejected
+rather than truncated.
 
 Write the spaces: `[r5+0]` lexes the `+0` as a signed literal and fails to parse.
 

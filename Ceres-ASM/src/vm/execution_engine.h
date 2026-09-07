@@ -722,27 +722,35 @@ namespace ceres::vm
 		forceinline void FMOV(const Instruction inst) noexcept { setFloatReg(inst.fd(), getFloatReg(inst.fs())); advancePC(); }
 		forceinline void LI(const Instruction inst) noexcept { setReg(inst.rd(), inst.imm16()); advancePC(); }
 		forceinline void LUI(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(inst.imm16()) << 16u); advancePC(); }
+		// A memory displacement is signed: `[fp - 8]` has to reach eight bytes below the base, not
+		// 65528 above it. Widened through i32 and folded back to u32 so the addition wraps the way
+		// a 32-bit address space does.
+		static forceinline constexpr u32 displacement(const Instruction inst) noexcept
+		{
+			return static_cast<u32>(static_cast<i32>(inst.simm16()));
+		}
+
 		forceinline void LDR(const Instruction inst) noexcept
 		{
-			const Address address = getReg(inst.rs()) + inst.imm16();
+			const Address address = getReg(inst.rs()) + displacement(inst);
 			if (!checkAlignment<u32>(address))
 				return;
 			setReg(inst.rd(), read<u32>(address));
 			advancePC();
 		}
-		forceinline void LDRB(const Instruction inst) noexcept { setReg(inst.rd(), read<u8>(getReg(inst.rs()) + inst.imm16())); advancePC(); }
+		forceinline void LDRB(const Instruction inst) noexcept { setReg(inst.rd(), read<u8>(getReg(inst.rs()) + displacement(inst))); advancePC(); }
 		forceinline void LDRH(const Instruction inst) noexcept
 		{
-			const Address address = getReg(inst.rs()) + inst.imm16();
+			const Address address = getReg(inst.rs()) + displacement(inst);
 			if (!checkAlignment<u16>(address))
 				return;
 			setReg(inst.rd(), read<u16>(address));
 			advancePC();
 		}
-		forceinline void LDRSB(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(getReg(inst.rs()) + inst.imm16()))); advancePC(); }
+		forceinline void LDRSB(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(getReg(inst.rs()) + displacement(inst)))); advancePC(); }
 		forceinline void LDRSH(const Instruction inst) noexcept
 		{
-			const Address address = getReg(inst.rs()) + inst.imm16();
+			const Address address = getReg(inst.rs()) + displacement(inst);
 			if (!checkAlignment<i16>(address))
 				return;
 			setReg(inst.rd(), static_cast<u32>(read<i16>(address)));
@@ -750,7 +758,7 @@ namespace ceres::vm
 		}
 		forceinline void FLDR(const Instruction inst) noexcept
 		{
-			const Address address = getReg(inst.rs()) + inst.imm16();
+			const Address address = getReg(inst.rs()) + displacement(inst);
 			if (!checkAlignment<f32>(address))
 				return;
 			setFloatReg(inst.fd(), read<f32>(address));
@@ -758,16 +766,16 @@ namespace ceres::vm
 		}
 		forceinline void STR(const Instruction inst) noexcept
 		{
-			const Address address = getReg(inst.rd()) + inst.imm16();
+			const Address address = getReg(inst.rd()) + displacement(inst);
 			if (!checkAlignment<u32>(address))
 				return;
 			write<u32>(address, getReg(inst.rs()));
 			advancePC();
 		}
-		forceinline void STRB(const Instruction inst) noexcept { write<u8>(getReg(inst.rd()) + inst.imm16(), static_cast<u8>(getReg(inst.rs()))); advancePC(); }
+		forceinline void STRB(const Instruction inst) noexcept { write<u8>(getReg(inst.rd()) + displacement(inst), static_cast<u8>(getReg(inst.rs()))); advancePC(); }
 		forceinline void STRH(const Instruction inst) noexcept
 		{
-			const Address address = getReg(inst.rd()) + inst.imm16();
+			const Address address = getReg(inst.rd()) + displacement(inst);
 			if (!checkAlignment<u16>(address))
 				return;
 			write<u16>(address, static_cast<u16>(getReg(inst.rs())));
@@ -775,13 +783,13 @@ namespace ceres::vm
 		}
 		forceinline void FSTR(const Instruction inst) noexcept
 		{
-			const Address address = getReg(inst.rd()) + inst.imm16();
+			const Address address = getReg(inst.rd()) + displacement(inst);
 			if (!checkAlignment<f32>(address))
 				return;
 			write<f32>(address, getFloatReg(inst.fs()));
 			advancePC();
 		}
-		forceinline void LEA(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs()) + inst.imm16()); advancePC(); }
+		forceinline void LEA(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs()) + displacement(inst)); advancePC(); }
 
 		forceinline void JP(const Instruction inst) noexcept { _pc += inst.simm24().signedValue(); }
 		forceinline void JPR(const Instruction inst) noexcept { _pc = Address(getReg(inst.rs())); }

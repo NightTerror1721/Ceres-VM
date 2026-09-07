@@ -64,6 +64,11 @@ namespace ceres::casm
 		void padToAlignment(std::vector<u8>& buffer, u32 alignment);
 		void padSectionToAlignment(std::vector<u8>& buffer, usize unitStart);
 		void emitInstruction(const RelocatableStatement& statement);
+
+		// A memory displacement is a signed 16-bit field. It used to be written with a plain
+		// truncation, so `[r1 + 70000]` quietly became `[r1 + 4464]` and `[r1 - 8]` became
+		// `[r1 + 65528]` - the second of which is why the field is signed now.
+		bool checkDisplacement(const RelocatableStatement& statement, u32 value);
 		Address lastSectionAddress(SectionType sectionType);
 
 		// Called once per machine word actually written to .text, so a pseudo-instruction that

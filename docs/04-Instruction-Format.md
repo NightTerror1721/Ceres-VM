@@ -92,6 +92,19 @@ Plus one named factory per instruction (`Instruction::ADD(rd, rs, rt)`,
 `Instruction::LDR(rd, rs, imm16)`, …), which the assembler's `BinaryEmitter` and the VM's own test
 suite both use instead of calling `make()` directly.
 
+## Signed and unsigned immediate fields
+
+The same sixteen bits are read differently depending on the instruction:
+
+| Read as | Used by |
+| --- | --- |
+| **Unsigned** | `li`, `lui`, and the ALU immediate forms (`addi`, `andi`, `shli`, …) |
+| **Signed** | Every memory displacement (`ldr`/`str`/`lea` and their widths), `cmpi`, and the signed ALU forms (`imuli`, `idivi`, `imodi`) |
+
+The distinction matters most for a displacement: `[fp - 8]` has to reach below the base, not 65528
+bytes above it, which is what a zero-extended field would do. The assembler rejects a displacement
+outside `-32768`–`32767` rather than truncating it.
+
 ## Related pages
 
 - [Registers and flags](03-Registers-and-Flags.md) — what `rd`/`rs`/`rt` refer to.

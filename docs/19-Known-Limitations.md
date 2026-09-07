@@ -90,6 +90,7 @@ because a reader coming from a more conventional ISA might otherwise assume they
 | `iret` never restores the Halting flag | `halt` means "wait for an interrupt"; restoring it would put the machine straight back to sleep with no way to wake it | [Registers and flags](03-Registers-and-Flags.md#flags-register) |
 | A stack overflow only protects the vector table/BIOS, not the program itself | Nothing tracks where the loaded program's image ends | [Memory → The stack](02-Memory.md#the-stack) |
 | `[r5+0]` fails to parse | Lexes as the register followed by the signed literal `+0`, not as `+` then `0` | [Language syntax](10-Language-Syntax.md#addressing-memory-operands) |
+| A displacement above 32767 is rejected | The field is a signed 16 bits; it used to truncate silently | [Instruction format](04-Instruction-Format.md#signed-and-unsigned-immediate-fields) |
 | A `global const` is not in the linker's global table | It occupies no memory, so there is nothing to link; it travels by `import`, which lets two libraries declare the same name | [Labels and symbols](12-Labels-and-Symbols.md) |
 | `math.PI` needs the dot adjacent | Adjacency is the only thing separating it from `jnz .loop` once whitespace is discarded | [Language syntax](10-Language-Syntax.md#qualified-names) |
 | A `.cres` from before the renumbering is rejected, not run | `0x70` used to mean `PUSH` and now means `JAB`; running it would be silent corruption | [The `.cres` binary format](09-CRES-Binary-Format.md#versioning) |

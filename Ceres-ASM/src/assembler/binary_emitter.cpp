@@ -371,7 +371,10 @@ namespace ceres::casm
 				case OpcodeParameterType::IMM8: return 8;
 				case OpcodeParameterType::IMM16:
 				case OpcodeParameterType::IMM16_LOW:
-				case OpcodeParameterType::SIMM16: return 16;
+				case OpcodeParameterType::SIMM16:
+				case OpcodeParameterType::RD_SIMM16:
+				case OpcodeParameterType::RS_SIMM16:
+				case OpcodeParameterType::RT_SIMM16: return 16;
 				case OpcodeParameterType::IMM24:
 				case OpcodeParameterType::SIMM24:
 				case OpcodeParameterType::REL_ADDR: return 24;
@@ -393,6 +396,17 @@ namespace ceres::casm
 				default: return "an immediate";
 			}
 		}
+	}
+
+	bool BinaryEmitter::checkDisplacement(const RelocatableStatement& statement, u32 value)
+	{
+		const i32 signedValue = static_cast<i32>(value);
+		if (signedValue >= -32768 && signedValue <= 32767)
+			return true;
+
+		reportError(statement.line(),
+			"Memory displacement {} does not fit in a signed 16-bit field (-32768 to 32767)", signedValue);
+		return false;
 	}
 
 	void BinaryEmitter::emitInstruction(const RelocatableStatement& statement)
@@ -556,13 +570,17 @@ namespace ceres::casm
 							break;
 						}
 
-						case OpcodeParameterType::RD_IMM16:
+						case OpcodeParameterType::RD_SIMM16:
 						{
 							const MemoryOperand& memoryOperand = operandInfo.asMemory();
 							encodedInstruction.setRd(memoryOperand.baseRegIndex);
 
 							if (memoryOperand.isImmediateOffset())
-								encodedInstruction.setImm16(static_cast<u16>(memoryOperand.immediateOffset().value));
+							{
+								if (!checkDisplacement(statement, memoryOperand.immediateOffset().value))
+									return;
+								encodedInstruction.setSImm16(static_cast<i16>(memoryOperand.immediateOffset().value));
+							}
 							else if (memoryOperand.isIdentifierOffset())
 							{
 								// The linker rewrites symbolic offsets into immediates, so reaching this
@@ -574,13 +592,17 @@ namespace ceres::casm
 							break;
 						}
 
-						case OpcodeParameterType::RS_IMM16:
+						case OpcodeParameterType::RS_SIMM16:
 						{
 							const MemoryOperand& memoryOperand = operandInfo.asMemory();
 							encodedInstruction.setRs(memoryOperand.baseRegIndex);
 
 							if (memoryOperand.isImmediateOffset())
-								encodedInstruction.setImm16(static_cast<u16>(memoryOperand.immediateOffset().value));
+							{
+								if (!checkDisplacement(statement, memoryOperand.immediateOffset().value))
+									return;
+								encodedInstruction.setSImm16(static_cast<i16>(memoryOperand.immediateOffset().value));
+							}
 							else if (memoryOperand.isIdentifierOffset())
 							{
 								// The linker rewrites symbolic offsets into immediates, so reaching this
@@ -592,7 +614,7 @@ namespace ceres::casm
 							break;
 						}
 
-						case OpcodeParameterType::RT_IMM16:
+						case OpcodeParameterType::RT_SIMM16:
 						{
 							const MemoryOperand& memoryOperand = operandInfo.asMemory();
 							encodedInstruction.setRt(memoryOperand.baseRegIndex);

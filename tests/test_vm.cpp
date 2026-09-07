@@ -113,19 +113,58 @@ TEST(vm, store_and_load_round_trip_through_memory)
 
 TEST(vm, a_store_displacement_with_a_high_nibble_is_not_read_as_a_register)
 {
-	// 0xF0F0 as a displacement: under the old encoding its top nibble was decoded as the value
-	// register index, so this wrote from r15 (the stack pointer) instead of r2.
+	// 0x70F0 as a displacement: under the old encoding its top nibble was decoded as the value
+	// register index, so this wrote from r7 instead of r2. Still positive as a signed field, which
+	// is what keeps this a decoding test rather than a sign test.
 	const u32 base = Memory::UnrestrictedSegmentStart.value();
 
 	Machine m{
 		Instruction::LUI(1, static_cast<u16>(base >> 16)),
 		Instruction::ORI(1, 1, static_cast<u16>(base & 0xFFFF)),
 		Instruction::LI(2, 0x1234),
-		Instruction::STRH(1, 2, 0xF0F0),
+		Instruction::STRH(1, 2, 0x70F0),
 	};
 	m.step(4);
 
-	CHECK_EQ(m.memory().read<u16>(Address(base + 0xF0F0)), u16{ 0x1234 });
+	CHECK_EQ(m.memory().read<u16>(Address(base + 0x70F0)), u16{ 0x1234 });
+}
+
+// A displacement is a *signed* 16-bit field. It used to be zero-extended, so `[base - 8]` reached
+// 65528 bytes above the base instead of eight below it - which made a frame pointer, and with it any
+// calling convention, impossible to address downward.
+TEST(vm, a_negative_displacement_reaches_below_the_base)
+{
+	const u32 base = Memory::UnrestrictedSegmentStart.value() + 64;
+
+	Machine m{
+		Instruction::LUI(1, static_cast<u16>(base >> 16)),
+		Instruction::ORI(1, 1, static_cast<u16>(base & 0xFFFF)),
+		Instruction::LI(2, 0xBEEF),
+		Instruction::STR(1, 2, static_cast<u16>(-8)),      // *(u32*)(r1 - 8) = r2
+		Instruction::LDR(3, 1, static_cast<u16>(-8)),      // r3 = *(u32*)(r1 - 8)
+		Instruction::LEA(4, 1, static_cast<u16>(-8)),      // r4 = r1 - 8
+	};
+	m.step(6);
+
+	CHECK_EQ(m.memory().read<u32>(Address(base - 8)), u32{ 0xBEEF });
+	CHECK_EQ(m.reg(3), 0xBEEFu);
+	CHECK_EQ(m.reg(4), base - 8);
+}
+
+TEST(vm, the_displacement_range_runs_both_ways)
+{
+	const u32 base = Memory::UnrestrictedSegmentStart.value() + 40000;
+
+	Machine m{
+		Instruction::LUI(1, static_cast<u16>(base >> 16)),
+		Instruction::ORI(1, 1, static_cast<u16>(base & 0xFFFF)),
+		Instruction::LEA(2, 1, static_cast<u16>(32767)),   // the largest reachable forwards
+		Instruction::LEA(3, 1, static_cast<u16>(-32768)),  // and backwards
+	};
+	m.step(4);
+
+	CHECK_EQ(m.reg(2), base + 32767);
+	CHECK_EQ(m.reg(3), base - 32768);
 }
 
 TEST(vm, lea_computes_an_address_without_touching_memory)

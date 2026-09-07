@@ -90,23 +90,27 @@ shift by an effective zero.
 
 ## Memory access · `0x40`–`0x4E`
 
+Every displacement below is a **signed** 16-bit field: `-32768` to `32767`, measured from the base
+register. A value outside that range is rejected at assembly time rather than truncated.
+
+
 | Assembly | Opcode | Operands | Semantics |
 | --- | --- | --- | --- |
 | `mov rd, rs` | `MOV` `0x40` | 2 int regs | `rd = rs` |
 | `mov fd, fs` | `FMOV` `0x41` | 2 float regs | `fd = fs` |
 | `li rd, imm16` | `LI` `0x42` | reg + imm16 | `rd = imm16` (zero-extended) |
 | `lui rd, imm16` | `LUI` `0x43` | reg + imm16 | `rd = imm16 << 16` |
-| `ldr rd, [rs + imm16]` | `LDR` `0x48` | reg + reg + imm16 | `rd = *(u32*)(rs + imm16)`. Alignment-checked (4 bytes). |
-| `ldrb rd, [rs + imm16]` | `LDRB` `0x44` | reg + reg + imm16 | `rd = *(u8*)(rs + imm16)`. Never faults on alignment. |
-| `ldrh rd, [rs + imm16]` | `LDRH` `0x45` | reg + reg + imm16 | `rd = *(u16*)(rs + imm16)`. Alignment-checked (2 bytes). |
-| `ldrsb rd, [rs + imm16]` | `LDRSB` `0x46` | reg + reg + imm16 | `rd = sign_extend(*(i8*)(rs + imm16))`. Never faults on alignment. |
-| `ldrsh rd, [rs + imm16]` | `LDRSH` `0x47` | reg + reg + imm16 | `rd = sign_extend(*(i16*)(rs + imm16))`. Alignment-checked (2 bytes). |
-| `ldr fd, [rs + imm16]` | `FLDR` `0x49` | float reg + int reg + imm16 | `fd = *(float*)(rs + imm16)`. Alignment-checked (4 bytes). |
-| `str rs, [rd + imm16]` | `STR` `0x4A` | reg + reg + imm16 | `*(u32*)(rd + imm16) = rs`. **Base is `rd`, value is `rs`, and the value comes first in the written syntax** — see [Instruction format](04-Instruction-Format.md#the-critical-overlap-imm16-and-rt) for why. Alignment-checked. |
-| `strb rs, [rd + imm16]` | `STRB` `0x4B` | reg + reg + imm16 | `*(u8*)(rd + imm16) = rs`. Never faults on alignment. |
-| `strh rs, [rd + imm16]` | `STRH` `0x4C` | reg + reg + imm16 | `*(u16*)(rd + imm16) = rs`. Alignment-checked. |
-| `str fs, [rd + imm16]` | `FSTR` `0x4D` | reg + float reg + imm16 | `*(float*)(rd + imm16) = fs`. Alignment-checked. |
-| `lea rd, [rs + imm16]` | `LEA` `0x4E` | reg + reg + imm16 | `rd = rs + imm16` (computes the address, doesn't dereference it). |
+| `ldr rd, [rs + imm16]` | `LDR` `0x48` | reg + reg + imm16 | `rd = *(u32*)(rs + simm16)`. Alignment-checked (4 bytes). |
+| `ldrb rd, [rs + imm16]` | `LDRB` `0x44` | reg + reg + imm16 | `rd = *(u8*)(rs + simm16)`. Never faults on alignment. |
+| `ldrh rd, [rs + imm16]` | `LDRH` `0x45` | reg + reg + imm16 | `rd = *(u16*)(rs + simm16)`. Alignment-checked (2 bytes). |
+| `ldrsb rd, [rs + imm16]` | `LDRSB` `0x46` | reg + reg + imm16 | `rd = sign_extend(*(i8*)(rs + simm16))`. Never faults on alignment. |
+| `ldrsh rd, [rs + imm16]` | `LDRSH` `0x47` | reg + reg + imm16 | `rd = sign_extend(*(i16*)(rs + simm16))`. Alignment-checked (2 bytes). |
+| `ldr fd, [rs + imm16]` | `FLDR` `0x49` | float reg + int reg + imm16 | `fd = *(float*)(rs + simm16)`. Alignment-checked (4 bytes). |
+| `str rs, [rd + imm16]` | `STR` `0x4A` | reg + reg + imm16 | `*(u32*)(rd + simm16) = rs`. **Base is `rd`, value is `rs`, and the value comes first in the written syntax** — see [Instruction format](04-Instruction-Format.md#the-critical-overlap-imm16-and-rt) for why. Alignment-checked. |
+| `strb rs, [rd + imm16]` | `STRB` `0x4B` | reg + reg + imm16 | `*(u8*)(rd + simm16) = rs`. Never faults on alignment. |
+| `strh rs, [rd + imm16]` | `STRH` `0x4C` | reg + reg + imm16 | `*(u16*)(rd + simm16) = rs`. Alignment-checked. |
+| `str fs, [rd + imm16]` | `FSTR` `0x4D` | reg + float reg + imm16 | `*(float*)(rd + simm16) = fs`. Alignment-checked. |
+| `lea rd, [rs + imm16]` | `LEA` `0x4E` | reg + reg + imm16 | `rd = rs + simm16` (computes the address, doesn't dereference it). |
 
 None of the memory instructions touch the flags register.
 
@@ -116,8 +120,14 @@ None of the memory instructions touch the flags register.
 ldr r1, [r2]              // no offset
 ldr r1, [r2 + 4]           // literal offset
 ldr r1, [r2 - 8]           // negative offset
+ldr r1, [r2 - 8]           // negative: eight bytes *below* the base
 ldr r1, [r2 + OFFSET]      // OFFSET must resolve to a constant
 ```
+
+A negative displacement reaches below the base, which is what makes a frame pointer usable. It was
+not always so: the field used to be zero-extended, so `[r2 - 8]` silently added 65528. Any `.cres`
+written before that changed is rejected — see
+[The CRES binary format](09-CRES-Binary-Format.md#versioning).
 
 Whitespace around `+`/`-` inside brackets is mandatory: `[r5+0]` lexes as the register followed by
 the *signed literal* `+0`, which the parser doesn't accept there — always write `[r5 + 0]`.

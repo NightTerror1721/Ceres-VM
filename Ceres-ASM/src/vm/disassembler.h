@@ -241,11 +241,13 @@ namespace ceres::vm
 				case Shape::RdRsImm16:  return std::format("{} r{}, r{}, {}", entry.name, rd, rs, imm16);
 				case Shape::RdImm16:    return std::format("{} r{}, {}", entry.name, rd, imm16);
 				case Shape::RsImm16:    return std::format("{} r{}, {}", entry.name, rs, simm16);
-				case Shape::Load:       return std::format("{} r{}, [r{} + {}]", entry.name, rd, rs, imm16);
-				case Shape::FLoad:      return std::format("{} f{}, [r{} + {}]", entry.name, rd, rs, imm16);
-				case Shape::Store:      return std::format("{} [r{} + {}], r{}", entry.name, rd, imm16, rs);
-				case Shape::FStore:     return std::format("{} [r{} + {}], f{}", entry.name, rd, imm16, rs);
-				case Shape::Lea:        return std::format("{} r{}, [r{} + {}]", entry.name, rd, rs, imm16);
+				// A displacement is signed, so it is rendered with its own sign rather than a
+				// hard-coded '+' and a number that has wrapped.
+				case Shape::Load:       return std::format("{} r{}, [r{} {} {}]", entry.name, rd, rs, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)));
+				case Shape::FLoad:      return std::format("{} f{}, [r{} {} {}]", entry.name, rd, rs, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)));
+				case Shape::Store:      return std::format("{} [r{} {} {}], r{}", entry.name, rd, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)), rs);
+				case Shape::FStore:     return std::format("{} [r{} {} {}], f{}", entry.name, rd, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)), rs);
+				case Shape::Lea:        return std::format("{} r{}, [r{} {} {}]", entry.name, rd, rs, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)));
 				case Shape::Simm24:     return std::format("{} {}{}", entry.name, simm24 < 0 ? "" : "+", simm24);
 				case Shape::RdImm8:     return std::format("{} r{}, {:#04x}", entry.name, rd, imm8);
 				case Shape::RsImm8:     return std::format("{} {:#04x}, r{}", entry.name, imm8, rs);

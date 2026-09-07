@@ -129,12 +129,12 @@ namespace ceres::casm
 		inst(Opcode::FMOV, Mnemonic::MOV, OpcodeParameterType::FD, OpcodeParameterType::FS),
 		inst(Opcode::LI, Mnemonic::LI, OpcodeParameterType::RD, OpcodeParameterType::IMM16),
 		inst(Opcode::LUI, Mnemonic::LUI, OpcodeParameterType::RD, OpcodeParameterType::IMM16),
-		inst(Opcode::LDR, Mnemonic::LDR, OpcodeParameterType::RD, OpcodeParameterType::RS_IMM16),
-		inst(Opcode::LDRB, Mnemonic::LDRB, OpcodeParameterType::RD, OpcodeParameterType::RS_IMM16),
-		inst(Opcode::LDRH, Mnemonic::LDRH, OpcodeParameterType::RD, OpcodeParameterType::RS_IMM16),
-		inst(Opcode::LDRSB, Mnemonic::LDRSB, OpcodeParameterType::RD, OpcodeParameterType::RS_IMM16),
-		inst(Opcode::LDRSH, Mnemonic::LDRSH, OpcodeParameterType::RD, OpcodeParameterType::RS_IMM16),
-		inst(Opcode::FLDR, Mnemonic::LDR, OpcodeParameterType::FD, OpcodeParameterType::RS_IMM16),
+		inst(Opcode::LDR, Mnemonic::LDR, OpcodeParameterType::RD, OpcodeParameterType::RS_SIMM16),
+		inst(Opcode::LDRB, Mnemonic::LDRB, OpcodeParameterType::RD, OpcodeParameterType::RS_SIMM16),
+		inst(Opcode::LDRH, Mnemonic::LDRH, OpcodeParameterType::RD, OpcodeParameterType::RS_SIMM16),
+		inst(Opcode::LDRSB, Mnemonic::LDRSB, OpcodeParameterType::RD, OpcodeParameterType::RS_SIMM16),
+		inst(Opcode::LDRSH, Mnemonic::LDRSH, OpcodeParameterType::RD, OpcodeParameterType::RS_SIMM16),
+		inst(Opcode::FLDR, Mnemonic::LDR, OpcodeParameterType::FD, OpcodeParameterType::RS_SIMM16),
 		inst(sig(Mnemonic::LDV, OperandType::IntegralRegister, OperandType::VariableU8), {
 			op(Opcode::LUI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
 			op(Opcode::ORI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::RS, 0), param(OpcodeParameterType::IMM16_LOW, 1)),
@@ -170,10 +170,10 @@ namespace ceres::casm
 			op(Opcode::ORI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), paramUFixed(OpcodeParameterType::RS, ScratchRegister), param(OpcodeParameterType::IMM16_LOW, 1)),
 			op(Opcode::FLDR, param(OpcodeParameterType::FD, 0), paramUFixed(OpcodeParameterType::RS, ScratchRegister), paramUFixed(OpcodeParameterType::IMM16, 0))
 		}),
-		inst(Opcode::STR, Mnemonic::STR, OpcodeParameterType::RS, OpcodeParameterType::RD_IMM16),
-		inst(Opcode::STRB, Mnemonic::STRB, OpcodeParameterType::RS, OpcodeParameterType::RD_IMM16),
-		inst(Opcode::STRH, Mnemonic::STRH, OpcodeParameterType::RS, OpcodeParameterType::RD_IMM16),
-		inst(Opcode::FSTR, Mnemonic::STR, OpcodeParameterType::FS, OpcodeParameterType::RD_IMM16),
+		inst(Opcode::STR, Mnemonic::STR, OpcodeParameterType::RS, OpcodeParameterType::RD_SIMM16),
+		inst(Opcode::STRB, Mnemonic::STRB, OpcodeParameterType::RS, OpcodeParameterType::RD_SIMM16),
+		inst(Opcode::STRH, Mnemonic::STRH, OpcodeParameterType::RS, OpcodeParameterType::RD_SIMM16),
+		inst(Opcode::FSTR, Mnemonic::STR, OpcodeParameterType::FS, OpcodeParameterType::RD_SIMM16),
 		inst(sig(Mnemonic::STV, OperandType::IntegralRegister, OperandType::VariableU8), {
 			op(Opcode::LUI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::IMM16, 1, 16)),
 			op(Opcode::ORI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), paramUFixed(OpcodeParameterType::RS, ScratchRegister), param(OpcodeParameterType::IMM16_LOW, 1)),
@@ -241,7 +241,7 @@ namespace ceres::casm
 			op(Opcode::LUI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
 			op(Opcode::ORI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::RS, 0), param(OpcodeParameterType::IMM16_LOW, 1))
 		}),
-		inst(Opcode::LEA, Mnemonic::LEA, OpcodeParameterType::RD, OpcodeParameterType::RS_IMM16),
+		inst(Opcode::LEA, Mnemonic::LEA, OpcodeParameterType::RD, OpcodeParameterType::RS_SIMM16),
 
 		inst(Opcode::JP, Mnemonic::JP, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::JP, Mnemonic::JP, OpcodeParameterType::SIMM24),

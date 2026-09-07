@@ -101,13 +101,16 @@ TEST(encoding, store_puts_base_in_rd_and_value_in_rs)
 TEST(encoding, store_displacement_does_not_collide_with_the_value_register)
 {
 	// A displacement whose high nibble is non-zero would have been read back as the value
-	// register index under the old encoding.
+	// register index under the old encoding. 0x70F0 rather than 0xF0F0 because the field is signed
+	// now - this is a decoding test, and a negative displacement would make it a sign test.
 	AssembleResult r;
-	auto words = assembleText("    str r2, [r1 + 61680]", r);
+	auto words = assembleText("    str r2, [r1 + 28912]", r);
 
 	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
 	const Instruction encoded{ words[0] };
-	CHECK_EQ(encoded.imm16(), u16{ 61680 });   // 0xF0F0
+	CHECK_EQ(encoded.simm16(), i16{ 28912 });   // 0x70F0
 	CHECK_EQ(encoded.rs(), u8{ 2 });
 	CHECK_EQ(encoded.rd(), u8{ 1 });
 }
@@ -537,4 +540,49 @@ TEST(encoding, the_small_pseudo_instructions_expand_as_documented)
 	CHECK_EQ(Instruction(r.words()[2]).imm16(), u16{ 0 });
 	CHECK_EQ(Instruction(r.words()[3]).opcode() == Opcode::CMPI, true);
 	CHECK_EQ(Instruction(r.words()[4]).opcode() == Opcode::JP, true);
+}
+
+// `[r1 - 8]` used to assemble to a displacement of 65528 and reach the wrong memory. The field is
+// signed now, so it encodes -8 and the disassembler renders it as one.
+TEST(encoding, a_negative_displacement_encodes_as_a_negative_field)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldr r1, [r2 - 8]\r\n"
+		"    str r3, [r4 - 12]\r\n"
+		"    lea r5, [r6 - 16]\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(Instruction(r.words()[0]).simm16(), i16{ -8 });
+	CHECK_EQ(Instruction(r.words()[1]).simm16(), i16{ -12 });
+	CHECK_EQ(Instruction(r.words()[2]).simm16(), i16{ -16 });
+
+	CHECK(r.listing().find("[r2 - 8]") != std::string::npos);
+}
+
+TEST(encoding, a_displacement_outside_the_signed_range_is_rejected)
+{
+	// It used to truncate silently: 70000 became 4464.
+	AssembleResult tooBig = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldr r1, [r2 + 70000]\r\n"
+		"    ret\r\n");
+
+	CHECK(!tooBig.ok());
+	CHECK(tooBig.joinedErrors().find("signed 16-bit") != std::string::npos);
+
+	// 32767 is the largest that fits, and still assembles.
+	AssembleResult atTheEdge = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldr r1, [r2 + 32767]\r\n"
+		"    ret\r\n");
+
+	CHECK(atTheEdge.ok());
+	if (!atTheEdge.ok()) Registry::instance().recordFailure(atTheEdge.joinedErrors());
 }
