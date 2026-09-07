@@ -79,7 +79,7 @@ print_u32:
 .done:
     ldr r8, [sp + PrintFrame.saved_r8]
     ldr r9, [sp + PrintFrame.saved_r9]
-    proc_return
+    proc_leave
 
 // ---------------------------------------------------------------------------------------------
 // Recursion is where a callee-saved register earns its keep: `n` has to survive the recursive
@@ -106,7 +106,7 @@ factorial:
 
 .done:
     ldr r8, [sp + FactFrame.saved_r8]
-    proc_return
+    proc_leave
 
 // ---------------------------------------------------------------------------------------------
 // Arguments five and up arrive on the stack. The callee's view of them is the frame it was given:

@@ -58,13 +58,13 @@ import "lib/call.casm"
 my_function:
     proc_enter Frame        // enter; sub sp, sp, Frame
     ...
-    proc_return             // leave; ret
+    proc_leave             // leave; ret
 ```
 
 `leave` restores `sp` from `fp`, so the frame size is never repeated and a function may have as many
 exit points as it likes.
 
-**`sp` must not move between `proc_enter` and `proc_return`.** Everything the function needs lives in
+**`sp` must not move between `proc_enter` and `proc_leave`.** Everything the function needs lives in
 the frame it reserved once, which is what keeps every `[sp + Frame.field]` valid for the whole body —
 including across a `call`. There is no reason to push in the body: saved registers, locals and
 outgoing arguments all have somewhere to live.
@@ -89,7 +89,7 @@ my_function:
     str r8, [sp + Frame.saved_r8]
     ...
     ldr r8, [sp + Frame.saved_r8]
-    proc_return
+    proc_leave
 ```
 
 The struct's own name is its size, so `proc_enter Frame` reserves exactly what the fields need — one
@@ -181,7 +181,7 @@ factorial:
 
 .done:
     ldr r8, [sp + FactFrame.saved_r8]
-    proc_return
+    proc_leave
 ```
 
 Note `ifle` rather than `cmp` + `jle`: the comparison and the branch as one instruction, and the
@@ -206,5 +206,5 @@ Note `ifle` rather than `cmp` + `jle`: the comparison and the branch as one inst
 - [Pseudo-instructions](06-Pseudo-Instructions.md#enter-and-leave--stack-frames) — what `enter` and `leave` expand to.
 - [Structs](23-Structs.md) — the offset constants a frame is described with.
 - [Language syntax](10-Language-Syntax.md#register-aliases) — `alias`, and why it does not cross a file.
-- [Macros](14-Macros.md) — how `proc_enter`/`proc_return` are defined and exported.
+- [Macros](14-Macros.md) — how `proc_enter`/`proc_leave` are defined and exported.
 - [Memory](02-Memory.md#the-stack) — where the stack lives and what happens when it runs out.

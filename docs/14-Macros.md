@@ -113,7 +113,7 @@ Referencing a `$name` that isn't one of the macro's declared parameters is a com
 (`'${}' is not a parameter of macro '{}'`), caught during expansion, not silently treated as a normal
 identifier.
 
-## Worked example: a calling convention built out of macros
+## Worked example: the calling convention
 
 [Known limitations](19-Known-Limitations.md) points out that the VM enforces **no** calling
 convention at all — no register is hardwired as caller-saved or callee-saved, `fp` is just a name
@@ -128,66 +128,60 @@ Here is a small, complete convention: **`r0` is the return value, `r1`–`r3` ar
 exactly like `rbx`/`rbp`/`r12`–`r15` on x86-64's System V ABI).
 
 ```casm
-// --- the convention, expressed as two macros ---
-
-macro proc_enter
-    push r4
-    push r5
-    push r6
-    push r7
-    push r8
-    push r9
+// lib/call.casm
+global macro proc_enter $frame_size
+    enter
+    sub sp, sp, $frame_size
 endmacro
 
-macro proc_leave
-    pop r9
-    pop r8
-    pop r7
-    pop r6
-    pop r5
-    pop r4
+global macro proc_leave
+    leave
     ret
 endmacro
 ```
 
-`proc_leave` pops in the exact reverse order `proc_enter` pushed in — required, since the stack is
-last-in-first-out (see [Memory → The stack](02-Memory.md#the-stack)) — and ends with the `ret` itself,
-so every subroutine written against this convention has a single matching exit point instead of a
-`ret` that's easy to forget to place after manually restoring registers.
-
-A subroutine written against the convention:
-
-```casm
-// r1 = a, r2 = b -> r0 = (a + b) * 2, per the convention above
-add_and_double:
-    proc_enter
-    mov r4, r1        // callee-saved scratch space is now safe to use...
-    add r0, r1, r2    // r0 = a + b
-    add r0, r0, r0    // r0 = (a + b) * 2
-    proc_leave         // restores r4-r9, then returns
-```
-
-And a caller using it — note the caller doesn't need to know or care that `add_and_double` touches
-`r4` internally, because `proc_enter`/`proc_leave` already made that invisible:
-
-```casm
-@text
-global main:
-    li r4, 0xDEAD     // something the caller needs r4 to keep holding across the call
-    li r1, 10          // argument a
-    li r2, 32          // argument b
-    call add_and_double
-    // r0 == 84 here, and r4 == 0xDEAD still, exactly as before the call
-    halt
-```
-
-This is the whole mechanism: the VM itself never checks any of this — nothing stops a subroutine from
-skipping `proc_enter`/`proc_leave` and clobbering `r4`–`r9` anyway. The convention only holds because
-every subroutine and every caller consistently uses the same two macros, which is precisely why
-expressing it as macros (rather than as a comment reminding people what to do) is worth doing: the
-assembler enforces that `proc_enter` and `proc_leave` always expand to the same fixed instruction
-sequence, so the convention can't silently drift out of sync between subroutines the way hand-written
+Two macros, and between them the whole prologue and epilogue of every subroutine in a program. They
+are worth writing as macros rather than as a comment reminding people what to do, for the reason this
+page is about: the assembler guarantees they expand to the same instructions every time, so the
+convention cannot silently drift out of sync between one subroutine and the next the way hand-written
 prologues eventually would.
+
+A subroutine written against them:
+
+```casm
+import "lib/call.casm"
+
+struct FactFrame
+    saved_r8: u32
+endstruct
+
+@text
+factorial:
+    proc_enter FactFrame
+    str r8, [sp + FactFrame.saved_r8]   // r8 is callee-saved, and we are about to use it
+
+    mov  r8, r0
+    ifle r8, 1, .base
+    sub  r0, r8, 1
+    call factorial                       // r8 survives the call; r0-r7 do not
+    mul  r0, r0, r8
+    jp   .done
+.base:
+    li r0, 1
+.done:
+    ldr r8, [sp + FactFrame.saved_r8]
+    proc_leave                           // leave, then ret
+```
+
+`proc_leave` ends with the `ret` itself, so a subroutine can have as many exit points as it likes and
+each one restores the frame identically. `leave` recovers `sp` from `fp`, which is why the frame size
+appears once, in the prologue, and never again.
+
+Note that `global macro` is doing real work here: without it these would be invisible to every file
+that imports the library (see [Modules and `import`](15-Modules-and-Import.md)).
+
+The register roles, the frame layout and how arguments are passed are the rest of the convention —
+see [A calling convention](24-Calling-Convention.md), which this library exists to serve.
 
 ## Visibility
 

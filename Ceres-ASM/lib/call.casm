@@ -20,7 +20,7 @@
 //   [sp + 0] .. [sp + N-4]     this function's own frame: outgoing args first, then
 //                              saved registers and locals
 //
-// `sp` must not move between `proc_enter` and `proc_return`. Everything a function needs lives in
+// `sp` must not move between `proc_enter` and `proc_leave`. Everything a function needs lives in
 // the frame it reserved once, which is what keeps every `[sp + Frame.field]` valid for the whole
 // body - including across a `call`.
 
@@ -46,7 +46,7 @@ endmacro
 
 // Closes the frame and returns. `leave` restores sp from fp, so the frame size is not repeated
 // here and a function may have as many exits as it likes.
-global macro proc_return
+global macro proc_leave
     leave
     ret
 endmacro
