@@ -378,3 +378,163 @@ TEST(encoding, local_labels_are_scoped_to_their_parent)
 	CHECK_EQ(Instruction(words[0]).simm24().signedValue(), 0);
 	CHECK_EQ(Instruction(words[2]).simm24().signedValue(), 0);
 }
+
+TEST(encoding, ifeq_expands_to_a_compare_and_a_jump)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    ifeq r1, r2, .same\r\n"
+		"    nop\r\n"
+		".same:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	Instruction compare{ r.words()[0] };
+	Instruction jump{ r.words()[1] };
+	CHECK_EQ(compare.opcode() == Opcode::CMP, true);
+	CHECK_EQ(compare.rs(), u8{ 1 });
+	CHECK_EQ(compare.rt(), u8{ 2 });
+	CHECK_EQ(jump.opcode() == Opcode::JZ, true);
+	// The displacement is measured from the jump itself, not from the statement: past the nop.
+	CHECK_EQ(jump.simm24().signedValue(), 8);
+}
+
+TEST(encoding, an_ordering_if_uses_its_own_opcode)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    ifls r1, 10, .less\r\n"
+		".less:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(Instruction(r.words()[0]).opcode() == Opcode::CMPI, true);
+	CHECK_EQ(Instruction(r.words()[0]).imm16(), u16{ 10 });
+	CHECK_EQ(Instruction(r.words()[1]).opcode() == Opcode::JLS, true);
+}
+
+TEST(encoding, comparing_floats_picks_fcmp)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    ifgr f1, f2, .bigger\r\n"
+		".bigger:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(Instruction(r.words()[0]).opcode() == Opcode::FCMP, true);
+	CHECK_EQ(Instruction(r.words()[1]).opcode() == Opcode::JGR, true);
+}
+
+TEST(encoding, a_conditional_jump_alias_picks_the_register_form_for_a_register)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    jeq r4\r\n"
+		"    jls r5\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(Instruction(r.words()[0]).opcode() == Opcode::JZR, true);
+	CHECK_EQ(Instruction(r.words()[1]).opcode() == Opcode::JLSR, true);
+	CHECK_EQ(Instruction(r.words()[1]).rs(), u8{ 5 });
+}
+
+// LI only reaches 16 bits and LA only takes symbols, so a 32-bit constant had to be written as a
+// LUI/ORI pair by hand.
+TEST(encoding, lc_loads_a_full_32_bit_constant)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    lc r1, 0x12345678\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	Instruction upper{ r.words()[0] };
+	Instruction lower{ r.words()[1] };
+	CHECK_EQ(upper.opcode() == Opcode::LUI, true);
+	CHECK_EQ(upper.imm16(), u16{ 0x1234 });
+	CHECK_EQ(lower.opcode() == Opcode::ORI, true);
+	CHECK_EQ(lower.imm16(), u16{ 0x5678 });
+	CHECK_EQ(lower.rd(), u8{ 1 });
+}
+
+TEST(encoding, swap_exchanges_without_a_temporary)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    swap r3, r4\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	// Three XORs, and never a register the programmer did not name.
+	for (usize i = 0; i < 3; ++i)
+		CHECK_EQ(Instruction(r.words()[i]).opcode() == Opcode::XOR, true);
+	CHECK_EQ(Instruction(r.words()[0]).rd(), u8{ 3 });
+	CHECK_EQ(Instruction(r.words()[1]).rd(), u8{ 4 });
+	CHECK_EQ(Instruction(r.words()[2]).rd(), u8{ 3 });
+}
+
+TEST(encoding, enter_and_leave_are_the_only_things_that_touch_fp)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    enter\r\n"
+		"    leave\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(Instruction(r.words()[0]).opcode() == Opcode::PUSH, true);
+	CHECK_EQ(Instruction(r.words()[0]).rs(), u8{ 14 });
+	CHECK_EQ(Instruction(r.words()[1]).opcode() == Opcode::MOV, true);
+	CHECK_EQ(Instruction(r.words()[1]).rd(), u8{ 14 });
+	CHECK_EQ(Instruction(r.words()[1]).rs(), u8{ 15 });
+	CHECK_EQ(Instruction(r.words()[2]).opcode() == Opcode::MOV, true);
+	CHECK_EQ(Instruction(r.words()[2]).rd(), u8{ 15 });
+	CHECK_EQ(Instruction(r.words()[3]).opcode() == Opcode::POP, true);
+	CHECK_EQ(Instruction(r.words()[3]).rd(), u8{ 14 });
+}
+
+TEST(encoding, the_small_pseudo_instructions_expand_as_documented)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    inc r1\r\n"
+		"    dec r2\r\n"
+		"    clr r3\r\n"
+		"    tst r4\r\n"
+		"    jmp .done\r\n"
+		".done:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(Instruction(r.words()[0]).opcode() == Opcode::ADDI, true);
+	CHECK_EQ(Instruction(r.words()[0]).imm16(), u16{ 1 });
+	CHECK_EQ(Instruction(r.words()[1]).opcode() == Opcode::SUBI, true);
+	CHECK_EQ(Instruction(r.words()[2]).opcode() == Opcode::LI, true);
+	CHECK_EQ(Instruction(r.words()[2]).imm16(), u16{ 0 });
+	CHECK_EQ(Instruction(r.words()[3]).opcode() == Opcode::CMPI, true);
+	CHECK_EQ(Instruction(r.words()[4]).opcode() == Opcode::JP, true);
+}

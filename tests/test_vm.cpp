@@ -279,3 +279,60 @@ TEST(vm, the_disassembler_names_every_mapped_opcode)
 		CHECK(text.find("unknown") == std::string::npos);
 	}
 }
+
+// The comparison jumps read two flags each, which is the whole reason they needed opcodes of their
+// own. The cases that matter are the ones where signed and unsigned disagree: -1 is below 1 as an
+// i32 and above it as a u32.
+namespace
+{
+	// Compares two full 32-bit values, then takes the jump under test. LI only carries 16 bits and
+	// zero-extends, so the operands are built with LUI+ORI - which is the only way to get a value
+	// like 0xFFFFFFFF, the one where signed and unsigned ordering part company.
+	u32 compareAndJump(u32 a, u32 b, Instruction jump)
+	{
+		Machine m{
+			Instruction::LUI(1, static_cast<u16>(a >> 16)),
+			Instruction::ORI(1, 1, static_cast<u16>(a & 0xFFFF)),
+			Instruction::LUI(2, static_cast<u16>(b >> 16)),
+			Instruction::ORI(2, 2, static_cast<u16>(b & 0xFFFF)),
+			Instruction::CMP(1, 2),
+			jump,                            // +20, jumps 12 bytes to the "taken" arm
+			Instruction::LI(3, 100),         // +24: not taken
+			Instruction::JP(i24(8)),
+			Instruction::LI(3, 200),         // +32: taken
+		};
+		m.step(7);
+		return m.reg(3);
+	}
+}
+
+TEST(vm, signed_and_unsigned_ordering_jumps_disagree_where_they_should)
+{
+	// -1 as a 16-bit immediate sign-extends to 0xFFFFFFFF: below 1 signed, above it unsigned.
+	constexpr u32 minusOne = 0xFFFFFFFFu;
+
+	CHECK_EQ(compareAndJump(minusOne, 1, Instruction::JLS(i24(12))), u32{ 200 }); // signed: -1 < 1
+	CHECK_EQ(compareAndJump(minusOne, 1, Instruction::JGR(i24(12))), u32{ 100 });
+	CHECK_EQ(compareAndJump(minusOne, 1, Instruction::JAB(i24(12))), u32{ 200 }); // unsigned: huge > 1
+	CHECK_EQ(compareAndJump(minusOne, 1, Instruction::JBL(i24(12))), u32{ 100 });
+}
+
+TEST(vm, ordering_jumps_include_or_exclude_equality)
+{
+	CHECK_EQ(compareAndJump(5, 5, Instruction::JGE(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(5, 5, Instruction::JGR(i24(12))), u32{ 100 });
+	CHECK_EQ(compareAndJump(5, 5, Instruction::JLE(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(5, 5, Instruction::JLS(i24(12))), u32{ 100 });
+	CHECK_EQ(compareAndJump(5, 5, Instruction::JAE(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(5, 5, Instruction::JBE(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(5, 5, Instruction::JAB(i24(12))), u32{ 100 });
+	CHECK_EQ(compareAndJump(5, 5, Instruction::JBL(i24(12))), u32{ 100 });
+}
+
+TEST(vm, ordering_jumps_agree_with_plain_greater_and_less)
+{
+	CHECK_EQ(compareAndJump(9, 4, Instruction::JGR(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(4, 9, Instruction::JGR(i24(12))), u32{ 100 });
+	CHECK_EQ(compareAndJump(4, 9, Instruction::JLS(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(9, 4, Instruction::JLS(i24(12))), u32{ 100 });
+}

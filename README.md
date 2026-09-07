@@ -157,24 +157,37 @@ ldrb r2, [r1 + 4]     ; load, base then displacement
 strb r6, [r5 + 1]     ; store, value first then destination
 ```
 
-### Control flow · `0x50`–`0x67`
+### Control flow · `0x50`–`0x77`
 
 `jp` `jz` `jnz` `jc` `jnc` `js` `jns` `jo` `jno` `call` `ret` `cmp`
 
 Every conditional branch has a register form, chosen automatically when the operand is a register
 rather than a label.
 
-### Stack · `0x70`–`0x75`
+The single-flag branches above cannot express an ordering: `cmp` leaves Zero, Sign, Carry and
+Overflow set, but "greater" needs Sign against Overflow and "above" needs Carry against Zero. Eight
+more branches read two flags each:
+
+| Signed | Unsigned | Condition |
+| --- | --- | --- |
+| `jgr` | `jab` | greater than |
+| `jge` | `jae` | greater than or equal |
+| `jls` | `jbl` | less than |
+| `jle` | `jbe` | less than or equal |
+
+`jeq` and `jne` are aliases of `jz` and `jnz`, and `jmp` is an alias of `jp`.
+
+### Stack · `0x80`–`0x85`
 
 `push` `pop` `pushf` `popf`
 
-### Conversions · `0x80`–`0x85`
+### Conversions · `0x90`–`0x95`
 
 `itof` `iitof` `ftoi` `ftoii` `mtf` `mff`
 
 `mtf` and `mff` move the bit pattern without converting.
 
-### I/O · `0x90`–`0xA3`
+### I/O · `0xA0`–`0xB3`
 
 `in` `inb` `inh` `insb` `insh` `inm` `out` `outb` `outh` `outm`
 
@@ -298,6 +311,31 @@ Write the spaces: `[r5+0]` lexes the `+0` as a signed literal and fails to parse
 | `ldv rd, variable` | `lui` + `ori` + a load chosen by the variable's type | 12 B |
 | `stv rs, variable` | `lui` + `ori` + a store chosen by the variable's type | 12 B |
 | `neg rd, rs` | `imul rd, rs, -1`, or `fneg` for float registers | 4 B |
+| `lc rd, imm32` | `lui` + `ori` | 8 B |
+| `ifXX rs, rt, label` | `cmp` (or `cmpi`, or `fcmp`) + the matching branch | 8 B |
+| `enter` | `push fp` + `mov fp, sp` | 8 B |
+| `leave` | `mov sp, fp` + `pop fp` | 8 B |
+| `swap rd, rs` | three `xor`s, using no temporary | 12 B |
+| `inc rd` / `dec rd` | `addi rd, rd, 1` / `subi rd, rd, 1` | 4 B |
+| `clr rd` | `li rd, 0` | 4 B |
+| `tst rs` | `cmpi rs, 0` | 4 B |
+| `jmp label` | `jp` | 4 B |
+
+`lc` is the immediate counterpart of `la`: `li` only reaches 16 bits, so a full 32-bit constant
+used to have to be written as the `lui`/`ori` pair by hand.
+
+`ifXX` writes the comparison and the branch as one instruction, and covers every condition the
+branches do — `ifeq` `ifne` `ifgr` `ifge` `ifls` `ifle` `ifab` `ifae` `ifbl` `ifbe`. The second
+operand may be a register or an immediate, and a pair of float registers picks `fcmp`:
+
+```casm
+    ifls r1, r2, .smaller       ; signed
+    ifge r3, 100, .at_least     ; against an immediate
+    ifgr f0, f1, .bigger        ; fcmp, without remembering which flag it sets
+```
+
+`enter` and `leave` are the only instructions that touch `fp` (`r14`), which is otherwise defined
+and unused.
 
 `ldv` and `stv` clobber `r12`. Because an instruction's size has to be known before its overload
 is chosen, the assembler reserves the largest form and pads the rest with `nop`.

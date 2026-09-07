@@ -604,6 +604,30 @@ namespace ceres::vm
 				advancePC();
 		}
 
+		// The comparison jumps read two flags, so they cannot go through the templates above.
+		// CMP leaves: Zero = (a == b), Sign = sign bit of (a - b), Carry = (a < b) unsigned,
+		// Overflow = signed overflow of (a - b). Signed ordering is Sign against Overflow;
+		// unsigned ordering is Carry, with Zero separating < from <=.
+		forceinline void executeJumpIf(const Instruction inst, bool condition) noexcept
+		{
+			if (condition)
+				_pc += inst.simm24().signedValue();
+			else
+				advancePC();
+		}
+
+		forceinline void executeJumpRegIf(const Instruction inst, bool condition) noexcept
+		{
+			if (condition)
+				_pc = Address(getReg(inst.rs()));
+			else
+				advancePC();
+		}
+
+		forceinline bool signedLess() noexcept { return flag<ExecutionFlag::Sign>() != flag<ExecutionFlag::Overflow>(); }
+		forceinline bool isEqual() noexcept { return flag<ExecutionFlag::Zero>(); }
+		forceinline bool unsignedBelow() noexcept { return flag<ExecutionFlag::Carry>(); }
+
 		template <ExecutionFlag Flag>
 		forceinline void executeJumpIfNotFlag(const Instruction inst) noexcept
 		{
@@ -813,6 +837,24 @@ namespace ceres::vm
 		forceinline void JOR(const Instruction inst) noexcept { executeJumpRegIfFlag<ExecutionFlag::Overflow>(inst); }
 		forceinline void JNO(const Instruction inst) noexcept { executeJumpIfNotFlag<ExecutionFlag::Overflow>(inst); }
 		forceinline void JNOR(const Instruction inst) noexcept { executeJumpRegIfNotFlag<ExecutionFlag::Overflow>(inst); }
+
+		forceinline void JGR(const Instruction inst) noexcept { executeJumpIf(inst, !isEqual() && !signedLess()); }
+		forceinline void JGRR(const Instruction inst) noexcept { executeJumpRegIf(inst, !isEqual() && !signedLess()); }
+		forceinline void JGE(const Instruction inst) noexcept { executeJumpIf(inst, !signedLess()); }
+		forceinline void JGER(const Instruction inst) noexcept { executeJumpRegIf(inst, !signedLess()); }
+		forceinline void JLS(const Instruction inst) noexcept { executeJumpIf(inst, signedLess()); }
+		forceinline void JLSR(const Instruction inst) noexcept { executeJumpRegIf(inst, signedLess()); }
+		forceinline void JLE(const Instruction inst) noexcept { executeJumpIf(inst, isEqual() || signedLess()); }
+		forceinline void JLER(const Instruction inst) noexcept { executeJumpRegIf(inst, isEqual() || signedLess()); }
+
+		forceinline void JAB(const Instruction inst) noexcept { executeJumpIf(inst, !unsignedBelow() && !isEqual()); }
+		forceinline void JABR(const Instruction inst) noexcept { executeJumpRegIf(inst, !unsignedBelow() && !isEqual()); }
+		forceinline void JAE(const Instruction inst) noexcept { executeJumpIf(inst, !unsignedBelow()); }
+		forceinline void JAER(const Instruction inst) noexcept { executeJumpRegIf(inst, !unsignedBelow()); }
+		forceinline void JBL(const Instruction inst) noexcept { executeJumpIf(inst, unsignedBelow()); }
+		forceinline void JBLR(const Instruction inst) noexcept { executeJumpRegIf(inst, unsignedBelow()); }
+		forceinline void JBE(const Instruction inst) noexcept { executeJumpIf(inst, unsignedBelow() || isEqual()); }
+		forceinline void JBER(const Instruction inst) noexcept { executeJumpRegIf(inst, unsignedBelow() || isEqual()); }
 		forceinline void CALL(const Instruction inst) noexcept
 		{
 			if (!push<u32>((_pc + Instruction::SizeInBytes).value())) // Push return address onto the stack
@@ -1075,6 +1117,22 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::JOR)] = &ExecutionEngine::JOR;
 				handlers[static_cast<u8>(Opcode::JNO)] = &ExecutionEngine::JNO;
 				handlers[static_cast<u8>(Opcode::JNOR)] = &ExecutionEngine::JNOR;
+				handlers[static_cast<u8>(Opcode::JGR)] = &ExecutionEngine::JGR;
+				handlers[static_cast<u8>(Opcode::JGRR)] = &ExecutionEngine::JGRR;
+				handlers[static_cast<u8>(Opcode::JGE)] = &ExecutionEngine::JGE;
+				handlers[static_cast<u8>(Opcode::JGER)] = &ExecutionEngine::JGER;
+				handlers[static_cast<u8>(Opcode::JLS)] = &ExecutionEngine::JLS;
+				handlers[static_cast<u8>(Opcode::JLSR)] = &ExecutionEngine::JLSR;
+				handlers[static_cast<u8>(Opcode::JLE)] = &ExecutionEngine::JLE;
+				handlers[static_cast<u8>(Opcode::JLER)] = &ExecutionEngine::JLER;
+				handlers[static_cast<u8>(Opcode::JAB)] = &ExecutionEngine::JAB;
+				handlers[static_cast<u8>(Opcode::JABR)] = &ExecutionEngine::JABR;
+				handlers[static_cast<u8>(Opcode::JAE)] = &ExecutionEngine::JAE;
+				handlers[static_cast<u8>(Opcode::JAER)] = &ExecutionEngine::JAER;
+				handlers[static_cast<u8>(Opcode::JBL)] = &ExecutionEngine::JBL;
+				handlers[static_cast<u8>(Opcode::JBLR)] = &ExecutionEngine::JBLR;
+				handlers[static_cast<u8>(Opcode::JBE)] = &ExecutionEngine::JBE;
+				handlers[static_cast<u8>(Opcode::JBER)] = &ExecutionEngine::JBER;
 
 				// Stack
 				handlers[static_cast<u8>(Opcode::PUSH)] = &ExecutionEngine::PUSH;

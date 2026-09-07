@@ -13,7 +13,12 @@ namespace ceres::vm
 	struct ProgramHeader
 	{
 		static inline constexpr u32 MagicNumber = 0x43524553; // 'CRES' in ASCII
-		static inline constexpr u16 CurrentVersion = 1;
+		static inline constexpr u16 CurrentVersion = 2;
+		// Version 1 numbered the opcodes differently: everything above the control-flow block moved
+		// when the comparison jumps were added. A v1 file is not a v2 file with unknown instructions
+		// in it, it is a file where PUSH means JAB - so it has to be rejected rather than run. The
+		// check that only looked for versions *newer* than this one would have executed it happily.
+		static inline constexpr u16 MinimumSupportedVersion = 2;
 
 		u32 magic;
 		u16 version;

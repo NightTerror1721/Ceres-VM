@@ -150,6 +150,22 @@ namespace ceres::vm
 				case Opcode::JOR:    return { "JOR",   Shape::Rs };
 				case Opcode::JNO:    return { "JNO",   Shape::Simm24 };
 				case Opcode::JNOR:   return { "JNOR",  Shape::Rs };
+				case Opcode::JGR:     return { "JGR", Shape::Simm24 };
+				case Opcode::JGRR:    return { "JGRR", Shape::Rs };
+				case Opcode::JGE:     return { "JGE", Shape::Simm24 };
+				case Opcode::JGER:    return { "JGER", Shape::Rs };
+				case Opcode::JLS:     return { "JLS", Shape::Simm24 };
+				case Opcode::JLSR:    return { "JLSR", Shape::Rs };
+				case Opcode::JLE:     return { "JLE", Shape::Simm24 };
+				case Opcode::JLER:    return { "JLER", Shape::Rs };
+				case Opcode::JAB:     return { "JAB", Shape::Simm24 };
+				case Opcode::JABR:    return { "JABR", Shape::Rs };
+				case Opcode::JAE:     return { "JAE", Shape::Simm24 };
+				case Opcode::JAER:    return { "JAER", Shape::Rs };
+				case Opcode::JBL:     return { "JBL", Shape::Simm24 };
+				case Opcode::JBLR:    return { "JBLR", Shape::Rs };
+				case Opcode::JBE:     return { "JBE", Shape::Simm24 };
+				case Opcode::JBER:    return { "JBER", Shape::Rs };
 
 				case Opcode::PUSH:   return { "PUSH",  Shape::Rs };
 				case Opcode::POP:    return { "POP",   Shape::Rd };

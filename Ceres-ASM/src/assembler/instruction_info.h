@@ -39,6 +39,11 @@ namespace ceres::casm
 		FT,				// Target floating-point register
 		IMM8,			// 8-bit immediate value
 		IMM16,			// 16-bit immediate value
+		IMM16_LOW,		// The low 16 bits of a 32-bit value, masked rather than range-checked. The
+						// second half of a LUI+ORI pair: the whole point is that the value does not
+						// fit in 16 bits, so checking that it does would reject every address above
+						// 0xFFFF - which is what LA, LDV and STV used to do, silently, until a
+						// program grew past 64 KiB.
 		SIMM16,			// 16-bit signed immediate value
 		IMM24,			// 24-bit immediate value
 		SIMM24,			// 24-bit signed immediate value
@@ -160,6 +165,7 @@ namespace ceres::casm
 
 				case OpcodeParameterType::IMM8:
 				case OpcodeParameterType::IMM16:
+				case OpcodeParameterType::IMM16_LOW:
 				case OpcodeParameterType::IMM24:
 				case OpcodeParameterType::SIMM16:
 				case OpcodeParameterType::SIMM24:

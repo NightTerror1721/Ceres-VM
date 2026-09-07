@@ -101,44 +101,68 @@ namespace ceres::vm
 		JNO = 0x66, // [simm24] - PC = (PC + simm24): Jump if the overflow flag is not set.
 		JNOR = 0x67, // [rs] - PC = rs: Jump if the overflow flag is not set.
 
+		// Comparison jumps. CMP leaves Zero, Sign, Carry and Overflow set, but no single-flag jump
+		// spells "greater" or "less or equal": signed ordering needs Sign against Overflow and
+		// unsigned ordering needs Carry against Zero. These read two flags each so a comparison
+		// costs one instruction instead of a three-word dance around the existing jumps.
+		// Signed - what `i32` means by <, <=, > and >=.
+		JGR = 0x68, // [simm24] - Jump if greater (signed): !Zero && Sign == Overflow.
+		JGRR = 0x69, // [rs] - Register form of JGR.
+		JGE = 0x6A, // [simm24] - Jump if greater or equal (signed): Sign == Overflow.
+		JGER = 0x6B, // [rs] - Register form of JGE.
+		JLS = 0x6C, // [simm24] - Jump if less (signed): Sign != Overflow.
+		JLSR = 0x6D, // [rs] - Register form of JLS.
+		JLE = 0x6E, // [simm24] - Jump if less or equal (signed): Zero || Sign != Overflow.
+		JLER = 0x6F, // [rs] - Register form of JLE.
+		// Unsigned - "above" and "below", the same orderings over u32.
+		JAB = 0x70, // [simm24] - Jump if above (unsigned): !Carry && !Zero.
+		JABR = 0x71, // [rs] - Register form of JAB.
+		JAE = 0x72, // [simm24] - Jump if above or equal (unsigned): !Carry.
+		JAER = 0x73, // [rs] - Register form of JAE.
+		JBL = 0x74, // [simm24] - Jump if below (unsigned): Carry.
+		JBLR = 0x75, // [rs] - Register form of JBL.
+		JBE = 0x76, // [simm24] - Jump if below or equal (unsigned): Carry || Zero.
+		JBER = 0x77, // [rs] - Register form of JBE.
+
 		// Stack Operations //
-		PUSH = 0x70, // [rs] - Push the value of the given register onto the stack.
-		POP = 0x71, // [rd] - Pop the value from the stack into the given register.
-		PUSHF = 0x72, // [] - Push the value of the given register onto the stack frame.
-		POPF = 0x73, // [] - Pop the value from the stack frame into the given register.
-		FPUSH = 0x74, // [fs] - Push the value of the given floating-point register onto the stack.
-		FPOP = 0x75, // [fd] - Pop the value from the stack into the given floating-point register.
+		PUSH = 0x80, // [rs] - Push the value of the given register onto the stack.
+		POP = 0x81, // [rd] - Pop the value from the stack into the given register.
+		PUSHF = 0x82, // [] - Push the value of the given register onto the stack frame.
+		POPF = 0x83, // [] - Pop the value from the stack frame into the given register.
+		FPUSH = 0x84, // [fs] - Push the value of the given floating-point register onto the stack.
+		FPOP = 0x85, // [fd] - Pop the value from the stack into the given floating-point register.
 
 		// Conversions //
-		ITOF = 0x80, // [fd, rs] - Convert the integer value in rs to a floating-point value and store it in fd.
-		IITOF = 0x81, // [fd, rs] - Convert the signed integer value in rs to a floating-point value and store it in fd.
-		FTOI = 0x82, // [rd, fs] - Convert the floating-point value in fs to an integer value and store it in rd.
-		FTOII = 0x83, // [rd, fs] - Convert the floating-point value in fs to a signed integer value and store it in rd.
-		MTF = 0x84, // [fd, rs] - Move the bit pattern of the integer value in rs to the floating-point register fd without conversion.
-		MFF = 0x85, // [rd, fs] - Move the bit pattern of the floating-point value in fs to the integer register rd without conversion.
+		ITOF = 0x90, // [fd, rs] - Convert the integer value in rs to a floating-point value and store it in fd.
+		IITOF = 0x91, // [fd, rs] - Convert the signed integer value in rs to a floating-point value and store it in fd.
+		FTOI = 0x92, // [rd, fs] - Convert the floating-point value in fs to an integer value and store it in rd.
+		FTOII = 0x93, // [rd, fs] - Convert the floating-point value in fs to a signed integer value and store it in rd.
+		MTF = 0x94, // [fd, rs] - Move the bit pattern of the integer value in rs to the floating-point register fd without conversion.
+		MFF = 0x95, // [rd, fs] - Move the bit pattern of the floating-point value in fs to the integer register rd without conversion.
 
 		// I/O Operations //
-		IN = 0x90, // [rd, imm8] - Read a word from the I/O port specified by imm8 into rd.
-		INB = 0x91, // [rd, imm8] - Read a byte from the I/O port specified by imm8 into rd.
-		INH = 0x92, // [rd, imm8] - Read a halfword from the I/O port specified by imm8 into rd.
-		INSB = 0x93, // [rd, imm8] - Read a signed byte from the I/O port specified by imm8 into rd.
-		INSH = 0x94, // [rd, imm8] - Read a signed halfword from the I/O port specified by imm8 into rd.
-		INM = 0x95, // [rd, rs, imm8] - Read an array of bytes with size specified by rs from the I/O port specified by imm8 into the memory address pointed to by rd.
-		INR = 0x96, // [rd, rs] - Read a word from the I/O port specified by the value in rs into rd.
-		INRB = 0x97, // [rd, rs] - Read a byte from the I/O port specified by the value in rs into rd.
-		INRH = 0x98, // [rd, rs] - Read a halfword from the I/O port specified by the value in rs into rd.
-		INRSB = 0x99, // [rd, rs] - Read a signed byte from the I/O port specified by the value in rs into rd.
-		INRSH = 0x9A, // [rd, rs] - Read a signed halfword from the I/O port specified by the value in rs into rd.
-		INRM = 0x9B, // [rd, rs, rt] - Read an array of bytes with size specified by rt from the I/O port specified by the value in rs into the memory address pointed to by rd.
-		OUT = 0x9C, // [rs, imm8] - Write a word from rs to the I/O port specified by imm8.
-		OUTB = 0x9D, // [rs, imm8] - Write a byte from rs to the I/O port specified by imm8.
-		OUTH = 0x9E, // [rs, imm8] - Write a halfword from rs to the I/O port specified by imm8.
-		OUTM = 0x9F, // [rs, rt, imm8] - Write an array of bytes with size specified by rt from the memory address pointed to by rs to the I/O port specified by imm8. Assembly operand order is (port, address, size), matching INM.
-		OUTR = 0xA0, // [rs, rt] - Write a word from rs to the I/O port specified by the value in rt.
-		OUTRB = 0xA1, // [rs, rt] - Write a byte from rs to the I/O port specified by the value in rt.
-		OUTRH = 0xA2, // [rs, rt] - Write a halfword from rs to the I/O port specified by the value in rt.
-		OUTRM = 0xA3, // [rd, rs, rt] - Write an array of bytes with size specified by rd from the memory address pointed to by rs to the I/O port specified by the value in rt.
+		IN = 0xA0, // [rd, imm8] - Read a word from the I/O port specified by imm8 into rd.
+		INB = 0xA1, // [rd, imm8] - Read a byte from the I/O port specified by imm8 into rd.
+		INH = 0xA2, // [rd, imm8] - Read a halfword from the I/O port specified by imm8 into rd.
+		INSB = 0xA3, // [rd, imm8] - Read a signed byte from the I/O port specified by imm8 into rd.
+		INSH = 0xA4, // [rd, imm8] - Read a signed halfword from the I/O port specified by imm8 into rd.
+		INM = 0xA5, // [rd, rs, imm8] - Read an array of bytes with size specified by rs from the I/O port specified by imm8 into the memory address pointed to by rd.
+		INR = 0xA6, // [rd, rs] - Read a word from the I/O port specified by the value in rs into rd.
+		INRB = 0xA7, // [rd, rs] - Read a byte from the I/O port specified by the value in rs into rd.
+		INRH = 0xA8, // [rd, rs] - Read a halfword from the I/O port specified by the value in rs into rd.
+		INRSB = 0xA9, // [rd, rs] - Read a signed byte from the I/O port specified by the value in rs into rd.
+		INRSH = 0xAA, // [rd, rs] - Read a signed halfword from the I/O port specified by the value in rs into rd.
+		INRM = 0xAB, // [rd, rs, rt] - Read an array of bytes with size specified by rt from the I/O port specified by the value in rs into the memory address pointed to by rd.
+		OUT = 0xAC, // [rs, imm8] - Write a word from rs to the I/O port specified by imm8.
+		OUTB = 0xAD, // [rs, imm8] - Write a byte from rs to the I/O port specified by imm8.
+		OUTH = 0xAE, // [rs, imm8] - Write a halfword from rs to the I/O port specified by imm8.
+		OUTM = 0xAF, // [rs, rt, imm8] - Write an array of bytes with size specified by rt from the memory address pointed to by rs to the I/O port specified by imm8. Assembly operand order is (port, address, size), matching INM.
+		OUTR = 0xB0, // [rs, rt] - Write a word from rs to the I/O port specified by the value in rt.
+		OUTRB = 0xB1, // [rs, rt] - Write a byte from rs to the I/O port specified by the value in rt.
+		OUTRH = 0xB2, // [rs, rt] - Write a halfword from rs to the I/O port specified by the value in rt.
+		OUTRM = 0xB3, // [rd, rs, rt] - Write an array of bytes with size specified by rd from the memory address pointed to by rs to the I/O port specified by the value in rt.
 
+		// Free: 0x08-0x0F, 0x29-0x2F, 0x3D-0x3F, 0x4F, 0x78-0x7F, 0x86-0x8F, 0x96-0x9F, 0xB4-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

@@ -144,8 +144,8 @@ namespace ceres::vm
 		if (header.magic != ProgramHeader::MagicNumber)
 			return std::unexpected("Invalid magic number in file: " + filePath.string());
 
-		if (header.version > ProgramHeader::CurrentVersion || header.version == 0)
-			return std::unexpected("Unsupported version in file: " + filePath.string());
+		if (header.version > ProgramHeader::CurrentVersion || header.version < ProgramHeader::MinimumSupportedVersion)
+			return std::unexpected("Unsupported .cres version in file: " + filePath.string() + " (this build reads versions " + std::to_string(ProgramHeader::MinimumSupportedVersion) + " to " + std::to_string(ProgramHeader::CurrentVersion) + "; reassemble the source)");
 
 		std::vector<Program::ByteType> text(header.textSize);
 		file.read(reinterpret_cast<char*>(text.data()), header.textSize);
@@ -174,7 +174,7 @@ namespace ceres::vm
 		if (header->magic != ProgramHeader::MagicNumber)
 			return std::unexpected("Invalid magic number in byte span");
 
-		if (header->version > ProgramHeader::CurrentVersion || header->version == 0)
+		if (header->version > ProgramHeader::CurrentVersion || header->version < ProgramHeader::MinimumSupportedVersion)
 			return std::unexpected("Unsupported version in byte span");
 
 		const size_t expectedSize = sizeof(ProgramHeader) + header->textSize + header->rodataSize + header->dataSize;
@@ -206,7 +206,7 @@ namespace ceres::vm
 		if (header.magic != ProgramHeader::MagicNumber)
 			return std::unexpected("Invalid magic number in stream");
 
-		if (header.version > ProgramHeader::CurrentVersion || header.version == 0)
+		if (header.version > ProgramHeader::CurrentVersion || header.version < ProgramHeader::MinimumSupportedVersion)
 			return std::unexpected("Unsupported version in stream");
 
 		std::vector<Program::ByteType> text(header.textSize);
@@ -239,7 +239,7 @@ namespace ceres::vm
 		if (header->magic != ProgramHeader::MagicNumber)
 			return std::unexpected("Invalid magic number in memory block");
 
-		if (header->version > ProgramHeader::CurrentVersion || header->version == 0)
+		if (header->version > ProgramHeader::CurrentVersion || header->version < ProgramHeader::MinimumSupportedVersion)
 			return std::unexpected("Unsupported version in memory block");
 
 		const size_t expectedSize = sizeof(ProgramHeader) + header->textSize + header->rodataSize + header->dataSize;

@@ -26,6 +26,8 @@ namespace ceres::casm
 		MOD, // MOD, MODI
 		IMOD, // IMOD, IMODI
 		NEG, // Pseudo-instruction // IMUL rd rs -1 | FNEG
+		INC, // Pseudo-instruction // ADDI rd, rd, 1
+		DEC, // Pseudo-instruction // SUBI rd, rd, 1
 
 		AND, // AND, ANDI
 		OR, // OR, ORI
@@ -49,10 +51,14 @@ namespace ceres::casm
 		STRH, // STRH,
 		STV, // Pseudo-instruction // Store variable address: LUI + ORI + (STR | STRB | STRH | FSTR)
 		LA, // Pseudo-instruction // Load address: LUI + ORI
+		LC, // Pseudo-instruction // Load a full 32-bit constant: LUI + ORI
+		CLR, // Pseudo-instruction // LI rd, 0
+		SWAP, // Pseudo-instruction // three XORs, no temporary
 		LEA, // LEA
 
 		JP, // JP, JPR
 		CMP, // CMP, CMPI, FCMP
+		TST, // Pseudo-instruction // CMPI rs, 0
 		JZ, // JZ, JZR
 		JNZ, // JNZ, JNZR
 		JC, // JC, JCR
@@ -63,11 +69,30 @@ namespace ceres::casm
 		JNO, // JNO, JNOR
 		CALL, // CALL, CALLR
 		RET, // RET
+		JMP, // Pseudo-instruction // Alias of JP
+
+		// Comparison jumps. JEQ/JNE are aliases of JZ/JNZ; the ordering ones have opcodes of their
+		// own because no single-flag jump spells them.
+		JEQ, // JZ, JZR
+		JNE, // JNZ, JNZR
+		JGR, // JGR, JGRR  (signed >)
+		JGE, // JGE, JGER  (signed >=)
+		JLS, // JLS, JLSR  (signed <)
+		JLE, // JLE, JLER  (signed <=)
+		JAB, // JAB, JABR  (unsigned >)
+		JAE, // JAE, JAER  (unsigned >=)
+		JBL, // JBL, JBLR  (unsigned <)
+		JBE, // JBE, JBER  (unsigned <=)
+
+		// Compare and jump in one written instruction: CMP/CMPI/FCMP followed by the matching jump.
+		IFEQ, IFNE, IFGR, IFGE, IFLS, IFLE, IFAB, IFAE, IFBL, IFBE,
 
 		PUSH, // PUSH, FPUSH
 		POP, // POP, FPOP
 		PUSHF, // PUSHF
 		POPF, // POPF
+		ENTER, // Pseudo-instruction // PUSH fp + MOV fp, sp
+		LEAVE, // Pseudo-instruction // MOV sp, fp + POP fp
 
 		ITOF, // ITOF
 		IITOF, // IITOF

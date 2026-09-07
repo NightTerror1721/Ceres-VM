@@ -370,6 +370,7 @@ namespace ceres::casm
 			{
 				case OpcodeParameterType::IMM8: return 8;
 				case OpcodeParameterType::IMM16:
+				case OpcodeParameterType::IMM16_LOW:
 				case OpcodeParameterType::SIMM16: return 16;
 				case OpcodeParameterType::IMM24:
 				case OpcodeParameterType::SIMM24:
@@ -384,6 +385,7 @@ namespace ceres::casm
 			{
 				case OpcodeParameterType::IMM8: return "an 8-bit immediate";
 				case OpcodeParameterType::IMM16: return "a 16-bit immediate";
+				case OpcodeParameterType::IMM16_LOW: return "a 16-bit immediate";
 				case OpcodeParameterType::SIMM16: return "a signed 16-bit immediate";
 				case OpcodeParameterType::IMM24: return "a 24-bit immediate";
 				case OpcodeParameterType::SIMM24: return "a signed 24-bit immediate";
@@ -450,6 +452,7 @@ namespace ceres::casm
 							break;
 
 						case OpcodeParameterType::IMM16:
+						case OpcodeParameterType::IMM16_LOW:
 							encodedInstruction.setImm16(param.fixedValueU16());
 							break;
 
@@ -505,6 +508,19 @@ namespace ceres::casm
 						case OpcodeParameterType::FT:
 							encodedInstruction.setFt(operandInfo.asFloatingPointRegister().regIndex);
 							break;
+
+						case OpcodeParameterType::IMM16_LOW:
+						{
+							const auto sourceValue = immediateSourceValue(operandInfo);
+							if (!sourceValue.has_value())
+							{
+								reportError(statement.line(), "Operand {} cannot supply an immediate value", operandIndex);
+								return;
+							}
+							// Deliberately unchecked: the upper half went into the paired LUI.
+							encodedInstruction.setImm16(static_cast<u16>(*sourceValue & 0xFFFFu));
+							break;
+						}
 
 						case OpcodeParameterType::IMM8:
 						case OpcodeParameterType::IMM16:

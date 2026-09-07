@@ -137,3 +137,49 @@ TEST(programfile, a_file_that_is_not_a_program_is_rejected)
 	auto loaded = Program::loadFromStream(stream);
 	CHECK(!loaded.has_value());
 }
+
+// Adding the comparison jumps moved every opcode above the control-flow block, so a version 1 file
+// is not a version 2 file with unfamiliar instructions in it - it is one where 0x70 used to mean
+// PUSH and now means JAB. The check that only rejected versions *newer* than the current one would
+// have loaded it and run it as something else entirely, silently.
+TEST(programfile, a_file_from_before_the_opcode_renumbering_is_rejected)
+{
+	AssembleResult assembled = assembleSource(SampleSource, "oldversion");
+
+	CHECK(assembled.ok());
+	if (!assembled.ok()) { Registry::instance().recordFailure(assembled.joinedErrors()); return; }
+
+	std::stringstream stream(std::ios::in | std::ios::out | std::ios::binary);
+	const auto written = assembled.program->writeToStream(stream);
+	CHECK(written.has_value());
+	if (!written.has_value()) { Registry::instance().recordFailure(written.error()); return; }
+
+	// Rewind the version field in place, leaving a well-formed file that claims to be version 1.
+	std::string bytes = stream.str();
+	const usize versionOffset = offsetof(ProgramHeader, version);
+	bytes[versionOffset] = 1;
+	bytes[versionOffset + 1] = 0;
+
+	std::stringstream older(bytes, std::ios::in | std::ios::out | std::ios::binary);
+	auto loaded = Program::loadFromStream(older);
+
+	CHECK(!loaded.has_value());
+}
+
+TEST(programfile, the_current_version_is_still_accepted)
+{
+	AssembleResult assembled = assembleSource(SampleSource, "currentversion");
+
+	CHECK(assembled.ok());
+	if (!assembled.ok()) { Registry::instance().recordFailure(assembled.joinedErrors()); return; }
+	CHECK_EQ(assembled.program->header().version, ProgramHeader::CurrentVersion);
+
+	std::stringstream stream(std::ios::in | std::ios::out | std::ios::binary);
+	const auto written = assembled.program->writeToStream(stream);
+	CHECK(written.has_value());
+	if (!written.has_value()) return;
+
+	auto reloaded = Program::loadFromStream(stream);
+	CHECK(reloaded.has_value());
+	if (!reloaded.has_value()) Registry::instance().recordFailure(reloaded.error());
+}

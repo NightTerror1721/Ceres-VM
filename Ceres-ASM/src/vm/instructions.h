@@ -202,6 +202,22 @@ namespace ceres::vm
 		static constexpr Instruction CMP(u8 rs, u8 rt) noexcept { return make(Opcode::CMP, 0, rs, rt); }
 		static constexpr Instruction CMPI(u8 rs, u16 imm16) noexcept { return make(Opcode::CMPI, 0, rs, imm16); }
 		static constexpr Instruction FCMP(u8 fs, u8 ft) noexcept { return make(Opcode::FCMP, 0, fs, ft); }
+		static constexpr Instruction JGR(i24 simm24) noexcept { return make(Opcode::JGR, simm24); }
+		static constexpr Instruction JGRR(u8 rs) noexcept { return make(Opcode::JGRR, 0, rs); }
+		static constexpr Instruction JGE(i24 simm24) noexcept { return make(Opcode::JGE, simm24); }
+		static constexpr Instruction JGER(u8 rs) noexcept { return make(Opcode::JGER, 0, rs); }
+		static constexpr Instruction JLS(i24 simm24) noexcept { return make(Opcode::JLS, simm24); }
+		static constexpr Instruction JLSR(u8 rs) noexcept { return make(Opcode::JLSR, 0, rs); }
+		static constexpr Instruction JLE(i24 simm24) noexcept { return make(Opcode::JLE, simm24); }
+		static constexpr Instruction JLER(u8 rs) noexcept { return make(Opcode::JLER, 0, rs); }
+		static constexpr Instruction JAB(i24 simm24) noexcept { return make(Opcode::JAB, simm24); }
+		static constexpr Instruction JABR(u8 rs) noexcept { return make(Opcode::JABR, 0, rs); }
+		static constexpr Instruction JAE(i24 simm24) noexcept { return make(Opcode::JAE, simm24); }
+		static constexpr Instruction JAER(u8 rs) noexcept { return make(Opcode::JAER, 0, rs); }
+		static constexpr Instruction JBL(i24 simm24) noexcept { return make(Opcode::JBL, simm24); }
+		static constexpr Instruction JBLR(u8 rs) noexcept { return make(Opcode::JBLR, 0, rs); }
+		static constexpr Instruction JBE(i24 simm24) noexcept { return make(Opcode::JBE, simm24); }
+		static constexpr Instruction JBER(u8 rs) noexcept { return make(Opcode::JBER, 0, rs); }
 		static constexpr Instruction JZ(i24 simm24) noexcept { return make(Opcode::JZ, simm24); }
 		static constexpr Instruction JZR(u8 rs) noexcept { return make(Opcode::JZR, 0, rs); }
 		static constexpr Instruction JNZ(i24 simm24) noexcept { return make(Opcode::JNZ, simm24); }
