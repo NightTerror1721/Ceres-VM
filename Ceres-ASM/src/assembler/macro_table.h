@@ -66,6 +66,7 @@ namespace ceres::casm
 
 	private:
 		Signature _signature;
+		bool _global = false; // Declared with the 'global' prefix, so it is visible outside its unit
 		std::unordered_map<std::string, u32> _parameterIndices; // Map from parameter name to its index
 		std::vector<Statement> _body;
 
@@ -79,8 +80,8 @@ namespace ceres::casm
 		Macro& operator=(Macro&&) = default;
 
 	private:
-		inline explicit Macro(Signature&& signature, std::vector<std::string>&& parameters, std::vector<Statement>&& body) noexcept :
-			_signature(std::move(signature)), _body(std::move(body))
+		inline explicit Macro(Signature&& signature, bool isGlobal, std::vector<std::string>&& parameters, std::vector<Statement>&& body) noexcept :
+			_signature(std::move(signature)), _global(isGlobal), _body(std::move(body))
 		{
 			_parameterIndices.reserve(parameters.size());
 			for (u32 i = 0; i < parameters.size(); ++i)
@@ -91,6 +92,7 @@ namespace ceres::casm
 		inline const Signature& signature() const noexcept { return _signature; }
 		inline std::string_view name() const noexcept { return _signature.name; }
 		inline u32 parameterCount() const noexcept { return _signature.parameterCount; }
+		inline bool isGlobal() const noexcept { return _global; }
 		inline std::span<const Statement> body() const noexcept { return _body; }
 
 		inline std::optional<u32> parameterIndex(const std::string& name) const noexcept
@@ -101,14 +103,14 @@ namespace ceres::casm
 		}
 
 	public:
-		static Macro make(Signature&& signature, std::vector<std::string>&& parameters, std::vector<Statement>&& body) noexcept
+		static Macro make(Signature&& signature, bool isGlobal, std::vector<std::string>&& parameters, std::vector<Statement>&& body) noexcept
 		{
-			return Macro(std::move(signature), std::move(parameters), std::move(body));
+			return Macro(std::move(signature), isGlobal, std::move(parameters), std::move(body));
 		}
 
-		static Macro make(std::string&& name, std::vector<std::string>&& parameters, std::vector<Statement>&& body) noexcept
+		static Macro make(std::string&& name, bool isGlobal, std::vector<std::string>&& parameters, std::vector<Statement>&& body) noexcept
 		{
-			return Macro(MacroSignature::make(std::move(name), static_cast<u32>(parameters.size())), std::move(parameters), std::move(body));
+			return Macro(MacroSignature::make(std::move(name), static_cast<u32>(parameters.size())), isGlobal, std::move(parameters), std::move(body));
 		}
 	};
 
@@ -127,30 +129,30 @@ namespace ceres::casm
 		MacroTable& operator=(MacroTable&&) = default;
 
 	public:
-		void defineMacro(MacroSignature&& signature, std::vector<std::string>&& parameters, std::vector<Statement>&& body);
+		void defineMacro(MacroSignature&& signature, bool isGlobal, std::vector<std::string>&& parameters, std::vector<Statement>&& body);
 
 		OptionalConstRef<Macro> getMacro(const MacroSignature& signature) const noexcept;
 
 	public:
-		void defineMacro(std::string&& name, std::vector<std::string>&& parameters, std::vector<Statement>&& body)
+		void defineMacro(std::string&& name, bool isGlobal, std::vector<std::string>&& parameters, std::vector<Statement>&& body)
 		{
-			defineMacro(MacroSignature::make(std::move(name), static_cast<u32>(parameters.size())), std::move(parameters), std::move(body));
+			defineMacro(MacroSignature::make(std::move(name), static_cast<u32>(parameters.size())), isGlobal, std::move(parameters), std::move(body));
 		}
-		void defineMacro(std::string_view name, std::vector<std::string>&& parameters, std::vector<Statement>&& body)
+		void defineMacro(std::string_view name, bool isGlobal, std::vector<std::string>&& parameters, std::vector<Statement>&& body)
 		{
-			defineMacro(MacroSignature::make(name, static_cast<u32>(parameters.size())), std::move(parameters), std::move(body));
+			defineMacro(MacroSignature::make(name, static_cast<u32>(parameters.size())), isGlobal, std::move(parameters), std::move(body));
 		}
 
 		// Overload taking the interned form used by the AST. Parameter names are copied out of
 		// the pool because Macro indexes them in a std::unordered_map<std::string, u32>.
-		void defineMacro(Identifier name, std::vector<Identifier>&& parameters, std::vector<Statement>&& body)
+		void defineMacro(Identifier name, bool isGlobal, std::vector<Identifier>&& parameters, std::vector<Statement>&& body)
 		{
 			std::vector<std::string> parameterNames;
 			parameterNames.reserve(parameters.size());
 			for (Identifier parameter : parameters)
 				parameterNames.emplace_back(parameter.view());
 
-			defineMacro(MacroSignature::make(name.view(), static_cast<u32>(parameterNames.size())), std::move(parameterNames), std::move(body));
+			defineMacro(MacroSignature::make(name.view(), static_cast<u32>(parameterNames.size())), isGlobal, std::move(parameterNames), std::move(body));
 		}
 
 	private:

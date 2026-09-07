@@ -18,7 +18,11 @@ namespace ceres::casm
 
 			for (const auto& [name, symbol] : unit.symbolTable().getAllSymbols())
 			{
-				if (symbol.isGlobal())
+				// Only what actually has to be linked goes here: labels and variables, which have
+				// addresses another unit needs. A constant occupies no memory and is substituted at
+				// its use, so it travels by import instead - and publishing it here would make two
+				// libraries that each declare `global const MAX` collide even when no file uses both.
+				if (symbol.isGlobal() && !symbol.isConstant())
 				{
 					if (globalSymbolTable.get(name).has_value())
 					{
@@ -61,6 +65,16 @@ namespace ceres::casm
 
 					if (globalSymbolTable.get(unresolvedSymbol.name).has_value())
 						continue;
+
+					// A name that is declared somewhere in the import graph but not exported is the
+					// common mistake, and "Unresolved symbol" gives no hint about it.
+					if (const std::string_view origin = unit.findUnexportedSymbolOrigin(unresolvedSymbol.name); !origin.empty())
+					{
+						reportError(unresolvedSymbol.line,
+							"'{}' is declared in '{}' but is not global, so it is not visible here.",
+							unresolvedSymbol.name, origin);
+						continue;
+					}
 
 					reportError(unresolvedSymbol.line, "Linker error: Unresolved symbol '{}'.", unresolvedSymbol.name);
 					continue; // Skip adding this symbol to the global symbol table

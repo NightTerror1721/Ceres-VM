@@ -178,11 +178,12 @@ namespace ceres::casm
 		Optional<Statement> parseStatement();
 
 		Statement parseSection();
-		Statement parseDataDeclaration();
+		// `isGlobal` is set by the caller when a 'global' prefix was consumed ahead of the keyword.
+		Statement parseDataDeclaration(bool isGlobal);
 		Statement parseImportDeclaration();
 		Statement parseLabelOrInstruction();
 		Statement parseMacroLabel();
-		Statement parseMacroDeclaration();
+		Statement parseMacroDeclaration(bool isGlobal);
 
 		DataTypeReference parseDataType();
 		LiteralValueReference parseLiteralValue(std::optional<DataTypeReference> expectedDataType);

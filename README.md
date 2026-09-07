@@ -243,6 +243,32 @@ alignment.
 
 A `const` occupies no memory; it is substituted at its point of use.
 
+### Visibility
+
+A constant, a variable or a macro is private to the file that declares it unless it carries the
+`global` prefix, exactly like a label:
+
+```casm
+global const MAX_PLAYERS = 4        ; visible to any file importing this one
+const INTERNAL_SLACK    = 8         ; private to this file
+
+@data
+    global let scoreboard: u32[8]   ; exported, address and all
+    let scratch:           u32[8]   ; private
+
+global macro print_char $reg, $code ; exported
+    li $reg, $code
+    outb 0x01, $reg
+endmacro
+```
+
+`global` is what exports; nothing else does. Referring to a name that a module declares without it
+says so rather than reporting an unresolved symbol:
+
+```
+'MAX_PLAYERS' is declared in 'lib/rules.casm' but is not global, so it is not visible here.
+```
+
 ## Labels
 
 ```casm
@@ -325,8 +351,15 @@ is not deterministic.
 import "lib/math.casm"
 ```
 
-A relative path resolves against the importing file. Constants and macros become visible; import
-cycles are reported.
+A relative path resolves against the importing file. What becomes visible is whatever the module
+declares `global`: constants, variables and macros alike. Anything else stays inside it.
+
+A module is read, parsed and built exactly once per run, and an `import` is a reference to it rather
+than a copy of its tables — so importing the same module twice, directly or by two different routes,
+is a no-op rather than a redefinition. Import cycles are still reported.
+
+When two modules export the same name and a file imports both, the clash is reported at the use,
+naming both files.
 
 ---
 

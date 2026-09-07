@@ -26,6 +26,7 @@ namespace ceres::casm
 	struct DataStatement
 	{
 		bool isConstant; // Whether the data is a constant (defined with 'const') or a variable (defined with 'let')
+		bool isGlobal; // Declared with the 'global' prefix, so it is visible outside its translation unit
 		Identifier name; // Identifier name (e.g., variable name)
 		DataTypeReference dataType = DataTypeReference::Invalid; // Data type of the variable (e.g., u8, u16, u32, string, etc.)
 		LiteralValueReference value = LiteralValueReference::makeEmpty(); // Optional initial value (can be a literal integer, float, char, bool, string, or an array of literal values)
@@ -38,6 +39,7 @@ namespace ceres::casm
 
 	struct MacroDeclarationStatement
 	{
+		bool isGlobal; // Declared with the 'global' prefix, so it is visible outside its translation unit
 		Identifier name; // Name of the macro being declared
 		std::vector<Identifier> parameters; // List of parameter names for the macro
 		std::vector<Statement> body; // List of statements that make up the macro's body
@@ -171,14 +173,14 @@ namespace ceres::casm
 			return Statement{ file, line, LabelStatement{ name, level } };
 		}
 
-		static Statement makeData(std::string_view file, u32 line, bool isConstant, Identifier identifier, DataTypeReference dataType = DataTypeReference::Invalid) noexcept
+		static Statement makeData(std::string_view file, u32 line, bool isConstant, bool isGlobal, Identifier identifier, DataTypeReference dataType = DataTypeReference::Invalid) noexcept
 		{
-			return Statement{ file, line, DataStatement{ isConstant, identifier, dataType, LiteralValueReference::makeEmpty() } };
+			return Statement{ file, line, DataStatement{ isConstant, isGlobal, identifier, dataType, LiteralValueReference::makeEmpty() } };
 		}
 
-		static Statement makeData(std::string_view file, u32 line, bool isConstant, Identifier identifier, DataTypeReference dataType, LiteralValueReference value = LiteralValueReference::makeEmpty()) noexcept
+		static Statement makeData(std::string_view file, u32 line, bool isConstant, bool isGlobal, Identifier identifier, DataTypeReference dataType, LiteralValueReference value = LiteralValueReference::makeEmpty()) noexcept
 		{
-			return Statement{ file, line, DataStatement{ isConstant, identifier, dataType, value } };
+			return Statement{ file, line, DataStatement{ isConstant, isGlobal, identifier, dataType, value } };
 		}
 
 		static Statement makeImport(std::string_view file, u32 line, LiteralString moduleName) noexcept
@@ -186,9 +188,9 @@ namespace ceres::casm
 			return Statement{ file, line, ImportStatement{ moduleName } };
 		}
 
-		static Statement makeMacroDeclaration(std::string_view file, u32 line, Identifier name, std::vector<Identifier>&& parameters, std::vector<Statement>&& body) noexcept
+		static Statement makeMacroDeclaration(std::string_view file, u32 line, bool isGlobal, Identifier name, std::vector<Identifier>&& parameters, std::vector<Statement>&& body) noexcept
 		{
-			return Statement{ file, line, MacroDeclarationStatement{ name, std::move(parameters), std::move(body) } };
+			return Statement{ file, line, MacroDeclarationStatement{ isGlobal, name, std::move(parameters), std::move(body) } };
 		}
 
 		static Statement makeMacroLabel(std::string_view file, u32 line, Identifier name) noexcept

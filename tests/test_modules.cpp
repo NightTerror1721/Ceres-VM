@@ -63,7 +63,7 @@ TEST(modules, an_imported_constant_is_visible)
 {
 	Workspace ws{ "constant" };
 	ws.write("consts.casm",
-		"const ANSWER = 42\r\n");
+		"global const ANSWER = 42\r\n");
 	ws.write("main.casm",
 		"import \"consts.casm\"\r\n"
 		"@text\r\n"
@@ -83,7 +83,7 @@ TEST(modules, an_imported_macro_can_be_called)
 {
 	Workspace ws{ "macro" };
 	ws.write("lib.casm",
-		"macro set_to_seven $reg\r\n"
+		"global macro set_to_seven $reg\r\n"
 		"    li $reg, 7\r\n"
 		"endmacro\r\n");
 	ws.write("main.casm",
@@ -108,7 +108,7 @@ TEST(modules, a_path_resolves_relative_to_the_importing_file)
 	// directory instead would not find it.
 	Workspace ws{ "relative" };
 	ws.write("lib/values.casm",
-		"const LOCAL_VALUE = 99\r\n");
+		"global const LOCAL_VALUE = 99\r\n");
 	ws.write("lib/wrapper.casm",
 		"import \"values.casm\"\r\n");
 	ws.write("main.casm",
@@ -129,7 +129,7 @@ TEST(modules, a_path_resolves_relative_to_the_importing_file)
 TEST(modules, importing_the_same_module_twice_is_not_an_error)
 {
 	Workspace ws{ "twice" };
-	ws.write("consts.casm", "const V = 3\r\n");
+	ws.write("consts.casm", "global const V = 3\r\n");
 	ws.write("main.casm",
 		"import \"consts.casm\"\r\n"
 		"import \"consts.casm\"\r\n"
@@ -183,16 +183,16 @@ TEST(modules, a_module_reached_through_two_paths_is_not_a_redefinition)
 {
 	Workspace ws{ "diamond" };
 	ws.write("shared.casm",
-		"const SHARED = 7\r\n"
-		"macro shared_nop\r\n"
+		"global const SHARED = 7\r\n"
+		"global macro shared_nop\r\n"
 		"    nop\r\n"
 		"endmacro\r\n");
 	ws.write("left.casm",
 		"import \"shared.casm\"\r\n"
-		"const FROM_LEFT = 1\r\n");
+		"global const FROM_LEFT = 1\r\n");
 	ws.write("right.casm",
 		"import \"shared.casm\"\r\n"
-		"const FROM_RIGHT = 2\r\n");
+		"global const FROM_RIGHT = 2\r\n");
 	ws.write("main.casm",
 		"import \"left.casm\"\r\n"
 		"import \"right.casm\"\r\n"
@@ -218,8 +218,8 @@ TEST(modules, a_module_reached_through_two_paths_is_not_a_redefinition)
 TEST(modules, two_modules_exporting_the_same_name_are_reported_at_the_use)
 {
 	Workspace ws{ "ambiguous" };
-	ws.write("left.casm", "const CLASH = 1\r\n");
-	ws.write("right.casm", "const CLASH = 2\r\n");
+	ws.write("left.casm", "global const CLASH = 1\r\n");
+	ws.write("right.casm", "global const CLASH = 2\r\n");
 	ws.write("main.casm",
 		"import \"left.casm\"\r\n"
 		"import \"right.casm\"\r\n"
@@ -240,8 +240,8 @@ TEST(modules, two_modules_exporting_the_same_name_are_reported_at_the_use)
 TEST(modules, an_unused_clash_between_two_modules_is_not_an_error)
 {
 	Workspace ws{ "unused_clash" };
-	ws.write("left.casm", "const CLASH = 1\r\nconst LEFT_ONLY = 10\r\n");
-	ws.write("right.casm", "const CLASH = 2\r\n");
+	ws.write("left.casm", "global const CLASH = 1\r\nglobal const LEFT_ONLY = 10\r\n");
+	ws.write("right.casm", "global const CLASH = 2\r\n");
 	ws.write("main.casm",
 		"import \"left.casm\"\r\n"
 		"import \"right.casm\"\r\n"
@@ -254,4 +254,104 @@ TEST(modules, an_unused_clash_between_two_modules_is_not_an_error)
 
 	CHECK(r.ok());
 	if (!r.ok()) Registry::instance().recordFailure(r.joinedErrors());
+}
+
+// The rule the `global` prefix buys: nothing leaves the unit that declares it unless it says so.
+TEST(modules, a_constant_without_global_stays_in_its_module)
+{
+	Workspace ws{ "private_const" };
+	ws.write("consts.casm", "const PRIVATE = 5\r\n");
+	ws.write("main.casm",
+		"import \"consts.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, PRIVATE\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(!r.ok());
+	// The name exists, it is just not exported - saying so beats "Unresolved symbol".
+	CHECK(r.joinedErrors().find("not global") != std::string::npos);
+	CHECK(r.joinedErrors().find("consts.casm") != std::string::npos);
+}
+
+TEST(modules, a_macro_without_global_stays_in_its_module)
+{
+	Workspace ws{ "private_macro" };
+	ws.write("helpers.casm",
+		"macro do_nothing\r\n"
+		"    nop\r\n"
+		"endmacro\r\n");
+	ws.write("main.casm",
+		"import \"helpers.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    do_nothing\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("not global") != std::string::npos);
+}
+
+// Variables never crossed an import at all before; a global one now does, addresses and all.
+TEST(modules, a_global_variable_is_visible_across_an_import)
+{
+	Workspace ws{ "global_var" };
+	ws.write("state.casm",
+		"@data\r\n"
+		"    global let counter: u32 = 11\r\n");
+	ws.write("main.casm",
+		"import \"state.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldv r1, counter\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(r.ok());
+	if (!r.ok()) Registry::instance().recordFailure(r.joinedErrors());
+}
+
+TEST(modules, a_variable_without_global_stays_in_its_module)
+{
+	Workspace ws{ "private_var" };
+	ws.write("state.casm",
+		"@data\r\n"
+		"    let counter: u32 = 11\r\n");
+	ws.write("main.casm",
+		"import \"state.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldv r1, counter\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("not global") != std::string::npos);
+}
+
+// A global declaration is genuinely exported, so it keeps travelling: main imports middle, which
+// imports base, and base's global constant is visible in main without main importing it directly.
+TEST(modules, a_global_constant_travels_through_an_intermediate_module)
+{
+	Workspace ws{ "transitive" };
+	ws.write("base.casm", "global const DEEP = 21\r\n");
+	ws.write("middle.casm", "import \"base.casm\"\r\n");
+	ws.write("main.casm",
+		"import \"middle.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, DEEP\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 21 });
 }

@@ -9,6 +9,7 @@ namespace ceres::casm
 	struct ResolvedDataStatement
 	{
 		bool isConstant; // Whether the data is a constant (defined with 'const') or a variable (defined with 'let')
+		bool isGlobal; // Declared with the 'global' prefix
 		Identifier name; // Identifier name (e.g., variable name)
 		DataType dataType; // Resolved data type information (can be scalar, unsized array, or sized array)
 		std::optional<LiteralValue> value; // Optional initial value (can be a literal integer, float, char, bool, string, or an array of literal values)

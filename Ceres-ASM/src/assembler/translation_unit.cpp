@@ -117,7 +117,7 @@ namespace ceres::casm
 						if (!literalValue.has_value())
 							error(statement.line(), "Constant data statement must have an initial value");
 
-						symbolTable.defineConstant(statement.line(), data.name, false, literalValue.value());
+						symbolTable.defineConstant(statement.line(), data.name, data.isGlobal, literalValue.value());
 					}
 					else
 					{
@@ -147,15 +147,15 @@ namespace ceres::casm
 							case SectionType::Rodata:
 								if (!literalValue.has_value())
 									error(statement.line(), "Variable data statement in @rodata section must have an initial value");
-								symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), false, true, dataType, literalValue.value());
+								symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), data.isGlobal, true, dataType, literalValue.value());
 								sectionSizes.rodataSize += size.value();
 								break;
 
 							case SectionType::Data:
 								if (literalValue.has_value())
-									symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), false, false, dataType, literalValue.value());
+									symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), data.isGlobal, false, dataType, literalValue.value());
 								else
-									symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), false, false, dataType);
+									symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), data.isGlobal, false, dataType);
 								sectionSizes.dataSize += size.value();
 								break;
 
@@ -163,7 +163,7 @@ namespace ceres::casm
 								if (literalValue.has_value())
 									error(statement.line(), "Variable data statement in @bss section cannot have an initial value");
 
-								symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), false, false, dataType);
+								symbolTable.defineVariable(statement.line(), data.name, _currentSection.value(), currentOffset(), data.isGlobal, false, dataType);
 								sectionSizes.bssSize += size.value();
 								break;
 						}
@@ -175,7 +175,7 @@ namespace ceres::casm
 					}
 					else
 					{
-						_ast.push_back(RelocatableStatement::makeData(statement.file(), statement.line(), size.value(), currentOffset(), ResolvedDataStatement{ data.isConstant, data.name, dataType, literalValue }));
+						_ast.push_back(RelocatableStatement::makeData(statement.file(), statement.line(), size.value(), currentOffset(), ResolvedDataStatement{ data.isConstant, data.isGlobal, data.name, dataType, literalValue }));
 						currentOffset() += size.value();
 					}
 				}
@@ -205,7 +205,7 @@ namespace ceres::casm
 				else if (statement.isMacroDeclaration())
 				{
 					MacroDeclarationStatement& macroDecl = statement.asMacroDeclaration();
-					macroTable.defineMacro(std::move(macroDecl.name), std::move(macroDecl.parameters), std::move(macroDecl.body));
+					macroTable.defineMacro(std::move(macroDecl.name), macroDecl.isGlobal, std::move(macroDecl.parameters), std::move(macroDecl.body));
 				}
 				else if (statement.isMacroLabel())
 				{
@@ -261,7 +261,13 @@ namespace ceres::casm
 			MacroSignature::make(call.name.view(), static_cast<u32>(call.arity())));
 
 		if (!macroOpt.has_value())
+		{
+			const auto signature = MacroSignature::make(call.name.view(), static_cast<u32>(call.arity()));
+			if (const std::string_view origin = _translationUnit.findUnexportedMacroOrigin(signature); !origin.empty())
+				error(line, "Macro '{}' is declared in '{}' but is not global, so it is not visible here", call.name, origin);
+
 			error(line, "Unknown mnemonic or macro '{}' taking {} operand(s)", call.name, call.arity());
+		}
 
 		const Macro& macro = macroOpt.value().get();
 
@@ -495,14 +501,18 @@ namespace ceres::casm
 		return std::nullopt;
 	}
 
+	// Labels already carry their own global/file/local level and are published through the linker's
+	// global table, so what this governs is constants, variables and macros. A global declaration
+	// stays visible however many imports it travels through; anything else never leaves the unit
+	// that declares it.
 	bool TranslationUnit::isExported(const Symbol& symbol) noexcept
 	{
-		return symbol.isConstant();
+		return symbol.isGlobal() && (symbol.isConstant() || symbol.isVariable());
 	}
 
-	bool TranslationUnit::isExported(const Macro&) noexcept
+	bool TranslationUnit::isExported(const Macro& macro) noexcept
 	{
-		return true;
+		return macro.isGlobal();
 	}
 
 	OptionalConstRef<Symbol> TranslationUnit::resolveSymbol(std::string_view name) const
@@ -557,6 +567,74 @@ namespace ceres::casm
 		}
 
 		return result;
+	}
+
+	std::string_view TranslationUnit::findUnexportedSymbolOrigin(std::string_view name) const
+	{
+		std::string_view origin;
+		std::vector<const TranslationUnit*> visited;
+		visited.push_back(this);
+
+		for (const auto& path : _directImports)
+		{
+			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+				unit->get().collectUnexportedSymbol(name, visited, origin);
+		}
+
+		return origin;
+	}
+
+	std::string_view TranslationUnit::findUnexportedMacroOrigin(const MacroSignature& signature) const
+	{
+		std::string_view origin;
+		std::vector<const TranslationUnit*> visited;
+		visited.push_back(this);
+
+		for (const auto& path : _directImports)
+		{
+			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+				unit->get().collectUnexportedMacro(signature, visited, origin);
+		}
+
+		return origin;
+	}
+
+	void TranslationUnit::collectUnexportedSymbol(std::string_view name, std::vector<const TranslationUnit*>& visited, std::string_view& origin) const
+	{
+		if (!origin.empty() || std::find(visited.begin(), visited.end(), this) != visited.end())
+			return;
+		visited.push_back(this);
+
+		if (auto own = _symbolTable.get(name); own.has_value() && !isExported(own->get()))
+		{
+			origin = _file;
+			return;
+		}
+
+		for (const auto& path : _directImports)
+		{
+			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+				unit->get().collectUnexportedSymbol(name, visited, origin);
+		}
+	}
+
+	void TranslationUnit::collectUnexportedMacro(const MacroSignature& signature, std::vector<const TranslationUnit*>& visited, std::string_view& origin) const
+	{
+		if (!origin.empty() || std::find(visited.begin(), visited.end(), this) != visited.end())
+			return;
+		visited.push_back(this);
+
+		if (auto own = _macroTable.getMacro(signature); own.has_value() && !isExported(own->get()))
+		{
+			origin = _file;
+			return;
+		}
+
+		for (const auto& path : _directImports)
+		{
+			if (auto unit = state().getTranslationUnit(path); unit.has_value())
+				unit->get().collectUnexportedMacro(signature, visited, origin);
+		}
 	}
 
 	void TranslationUnit::collectExportedSymbol(std::string_view name, std::vector<const TranslationUnit*>& visited, ImportLookup<Symbol>& result) const

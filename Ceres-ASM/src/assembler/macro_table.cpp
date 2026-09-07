@@ -3,7 +3,7 @@
 
 namespace ceres::casm
 {
-	void MacroTable::defineMacro(MacroSignature&& signature, std::vector<std::string>&& parameters, std::vector<Statement>&& body)
+	void MacroTable::defineMacro(MacroSignature&& signature, bool isGlobal, std::vector<std::string>&& parameters, std::vector<Statement>&& body)
 	{
 		checkRedefinition(0, signature);
 
@@ -14,7 +14,7 @@ namespace ceres::casm
 		if (actualParameterCount != expectedParameterCount)
 			error(0, "Macro parameter count mismatch for '{}': expected {}, got {}", signature.name, expectedParameterCount, actualParameterCount);
 
-		Macro macro = Macro::make(MacroSignature(signature), std::move(parameters), std::move(body));
+		Macro macro = Macro::make(MacroSignature(signature), isGlobal, std::move(parameters), std::move(body));
 		auto [it, inserted] = _macros.emplace(std::move(signature), std::move(macro));
 		if (!inserted)
 			error(0, "Macro redefinition: {}", it->first.name);

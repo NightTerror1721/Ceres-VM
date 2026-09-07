@@ -107,11 +107,20 @@ namespace ceres::casm
 		ImportLookup<Symbol> lookupImportedSymbol(std::string_view name) const;
 		ImportLookup<Macro> lookupImportedMacro(const MacroSignature& signature) const;
 
+		// For diagnostics: the file of a declaration reachable through the imports that exists but
+		// is not exported. Turns "Unresolved symbol 'X'" into a message that says where X is and
+		// what is missing from it. Empty when no such declaration exists.
+		std::string_view findUnexportedSymbolOrigin(std::string_view name) const;
+		std::string_view findUnexportedMacroOrigin(const MacroSignature& signature) const;
+
 	private:
 		// `visited` is what keeps a diamond honest: a imports b and c, both of which import d, walks
 		// d once instead of finding the same declaration twice and calling it a redefinition.
 		void collectExportedSymbol(std::string_view name, std::vector<const TranslationUnit*>& visited, ImportLookup<Symbol>& result) const;
 		void collectExportedMacro(const MacroSignature& signature, std::vector<const TranslationUnit*>& visited, ImportLookup<Macro>& result) const;
+
+		void collectUnexportedSymbol(std::string_view name, std::vector<const TranslationUnit*>& visited, std::string_view& origin) const;
+		void collectUnexportedMacro(const MacroSignature& signature, std::vector<const TranslationUnit*>& visited, std::string_view& origin) const;
 
 		// What crosses a module boundary. A global symbol stays visible however many imports it
 		// travels through; anything else never leaves the unit that declares it.

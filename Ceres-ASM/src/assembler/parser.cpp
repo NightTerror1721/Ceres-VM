@@ -43,13 +43,32 @@ namespace ceres::casm
 			{
 				Optional<Statement> statement;
 				if (_cursor.match(KeywordType::Global))
-					statement = parseLabelOrInstruction();
+				{
+					// 'global' is a visibility prefix on any declaration, so what follows decides
+					// which one this is. A label is the case where nothing follows it.
+					const Token& next = _cursor.peek();
+					const bool prefixesDeclaration = next.isKeyword() &&
+						(next.keywordTypeValue() == KeywordType::Let ||
+						 next.keywordTypeValue() == KeywordType::Constant ||
+						 next.keywordTypeValue() == KeywordType::Macro);
+
+					if (prefixesDeclaration)
+					{
+						const KeywordType declaration = next.keywordTypeValue();
+						_cursor.next(); // Consume 'global'; the declaration keyword is current now
+						statement = declaration == KeywordType::Macro
+							? parseMacroDeclaration(true)
+							: parseDataDeclaration(true);
+					}
+					else
+						statement = parseLabelOrInstruction();
+				}
 				else if (_cursor.matchAny({ KeywordType::Let, KeywordType::Constant }))
-					statement = parseDataDeclaration();
+					statement = parseDataDeclaration(false);
 				else if (_cursor.match(KeywordType::Import))
 					statement = parseImportDeclaration();
 				else if (_cursor.match(KeywordType::Macro))
-					statement = parseMacroDeclaration();
+					statement = parseMacroDeclaration(false);
 				else
 					error("Unexpected keyword {}", _cursor.current().lexeme());
 				_cursor.consumeEndOfLineOrEndOfFile("Expected comma between operands or end of line after statement");
@@ -101,7 +120,7 @@ namespace ceres::casm
 		return Statement{}; // This line will never be reached, but is added to satisfy the compiler
 	}
 
-	Statement Parser::parseDataDeclaration()
+	Statement Parser::parseDataDeclaration(bool isGlobal)
 	{
 		u32 line = _cursor.current().line();
 		KeywordType keyword = _cursor.current().keywordTypeValue();
@@ -138,6 +157,7 @@ namespace ceres::casm
 			_file,
 			line,
 			isConstant,
+			isGlobal,
 			name,
 			dataType.value_or(DataTypeReference::Invalid),
 			initialValue.value_or(LiteralValueReference::makeEmpty()));
@@ -207,7 +227,7 @@ namespace ceres::casm
 
 		return Statement::makeMacroLabel(_file, line, identifierToken.identifierValue());
 	}
-	Statement Parser::parseMacroDeclaration()
+	Statement Parser::parseMacroDeclaration(bool isGlobal)
 	{
 		u32 line = _cursor.current().line();
 		_cursor.consume(KeywordType::Macro, "Expected 'macro' keyword for macro declaration");
@@ -254,7 +274,7 @@ namespace ceres::casm
 		if (!endOfMacroFound)
 			error("Expected 'endmacro' to close the declaration of macro '{}'", macroName.view());
 
-		return Statement::makeMacroDeclaration(_file, line, macroName, std::move(parameters), std::move(bodyStatements));
+		return Statement::makeMacroDeclaration(_file, line, isGlobal, macroName, std::move(parameters), std::move(bodyStatements));
 	}
 	DataTypeReference Parser::parseDataType()
 	{
