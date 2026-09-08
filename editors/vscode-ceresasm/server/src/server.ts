@@ -41,7 +41,7 @@ import { DEFAULT_INLAY_HINT_SETTINGS, InlayHintSettings, provideInlayHints } fro
 import { findReferences } from './references';
 import { providePrepareRename, provideRenameEdits } from './rename';
 import { TOKEN_MODIFIERS, TOKEN_TYPES, provideSemanticTokens } from './semanticTokens';
-import { SymbolIndexer } from './symbolIndex';
+import { getCleanedLines, SymbolIndexer } from './symbolIndex';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -179,6 +179,29 @@ connection.onDidChangeConfiguration(() => {
 	}
 });
 
+// The whole statement, not the one character the compiler pointed at. A column is precise and
+// nearly invisible: a single-character squiggle under a 40-column line reads as a speck, and the
+// column an assembler reports is where it *noticed* the problem rather than where the problem is
+// - an operand that does not fit is reported at the operand, and what is wrong is the
+// instruction. The indentation and the trailing spaces are left out, so the mark covers the code
+// and nothing else.
+function diagnosticRange(uri: string, line: number, column: number): Range {
+	const lines = getCleanedLines(indexer, uri);
+	const lineText = lines[line];
+
+	if (lineText !== undefined) {
+		const start = lineText.length - lineText.trimStart().length;
+		const end = lineText.trimEnd().length;
+		if (end > start) {
+			return { start: { line, character: start }, end: { line, character: end } };
+		}
+	}
+
+	// A line that is blank, or one from a file that could not be read: fall back to the column,
+	// which is the only thing left that is true.
+	return { start: { line, character: column }, end: { line, character: column + 1 } };
+}
+
 function scheduleValidation(document: TextDocument): void {
 	const existing = debounceTimers.get(document.uri);
 	if (existing) {
@@ -238,10 +261,10 @@ async function validateDocument(document: TextDocument): Promise<void> {
 				const targetUri = !entry.file || entry.file === tempPath ? document.uri : URI.file(entry.file).toString();
 				getBucket(targetUri).push({
 					severity: entry.severity === 'warning' ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
-					range: {
-						start: { line, character },
-						end: { line, character: character + 1 }
-					},
+					// Measured against the document being edited when the entry belongs to it, and
+					// against the imported file's own text when it does not - the two are different
+					// files with different lines.
+					range: diagnosticRange(targetUri, line, character),
 					message: entry.message,
 					source: 'ceresasm'
 				});
@@ -261,7 +284,7 @@ async function validateDocument(document: TextDocument): Promise<void> {
 				: `CeresASM: this file hasn't been checked - ${(error as Error).message}`;
 		getBucket(document.uri).push({
 			severity: DiagnosticSeverity.Warning,
-			range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+			range: diagnosticRange(document.uri, 0, 0),
 			message: notCheckedMessage,
 			source: 'ceresasm'
 		});

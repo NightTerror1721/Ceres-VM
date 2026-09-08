@@ -10,7 +10,9 @@ Language support for **CASM**, the assembler of the [Ceres](../../README.md) vir
   is lowercase-only, also matching it.
 - Live diagnostics: every time you edit or save a `.casm` file, the extension runs the real
   `ceres` compiler in the background (`ceres asm <file> --json`) and shows its errors as
-  in-editor squiggles, at the exact line and column the compiler reports.
+  in-editor squiggles. The mark covers the whole statement rather than the single character
+  the compiler pointed at - indentation and trailing comments excluded - because the column
+  an assembler reports is where it noticed the problem, not where the problem is.
 - Hover, on everything: mnemonics, pseudo-instructions, registers, keywords, directives
   (`align`, `org`, `assert`), types, section directives and the nine symbols the linker defines
   (`__heap_start`, `__text_end`, ...) show static documentation drawn from the top-level README.
