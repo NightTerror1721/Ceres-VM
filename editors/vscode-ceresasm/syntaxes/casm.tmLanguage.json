@@ -71,7 +71,7 @@
     },
     "keywords": {
       "name": "keyword.control.casm",
-      "match": "\\b(const|let|global|macro|endmacro|struct|endstruct|alias)\\b"
+      "match": "\\b(const|let|global|macro|endmacro|struct|endstruct|alias|as|align|org|assert)\\b"
     },
     "types": {
       "name": "storage.type.casm",
