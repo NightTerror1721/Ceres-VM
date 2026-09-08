@@ -1,5 +1,5 @@
 import { execFile } from 'child_process';
-import { access, constants } from 'fs/promises';
+import { stat } from 'fs/promises';
 import * as path from 'path';
 
 export interface CompilerDiagnostic {
@@ -36,13 +36,26 @@ const CANDIDATE_RELATIVE_PATHS = [
 
 const MAX_ANCESTOR_SEARCH_DEPTH = 8;
 
-async function fileExists(candidate: string): Promise<boolean> {
-	try {
-		await access(candidate, constants.F_OK);
-		return true;
-	} catch {
-		return false;
+// Every candidate that exists, newest first. Taking the first one that exists instead used to
+// mean that a stale build left in Ceres-ASM/src won a workspace-root one that had just been
+// rebuilt - and a compiler older than the language rejects source that is perfectly valid, with
+// a message about the source rather than about itself. The newest build is the one that knows
+// the most mnemonics, so it is the one to run.
+async function newestExisting(candidates: string[]): Promise<string | null> {
+	const found: { path: string; modifiedAt: number }[] = [];
+	for (const candidate of candidates) {
+		try {
+			const info = await stat(candidate);
+			if (info.isFile()) {
+				found.push({ path: candidate, modifiedAt: info.mtimeMs });
+			}
+		} catch {
+			// Not there, or not readable: the next candidate gets its turn.
+		}
 	}
+
+	found.sort((a, b) => b.modifiedAt - a.modifiedAt);
+	return found.length > 0 ? found[0].path : null;
 }
 
 // Ancestor directories of a document, up to MAX_ANCESTOR_SEARCH_DEPTH levels - lets the compiler
@@ -70,13 +83,16 @@ export async function resolveCompilerPath(configuredPath: string, workspaceRoots
 
 	const searchRoots = documentPath ? [...workspaceRoots, ...ancestorsOf(documentPath)] : workspaceRoots;
 
+	const candidates: string[] = [];
 	for (const root of searchRoots) {
 		for (const relative of CANDIDATE_RELATIVE_PATHS) {
-			const candidate = path.join(root, relative);
-			if (await fileExists(candidate)) {
-				return candidate;
-			}
+			candidates.push(path.join(root, relative));
 		}
+	}
+
+	const newest = await newestExisting(candidates);
+	if (newest) {
+		return newest;
 	}
 
 	// Nothing found; let execFile try PATH and report ENOENT if it's not there.
