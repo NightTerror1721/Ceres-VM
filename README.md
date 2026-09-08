@@ -37,6 +37,9 @@ sh tests/build.sh
 | `ceres disasm <file.casm\|file.cres> [--debug]` | Print the text section as address, encoded word and instruction. With `--debug`, annotated with the source line each word came from. |
 | `ceres profile <file.casm\|file.cres>` | Run, then report executed instructions per source line. Time is counted in instructions, so a profile is the same on every run. |
 | `ceres debug <file.casm\|file.cres>` | Run under an interactive debugger: breakpoints, stepping by source line, registers, memory, call stack. |
+| `ceres asm -c <source.casm> -o <out.cobj>` | Assemble one file on its own into an object, to be finished later by a link. |
+| `ceres link <file.cobj\|file.car> [...] -o <out.cres>` | Place, resolve and finish separately assembled objects. |
+| `ceres ar <out.car> <file.cobj> [...]` | Collect objects into an archive: a library that ships compiled. |
 
 A bare path is shorthand for `run`.
 
@@ -706,6 +709,32 @@ naming both files. Naming the imports is the way out: a qualified name is answer
 module, so `math.LIMIT` and `fx.LIMIT` can both be reached from the same file. `as` is matched as an
 ordinary identifier, so it stays usable as a name everywhere else.
 
+## Separate compilation
+
+```bash
+ceres asm -c lib.casm  -o lib.cobj
+ceres asm -c main.casm -o main.cobj
+ceres link main.cobj lib.cobj -o program.cres
+```
+
+A unit assembled on its own knows the shape of every access it makes and the offset of
+everything it declares. It does not know where its own sections will be placed, and it does
+not know the address of anything another unit defines. So every field that would have held an
+address is written as zero and a **relocation** is recorded beside it — which field, how the
+value goes into it, and what the value is *of*. That is the whole difference between a `.cobj`
+and a `.cres`.
+
+An `import` in a unit being assembled this way is read for what it declares and contributes no
+bytes, exactly like a header: that is what keeps two objects that import the same file from
+each carrying a copy of it, and it is where the *types* come from, since an opcode is picked
+from the shape of its operands long before anything has an address.
+
+`ceres ar` collects objects into an archive, and a link pulls in only the members that answer a
+name nothing else does — a program that calls one routine from a library of forty carries
+one. An object is never relaxed, though: "close enough to reach in one word" is a distance, and
+every other object's code is still going to be placed between this unit's code and its data.
+See [Separate compilation](docs/25-Separate-Compilation.md).
+
 ---
 
 # Status
@@ -717,6 +746,9 @@ The assembler and the VM work end to end. What is not done:
   preserved `r8` or left `sp` where you found it.
 - **Devices.** Twenty-six ports are reserved and fifteen are implemented. Input, audio and
   network are still stubs, and the framebuffer draws characters rather than pixels.
+- **Separate compilation has no consistency check.** `ceres asm -c` and `ceres link` build a
+  program one file at a time, but nothing verifies that an object still matches the source
+  that declares its symbols, and an object is never relaxed.
 - **`parseOperand` gaps.** Float, character and string literals are not accepted as operands, and
   a `%%label` cannot start a statement outside a macro body.
 - **Reverse debugging has a horizon.** The debugger ([wiki](docs/22-Debugger.md)) runs backwards,

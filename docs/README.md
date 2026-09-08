@@ -39,6 +39,7 @@ the assembler does internally at each stage of the build.
 19. [Known limitations](19-Known-Limitations.md) — what the project doesn't do yet.
 21. [Debug information](21-Debug-Information.md) — the line and symbol tables, `--debug`, and how they ride along in a `.cres`.
 22. [The debugger](22-Debugger.md) — `ceres debug`: breakpoints, stepping by source line, the reconstructed call stack.
+25. [Separate compilation](25-Separate-Compilation.md) — `.cobj` objects, archives and `ceres link`: building one file at a time.
 
 ### Learn by doing
 
@@ -65,6 +66,9 @@ If you already knew this language, these are the parts that moved:
   above it, which is what makes a frame pointer usable — and a second reason a `.cres` built before
   this is rejected — [Instruction format](04-Instruction-Format.md#signed-and-unsigned-immediate-fields).
 - **A calling convention** you can actually import — [A calling convention](24-Calling-Convention.md).
+- **Separate compilation.** `ceres asm -c` writes an object, `ceres link` joins objects into a
+  program, and `ceres ar` makes a library that ships compiled —
+  [Separate compilation](25-Separate-Compilation.md).
 
 ## Quick start
 

@@ -31,6 +31,21 @@ That it depends on the distance is the part to keep in mind: a program that grow
 statics starts clobbering `at` in code that did not before, without a word. Nothing has changed at
 the source level, so nothing warns.
 
+## Separate compilation gives up relaxation
+
+`ceres asm -c` writes an object and `ceres link` joins objects into a program — see
+[Separate compilation](25-Separate-Compilation.md). One thing it cannot do is relax: rewriting
+a three-word `ldv` into a one-word `ldvp` needs the distance from the instruction to the
+variable, and in an object every other object's `.text` is still going to be placed between
+this unit's code and its data. So a program built from objects is a little larger than the
+same sources assembled in one pass, and anything that depends on a final address — a
+PC-relative access out of reach, an address that does not fit its field — is reported by the
+link, which knows the distance but not the source line.
+
+There is also nothing checking that an object still matches the source that declares it. The
+source of a library is what you write against and the object is what you link against; if the
+two drift apart, the link resolves names that no longer mean what the caller thinks.
+
 ## Most I/O devices are stubs
 
 Of the 26 default ports reserved in [`io_ports.h`](../Ceres-ASM/src/vm/io_ports.h), 15 are backed
