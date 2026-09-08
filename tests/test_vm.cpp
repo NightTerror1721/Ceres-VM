@@ -51,6 +51,7 @@ namespace
 
 
 		Memory& memory() { return _vm.memory(); }
+		ExecutionEngine& engine() { return _vm.engine(); }
 
 	};
 }
@@ -374,4 +375,45 @@ TEST(vm, ordering_jumps_agree_with_plain_greater_and_less)
 	CHECK_EQ(compareAndJump(4, 9, Instruction::JGR(i24(12))), u32{ 100 });
 	CHECK_EQ(compareAndJump(4, 9, Instruction::JLS(i24(12))), u32{ 200 });
 	CHECK_EQ(compareAndJump(9, 4, Instruction::JLS(i24(12))), u32{ 100 });
+}
+
+// --- The stack stops where the program ends ------------------------------------------------
+
+TEST(vm, a_push_below_the_stack_limit_faults_instead_of_writing)
+{
+	Machine m{ Instruction::PUSH(1), Instruction::PUSH(1) };
+
+	// Somewhere above the BIOS, standing in for the end of a loaded image.
+	const u32 limit = static_cast<u32>(Memory::UnrestrictedSegmentStartValue) + 0x1000;
+	const Address below = Address(limit - Instruction::Size);
+
+	m.engine().setStackLimit(limit);
+	m.engine().setRegister(15, limit + 4); // room for exactly one word
+	m.engine().setRegister(1, 0xABCDEF01u);
+	m.memory().writeUnchecked<u32>(below, 0xDEADBEEFu); // the program's own text, in effect
+
+	// The fault needs a handler to dispatch to, and Machine loads no BIOS.
+	m.memory().writeUnchecked<u32>(
+		Address(static_cast<u32>(InterruptNumber::StackOverflow) * Address::Size),
+		Memory::UnrestrictedSegmentStart.value());
+
+	m.step(); // the first push fits
+	CHECK_EQ(m.reg(15), limit);
+	CHECK_EQ(m.memory().readUnchecked<u32>(Address(limit)), 0xABCDEF01u);
+
+	m.step(); // the second one has nowhere left to go
+	CHECK_EQ(m.reg(15), limit); // sp did not move
+	CHECK_EQ(m.memory().readUnchecked<u32>(below), 0xDEADBEEFu); // and nothing below it was touched
+
+	// Nowhere to push the fault's own two words either, so the machine stops rather than
+	// re-entering the dispatch forever.
+	CHECK(m.flags().trap());
+	CHECK(m.flags().halting());
+}
+
+TEST(vm, the_stack_limit_defaults_to_the_top_of_the_bios)
+{
+	// With no program loaded there is no image to defend, so the guard sits where it always did.
+	Machine m{ Instruction::PUSH(1) };
+	CHECK_EQ(m.engine().stackLimit(), static_cast<u32>(Memory::UnrestrictedSegmentStartValue));
 }

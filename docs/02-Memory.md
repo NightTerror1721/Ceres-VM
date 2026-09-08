@@ -77,17 +77,24 @@ Integers are assembled and disassembled byte-by-byte in little-endian order (see
 The stack pointer (`r15`/`sp`) is initialized to the size of memory on reset
 (`ExecutionEngine::reset()` sets `sp = memory.size()`), and the stack **grows down** from there.
 
-- Pushing below `UnrestrictedSegmentStart` (`0x400`) raises `StackOverflow`
-  (`hasStackRoom()` in `execution_engine.h` checks `sp() >= UnrestrictedSegmentStartValue + bytes`).
+- Pushing below the **stack limit** raises `StackOverflow` (`hasStackRoom()` in
+  `execution_engine.h` checks `sp() >= _stackLimit + bytes`). `CeresVM::loadProgram` sets the
+  limit to the address one past the loaded image, which it has to walk the sections to find
+  anyway; with no program loaded it stays at `UnrestrictedSegmentStart` (`0x400`).
 - Popping past the top of memory (i.e., more data popped than was ever pushed) also raises
   `StackOverflow` — same fault class, since a `RET` without a matching `CALL` and an overflow are
   both "the stack is unbalanced".
 
-**Important caveat:** the stack-overflow check only protects the interrupt vectors and the BIOS —
-**not the program's own code, data, or heap**. Nothing in the VM tracks where the loaded program's
-image ends, so a runaway stack silently overwrites `.text`, `.rodata`, `.data` or `.bss` before it
-ever reaches the guarded region below `0x400`. Keep stack usage bounded, especially in recursive
-subroutines.
+A `reset` leaves the limit where it is: the same image is still in memory, so the same ground is
+still worth guarding.
+
+**What it still does not protect:** the heap. Everything between the end of the image and the
+stack is free ground, and the limit sits at the bottom of it, so a stack that runs all the way
+down will have flattened whatever a heap put there first — it just cannot reach the program's own
+code, data or `.bss` any more.
+
+If the `StackOverflow` dispatch cannot fit its own saved flags and PC either, the machine sets the
+Trap and Halting flags and stops instead of faulting forever.
 
 ## Related pages
 

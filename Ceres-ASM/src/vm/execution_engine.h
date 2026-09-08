@@ -30,6 +30,12 @@ namespace ceres::vm
 		// the only clock a debugger can step against deterministically.
 		u64 _executedInstructions = 0;
 
+		// The lowest address the stack may grow down to. Until a program is loaded this is all the
+		// machine can defend - the vector table and the BIOS - which is what it was defending
+		// before: a runaway stack ate the program's own text for as many megabytes as it took to
+		// reach 0x400, and only then said so. loadProgram lowers it to the end of the loaded image.
+		u32 _stackLimit = static_cast<u32>(Memory::UnrestrictedSegmentStartValue);
+
 		// Empty unless a debugger is attached; see setInterruptObserver.
 		std::function<void(InterruptNumber, Address, bool)> _interruptObserver;
 
@@ -58,6 +64,7 @@ namespace ceres::vm
 		constexpr Address programCounter() const noexcept { return _pc; }
 		constexpr bool isHalted() const noexcept { return _flags.halting(); }
 		constexpr u64 executedInstructions() const noexcept { return _executedInstructions; }
+		constexpr u32 stackLimit() const noexcept { return _stackLimit; }
 
 	public:
 		// Write access, for a debugger: setting a register from the editor's variables view,
@@ -80,6 +87,10 @@ namespace ceres::vm
 			_fregisters.setValue(index, value);
 			return true;
 		}
+
+		// Set by the loader once it knows where the image ends. A reset deliberately leaves it
+		// alone: the same program is still in memory, so the same ground is still worth guarding.
+		void setStackLimit(u32 lowestAddress) noexcept { _stackLimit = lowestAddress; }
 
 		void setFlags(FlagRegister flags) noexcept { _flags = flags; }
 		void setProgramCounter(Address address) noexcept { _pc = address; }
@@ -193,7 +204,7 @@ namespace ceres::vm
 		// so without this the overflow was silent and execution carried on with garbage.
 		forceinline bool hasStackRoom(u32 bytes) const noexcept
 		{
-			return sp() >= Memory::UnrestrictedSegmentStartValue + bytes;
+			return sp() >= _stackLimit + bytes;
 		}
 
 		forceinline bool hasStackData(u32 bytes) const noexcept

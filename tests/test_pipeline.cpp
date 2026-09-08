@@ -402,3 +402,34 @@ TEST(pipeline, the_calling_convention_holds_together)
 	if (!r.assembled) { Registry::instance().recordFailure(r.errors); return; }
 	CHECK_EQ(r.output, std::string{ "12021" });
 }
+
+TEST(pipeline, the_loader_lowers_the_stack_limit_to_the_end_of_the_image)
+{
+	AssembleResult a = assembleSource(
+		"@data\r\n"
+		"    let table: u32[64] = [1]\r\n"
+		"@bss\r\n"
+		"    let scratch: u32[128]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r0, 1\r\n"
+		"    outb 0xFF, r0\r\n", "pipeline");
+
+	CHECK(a.ok());
+	if (!a.ok()) { Registry::instance().recordFailure(a.joinedErrors()); return; }
+
+	CeresVM vm{};
+	CHECK(vm.loadProgram(a.program.value()).has_value());
+
+	const auto& h = a.program->header();
+	const u32 imageEnd = static_cast<u32>(Memory::UnrestrictedSegmentStartValue) +
+		h.textSize + h.rodataSize + h.dataSize + h.bssSize;
+
+	CHECK_EQ(vm.engine().stackLimit(), imageEnd);
+	// And it actually moved: the guard used to sit on the BIOS whatever the program looked like.
+	CHECK(vm.engine().stackLimit() > static_cast<u32>(Memory::UnrestrictedSegmentStartValue));
+
+	// A reset re-runs the same image, so the same ground stays guarded.
+	vm.engine().reset();
+	CHECK_EQ(vm.engine().stackLimit(), imageEnd);
+}

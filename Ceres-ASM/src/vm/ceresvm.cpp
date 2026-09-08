@@ -44,6 +44,11 @@ namespace ceres::vm
 
 		offset += header.bssSize; // BSS is zero-initialized, so we just need to reserve the space.
 
+		// Everything from here up is free ground: heap first, then the stack coming down from the
+		// top of memory. The machine could only ever guard the vector table and the BIOS before,
+		// because nothing told it where the image ended - and this loop has known all along.
+		_engine.setStackLimit(offset.value());
+
 		_bios.initializeMemory(_memory);
 		_memory.writeUnchecked<u32>(0_addr, header.entryPoint); // Write the entry point to the null page so that the execution engine can read it on reset.
 

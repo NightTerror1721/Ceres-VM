@@ -193,9 +193,9 @@ Note `ifle` rather than `cmp` + `jle`: the comparison and the branch as one inst
 - **Nothing checks any of this.** There is no way to write a macro that verifies you preserved `r8`,
   or that you did not move `sp`. It is discipline, and the macros exist to make the disciplined thing
   the easy thing.
-- **Stack overflow only protects the vector table and the BIOS**, not your program's own code — see
-  [Memory → The stack](02-Memory.md#the-stack). Deep recursion overwrites your `.text` before it
-  reaches anything the machine guards.
+- **Stack overflow is caught at the end of the image**, so deep recursion faults instead of
+  overwriting your own `.text` — see [Memory → The stack](02-Memory.md#the-stack). What it cannot
+  tell you is *which* function went too deep; the fault names an address, not a frame.
 - **The debugger's call stack is reconstructed, not unwound** (see [The debugger](22-Debugger.md)).
   Following this convention makes that reconstruction more likely to be right, but does not make it
   exact.

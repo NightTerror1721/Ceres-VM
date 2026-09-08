@@ -91,7 +91,7 @@ because a reader coming from a more conventional ISA might otherwise assume they
 | `str [rd + imm16], rs` puts the base *before* the value | `imm16` occupies the same bits as `rt`, so there's no room for a third register | [Instruction format](04-Instruction-Format.md#the-critical-overlap-imm16-and-rt) |
 | `stv` silently clobbers `at` (`r13`) | It needs a base register for the address that is not the one holding the value | [Pseudo-instructions](06-Pseudo-Instructions.md#the-at-clobber) |
 | `iret` never restores the Halting flag | `halt` means "wait for an interrupt"; restoring it would put the machine straight back to sleep with no way to wake it | [Registers and flags](03-Registers-and-Flags.md#flags-register) |
-| A stack overflow only protects the vector table/BIOS, not the program itself | Nothing tracks where the loaded program's image ends | [Memory → The stack](02-Memory.md#the-stack) |
+| A stack overflow does not protect the heap | The limit is the end of the image, and everything above it is free ground the stack is entitled to | [Memory → The stack](02-Memory.md#the-stack) |
 | `[r5+0]` fails to parse | Lexes as the register followed by the signed literal `+0`, not as `+` then `0` | [Language syntax](10-Language-Syntax.md#addressing-memory-operands) |
 | A displacement above 32767 is rejected | The field is a signed 16 bits; it used to truncate silently | [Instruction format](04-Instruction-Format.md#signed-and-unsigned-immediate-fields) |
 | A `global const` is not in the linker's global table | It occupies no memory, so there is nothing to link; it travels by `import`, which lets two libraries declare the same name | [Labels and symbols](12-Labels-and-Symbols.md) |
