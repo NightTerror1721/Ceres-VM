@@ -182,9 +182,22 @@ more branches read two flags each:
 
 `jeq` and `jne` are aliases of `jz` and `jnz`, and `jmp` is an alias of `jp`.
 
-### Stack · `0x80`–`0x85`
+### Stack · `0x80`–`0x87`
 
-`push` `pop` `pushf` `popf`
+`push` `pop` `pushf` `popf` `pushm` `popm`
+
+`pushm` and `popm` take a **bit per register**, which is what `imm16` has exactly sixteen of:
+
+```casm
+    pushm 0x0F00        // r8, r9, r10 and r11, in one instruction
+    ...
+    popm  0x0F00        // and back, from the same four slots
+```
+
+`pushm` stores from the highest set bit down, so the lowest-numbered register lands at the lowest
+address and `popm` walks back up in order — a matching pair restores what it saved whatever the
+mask. It is all or nothing: if the whole mask does not fit, nothing is pushed and `StackOverflow`
+is raised, because a half-saved frame would be restored as if it were whole.
 
 ### Conversions · `0x90`–`0x95`
 

@@ -7,6 +7,7 @@
 #include "interrupts.h"
 #include "io_ports.h"
 #include "interrupt_controller.h"
+#include <bit>
 #include <limits>
 #include <cmath>
 #include <functional>
@@ -931,6 +932,46 @@ namespace ceres::vm
 		forceinline void POP(const Instruction inst) noexcept { if (const auto v = pop<u32>()) { setReg(inst.rd(), *v); advancePC(); } }
 		forceinline void PUSHF(const Instruction inst) noexcept { if (push<u32>(_flags.value())) advancePC(); }
 		forceinline void POPF(const Instruction inst) noexcept { if (const auto v = pop<u32>()) { _flags = *v; advancePC(); } }
+		// All or nothing. A half-saved frame is worse than one that never started: the epilogue's
+		// POPM would restore the wrong registers out of the wrong slots and carry on as if it had
+		// worked, so the room for the whole mask is checked before the first word goes down.
+		forceinline void PUSHM(const Instruction inst) noexcept
+		{
+			const u16 mask = inst.imm16();
+			const u32 words = static_cast<u32>(std::popcount(mask));
+			if (!hasStackRoom(words * static_cast<u32>(sizeof(u32))))
+			{
+				triggerInterrupt(InterruptNumber::StackOverflow);
+				return;
+			}
+
+			for (u32 i = GeneralPurposeRegisterPool::Count; i-- > 0;)
+			{
+				if (mask & (1u << i))
+					(void)push<u32>(getReg(static_cast<u8>(i)));
+			}
+			advancePC();
+		}
+		forceinline void POPM(const Instruction inst) noexcept
+		{
+			const u16 mask = inst.imm16();
+			const u32 words = static_cast<u32>(std::popcount(mask));
+			if (!hasStackData(words * static_cast<u32>(sizeof(u32))))
+			{
+				triggerInterrupt(InterruptNumber::StackOverflow);
+				return;
+			}
+
+			for (u32 i = 0; i < GeneralPurposeRegisterPool::Count; ++i)
+			{
+				if (mask & (1u << i))
+				{
+					if (const auto value = pop<u32>())
+						setReg(static_cast<u8>(i), *value);
+				}
+			}
+			advancePC();
+		}
 		forceinline void FPUSH(const Instruction inst) noexcept { if (push<f32>(getFloatReg(inst.fs()))) advancePC(); }
 		forceinline void FPOP(const Instruction inst) noexcept { if (const auto v = pop<f32>()) { setFloatReg(inst.fd(), *v); advancePC(); } }
 
@@ -1195,6 +1236,8 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::POP)] = &ExecutionEngine::POP;
 				handlers[static_cast<u8>(Opcode::PUSHF)] = &ExecutionEngine::PUSHF;
 				handlers[static_cast<u8>(Opcode::POPF)] = &ExecutionEngine::POPF;
+				handlers[static_cast<u8>(Opcode::PUSHM)] = &ExecutionEngine::PUSHM;
+				handlers[static_cast<u8>(Opcode::POPM)] = &ExecutionEngine::POPM;
 				handlers[static_cast<u8>(Opcode::FPUSH)] = &ExecutionEngine::FPUSH;
 				handlers[static_cast<u8>(Opcode::FPOP)] = &ExecutionEngine::FPOP;
 

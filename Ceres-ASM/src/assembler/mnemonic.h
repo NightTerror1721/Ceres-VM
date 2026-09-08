@@ -89,6 +89,8 @@ namespace ceres::casm
 
 		PUSH, // PUSH, FPUSH
 		POP, // POP, FPOP
+		PUSHM, // PUSHM
+		POPM, // POPM
 		PUSHF, // PUSHF
 		POPF, // POPF
 		ENTER, // Pseudo-instruction // PUSH fp + MOV fp, sp

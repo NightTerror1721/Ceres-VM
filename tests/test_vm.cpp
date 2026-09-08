@@ -310,7 +310,7 @@ TEST(vm, the_disassembler_names_every_mapped_opcode)
 		Opcode::FSTR, Opcode::LEA, Opcode::JP, Opcode::JPR, Opcode::CMP, Opcode::CMPI,
 		Opcode::JZ, Opcode::CALL, Opcode::RET, Opcode::PUSH, Opcode::POP, Opcode::ITOF,
 		Opcode::FTOI, Opcode::MTF, Opcode::MFF, Opcode::IN, Opcode::OUT, Opcode::OUTM,
-		Opcode::OUTR, Opcode::INRM, Opcode::OUTRM,
+		Opcode::OUTR, Opcode::INRM, Opcode::OUTRM, Opcode::PUSHM, Opcode::POPM,
 	};
 
 	for (Opcode opcode : mapped)
@@ -465,4 +465,83 @@ TEST(vm, the_text_range_is_empty_until_a_program_is_loaded)
 {
 	Machine m{ Instruction::NOP() };
 	CHECK_EQ(m.engine().textStart(), m.engine().textEnd());
+}
+
+// --- Saving a set of registers in one instruction --------------------------------------------
+
+TEST(vm, pushm_and_popm_round_trip_whatever_the_mask)
+{
+	// r8-r11, the callee-saved four.
+	constexpr u16 mask = (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11);
+
+	Machine m{
+		Instruction::PUSHM(mask),
+		Instruction::LI(8, 0), Instruction::LI(9, 0), Instruction::LI(10, 0), Instruction::LI(11, 0),
+		Instruction::POPM(mask),
+	};
+
+	for (u8 r = 8; r <= 11; ++r)
+		m.engine().setRegister(r, 0x1000u + r);
+
+	const u32 spBefore = m.reg(15);
+
+	m.step();
+	CHECK_EQ(m.reg(15), spBefore - 4 * 4); // four words, and no more
+
+	m.step(4);
+	CHECK_EQ(m.reg(8), 0u);
+
+	m.step();
+	CHECK_EQ(m.reg(15), spBefore); // and the stack is back where it started
+	for (u8 r = 8; r <= 11; ++r)
+		CHECK_EQ(m.reg(r), 0x1000u + r);
+}
+
+TEST(vm, pushm_stores_in_the_order_popm_reads)
+{
+	// The lowest-numbered register has to end up at the lowest address, or a frame described by a
+	// struct would not line up with what popm restores.
+	constexpr u16 mask = (1u << 2) | (1u << 5);
+	Machine m{ Instruction::PUSHM(mask) };
+
+	m.engine().setRegister(2, 0x22222222u);
+	m.engine().setRegister(5, 0x55555555u);
+	m.step();
+
+	const Address top = Address(m.reg(15));
+	CHECK_EQ(m.memory().readUnchecked<u32>(top), 0x22222222u);
+	CHECK_EQ(m.memory().readUnchecked<u32>(top + Address(4)), 0x55555555u);
+}
+
+TEST(vm, an_empty_mask_touches_nothing)
+{
+	Machine m{ Instruction::PUSHM(0), Instruction::POPM(0) };
+	const u32 spBefore = m.reg(15);
+	m.step(2);
+	CHECK_EQ(m.reg(15), spBefore);
+}
+
+TEST(vm, pushm_saves_nothing_when_the_whole_mask_does_not_fit)
+{
+	constexpr u16 mask = (1u << 1) | (1u << 2) | (1u << 3);
+	Machine m{ Instruction::PUSHM(mask) };
+
+	const u32 limit = static_cast<u32>(Memory::UnrestrictedSegmentStartValue) + 0x1000;
+	m.engine().setStackLimit(limit);
+	m.engine().setRegister(15, limit + 8); // room for two words, not three
+	m.memory().writeUnchecked<u32>(
+		Address(static_cast<u32>(InterruptNumber::StackOverflow) * Address::Size),
+		Memory::UnrestrictedSegmentStart.value());
+
+	m.engine().setRegister(1, 0x11111111u);
+	m.engine().setRegister(2, 0x22222222u);
+	m.engine().setRegister(3, 0x33333333u);
+
+	m.step();
+
+	// Nothing of the mask was stored - the only two words that went down are the fault's own
+	// saved PC and flags, so the top of the stack is the address of the instruction that
+	// faulted rather than r1.
+	CHECK_EQ(m.memory().readUnchecked<u32>(Address(m.reg(15))), Memory::UnrestrictedSegmentStart.value());
+	CHECK_EQ(m.reg(15), limit); // eight bytes, which is the dispatch and not three registers
 }

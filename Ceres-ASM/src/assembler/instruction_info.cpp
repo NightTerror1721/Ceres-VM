@@ -470,6 +470,8 @@ namespace ceres::casm
 
 		inst(Opcode::PUSH, Mnemonic::PUSH, OpcodeParameterType::RS),
 		inst(Opcode::POP, Mnemonic::POP, OpcodeParameterType::RD),
+		inst(Opcode::PUSHM, Mnemonic::PUSHM, OpcodeParameterType::IMM16),
+		inst(Opcode::POPM, Mnemonic::POPM, OpcodeParameterType::IMM16),
 		inst(Opcode::PUSHF, Mnemonic::PUSHF),
 		inst(Opcode::POPF, Mnemonic::POPF),
 		inst(Opcode::FPUSH, Mnemonic::PUSH, OpcodeParameterType::FS),

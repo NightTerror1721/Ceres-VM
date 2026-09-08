@@ -244,6 +244,8 @@ namespace ceres::vm
 		static constexpr Instruction PUSHF(u8 rs) noexcept { return make(Opcode::PUSHF, 0, rs); }
 		static constexpr Instruction POPF(u8 rd) noexcept { return make(Opcode::POPF, rd, 0); }
 		static constexpr Instruction FPUSH(u8 fs) noexcept { return make(Opcode::FPUSH, 0, fs); }
+		static constexpr Instruction PUSHM(u16 mask) noexcept { return make(Opcode::PUSHM, 0, 0, mask); }
+		static constexpr Instruction POPM(u16 mask) noexcept { return make(Opcode::POPM, 0, 0, mask); }
 		static constexpr Instruction FPOP(u8 fd) noexcept { return make(Opcode::FPOP, fd, 0); }
 
 		// Conversions

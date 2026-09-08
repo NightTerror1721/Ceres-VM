@@ -131,6 +131,11 @@ namespace ceres::vm
 		POPF = 0x83, // [] - Pop the value from the stack frame into the given register.
 		FPUSH = 0x84, // [fs] - Push the value of the given floating-point register onto the stack.
 		FPOP = 0x85, // [fd] - Pop the value from the stack into the given floating-point register.
+		// One bit per register, which is what imm16 has exactly sixteen of. PUSHM stores from the
+		// highest set bit down, so the lowest-numbered register ends up at the lowest address and
+		// POPM walks back up in order: a matching pair restores what it saved whatever the mask.
+		PUSHM = 0x86, // [imm16] - Push every register whose bit is set, r15 first.
+		POPM = 0x87, // [imm16] - Pop into every register whose bit is set, r0 first.
 
 		// Conversions //
 		ITOF = 0x90, // [fd, rs] - Convert the integer value in rs to a floating-point value and store it in fd.
@@ -162,7 +167,7 @@ namespace ceres::vm
 		OUTRH = 0xB2, // [rs, rt] - Write a halfword from rs to the I/O port specified by the value in rt.
 		OUTRM = 0xB3, // [rd, rs, rt] - Write an array of bytes with size specified by rd from the memory address pointed to by rs to the I/O port specified by the value in rt.
 
-		// Free: 0x08-0x0F, 0x29-0x2F, 0x3D-0x3F, 0x4F, 0x78-0x7F, 0x86-0x8F, 0x96-0x9F, 0xB4-0xFF.
+		// Free: 0x08-0x0F, 0x29-0x2F, 0x3D-0x3F, 0x4F, 0x78-0x7F, 0x88-0x8F, 0x96-0x9F, 0xB4-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

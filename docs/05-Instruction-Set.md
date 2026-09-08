@@ -219,7 +219,7 @@ of float registers picks `FCMP` and the matching branch for you, which is the po
 If the push would overflow the stack, the fault is raised and the jump never happens (see
 [Memory](02-Memory.md#the-stack)).
 
-## Stack operations · `0x80`–`0x85`
+## Stack operations · `0x80`–`0x87`
 
 | Assembly | Opcode | Semantics |
 | --- | --- | --- |
@@ -229,6 +229,36 @@ If the push would overflow the stack, the fault is raised and the jump never hap
 | `popf` | `POPF` `0x83` | Pops into the flags register (overwrites all flags at once). |
 | `push fs` | `FPUSH` `0x84` | Pushes a float register (4 bytes, bit pattern preserved). |
 | `pop fd` | `FPOP` `0x85` | Pops into a float register. |
+| `pushm imm16` | `PUSHM` `0x86` | Pushes every register whose bit is set, `r15` first. |
+| `popm imm16` | `POPM` `0x87` | Pops into every register whose bit is set, `r0` first. |
+
+### `pushm` and `popm`
+
+Bit *n* of the immediate means register *n*, so `0x0F00` is `r8`–`r11` and `0x0003` is `r0` and
+`r1`. The immediate field is sixteen bits wide and the bank is sixteen registers deep, which is
+the whole reason the mask fits.
+
+```casm
+my_function:
+    pushm 0x0F00            // save r8-r11 in one word instead of four stores
+    ...
+    popm  0x0F00
+    ret
+```
+
+The store order is fixed: `pushm` goes from the highest set bit down, so the lowest-numbered
+register ends up at the lowest address, and `popm` reads back up from `r0`. A matching pair
+therefore restores exactly what it saved for any mask, and the saved area can be described by a
+[`struct`](23-Structs.md) whose fields run in register order.
+
+`pushm` is **all or nothing**. It checks room for the whole mask before storing anything, and
+raises `StackOverflow` without touching the stack if it does not fit — a partially saved frame
+would be restored as though it were whole, which is worse than not starting. `popm` checks the
+same way against the data actually on the stack.
+
+There is no register-list syntax: the mask is written as a number, and the constant expression
+grammar has `+` but no `|`, so disjoint bits add up the way you would expect — `pushm 256 + 512`
+is `r8` and `r9`.
 
 Every push/pop can raise `StackOverflow` — see [Memory](02-Memory.md#the-stack). When that happens,
 the instruction that triggered it does not complete (e.g. `push` does not advance the PC if the push
