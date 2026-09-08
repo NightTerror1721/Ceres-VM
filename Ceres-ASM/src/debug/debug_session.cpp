@@ -199,6 +199,14 @@ namespace ceres::debug
 			{
 				_lastInterrupt = PendingInterrupt{ number, atPc.value(), entered, true };
 			});
+
+		// Watchpoints see the access itself rather than its consequence, which is the only way
+		// to catch a read - it leaves nothing behind to compare against.
+		_vm->engine().setAccessObserver(
+			[this](vm::AccessKind kind, u32 address, u32 size) noexcept
+			{
+				noteAccess(kind, address, size);
+			});
 	}
 
 	void DebugSession::setOutputHandler(OutputHandler handler)
@@ -459,7 +467,7 @@ namespace ceres::debug
 		return true;
 	}
 
-	std::expected<BreakpointId, std::string> DebugSession::addDataBreakpoint(u32 address, u32 size, std::string label)
+	std::expected<BreakpointId, std::string> DebugSession::addDataBreakpoint(u32 address, u32 size, std::string label, WatchMode mode)
 	{
 		if (size == 0)
 			return std::unexpected("A data breakpoint needs a size");
@@ -470,6 +478,7 @@ namespace ceres::debug
 		watch.id = _nextBreakpointId++;
 		watch.address = address;
 		watch.size = size;
+		watch.mode = mode;
 		watch.label = std::move(label);
 		watch.before = readMemory(address, size);
 		_dataBreakpoints.push_back(std::move(watch));
@@ -492,23 +501,47 @@ namespace ceres::debug
 
 	void DebugSession::refreshDataSnapshots()
 	{
+		// Also clears anything the machine touched while it was not being watched for - restoring
+		// a snapshot, say, which is not the program accessing memory.
 		for (DataBreakpoint& watch : _dataBreakpoints)
+		{
 			watch.before = readMemory(watch.address, watch.size);
+			watch.pending = false;
+		}
+	}
+
+	// The engine reports every load and store; this is what turns one into a stop. Comparing
+	// snapshots between instructions was what this used to do, and it could not see a read at
+	// all, nor a write that put back the value that was already there.
+	void DebugSession::noteAccess(vm::AccessKind kind, u32 address, u32 size)
+	{
+		const bool isWrite = kind == vm::AccessKind::Write;
+
+		for (DataBreakpoint& watch : _dataBreakpoints)
+		{
+			if (watch.mode == WatchMode::Write && !isWrite)
+				continue;
+			if (watch.mode == WatchMode::Read && isWrite)
+				continue;
+
+			// Any overlap counts: a word store that clips one watched byte touched it.
+			if (address + size <= watch.address || watch.address + watch.size <= address)
+				continue;
+
+			watch.pending = true;
+			watch.pendingWasWrite = isWrite;
+		}
 	}
 
 	DataBreakpoint* DebugSession::checkDataBreakpoints()
 	{
-		// Compared between instructions rather than trapped at the access: the machine has no
-		// memory hook, and adding one would put a branch in the hot path of every load and store
-		// for the sake of a feature almost no run uses. The cost here is proportional to the bytes
-		// actually being watched, which is a handful.
 		for (DataBreakpoint& watch : _dataBreakpoints)
 		{
-			const std::vector<u8> now = readMemory(watch.address, watch.size);
-			if (now == watch.before)
+			if (!watch.pending)
 				continue;
 
-			watch.before = now;
+			watch.pending = false;
+			watch.before = readMemory(watch.address, watch.size);
 			++watch.hitCount;
 			return &watch;
 		}

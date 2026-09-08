@@ -92,14 +92,23 @@ namespace ceres::debug
 	// A watch on a range of memory. Only writes are detected, and by comparing the bytes to a
 	// snapshot between instructions rather than by trapping the access: the machine has no memory
 	// hook, and adding one would put a branch in the hot path of every load and store.
+	// What a watch is watching for. Writes are the default because they are what a program does
+	// to a variable; reads are asked for by name, since almost everything reads almost everything.
+	enum class WatchMode : u8 { Write, Read, ReadWrite };
+
 	struct DataBreakpoint
 	{
 		BreakpointId id = 0;
 		u32 address = 0;
 		u32 size = 0;
+		WatchMode mode = WatchMode::Write;
 		std::string label;      // What the user asked to watch, for the stop message
-		std::vector<u8> before; // The last bytes seen, to compare the next ones against
+		std::vector<u8> before; // What it held when it was last looked at, for the stop message
 		u32 hitCount = 0;
+		// Set by the access observer when the machine touched this range, and read between
+		// instructions. A read leaves no trace in memory, so nothing else could find it.
+		bool pending = false;
+		bool pendingWasWrite = false;
 	};
 
 	// One entry of the reconstructed call stack. `reconstructed` is always true and says so on
@@ -299,7 +308,7 @@ namespace ceres::debug
 
 		// `label` is only used to say what changed when it fires; the address and size are what
 		// is actually watched.
-		std::expected<BreakpointId, std::string> addDataBreakpoint(u32 address, u32 size, std::string label);
+		std::expected<BreakpointId, std::string> addDataBreakpoint(u32 address, u32 size, std::string label, WatchMode mode = WatchMode::Write);
 		bool removeDataBreakpoint(BreakpointId id);
 		void clearDataBreakpoints();
 		std::span<const DataBreakpoint> dataBreakpoints() const noexcept { return _dataBreakpoints; }
@@ -363,6 +372,7 @@ namespace ceres::debug
 		bool hitConditionSatisfied(const Breakpoint& breakpoint) const;
 
 		// Compares every watched range to its snapshot. Returns the one that changed, if any.
+		void noteAccess(vm::AccessKind kind, u32 address, u32 size);
 		DataBreakpoint* checkDataBreakpoints();
 		void refreshDataSnapshots();
 

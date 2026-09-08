@@ -64,9 +64,10 @@ Two things it cannot do exactly rather than approximately:
   shown, but execution has already been redirected by the time the debugger regains control; there
   is no way to hold the machine at the faulting instruction itself.
 
-A **watchpoint only detects writes**, and detects them by comparing the watched bytes to a snapshot
-between instructions rather than by trapping the access. A read is invisible to it, and a write that
-puts back the value that was already there is too.
+A **watchpoint sees the access itself** now, not its consequence: the engine reports every load and
+store it performs, so a read can be watched (`watch read x`, or `watch rw x` for either) and a write
+that puts back the value that was already there still stops. Instruction fetch is deliberately not
+reported — it is not an access the program made.
 
 Running **backwards** works, but only as far as the recording reaches: `interval x snapshots`
 instructions, 1.28 million by default. Older than that and the debugger says so rather than landing

@@ -40,7 +40,7 @@ does. `DebugCLI` is one front end over it; the editor integration is another.
 | `b <loc>` | Break at `file:line`, a label, a bare line number, or `*0x400` |
 | `b <loc> if <expr>` | Break only when the expression is true |
 | `log <loc> <text>` | Log `{expressions}` and carry on, instead of stopping |
-| `watch <name>` | Stop when that memory changes |
+| `watch [read\|rw] <name>` | Stop when that memory is written, or read, or either |
 | `d [id]` | Delete one breakpoint or watch, or all of them |
 | `bl` | List breakpoints and their hit counts |
 | `regs` | Registers and flags |
@@ -157,11 +157,15 @@ would leave you watching a breakpoint with no clue as to the reason.
 Watch 1, counter changed, data breakpoint at loop.casm:9 (0x00000414)
 ```
 
-A named variable knows its own extent, so `watch counter` watches exactly it. Only **writes** are
-detected, and by comparing the bytes to a snapshot between instructions rather than by trapping the
-access: the machine has no memory hook, and adding one would put a branch in the hot path of every
-load and store for the sake of something almost no run uses. The cost is proportional to the bytes
-actually being watched.
+A named variable knows its own extent, so `watch counter` watches exactly it.
+
+**The access itself is what is watched**, not its consequence. The engine reports every load and
+store to the session, so `watch counter` stops even on a write that puts back the value that was
+already there, and `watch read counter` stops on a load — which nothing comparing snapshots could
+ever have found, since a read leaves nothing behind. `watch rw counter` takes either.
+
+Instruction fetch is not reported: it is not an access the program made. And the cost when no
+debugger is attached is one predictable branch per load and store, on a callback that is empty.
 
 ## Choosing which faults stop the machine
 

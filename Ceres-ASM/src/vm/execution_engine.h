@@ -18,6 +18,9 @@
 
 namespace ceres::vm
 {
+	// Which way a load or a store went, for a watchpoint that wants to know.
+	enum class AccessKind : u8 { Read, Write };
+
 	class ExecutionEngine
 	{
 	private:
@@ -51,6 +54,12 @@ namespace ceres::vm
 		// The machine already counts in executed instructions rather than wall clock, so this is a
 		// profile that comes out the same on every run - which a real machine cannot offer.
 		std::vector<u64> _executionCounts;
+
+		// Empty unless a debugger is attached. A watchpoint that compares snapshots between
+		// instructions cannot see a read at all, nor a write that puts back the value that was
+		// already there; this sees the access itself. The cost when nobody is watching is one
+		// predictable branch per load and store.
+		std::function<void(AccessKind, u32, u32)> _accessObserver;
 
 		// Empty unless a debugger is attached; see setInterruptObserver.
 		std::function<void(InterruptNumber, Address, bool)> _interruptObserver;
@@ -109,6 +118,13 @@ namespace ceres::vm
 
 		// Set by the loader once it knows where the image ends. A reset deliberately leaves it
 		// alone: the same program is still in memory, so the same ground is still worth guarding.
+		// Told about every load and store the program performs, with the address and the width.
+		// Instruction fetch is deliberately not reported: it is not an access the program made.
+		void setAccessObserver(std::function<void(AccessKind, u32, u32)> observer) noexcept
+		{
+			_accessObserver = std::move(observer);
+		}
+
 		void setStackLimit(u32 lowestAddress) noexcept { _stackLimit = lowestAddress; }
 
 		// Also the loader's to set, and also kept across a reset. Pass an empty range to lift the
@@ -194,6 +210,9 @@ namespace ceres::vm
 		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
 		forceinline T read(Address address) const noexcept
 		{
+			if (_accessObserver)
+				_accessObserver(AccessKind::Read, address.value(), static_cast<u32>(sizeof(T)));
+
 			if constexpr (FloatingPoint<T>)
 				return _memory.readFloat(address);
 			else
@@ -216,6 +235,9 @@ namespace ceres::vm
 		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
 		forceinline void write(Address address, T value) noexcept
 		{
+			if (_accessObserver)
+				_accessObserver(AccessKind::Write, address.value(), static_cast<u32>(sizeof(T)));
+
 			if constexpr (FloatingPoint<T>)
 				_memory.writeFloat(address, value);
 			else

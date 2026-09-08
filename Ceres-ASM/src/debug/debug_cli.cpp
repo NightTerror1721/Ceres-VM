@@ -128,7 +128,8 @@ namespace ceres::debug
 			"    b <loc>              break at file:line, a label, or *0x400\n"
 			"    b <loc> if <expr>    break only when the expression is true\n"
 			"    log <loc> <text>     log {expressions} and carry on instead of stopping\n"
-			"    watch <name|addr> [size]   stop when that memory changes\n"
+			"    watch [read|rw] <name|addr> [size]   stop when that memory is written,\n"
+			"                                         or read, or either\n"
 			"    d <id>       delete a breakpoint or watch; `d` alone deletes them all\n"
 			"    bl           list breakpoints and watches\n"
 			"\n"
@@ -770,10 +771,24 @@ namespace ceres::debug
 
 		if (command == "watch")
 		{
-			const std::string_view target = argument(1);
+			// `watch read x` and `watch rw x` ask for the accesses a write-only watch cannot see.
+			usize firstArgument = 1;
+			debug::WatchMode mode = debug::WatchMode::Write;
+			if (argument(1) == "read" || argument(1) == "r")
+			{
+				mode = debug::WatchMode::Read;
+				firstArgument = 2;
+			}
+			else if (argument(1) == "rw")
+			{
+				mode = debug::WatchMode::ReadWrite;
+				firstArgument = 2;
+			}
+
+			const std::string_view target = argument(firstArgument);
 			if (target.empty())
 			{
-				std::cout << "  Usage: watch <variable> | watch 0x1000 [size]\n";
+				std::cout << "  Usage: watch [read|rw] <variable> | watch [read|rw] 0x1000 [size]\n";
 				return true;
 			}
 
@@ -797,10 +812,10 @@ namespace ceres::debug
 				return true;
 			}
 
-			if (!argument(2).empty())
-				size = parseNumber(argument(2)).value_or(size);
+			if (!argument(firstArgument + 1).empty())
+				size = parseNumber(argument(firstArgument + 1)).value_or(size);
 
-			auto added = _session.addDataBreakpoint(address, size, std::string(target));
+			auto added = _session.addDataBreakpoint(address, size, std::string(target), mode);
 			if (added.has_value())
 				std::cout << std::format("  Watch {} on {} bytes at {:#010x}\n", added.value(), size, address);
 			else

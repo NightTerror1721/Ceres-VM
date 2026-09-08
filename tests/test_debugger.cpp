@@ -614,3 +614,76 @@ TEST(debugger, the_disassembly_reads_backwards_as_well_as_forwards)
 		CHECK(lines[2].location.has_value());
 	}
 }
+
+// --- Watchpoints see the access, not its consequence -------------------------------------------
+
+TEST(debugger, a_watch_catches_a_write_that_changes_nothing)
+{
+	// Comparing snapshots between instructions could not see this: the byte holds 7 before and 7
+	// after, so nothing looked different.
+	constexpr std::string_view Source =
+		"@data\r\n"
+		"    let counter: u32 = 7\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, 7\r\n"
+		"    stv counter, r1\r\n"
+		"    li r0, 1\r\n"
+		"    out 0xff, r0\r\n"
+		"    ret\r\n";
+
+	TempSource source{ Source, "watchsame" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+
+	session->start();
+	const auto* symbol = session->debugInfo().symbolNamed("counter");
+	CHECK(symbol != nullptr);
+	if (!symbol) return;
+
+	CHECK(session->addDataBreakpoint(symbol->address, symbol->size, "counter").has_value());
+
+	const debug::StopEvent event = session->resume();
+	CHECK(event.reason == debug::StopReason::DataBreakpoint);
+}
+
+TEST(debugger, a_read_watch_catches_a_load)
+{
+	// A read leaves nothing behind, so nothing but the access itself could ever find it.
+	constexpr std::string_view Source =
+		"@data\r\n"
+		"    let counter: u32 = 7\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldv r1, counter\r\n"
+		"    li r0, 1\r\n"
+		"    out 0xff, r0\r\n"
+		"    ret\r\n";
+
+	TempSource source{ Source, "watchread" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+
+	session->start();
+	const auto* symbol = session->debugInfo().symbolNamed("counter");
+	CHECK(symbol != nullptr);
+	if (!symbol) return;
+
+	CHECK(session->addDataBreakpoint(symbol->address, symbol->size, "counter",
+		debug::WatchMode::Read).has_value());
+
+	const debug::StopEvent event = session->resume();
+	CHECK(event.reason == debug::StopReason::DataBreakpoint);
+
+	// And a write-only watch on the same load does not stop.
+	TempSource other{ Source, "watchreadneg" };
+	auto plain = launchOrNull(other);
+	if (!plain) return;
+	plain->start();
+	const auto* sym2 = plain->debugInfo().symbolNamed("counter");
+	if (!sym2) return;
+	CHECK(plain->addDataBreakpoint(sym2->address, sym2->size, "counter").has_value());
+	CHECK(plain->resume().reason != debug::StopReason::DataBreakpoint);
+}
