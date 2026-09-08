@@ -8,6 +8,7 @@ import {
 	getAllTokens,
 	getCleanedLines,
 	getTokenAtCharacter,
+	qualifierBefore,
 	sigilLength,
 	SymbolIndexer,
 	TokenAtPosition
@@ -31,7 +32,7 @@ function scanFileFor(
 	uri: string,
 	matchText: string,
 	declarationKeys: Set<string>,
-	filterQualified?: (line: number, matchText: string) => boolean
+	accept?: (lineText: string, line: number, token: TokenAtPosition) => boolean
 ): NameReference[] {
 	const lines = getCleanedLines(indexer, uri);
 	const results: NameReference[] = [];
@@ -40,7 +41,7 @@ function scanFileFor(
 			if (candidate.text !== matchText) {
 				continue;
 			}
-			if (filterQualified && !filterQualified(line, matchText)) {
+			if (accept && !accept(lines[line], line, candidate)) {
 				continue;
 			}
 			const range = bareRange(line, candidate);
@@ -95,44 +96,74 @@ export function findReferences(
 		return [];
 	}
 
+	// Everything an import can reach, plus wherever the declaration itself lives. A `global`
+	// anything is used from other files by definition, so searching only its own file would
+	// answer "one use" for a routine the whole program calls.
+	const searchFilesFor = (declaringUri: string): string[] => {
+		const { filesVisited } = indexer.collectVisibleSymbols(document.uri);
+		const files = new Set(filesVisited);
+		files.add(declaringUri);
+		files.add(document.uri);
+		return [...files];
+	};
+
 	let results: NameReference[];
 
 	if (resolved.kind === 'variable') {
 		const declKey = declarationKey(resolved.symbol.uri, resolved.symbol.range, 0);
-		results = scanFileFor(indexer, resolved.symbol.uri, resolved.symbol.name, new Set([declKey]));
+		const files = resolved.symbol.isGlobal ? searchFilesFor(resolved.symbol.uri) : [resolved.symbol.uri];
+		results = files.flatMap((uri) => scanFileFor(indexer, uri, resolved.symbol.name, new Set([declKey])));
 	} else if (resolved.kind === 'label') {
 		const declKey = declarationKey(resolved.symbol.uri, resolved.symbol.range, resolved.symbol.visibility === 'local' ? 1 : 0);
 		const targetQualifiedName = resolved.symbol.qualifiedName;
 		const isLocal = resolved.symbol.visibility === 'local';
-		results = scanFileFor(
-			indexer,
-			resolved.symbol.uri,
-			resolved.symbol.declaredName,
-			new Set([declKey]),
-			isLocal
-				? (line, name) => {
-						const file = indexer.getFileIndex(resolved.symbol.uri);
-						const parent = findEnclosingNonLocalLabel(file, line);
-						const qualifiedName = parent ? `${parent.declaredName}${name}` : name;
-						return qualifiedName === targetQualifiedName;
-					}
-				: undefined
+		// A local label means a different thing under each parent, so it is matched by the
+		// qualified name rather than by the two characters on the line.
+		const accept = isLocal
+			? (_lineText: string, line: number, candidate: TokenAtPosition): boolean => {
+					const file = indexer.getFileIndex(resolved.symbol.uri);
+					const parent = findEnclosingNonLocalLabel(file, line);
+					const qualifiedName = parent ? `${parent.declaredName}${candidate.text}` : candidate.text;
+					return qualifiedName === targetQualifiedName;
+				}
+			: undefined;
+		const files = resolved.symbol.visibility === 'global' ? searchFilesFor(resolved.symbol.uri) : [resolved.symbol.uri];
+		results = files.flatMap((uri) =>
+			scanFileFor(indexer, uri, resolved.symbol.declaredName, new Set([declKey]), accept)
 		);
 	} else if (resolved.kind === 'const') {
 		const declKey = declarationKey(resolved.symbol.uri, resolved.symbol.range, 0);
-		const { filesVisited } = indexer.collectVisibleSymbols(document.uri);
-		const searchFiles = new Set(filesVisited);
-		searchFiles.add(resolved.symbol.uri);
-		results = [...searchFiles].flatMap((uri) => scanFileFor(indexer, uri, resolved.symbol.name, new Set([declKey])));
+		results = searchFilesFor(resolved.symbol.uri).flatMap((uri) =>
+			scanFileFor(indexer, uri, resolved.symbol.name, new Set([declKey]))
+		);
+	} else if (resolved.kind === 'struct') {
+		const declKey = declarationKey(resolved.symbol.uri, resolved.symbol.range, 0);
+		results = searchFilesFor(resolved.symbol.uri).flatMap((uri) =>
+			scanFileFor(indexer, uri, resolved.symbol.name, new Set([declKey]))
+		);
+	} else if (resolved.kind === 'field') {
+		// `.count` on its own is a local label somewhere else in the same file, so a field is only
+		// a use of this field where its own struct is written immediately before the dot.
+		const owner = resolved.owner.name;
+		const declKey = declarationKey(resolved.field.uri, resolved.field.range, 0);
+		results = searchFilesFor(resolved.field.uri).flatMap((uri) =>
+			scanFileFor(indexer, uri, `.${resolved.field.name}`, new Set([declKey]), (text, _line, candidate) =>
+				qualifierBefore(text, candidate) === owner
+			)
+		);
+		// The declaration inside the struct body is written `count: u32`, which is not a `.count`
+		// token at all, so it is added by hand.
+		if (includeDeclaration) {
+			results.unshift({ uri: resolved.field.uri, range: resolved.field.range, isDeclaration: true });
+		}
 	} else {
 		// macro: every arity sharing this name is treated as one renameable family.
 		const declKeys = new Set(resolved.candidates.map((candidate) => declarationKey(candidate.uri, candidate.range, 0)));
-		const { filesVisited } = indexer.collectVisibleSymbols(document.uri);
-		const searchFiles = new Set(filesVisited);
+		const files = new Set(searchFilesFor(resolved.symbol.uri));
 		for (const candidate of resolved.candidates) {
-			searchFiles.add(candidate.uri);
+			files.add(candidate.uri);
 		}
-		results = [...searchFiles].flatMap((uri) => scanFileFor(indexer, uri, resolved.symbol.name, declKeys));
+		results = [...files].flatMap((uri) => scanFileFor(indexer, uri, resolved.symbol.name, declKeys));
 	}
 
 	return includeDeclaration ? results : results.filter((r) => !r.isDeclaration);

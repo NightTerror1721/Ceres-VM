@@ -570,6 +570,8 @@ namespace ceres::debug
 				continue;
 
 			watch.pending = false;
+			// `pendingWasWrite` is deliberately left standing: the caller reads it to say which
+			// access stopped the machine, and the next access sets it again.
 			watch.before = readMemory(watch.address, watch.size);
 			++watch.hitCount;
 			return &watch;
@@ -988,7 +990,10 @@ namespace ceres::debug
 			{
 				StopEvent hit = makeStop(StopReason::DataBreakpoint);
 				hit.dataBreakpoint = watch->id;
-				hit.message = std::format("{} changed, {}", watch->label, hit.message);
+				// Which access it was, because a read watch that reported "changed" would be saying
+				// the one thing a read never does.
+				hit.message = std::format("{} was {}, {}",
+					watch->label, watch->pendingWasWrite ? "written" : "read", hit.message);
 				return hit;
 			}
 

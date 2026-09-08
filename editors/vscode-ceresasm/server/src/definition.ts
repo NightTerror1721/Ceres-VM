@@ -1,7 +1,7 @@
 import { Location, Position, Range } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { isReservedWord } from './languageData';
-import { resolveUserSymbol } from './resolution';
+import { definitionLocationOf, resolveUserSymbol } from './resolution';
 import { getCleanedLines, getTokenAtCharacter, SymbolIndexer } from './symbolIndex';
 
 export function provideDefinition(document: TextDocument, position: Position, indexer: SymbolIndexer): Location | null {
@@ -22,5 +22,6 @@ export function provideDefinition(document: TextDocument, position: Position, in
 		return null;
 	}
 
-	return Location.create(resolved.symbol.uri, resolved.symbol.range as Range);
+	const target = definitionLocationOf(resolved);
+	return Location.create(target.uri, target.range);
 }

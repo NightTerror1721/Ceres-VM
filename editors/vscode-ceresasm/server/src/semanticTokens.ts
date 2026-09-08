@@ -8,7 +8,10 @@ import {
 	getCleanedLines,
 	LabelSymbol,
 	MacroSymbol,
+	qualifierBefore,
 	sigilLength,
+	StructSymbol,
+	TokenAtPosition,
 	VariableSymbol,
 	SymbolIndexer
 } from './symbolIndex';
@@ -21,7 +24,14 @@ import {
 // only covers what a lexical grammar genuinely cannot: telling apart plain identifiers that are
 // consts, variables, non-local labels or macro calls, marking their declaration site, and
 // classifying a `.local` label *reference* (the grammar only catches its declaration).
-export const TOKEN_TYPES = [SemanticTokenTypes.parameter, SemanticTokenTypes.variable, SemanticTokenTypes.function, SemanticTokenTypes.macro] as const;
+export const TOKEN_TYPES = [
+	SemanticTokenTypes.parameter,
+	SemanticTokenTypes.variable,
+	SemanticTokenTypes.function,
+	SemanticTokenTypes.macro,
+	SemanticTokenTypes.struct,
+	SemanticTokenTypes.property
+] as const;
 
 export const TOKEN_MODIFIERS = [SemanticTokenModifiers.declaration, SemanticTokenModifiers.readonly] as const;
 
@@ -41,13 +51,16 @@ interface Classification {
 }
 
 function classify(
-	text: string,
+	token: TokenAtPosition,
+	lineText: string,
 	file: FileIndex,
 	consts: Map<string, ConstSymbol>,
 	variables: Map<string, VariableSymbol>,
 	labels: Map<string, LabelSymbol>,
-	macrosByName: Map<string, MacroSymbol[]>
+	macrosByName: Map<string, MacroSymbol[]>,
+	structs: Map<string, StructSymbol>
 ): Classification | null {
+	const text = token.text;
 	if (isReservedWord(text)) {
 		return null;
 	}
@@ -55,8 +68,14 @@ function classify(
 		return { type: typeIndex(SemanticTokenTypes.parameter), modifiers: 0 };
 	}
 	if (text.startsWith('.')) {
-		// Shape alone is enough to know this is a local label; no need to resolve the target.
-		return { type: typeIndex(SemanticTokenTypes.function), modifiers: 0 };
+		// A dot opens a local label - unless a name is written immediately before it, which makes
+		// it a struct field or a module's export, and those read nothing like a jump target.
+		return qualifierBefore(lineText, token) === null
+			? { type: typeIndex(SemanticTokenTypes.function), modifiers: 0 }
+			: { type: typeIndex(SemanticTokenTypes.property), modifiers: modifierBit(SemanticTokenModifiers.readonly) };
+	}
+	if (structs.has(text)) {
+		return { type: typeIndex(SemanticTokenTypes.struct), modifiers: modifierBit(SemanticTokenModifiers.readonly) };
 	}
 	if (consts.has(text)) {
 		return { type: typeIndex(SemanticTokenTypes.variable), modifiers: modifierBit(SemanticTokenModifiers.readonly) };
@@ -78,7 +97,7 @@ function classify(
 
 export function provideSemanticTokens(document: TextDocument, indexer: SymbolIndexer): SemanticTokens {
 	const file = indexer.getFileIndex(document.uri);
-	const { consts, variables, labels, macrosByName } = indexer.collectVisibleSymbols(document.uri);
+	const { consts, variables, labels, macrosByName, structs } = indexer.collectVisibleSymbols(document.uri);
 	const lines = getCleanedLines(indexer, document.uri);
 
 	// This file's own declaration sites, keyed by (line, bare-name start char, length), so the
@@ -90,6 +109,12 @@ export function provideSemanticTokens(document: TextDocument, indexer: SymbolInd
 	for (const symbol of file.consts.values()) addDeclaration(symbol.range.start.line, symbol.range.start.character, symbol.name.length);
 	for (const symbol of file.variables.values()) addDeclaration(symbol.range.start.line, symbol.range.start.character, symbol.name.length);
 	for (const symbol of file.macros.values()) addDeclaration(symbol.range.start.line, symbol.range.start.character, symbol.name.length);
+	for (const symbol of file.structs.values()) {
+		addDeclaration(symbol.range.start.line, symbol.range.start.character, symbol.name.length);
+		for (const field of symbol.fields) {
+			addDeclaration(field.range.start.line, field.range.start.character, field.name.length);
+		}
+	}
 	for (const symbol of file.labels.values()) {
 		const offset = sigilLength(symbol.declaredName);
 		const bareName = symbol.declaredName.slice(offset);
@@ -100,7 +125,7 @@ export function provideSemanticTokens(document: TextDocument, indexer: SymbolInd
 
 	for (let line = 0; line < lines.length; line++) {
 		for (const token of getAllTokens(lines[line])) {
-			const classification = classify(token.text, file, consts, variables, labels, macrosByName);
+			const classification = classify(token, lines[line], file, consts, variables, labels, macrosByName, structs);
 			if (!classification) {
 				continue;
 			}

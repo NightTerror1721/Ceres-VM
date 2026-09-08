@@ -1,10 +1,25 @@
 import { CompletionItem, CompletionItemKind, Position } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { KEYWORDS, LINKER_SYMBOLS, MNEMONICS, SECTIONS, TYPES } from './languageData';
-import { findEnclosingMacro, findEnclosingNonLocalLabel, getAllTokens, getCleanedLines, SymbolIndexer } from './symbolIndex';
+import {
+	findEnclosingMacro,
+	findEnclosingNonLocalLabel,
+	getAllTokens,
+	getCleanedLines,
+	resolveImportPath,
+	SymbolIndexer
+} from './symbolIndex';
+import { URI } from 'vscode-uri';
 
 export function provideCompletion(document: TextDocument, position: Position, indexer: SymbolIndexer): CompletionItem[] {
 	const items: CompletionItem[] = [];
+
+	// After `Frame.` there is exactly one right answer set - that struct's fields, or that
+	// module's exports - and offering the whole language alongside them would bury it.
+	const member = memberCompletions(document, position, indexer);
+	if (member) {
+		return member;
+	}
 
 	for (const [name, doc] of Object.entries(MNEMONICS)) {
 		items.push({
@@ -45,12 +60,22 @@ export function provideCompletion(document: TextDocument, position: Position, in
 		items.push({ label: name, kind: CompletionItemKind.Variable, detail });
 	}
 
-	const { file, consts, macrosByName } = indexer.collectVisibleSymbols(document.uri);
+	const { file, consts, variables, labels, macrosByName, structs } = indexer.collectVisibleSymbols(document.uri);
 
 	for (const symbol of consts.values()) {
 		items.push({ label: symbol.name, kind: CompletionItemKind.Constant, detail: `const = ${symbol.valueText}` });
 	}
-	for (const symbol of file.variables.values()) {
+	for (const symbol of structs.values()) {
+		items.push({
+			label: symbol.name,
+			kind: CompletionItemKind.Struct,
+			detail: symbol.size === undefined ? 'struct' : `struct, ${symbol.size} bytes`,
+			documentation: symbol.fields.map((field) => `${field.name}: ${field.typeText}`).join('\n')
+		});
+	}
+	// The visible set rather than this file's: what an import brings in can be written here, and
+	// leaving it out of the list is what makes a symbol feel like it does not exist.
+	for (const symbol of new Map([...variables, ...file.variables]).values()) {
 		items.push({ label: symbol.name, kind: CompletionItemKind.Variable, detail: symbol.typeText });
 	}
 
@@ -59,7 +84,7 @@ export function provideCompletion(document: TextDocument, position: Position, in
 	// would suggest something that, if picked, silently refers to a *different* label than the
 	// one shown here (or to nothing at all), so those are left out entirely.
 	const enclosingNonLocalLabel = findEnclosingNonLocalLabel(file, position.line);
-	for (const symbol of file.labels.values()) {
+	for (const symbol of new Map([...labels, ...file.labels]).values()) {
 		if (symbol.visibility === 'local') {
 			const owner = enclosingNonLocalLabel ? `${enclosingNonLocalLabel.declaredName}${symbol.declaredName}` : symbol.declaredName;
 			if (owner !== symbol.qualifiedName) {
@@ -92,6 +117,62 @@ export function provideCompletion(document: TextDocument, position: Position, in
 		}
 		for (const label of hygienicLabels) {
 			items.push({ label, kind: CompletionItemKind.Function, detail: 'hygienic macro label' });
+		}
+	}
+
+	return items;
+}
+
+// `Frame.` and `math.` - the two things a dot after a name can mean here.
+function memberCompletions(document: TextDocument, position: Position, indexer: SymbolIndexer): CompletionItem[] | null {
+	const lineText = getCleanedLines(indexer, document.uri)[position.line] ?? '';
+	const before = lineText.slice(0, position.character);
+	const match = /([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_]*)$/.exec(before);
+	if (!match) {
+		return null;
+	}
+
+	const qualifier = match[1];
+	const { structs } = indexer.collectVisibleSymbols(document.uri);
+
+	const owner = structs.get(qualifier);
+	if (owner) {
+		return owner.fields.map((field) => ({
+			label: field.name,
+			kind: CompletionItemKind.Field,
+			detail: field.offset === undefined ? field.typeText : `+${field.offset}  ${field.typeText}`,
+			documentation: `Byte offset of \`${owner.name}.${field.name}\` within \`${owner.name}\`.`
+		}));
+	}
+
+	const file = indexer.getFileIndex(document.uri);
+	const importSpec = file.imports.find((spec) => spec.alias === qualifier);
+	if (!importSpec) {
+		return null;
+	}
+
+	const moduleUri = URI.file(resolveImportPath(document.uri, importSpec.importPath)).toString();
+	const module = indexer.getFileIndex(moduleUri);
+	const items: CompletionItem[] = [];
+
+	for (const symbol of module.consts.values()) {
+		if (symbol.isGlobal) {
+			items.push({ label: symbol.name, kind: CompletionItemKind.Constant, detail: `const = ${symbol.valueText}` });
+		}
+	}
+	for (const symbol of module.variables.values()) {
+		if (symbol.isGlobal) {
+			items.push({ label: symbol.name, kind: CompletionItemKind.Variable, detail: symbol.typeText });
+		}
+	}
+	for (const symbol of module.structs.values()) {
+		if (symbol.isGlobal) {
+			items.push({ label: symbol.name, kind: CompletionItemKind.Struct, detail: 'struct' });
+		}
+	}
+	for (const symbol of module.labels.values()) {
+		if (symbol.visibility === 'global') {
+			items.push({ label: symbol.declaredName, kind: CompletionItemKind.Function, detail: 'global label' });
 		}
 	}
 

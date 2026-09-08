@@ -13,6 +13,8 @@ import {
 	Hover,
 	HoverParams,
 	InitializeParams,
+	InlayHint,
+	InlayHintParams,
 	InitializeResult,
 	Location,
 	PrepareRenameParams,
@@ -35,6 +37,7 @@ import { provideCompletion } from './completion';
 import { provideDefinition } from './definition';
 import { provideFoldingRanges } from './folding';
 import { provideHover } from './hover';
+import { DEFAULT_INLAY_HINT_SETTINGS, InlayHintSettings, provideInlayHints } from './inlayHints';
 import { findReferences } from './references';
 import { providePrepareRename, provideRenameEdits } from './rename';
 import { TOKEN_MODIFIERS, TOKEN_TYPES, provideSemanticTokens } from './semanticTokens';
@@ -56,6 +59,10 @@ process.on('uncaughtException', (error) => {
 });
 
 let hasConfigurationCapability = false;
+
+// Fetched once and kept until the user changes something, because a hint request arrives for
+// every visible range of every scroll and a round trip per request would be felt.
+let cachedInlayHintSettings: InlayHintSettings | undefined;
 let hasWorkspaceFolderCapability = false;
 let workspaceRoots: string[] = [];
 let warnedAboutMissingCompiler = false;
@@ -88,6 +95,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 			referencesProvider: true,
 			renameProvider: { prepareProvider: true },
 			foldingRangeProvider: true,
+			inlayHintProvider: { resolveProvider: false },
 			completionProvider: {
 				triggerCharacters: ['.', '$', '%', '@']
 			},
@@ -125,6 +133,51 @@ async function getCompilerPath(documentPath: string): Promise<string> {
 	}
 	return resolveCompilerPath(configuredPath, workspaceRoots, documentPath);
 }
+
+// A missing or malformed setting falls back to the default rather than turning the feature off:
+// the answer to "I do not know what you want" is what everyone else gets.
+async function getInlayHintSettings(): Promise<InlayHintSettings> {
+	if (cachedInlayHintSettings) {
+		return cachedInlayHintSettings;
+	}
+	if (!hasConfigurationCapability) {
+		cachedInlayHintSettings = DEFAULT_INLAY_HINT_SETTINGS;
+		return cachedInlayHintSettings;
+	}
+
+	try {
+		const settings = await connection.workspace.getConfiguration({ section: 'ceresAsm.inlayHints' });
+		const read = (key: keyof InlayHintSettings): boolean =>
+			typeof settings?.[key] === 'boolean' ? (settings[key] as boolean) : DEFAULT_INLAY_HINT_SETTINGS[key];
+
+		cachedInlayHintSettings = {
+			enabled: read('enabled'),
+			variableTypes: read('variableTypes'),
+			constantValues: read('constantValues'),
+			structOffsets: read('structOffsets'),
+			macroParameterNames: read('macroParameterNames'),
+			portNames: read('portNames'),
+			registerAliases: read('registerAliases')
+		};
+	} catch {
+		cachedInlayHintSettings = DEFAULT_INLAY_HINT_SETTINGS;
+	}
+
+	return cachedInlayHintSettings ?? DEFAULT_INLAY_HINT_SETTINGS;
+}
+
+connection.onDidChangeConfiguration(() => {
+	cachedInlayHintSettings = undefined;
+	// Hints already drawn were drawn under the old settings, so they have to be asked for again -
+	// nothing else would make a toggle take effect until the file is scrolled or edited.
+	connection.languages.inlayHint.refresh().catch((error: unknown) => {
+		connection.console.error(`Failed to refresh inlay hints: ${String(error)}`);
+	});
+
+	for (const document of documents.all()) {
+		scheduleValidation(document);
+	}
+});
 
 function scheduleValidation(document: TextDocument): void {
 	const existing = debounceTimers.get(document.uri);
@@ -275,6 +328,19 @@ connection.onHover((params: HoverParams): Hover | null => {
 	} catch (error) {
 		connection.console.error(`Hover request failed: ${(error as Error).message}`);
 		return null;
+	}
+});
+
+connection.languages.inlayHint.on(async (params: InlayHintParams): Promise<InlayHint[]> => {
+	try {
+		const document = documents.get(params.textDocument.uri);
+		if (!document) {
+			return [];
+		}
+		return provideInlayHints(document, params.range, indexer, await getInlayHintSettings());
+	} catch (error) {
+		connection.console.error(`Inlay hint request failed: ${(error as Error).message}`);
+		return [];
 	}
 });
 

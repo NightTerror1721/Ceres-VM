@@ -323,20 +323,25 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 					// stop message readable.
 					dataId: `${variable.address}:${variable.size}:${variable.name}`,
 					description: `${variable.name} (${variable.size} bytes)`,
-					accessTypes: ['write'],
+					// The session watches the access itself rather than comparing snapshots, so a
+					// read is as visible as a write - and so is a write that puts back the value
+					// that was already there.
+					accessTypes: ['read', 'write', 'readWrite'],
 					canPersist: false
 				});
 				return;
 			}
 
 			case 'setDataBreakpoints': {
-				const requested = (args.breakpoints ?? []) as { dataId: string }[];
+				const requested = (args.breakpoints ?? []) as { dataId: string; accessType?: string }[];
 				const watches = requested.map((breakpoint) => {
 					const [address, size, ...label] = breakpoint.dataId.split(':');
 					return {
 						address: Number(address),
 						size: Number(size),
-						label: label.join(':')
+						label: label.join(':'),
+						// DAP's own spelling, which the session understands as written.
+						mode: breakpoint.accessType ?? 'write'
 					};
 				});
 
@@ -615,14 +620,15 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 			totalFrames: frames.length,
 			stackFrames: frames.map((frame) => ({
 				id: frame.id,
-				// The caveat belongs in the name, where it is visible, rather than in a tooltip
-				// nobody opens: these frames are inferred from watching CALL and RET go past.
 				name: frame.isInterruptHandler ? `${frame.name} [interrupt]` : frame.name,
 				line: frame.line ?? 0,
 				column: 1,
 				instructionPointerReference: this.toReference(frame.address),
 				source: frame.file ? { name: path.basename(frame.file), path: frame.file } : undefined,
-				presentationHint: frame.isInterruptHandler ? 'subtle' : undefined
+				// Greyed where the frame was inferred from watching CALL and RET go past rather
+				// than walked through the frame pointers - which is what happens in a function
+				// that never opened one. An interrupt handler is greyed for its own reason.
+				presentationHint: frame.isInterruptHandler || frame.reconstructed ? 'subtle' : undefined
 			}))
 		});
 	}

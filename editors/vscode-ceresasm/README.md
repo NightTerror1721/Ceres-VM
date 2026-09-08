@@ -11,14 +11,23 @@ Language support for **CASM**, the assembler of the [Ceres](../../README.md) vir
 - Live diagnostics: every time you edit or save a `.casm` file, the extension runs the real
   `ceres` compiler in the background (`ceres asm <file> --json`) and shows its errors as
   in-editor squiggles, at the exact line and column the compiler reports.
-- Hover: mnemonics, pseudo-instructions, registers, keywords, types, section directives and the
-  nine symbols the linker defines (`__heap_start`, `__text_end`, ...) show static documentation
-  drawn from the top-level README. User symbols (`const`, `let`, labels, macros) show their
-  declared value/type/visibility and, for macros, every arity in scope. Registers answer to their
-  role as well as their number: `sp`, `fp` and `at` (and `lr`, the deprecated spelling of `at`).
+- Hover, on everything: mnemonics, pseudo-instructions, registers, keywords, directives
+  (`align`, `org`, `assert`), types, section directives and the nine symbols the linker defines
+  (`__heap_start`, `__text_end`, ...) show static documentation drawn from the top-level README.
+  User symbols (`const`, `let`, labels, macros, `struct`s and their fields) show their declared
+  value/type/visibility and, for macros, every arity in scope. A `struct` shows its whole layout
+  with the byte offset each field name stands for; a field shows its own. Registers answer to
+  their role as well as their number: `sp`, `fp` and `at` (and `lr`, the deprecated spelling of
+  `at`).
 - Go to definition: labels (including scope-correct resolution of repeated local `.name` labels
-  across different subroutines), constants, variables and macros — the last two resolved
-  transitively through `import`, the same way the real assembler makes them visible.
+  across different subroutines), constants, variables, macros, structs and struct fields —
+  resolved transitively through `import`, the same way the real assembler makes them visible, so
+  a `call` into another file lands on the routine it names.
+- Inlay hints, each one separately switchable in the settings: the declared type of a global next
+  to a `ldv`/`stv` that names it, the value a `const` stands for, the byte offset behind a
+  `Frame.field`, the register an `alias` names, the parameter names of a macro call, and the name
+  of the device behind a port number in an `in`/`out` — with a note when that port is one of
+  the ones reserved in the map but not backed by anything.
 - Completion: mnemonics, pseudo-instructions, keywords, types, section directives, registers by
   number and by role, the linker-defined symbols, and every constant/variable/label/macro
   currently in scope.
@@ -29,11 +38,13 @@ Language support for **CASM**, the assembler of the [Ceres](../../README.md) vir
 - Folding: each section (`@text`/`@rodata`/`@data`/`@bss`) up to the next section directive, each
   `macro`…`endmacro` block, and multi-line block comments.
 - Semantic tokens: a second pass of highlighting on top of the syntax grammar that actually knows
-  which identifiers are declared consts/variables/labels/macros (vs. plain undeclared text), using
-  standard LSP token types so your theme's existing semantic colours apply.
+  which identifiers are declared consts/variables/labels/macros/structs/fields (vs. plain
+  undeclared text), using standard LSP token types so your theme's existing semantic colours
+  apply.
 - **Debugging**: press F5 on a `.casm` file. Breakpoints in the gutter, stepping by source line,
-  registers and flags in the variables view, globals rendered through their declared types, a
-  reconstructed call stack, the disassembly view, and the hex memory viewer. See below.
+  registers and flags in the variables view, globals rendered through their declared types, the
+  call stack, the disassembly view, and the hex memory viewer. Watchpoints break on reads as well
+  as writes. See below.
 
 None of this is fully scope-aware (e.g. completion doesn't filter out-of-scope local labels) —
 this is a lightweight line-based index, not a re-parse of the language. See Known limitations
@@ -133,12 +144,14 @@ which is deliberately a different, smaller vocabulary in the machine's own terms
 - Debugging a `.cres` built without `--debug` works, but only in addresses: breakpoints by line
   come back unverified and there are no source lines. Debug the `.casm` source directly, or
   assemble with `ceres asm --debug`.
-- The call stack is reconstructed rather than unwound, because `CALL` pushes only a return address
-  and no register tracks frames. Code that unwinds by hand can desynchronise it; the disassembly
-  view is the ground truth.
-- A watchpoint only detects writes, and detects them by comparing the watched bytes between
-  instructions rather than by trapping the access: a read is invisible to it, and so is a write
-  that puts back the value that was already there.
+- The call stack is walked through the frame pointers where the assembler recorded that the
+  function opens one with `enter`, and those frames are exact. A function that opens no frame has
+  no chain to walk, and the stack falls back to being inferred from the calls gone past — those
+  frames are greyed in the call stack view, and code that unwinds by hand can desynchronise them.
+- Inlay hints are drawn from the same line-based index as everything else, so a struct field's
+  offset is shown only where the layout could be worked out here: an array sized by an expression
+  the index cannot fold leaves that field, and every one after it, without an offset rather than
+  with a guessed one.
 - Find references/rename for a `const` or `macro` only reach the current file plus whatever it
   transitively `import`s — not other, unrelated files elsewhere in the workspace that happen to
   import the same one. Renaming a shared constant or macro will warn you when it touched more than

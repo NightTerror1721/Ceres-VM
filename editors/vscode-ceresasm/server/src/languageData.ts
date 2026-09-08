@@ -212,7 +212,16 @@ export const KEYWORDS: Record<string, string> = {
 	global: 'Marks the declaration that follows as exported - a label, `const`, `let`, `macro` or `struct`. Without it nothing leaves its own file. Required exactly once as `global main:`.',
 	macro: 'Begins a macro definition, up to the matching `endmacro`. Parameters are written `$name`; macros are keyed by name and argument count.',
 	endmacro: 'Ends a `macro` definition.',
-	import: 'Imports another source file, resolved relative to the importing file. Makes its constants and macros visible; import cycles are reported.'
+	import:
+		'Imports another source file, resolved relative to the importing file. Makes visible whatever it declares `global`; import cycles are reported. `import "lib/math.casm" as math` names it, and then `math.LIMIT` is answered by exactly that module.',
+	as: 'Names an import, so its declarations can be reached as `name.SYMBOL` when two modules would otherwise clash over a name.',
+	alias: 'Names a register for the rest of the file: `alias cursor = r5`. Resolved in the parser, so it never leaves its own file and costs nothing at run time.',
+	struct: 'Begins a record layout, up to the matching `endstruct`. It reserves no memory: it declares one constant per field holding that field\'s byte offset, plus its own name holding the total size - so `[fp + Frame.count]` is an ordinary displacement, `u8[Frame]` (or just `Frame`) reserves one, and `enter Frame` opens a stack frame of exactly that size.',
+	endstruct: 'Ends a `struct` declaration.',
+	align: 'Pads the current section up to a boundary: `align 16`. The boundary has to be a power of two.',
+	org: 'Pads the current section up to an offset within it: `org 0x100`. It can only move forward - going back would mean overwriting something already emitted.',
+	assert:
+		'A constant expression that has to hold at assembly time: `assert Frame % 4 == 0`. It emits nothing; it either passes or stops the build with the expression that failed. This is how a rule that used to live in a comment becomes something the machine checks.'
 };
 
 export const TYPES: Record<string, string> = {
@@ -248,6 +257,43 @@ export const LINKER_SYMBOLS: Record<string, string> = {
 	__heap_start:
 		'The first free byte above the program - the same address as `__bss_end`, under the name that says what it is for. Everything from here up is free ground, with the stack growing down to meet it. There is deliberately no `__stack_top`: the stack starts at the size of memory, which `--memory` picks at run time. Read `sp` on entry instead.'
 };
+
+// The default port map, from `io_ports.h`. Used by the inlay hints to put a name next to a bare
+// port number, which is the one number in an `out` that is impossible to read at a glance.
+export const PORTS: Record<number, string> = {
+	0x00: 'TERM_STATUS',
+	0x01: 'TERM_OUT',
+	0x02: 'TERM_IN',
+	0x03: 'DEBUG_HEX',
+	0x10: 'SYS_TICKS',
+	0x11: 'RTC_TIME',
+	0x12: 'TIMER_CMD',
+	0x20: 'DISK_STATUS',
+	0x21: 'DISK_CMD',
+	0x22: 'DISK_SECTOR',
+	0x23: 'DISK_DATA',
+	0x30: 'GPU_CMD',
+	0x31: 'GPU_WIDTH',
+	0x32: 'GPU_HEIGHT',
+	0x33: 'SPRITE_DATA',
+	0x40: 'MOUSE_STATUS',
+	0x41: 'MOUSE_X',
+	0x42: 'MOUSE_Y',
+	0x43: 'GAMEPAD_STATE',
+	0x50: 'AUDIO_CMD',
+	0x51: 'AUDIO_FREQ',
+	0x60: 'NET_STATUS',
+	0x61: 'NET_SEND',
+	0x62: 'NET_RECV',
+	0xfe: 'SYS_RNG',
+	0xff: 'SYS_CONTROL'
+};
+
+// Which of them have a device behind them today. The rest answer all-ones on a read and swallow a
+// write, exactly like a port with nothing attached - which is worth saying next to the name.
+export const IMPLEMENTED_PORTS = new Set<number>([
+	0x00, 0x01, 0x02, 0x10, 0x11, 0x12, 0x20, 0x21, 0x22, 0x23, 0x30, 0x31, 0x32, 0x33, 0xff
+]);
 
 export const SECTIONS: Record<string, string> = {
 	text: 'Code section.',

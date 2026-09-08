@@ -141,14 +141,23 @@ namespace ceres::debug
 	json::Array DebugServer::describeFrames() const
 	{
 		json::Array frames;
-		const auto stack = _session.callStack();
 
-		// Innermost first, which is the order every editor expects to render.
-		for (usize i = stack.size(); i-- > 0;)
+		// Walked through the frame pointers where the assembler recorded that the function opens
+		// one, and inferred from the calls gone past where it did not. The walk is exact, so it
+		// wins whenever there is one; each frame says which it was, and an editor can show it.
+		const std::vector<Frame> exact = _session.unwindCallStack();
+		const std::span<const Frame> stack = exact.empty()
+			? _session.callStack()
+			: std::span<const Frame>(exact);
+
+		// Innermost first, which is the order every editor expects to render. The reconstruction
+		// grows outward, so it is walked backwards; the unwind already starts at the innermost.
+		for (usize n = 0; n < stack.size(); ++n)
 		{
+			const usize i = exact.empty() ? stack.size() - 1 - n : n;
 			const Frame& frame = stack[i];
 			json::Object out = describeLocation(frame.address);
-			out.insert_or_assign("id", json::Value(static_cast<u32>(i)));
+			out.insert_or_assign("id", json::Value(static_cast<u32>(n)));
 			out.insert_or_assign("name", json::Value(frame.name));
 			out.insert_or_assign("returnAddress", json::Value(frame.returnAddress));
 			out.insert_or_assign("stackPointer", json::Value(frame.stackPointer));
@@ -600,11 +609,23 @@ namespace ceres::debug
 			{
 				const u32 address = entry["address"].asU32();
 				const u32 size = entry["size"].asU32(4);
-				auto added = _session.addDataBreakpoint(address, size, std::string(entry["label"].asString()));
+
+				// Writes unless asked otherwise, which is what a watch on a variable usually means.
+				// An unknown mode is a write rather than an error: the watch still works, which is
+				// better than refusing it over a spelling.
+				const std::string_view modeName = entry["mode"].asString("write");
+				WatchMode mode = WatchMode::Write;
+				if (modeName == "read")
+					mode = WatchMode::Read;
+				else if (modeName == "readWrite" || modeName == "access")
+					mode = WatchMode::ReadWrite;
+
+				auto added = _session.addDataBreakpoint(address, size, std::string(entry["label"].asString()), mode);
 
 				json::Object result{
 					{ "address", json::Value(address) },
 					{ "size", json::Value(size) },
+					{ "mode", json::Value(std::string(modeName)) },
 					{ "verified", json::Value(added.has_value()) }
 				};
 				if (added.has_value())

@@ -2,7 +2,7 @@
   "name": "ceresasm",
   "displayName": "CeresASM",
   "description": "Language support for CASM, the assembler of the Ceres virtual machine: syntax highlighting, live diagnostics from the real ceres compiler, and a debugger.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "ceresasm",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -64,6 +64,41 @@
           "type": "string",
           "default": "",
           "description": "Path to the ceres executable used to check .casm files. Leave empty to auto-detect it under the workspace (Ceres-ASM/src/ceres[.exe]) or fall back to PATH."
+        },
+        "ceresAsm.inlayHints.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inlay hints in .casm files. Turning this off hides all of them, whatever the individual settings below say."
+        },
+        "ceresAsm.inlayHints.variableTypes": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "After a global variable, the type it was declared with — the one a `ldv`/`stv` picks its width from."
+        },
+        "ceresAsm.inlayHints.constantValues": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "After a `const`, the value substituted where it is written; after a `struct` name, its size in bytes."
+        },
+        "ceresAsm.inlayHints.structOffsets": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "After `Frame.field`, the byte offset that name stands for — the number that ends up in the displacement."
+        },
+        "ceresAsm.inlayHints.macroParameterNames": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Before each argument of a macro call, the name the macro gave that parameter."
+        },
+        "ceresAsm.inlayHints.portNames": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "After the port number of an `in`/`out`, the name it has in the default port map, and whether anything is behind it."
+        },
+        "ceresAsm.inlayHints.registerAliases": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "After a name declared with `alias`, the register it stands for."
         },
         "ceresAsm.trace.server": {
           "type": "string",

@@ -2,7 +2,7 @@ import { Hover, MarkupKind, Position, Range } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { describeRegister, KEYWORDS, LINKER_SYMBOLS, MNEMONICS, SECTIONS, TYPES } from './languageData';
 import { resolveUserSymbol } from './resolution';
-import { findEnclosingMacro, getCleanedLines, getTokenAtCharacter, SymbolIndexer } from './symbolIndex';
+import { findEnclosingMacro, getCleanedLines, getTokenAtCharacter, StructSymbol, SymbolIndexer } from './symbolIndex';
 
 // A fenced ```casm block gets the same TextMate-grammar syntax highlighting in the hover popup
 // as the editor itself; a single-backtick inline span never does; a plain paragraph doesn't
@@ -16,6 +16,21 @@ function hover(code: string, kindLabel: string, description: string, range: Rang
 		parts.push(description);
 	}
 	return { contents: { kind: MarkupKind.Markdown, value: parts.join('\n\n') }, range };
+}
+
+// A struct as the assembler lays it out: every field with the offset its name stands for, which
+// is the number that actually gets written into a displacement.
+function describeStruct(symbol: StructSymbol): string {
+	if (symbol.fields.length === 0) {
+		return '';
+	}
+
+	const rows = symbol.fields.map((field) => {
+		const offset = field.offset === undefined ? '?' : `+${field.offset}`;
+		return `| \`${offset}\` | \`${symbol.name}.${field.name}\` | \`${field.typeText}\` |`;
+	});
+
+	return ['| Offset | Field | Type |', '| --- | --- | --- |', ...rows].join('\n');
 }
 
 export function provideHover(document: TextDocument, position: Position, indexer: SymbolIndexer): Hover | null {
@@ -76,6 +91,28 @@ export function provideHover(document: TextDocument, position: Position, indexer
 	}
 
 	switch (resolved.kind) {
+		case 'struct': {
+			const size = resolved.symbol.size === undefined ? 'size unknown here' : `${resolved.symbol.size} bytes`;
+			// The name is a constant holding the total size, which is what makes `u8[Frame]` and
+			// `enter Frame` work - so the hover leads with the number, then the layout.
+			return hover(
+				`struct ${resolved.symbol.name}   // ${size}`,
+				`struct with ${resolved.symbol.fields.length} field(s)`,
+				describeStruct(resolved.symbol),
+				range
+			);
+		}
+		case 'field': {
+			const offset = resolved.field.offset === undefined
+				? 'Its offset could not be worked out here.'
+				: `Stands for the constant \`${resolved.field.offset}\` - the byte offset of the field, not its contents.`;
+			return hover(
+				`${resolved.owner.name}.${resolved.field.name}: ${resolved.field.typeText}`,
+				'struct field',
+				offset,
+				range
+			);
+		}
 		case 'const':
 			return hover(`const ${resolved.symbol.name} = ${resolved.symbol.valueText}`, 'const', '', range);
 		case 'variable': {
