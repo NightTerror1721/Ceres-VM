@@ -632,6 +632,22 @@ namespace ceres::casm
 							break;
 						}
 
+						case OpcodeParameterType::RS_RT:
+						{
+							const MemoryOperand& memoryOperand = operandInfo.asMemory();
+							encodedInstruction.setRs(memoryOperand.baseRegIndex);
+							encodedInstruction.setRt(memoryOperand.registerOffset().regIndex);
+							break;
+						}
+
+						case OpcodeParameterType::RD_RT:
+						{
+							const MemoryOperand& memoryOperand = operandInfo.asMemory();
+							encodedInstruction.setRd(memoryOperand.baseRegIndex);
+							encodedInstruction.setRt(memoryOperand.registerOffset().regIndex);
+							break;
+						}
+
 						case OpcodeParameterType::REL_ADDR:
 							if (operandInfo.isLabel())
 							{

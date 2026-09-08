@@ -18,6 +18,7 @@ namespace ceres::casm
 		FloatingPointRegister,		// Floating-point register (e.g., f0, f1, ..., f15)
 		Immediate,					// Immediate value (e.g., 42, 0xFF, etc.)
 		RegisterPlusAddress,		// Register plus address (e.g., [r0 + 0x10], [r1 + label], etc.)
+		RegisterPlusRegister,		// Register plus register (e.g., [r0 + r1]) - an index, not a displacement
 		VariableU8,					// 8-bit variable (for pseudo-instructions)
 		VariableS8,					// 8-bit signed variable (for pseudo-instructions)
 		VariableU16,				// 16-bit variable (for pseudo-instructions)
@@ -50,6 +51,9 @@ namespace ceres::casm
 		RD_SIMM16,		// Destination register with a signed 16-bit displacement
 		RS_SIMM16,		// Source register with a signed 16-bit displacement
 		RT_SIMM16,		// Target register with a signed 16-bit displacement
+		RS_RT,			// Base register in Rs and index register in Rt, from one `[rs + rt]` operand
+		RD_RT,			// Base register in Rd and index register in Rt - the store form, where Rs
+						// already holds the value being stored
 		REL_ADDR,		// Relative address (for branch instructions) (similar to SIMM24)
 	};
 
@@ -176,6 +180,10 @@ namespace ceres::casm
 				case OpcodeParameterType::RT_SIMM16:
 					return OperandType::RegisterPlusAddress;
 
+				case OpcodeParameterType::RS_RT:
+				case OpcodeParameterType::RD_RT:
+					return OperandType::RegisterPlusRegister;
+
 				case OpcodeParameterType::REL_ADDR:
 					return OperandType::Label;
 
@@ -192,6 +200,7 @@ namespace ceres::casm
 				case OperandType::FloatingPointRegister: return "FReg";
 				case OperandType::Immediate: return "Imm";
 				case OperandType::RegisterPlusAddress: return "Reg+Addr";
+				case OperandType::RegisterPlusRegister: return "Reg+Reg";
 				case OperandType::VariableU8: return "VarU8";
 				case OperandType::VariableS8: return "VarS8";
 				case OperandType::VariableU16: return "VarU16";

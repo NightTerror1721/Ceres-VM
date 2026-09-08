@@ -311,6 +311,8 @@ TEST(vm, the_disassembler_names_every_mapped_opcode)
 		Opcode::JZ, Opcode::CALL, Opcode::RET, Opcode::PUSH, Opcode::POP, Opcode::ITOF,
 		Opcode::FTOI, Opcode::MTF, Opcode::MFF, Opcode::IN, Opcode::OUT, Opcode::OUTM,
 		Opcode::OUTR, Opcode::INRM, Opcode::OUTRM, Opcode::PUSHM, Opcode::POPM,
+		Opcode::LDRX, Opcode::LDRBX, Opcode::LDRHX, Opcode::LDRSBX, Opcode::LDRSHX, Opcode::FLDRX,
+		Opcode::STRX, Opcode::STRBX, Opcode::STRHX, Opcode::FSTRX,
 	};
 
 	for (Opcode opcode : mapped)
@@ -544,4 +546,49 @@ TEST(vm, pushm_saves_nothing_when_the_whole_mask_does_not_fit)
 	// faulted rather than r1.
 	CHECK_EQ(m.memory().readUnchecked<u32>(Address(m.reg(15))), Memory::UnrestrictedSegmentStart.value());
 	CHECK_EQ(m.reg(15), limit); // eight bytes, which is the dispatch and not three registers
+}
+
+// --- Indexed addressing ----------------------------------------------------------------------
+
+TEST(vm, an_indexed_load_adds_the_two_registers)
+{
+	Machine m{ Instruction::LDRX(1, 2, 3) };
+
+	const Address base = Memory::UnrestrictedSegmentStart + Address(0x100);
+	m.memory().writeUnchecked<u32>(base + Address(12), 0xFEEDFACEu);
+	m.engine().setRegister(2, base.value());
+	m.engine().setRegister(3, 12);
+
+	m.step();
+	CHECK_EQ(m.reg(1), 0xFEEDFACEu);
+}
+
+TEST(vm, an_indexed_store_puts_the_base_in_rd_and_the_value_in_rs)
+{
+	Machine m{ Instruction::STRX(1, 2, 3) };
+
+	const Address base = Memory::UnrestrictedSegmentStart + Address(0x100);
+	m.engine().setRegister(1, base.value());
+	m.engine().setRegister(2, 0xCAFEBABEu);
+	m.engine().setRegister(3, 8);
+
+	m.step();
+	CHECK_EQ(m.memory().readUnchecked<u32>(base + Address(8)), 0xCAFEBABEu);
+}
+
+TEST(vm, an_indexed_load_faults_on_a_misaligned_sum)
+{
+	// Neither register is misaligned on its own; their sum is. The check has to look at the
+	// address the instruction actually forms.
+	Machine m{ Instruction::LDRX(1, 2, 3) };
+
+	m.memory().writeUnchecked<u32>(
+		Address(static_cast<u32>(InterruptNumber::AlignmentFault) * Address::Size),
+		Memory::UnrestrictedSegmentStart.value());
+	m.engine().setRegister(1, 0xAAAAAAAAu);
+	m.engine().setRegister(2, Memory::UnrestrictedSegmentStart.value());
+	m.engine().setRegister(3, 2);
+
+	m.step();
+	CHECK_EQ(m.reg(1), 0xAAAAAAAAu); // the load never happened
 }

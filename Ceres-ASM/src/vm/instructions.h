@@ -244,6 +244,16 @@ namespace ceres::vm
 		static constexpr Instruction PUSHF(u8 rs) noexcept { return make(Opcode::PUSHF, 0, rs); }
 		static constexpr Instruction POPF(u8 rd) noexcept { return make(Opcode::POPF, rd, 0); }
 		static constexpr Instruction FPUSH(u8 fs) noexcept { return make(Opcode::FPUSH, 0, fs); }
+		static constexpr Instruction LDRX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::LDRX, rd, rs, rt); }
+		static constexpr Instruction LDRBX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::LDRBX, rd, rs, rt); }
+		static constexpr Instruction LDRHX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::LDRHX, rd, rs, rt); }
+		static constexpr Instruction LDRSBX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::LDRSBX, rd, rs, rt); }
+		static constexpr Instruction LDRSHX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::LDRSHX, rd, rs, rt); }
+		static constexpr Instruction FLDRX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::FLDRX, rd, rs, rt); }
+		static constexpr Instruction STRX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::STRX, rd, rs, rt); }
+		static constexpr Instruction STRBX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::STRBX, rd, rs, rt); }
+		static constexpr Instruction STRHX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::STRHX, rd, rs, rt); }
+		static constexpr Instruction FSTRX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::FSTRX, rd, rs, rt); }
 		static constexpr Instruction PUSHM(u16 mask) noexcept { return make(Opcode::PUSHM, 0, 0, mask); }
 		static constexpr Instruction POPM(u16 mask) noexcept { return make(Opcode::POPM, 0, 0, mask); }
 		static constexpr Instruction FPOP(u8 fd) noexcept { return make(Opcode::FPOP, fd, 0); }

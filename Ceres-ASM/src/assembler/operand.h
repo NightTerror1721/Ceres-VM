@@ -34,15 +34,18 @@ namespace ceres::casm
 	struct MemoryOperand
 	{
 		u8 baseRegIndex; // Base register index (0-15)
-		// Offset can be either an immediate value, or an identifier (e.g., for symbolic addresses)
-		std::variant<std::monostate, ImmediateOperand, IdentifierOperand> offset;
+		// An immediate, an identifier (a symbolic address), or a second register - `[r1 + r2]`,
+		// which is an index rather than a displacement and picks a different opcode.
+		std::variant<std::monostate, ImmediateOperand, IdentifierOperand, RegisterOperand> offset;
 
 		constexpr bool hasOffset() const noexcept { return !std::holds_alternative<std::monostate>(offset); }
 		constexpr bool isImmediateOffset() const noexcept { return std::holds_alternative<ImmediateOperand>(offset); }
 		constexpr bool isIdentifierOffset() const noexcept { return std::holds_alternative<IdentifierOperand>(offset); }
+		constexpr bool isRegisterOffset() const noexcept { return std::holds_alternative<RegisterOperand>(offset); }
 
 		constexpr const ImmediateOperand& immediateOffset() const noexcept { return std::get<ImmediateOperand>(offset); }
 		constexpr const IdentifierOperand& identifierOffset() const noexcept { return std::get<IdentifierOperand>(offset); }
+		constexpr const RegisterOperand& registerOffset() const noexcept { return std::get<RegisterOperand>(offset); }
 	};
 
 	struct VariableOperand
@@ -147,7 +150,9 @@ namespace ceres::casm
 			else if (isIdentifier() || isConstExpr())
 				return OperandType::Invalid; // Neither is a valid operand type until it is resolved to a value
 			else if (isMemory())
-				return OperandType::RegisterPlusAddress;
+				return asMemory().isRegisterOffset()
+					? OperandType::RegisterPlusRegister
+					: OperandType::RegisterPlusAddress;
 			else if (isVariable())
 			{
 				const auto& var = asVariable();
@@ -184,6 +189,10 @@ namespace ceres::casm
 		static Operand makeIdentifier(Identifier name, bool isLocal) noexcept { return Operand{ IdentifierOperand{ name, isLocal } }; }
 		static Operand makeMemory(u8 baseRegIndex) noexcept { return Operand{ MemoryOperand{ baseRegIndex, std::monostate{} } }; }
 		static Operand makeMemory(u8 baseRegIndex, u32 immediateOffset) noexcept { return Operand{ MemoryOperand{ baseRegIndex, ImmediateOperand{ immediateOffset } } }; }
+		static Operand makeMemoryIndexed(u8 baseRegIndex, u8 indexRegIndex) noexcept
+		{
+			return Operand{ MemoryOperand{ baseRegIndex, RegisterOperand{ indexRegIndex } } };
+		}
 		static Operand makeMemory(u8 baseRegIndex, Identifier identifierOffset) noexcept
 		{
 			return Operand{ MemoryOperand{ baseRegIndex, IdentifierOperand{ identifierOffset } } };

@@ -167,7 +167,23 @@ namespace ceres::vm
 		OUTRH = 0xB2, // [rs, rt] - Write a halfword from rs to the I/O port specified by the value in rt.
 		OUTRM = 0xB3, // [rd, rs, rt] - Write an array of bytes with size specified by rd from the memory address pointed to by rs to the I/O port specified by the value in rt.
 
-		// Free: 0x08-0x0F, 0x29-0x2F, 0x3D-0x3F, 0x4F, 0x78-0x7F, 0x88-0x8F, 0x96-0x9F, 0xB4-0xFF.
+		// Indexed addressing: the offset is a register instead of a displacement, so walking an
+		// array costs no ADD per element. They are here rather than beside 0x40-0x4E because only
+		// one slot was left there, and ten consecutive numbers say more than ten scattered ones.
+		LDRX = 0xB4, // [rd, rs, rt] - rd = *(u32*)(rs + rt)
+		LDRBX = 0xB5, // [rd, rs, rt] - rd = *(u8*)(rs + rt)
+		LDRHX = 0xB6, // [rd, rs, rt] - rd = *(u16*)(rs + rt)
+		LDRSBX = 0xB7, // [rd, rs, rt] - rd = *(i8*)(rs + rt)
+		LDRSHX = 0xB8, // [rd, rs, rt] - rd = *(i16*)(rs + rt)
+		FLDRX = 0xB9, // [fd, rs, rt] - fd = *(float*)(rs + rt)
+		// Base in Rd and value in Rs, the same way the displacement stores are shaped: the value
+		// register cannot move, because Rt is now the index rather than a spare field.
+		STRX = 0xBA, // [rd, rs, rt] - *(u32*)(rd + rt) = rs
+		STRBX = 0xBB, // [rd, rs, rt] - *(u8*)(rd + rt) = rs
+		STRHX = 0xBC, // [rd, rs, rt] - *(u16*)(rd + rt) = rs
+		FSTRX = 0xBD, // [rd, fs, rt] - *(float*)(rd + rt) = fs
+
+		// Free: 0x08-0x0F, 0x29-0x2F, 0x3D-0x3F, 0x4F, 0x78-0x7F, 0x88-0x8F, 0x96-0x9F, 0xBE-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

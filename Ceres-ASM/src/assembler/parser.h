@@ -192,6 +192,7 @@ namespace ceres::casm
 		Statement parseMacroDeclaration(bool isGlobal);
 		Statement parseStructDeclaration(bool isGlobal);
 		void parseRegisterAlias();
+		std::optional<u8> indexRegisterOf(const Token& token) const;
 		bool atQualifiedName() const noexcept;
 		Identifier parseQualifiedName();
 

@@ -219,6 +219,49 @@ of float registers picks `FCMP` and the matching branch for you, which is the po
 If the push would overflow the stack, the fault is raised and the jump never happens (see
 [Memory](02-Memory.md#the-stack)).
 
+## Indexed addressing · `0xB4`–`0xBD`
+
+| Assembly | Opcode | Semantics |
+| --- | --- | --- |
+| `ldr rd, [rs + rt]` | `LDRX` `0xB4` | `rd = *(u32*)(rs + rt)` |
+| `ldrb rd, [rs + rt]` | `LDRBX` `0xB5` | `rd = *(u8*)(rs + rt)` |
+| `ldrh rd, [rs + rt]` | `LDRHX` `0xB6` | `rd = *(u16*)(rs + rt)` |
+| `ldrsb rd, [rs + rt]` | `LDRSBX` `0xB7` | Sign-extending byte load |
+| `ldrsh rd, [rs + rt]` | `LDRSHX` `0xB8` | Sign-extending halfword load |
+| `ldr fd, [rs + rt]` | `FLDRX` `0xB9` | Float load |
+| `str rs, [rd + rt]` | `STRX` `0xBA` | `*(u32*)(rd + rt) = rs` |
+| `strb rs, [rd + rt]` | `STRBX` `0xBB` | `*(u8*)(rd + rt) = rs` |
+| `strh rs, [rd + rt]` | `STRHX` `0xBC` | `*(u16*)(rd + rt) = rs` |
+| `str fs, [rd + rt]` | `FSTRX` `0xBD` | Float store |
+
+Walking an array used to cost an `add` per element, because the only offset a load could take was
+a constant:
+
+```casm
+    add  r3, r8, r9         // and again, and again
+    strb r2, [r3 + 0]
+```
+
+```casm
+    strb r2, [r8 + r9]      // the same thing, in one instruction
+```
+
+The mnemonic does not change: `[rs + rt]` is an index and `[rs + 4]` is a displacement, and the
+assembler picks the opcode from which one it sees — the same way `add` chooses between `ADD` and
+`ADDI`. A [register alias](10-Language-Syntax.md#register-aliases) works as an index too.
+
+Three things are deliberately not allowed:
+
+- **`[r1 - r2]`**, because no opcode subtracts an index. Negate the index instead.
+- **`[r1 + f2]`**, because a float register holds no address.
+- **`[r1 + r2 + 4]`**, because `rt` and `imm16` are the same bits — see
+  [Instruction format](04-Instruction-Format.md#the-critical-overlap-imm16-and-rt). An index and a
+  displacement cannot both fit in one instruction.
+
+The store form keeps the base in `Rd` and the value in `Rs`, like the displacement stores, because
+`Rt` is now spoken for. Alignment is checked on the **sum**: two registers that are each aligned
+can still add up to an address that is not.
+
 ## Stack operations · `0x80`–`0x87`
 
 | Assembly | Opcode | Semantics |

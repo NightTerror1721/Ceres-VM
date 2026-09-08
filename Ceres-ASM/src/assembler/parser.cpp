@@ -664,6 +664,23 @@ namespace ceres::casm
 		return Operand::makeConstExpr(std::move(expression));
 	}
 
+	// An integer register written where a displacement would go, by its own name or by an alias.
+	// Nothing else can index: a float register holds no address, and a constant is a displacement.
+	std::optional<u8> Parser::indexRegisterOf(const Token& token) const
+	{
+		if (const auto reg = RegisterInfo::get(token.identifierValue()); reg.has_value())
+			return reg->isFloatingPoint ? std::nullopt : std::optional<u8>{ reg->index };
+
+		if (const auto alias = _registerAliases.find(std::string(token.lexeme())); alias != _registerAliases.end())
+		{
+			if (alias->second.isFloatingPointRegister())
+				return std::nullopt;
+			return alias->second.asRegister().regIndex;
+		}
+
+		return std::nullopt;
+	}
+
 	Operand Parser::parseOperand()
 	{
 		Token token = _cursor.current();
@@ -717,6 +734,16 @@ namespace ceres::casm
 			{
 				// `[r1 + Entity.y]`: a struct field offset is a constant like any other.
 				memOp = Operand::makeMemory(baseRegIndex, parseQualifiedName());
+			}
+			else if (_cursor.match(TokenType::Identifier) && indexRegisterOf(_cursor.current()).has_value())
+			{
+				// `[r1 + r2]` is an index, not a displacement: the second register is added at run
+				// time and the instruction that does it is a different opcode.
+				if (isMinus)
+					error("A register index cannot be subtracted; write '[base + index]' and negate the index instead");
+
+				memOp = Operand::makeMemoryIndexed(baseRegIndex, indexRegisterOf(_cursor.current()).value());
+				_cursor.next(); // Consume the register identifier
 			}
 			else if (_cursor.match(TokenType::Identifier))
 			{

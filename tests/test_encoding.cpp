@@ -588,3 +588,63 @@ TEST(encoding, a_displacement_outside_the_signed_range_is_rejected)
 	CHECK(atTheEdge.ok());
 	if (!atTheEdge.ok()) Registry::instance().recordFailure(atTheEdge.joinedErrors());
 }
+
+TEST(encoding, an_index_register_picks_the_indexed_opcode)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldr  r1, [r2 + r3]\r\n"
+		"    ldr  r1, [r2 + 4]\r\n"
+		"    str  r1, [r2 + r3]\r\n"
+		"    ldrb r1, [r2 + r3]\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(words.size(), 4u);
+
+	const Instruction indexedLoad{ words[0] };
+	CHECK_EQ(indexedLoad.opcode() == Opcode::LDRX, true);
+	CHECK_EQ(indexedLoad.rd(), u8{ 1 });
+	CHECK_EQ(indexedLoad.rs(), u8{ 2 });
+	CHECK_EQ(indexedLoad.rt(), u8{ 3 });
+
+	// A displacement still picks the displacement form: the mnemonic is the same either way.
+	CHECK_EQ(Instruction{ words[1] }.opcode() == Opcode::LDR, true);
+
+	// The store keeps the base in Rd and the value in Rs, because Rt is the index now.
+	const Instruction indexedStore{ words[2] };
+	CHECK_EQ(indexedStore.opcode() == Opcode::STRX, true);
+	CHECK_EQ(indexedStore.rd(), u8{ 2 });
+	CHECK_EQ(indexedStore.rs(), u8{ 1 });
+	CHECK_EQ(indexedStore.rt(), u8{ 3 });
+
+	CHECK_EQ(Instruction{ words[3] }.opcode() == Opcode::LDRBX, true);
+}
+
+TEST(encoding, a_register_index_cannot_be_subtracted)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldr r1, [r2 - r3]\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("cannot be subtracted") != std::string::npos);
+}
+
+TEST(encoding, a_register_alias_can_be_an_index)
+{
+	AssembleResult r = assembleSource(
+		"alias cursor = r5\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldrb r1, [r2 + cursor]\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::LDRBX, true);
+	CHECK_EQ(Instruction{ words[0] }.rt(), u8{ 5 });
+}

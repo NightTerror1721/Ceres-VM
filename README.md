@@ -153,7 +153,7 @@ Division by zero sets the Trap flag and continues, leaving the destination uncha
 
 Shift amounts use the low five bits of the operand.
 
-### Memory · `0x40`–`0x4E`
+### Memory · `0x40`–`0x4E`, `0xB4`–`0xBD`
 
 `mov` `li` `lui` `ldr` `ldrb` `ldrh` `ldrsb` `ldrsh` `str` `strb` `strh` `lea`
 
@@ -161,6 +161,18 @@ Shift amounts use the low five bits of the operand.
 ldrb r2, [r1 + 4]     // load, base then displacement
 strb r6, [r5 + 1]     // store, value first then destination
 ```
+
+The offset may be a **register** instead, which is an index rather than a displacement and picks
+an opcode of its own — the same mnemonic either way, exactly as `add` chooses between a register
+and an immediate:
+
+```casm
+ldrb r2, [r1 + r3]    // LDRBX: no `add r4, r1, r3` before every element
+strb r6, [r5 + r3]    // STRBX
+```
+
+An index cannot be subtracted — there is no opcode that subtracts one — and it cannot be a float
+register. A displacement and an index cannot appear together: `[r1 + r3 + 4]` does not parse.
 
 ### Control flow · `0x50`–`0x77`
 

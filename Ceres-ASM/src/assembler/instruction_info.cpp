@@ -245,6 +245,18 @@ namespace ceres::casm
 			op(Opcode::LUI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
 			op(Opcode::ORI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::RS, 0), param(OpcodeParameterType::IMM16_LOW, 1))
 		}),
+		// `[rs + rt]` is an index rather than a displacement, so the same mnemonic picks a
+		// different opcode - exactly as `add` does between a register and an immediate.
+		inst(Opcode::LDRX, Mnemonic::LDR, OpcodeParameterType::RD, OpcodeParameterType::RS_RT),
+		inst(Opcode::LDRBX, Mnemonic::LDRB, OpcodeParameterType::RD, OpcodeParameterType::RS_RT),
+		inst(Opcode::LDRHX, Mnemonic::LDRH, OpcodeParameterType::RD, OpcodeParameterType::RS_RT),
+		inst(Opcode::LDRSBX, Mnemonic::LDRSB, OpcodeParameterType::RD, OpcodeParameterType::RS_RT),
+		inst(Opcode::LDRSHX, Mnemonic::LDRSH, OpcodeParameterType::RD, OpcodeParameterType::RS_RT),
+		inst(Opcode::FLDRX, Mnemonic::LDR, OpcodeParameterType::FD, OpcodeParameterType::RS_RT),
+		inst(Opcode::STRX, Mnemonic::STR, OpcodeParameterType::RS, OpcodeParameterType::RD_RT),
+		inst(Opcode::STRBX, Mnemonic::STRB, OpcodeParameterType::RS, OpcodeParameterType::RD_RT),
+		inst(Opcode::STRHX, Mnemonic::STRH, OpcodeParameterType::RS, OpcodeParameterType::RD_RT),
+		inst(Opcode::FSTRX, Mnemonic::STR, OpcodeParameterType::FS, OpcodeParameterType::RD_RT),
 		inst(Opcode::LEA, Mnemonic::LEA, OpcodeParameterType::RD, OpcodeParameterType::RS_SIMM16),
 
 		inst(Opcode::JP, Mnemonic::JP, OpcodeParameterType::REL_ADDR),

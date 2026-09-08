@@ -834,6 +834,77 @@ namespace ceres::vm
 			write<f32>(address, getFloatReg(inst.fs()));
 			advancePC();
 		}
+		// Indexed forms. The address is two registers added at run time, so there is no
+		// displacement to range-check and no ADD to write before every access.
+		forceinline Address indexed(const Instruction inst) const noexcept { return Address(getReg(inst.rs()) + getReg(inst.rt())); }
+		forceinline Address indexedStore(const Instruction inst) const noexcept { return Address(getReg(inst.rd()) + getReg(inst.rt())); }
+
+		forceinline void LDRX(const Instruction inst) noexcept
+		{
+			const Address address = indexed(inst);
+			if (!checkAlignment<u32>(address))
+				return;
+			setReg(inst.rd(), read<u32>(address));
+			advancePC();
+		}
+		forceinline void LDRBX(const Instruction inst) noexcept { setReg(inst.rd(), read<u8>(indexed(inst))); advancePC(); }
+		forceinline void LDRHX(const Instruction inst) noexcept
+		{
+			const Address address = indexed(inst);
+			if (!checkAlignment<u16>(address))
+				return;
+			setReg(inst.rd(), read<u16>(address));
+			advancePC();
+		}
+		forceinline void LDRSBX(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(indexed(inst)))); advancePC(); }
+		forceinline void LDRSHX(const Instruction inst) noexcept
+		{
+			const Address address = indexed(inst);
+			if (!checkAlignment<i16>(address))
+				return;
+			setReg(inst.rd(), static_cast<u32>(read<i16>(address)));
+			advancePC();
+		}
+		forceinline void FLDRX(const Instruction inst) noexcept
+		{
+			const Address address = indexed(inst);
+			if (!checkAlignment<f32>(address))
+				return;
+			setFloatReg(inst.fd(), read<f32>(address));
+			advancePC();
+		}
+		forceinline void STRX(const Instruction inst) noexcept
+		{
+			const Address address = indexedStore(inst);
+			if (!checkAlignment<u32>(address) || !checkWritable(address, sizeof(u32)))
+				return;
+			write<u32>(address, getReg(inst.rs()));
+			advancePC();
+		}
+		forceinline void STRBX(const Instruction inst) noexcept
+		{
+			const Address address = indexedStore(inst);
+			if (!checkWritable(address, sizeof(u8)))
+				return;
+			write<u8>(address, static_cast<u8>(getReg(inst.rs())));
+			advancePC();
+		}
+		forceinline void STRHX(const Instruction inst) noexcept
+		{
+			const Address address = indexedStore(inst);
+			if (!checkAlignment<u16>(address) || !checkWritable(address, sizeof(u16)))
+				return;
+			write<u16>(address, static_cast<u16>(getReg(inst.rs())));
+			advancePC();
+		}
+		forceinline void FSTRX(const Instruction inst) noexcept
+		{
+			const Address address = indexedStore(inst);
+			if (!checkAlignment<f32>(address) || !checkWritable(address, sizeof(f32)))
+				return;
+			write<f32>(address, getFloatReg(inst.fs()));
+			advancePC();
+		}
 		forceinline void LEA(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs()) + displacement(inst)); advancePC(); }
 
 		forceinline void JP(const Instruction inst) noexcept { _pc += inst.simm24().signedValue(); }
@@ -1236,6 +1307,16 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::POP)] = &ExecutionEngine::POP;
 				handlers[static_cast<u8>(Opcode::PUSHF)] = &ExecutionEngine::PUSHF;
 				handlers[static_cast<u8>(Opcode::POPF)] = &ExecutionEngine::POPF;
+				handlers[static_cast<u8>(Opcode::LDRX)] = &ExecutionEngine::LDRX;
+				handlers[static_cast<u8>(Opcode::LDRBX)] = &ExecutionEngine::LDRBX;
+				handlers[static_cast<u8>(Opcode::LDRHX)] = &ExecutionEngine::LDRHX;
+				handlers[static_cast<u8>(Opcode::LDRSBX)] = &ExecutionEngine::LDRSBX;
+				handlers[static_cast<u8>(Opcode::LDRSHX)] = &ExecutionEngine::LDRSHX;
+				handlers[static_cast<u8>(Opcode::FLDRX)] = &ExecutionEngine::FLDRX;
+				handlers[static_cast<u8>(Opcode::STRX)] = &ExecutionEngine::STRX;
+				handlers[static_cast<u8>(Opcode::STRBX)] = &ExecutionEngine::STRBX;
+				handlers[static_cast<u8>(Opcode::STRHX)] = &ExecutionEngine::STRHX;
+				handlers[static_cast<u8>(Opcode::FSTRX)] = &ExecutionEngine::FSTRX;
 				handlers[static_cast<u8>(Opcode::PUSHM)] = &ExecutionEngine::PUSHM;
 				handlers[static_cast<u8>(Opcode::POPM)] = &ExecutionEngine::POPM;
 				handlers[static_cast<u8>(Opcode::FPUSH)] = &ExecutionEngine::FPUSH;

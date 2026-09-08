@@ -43,6 +43,10 @@ namespace ceres::vm
 			Lea,            // LEA r1, [r2 + 4]
 			Simm24,         // JP +8
 			Mask16,         // PUSHM 0x0f00
+			IndexedLoad,    // LDRX r1, [r2 + r3]
+			IndexedFLoad,   // FLDRX f1, [r2 + r3]
+			IndexedStore,   // STRX [r1 + r3], r2
+			IndexedFStore,  // FSTRX [r1 + r3], f2
 			RdImm8,         // IN r1, 0x01
 			RsImm8,         // OUT 0x01, r1
 			RdRsImm8,       // INM 0x01, r1, r2
@@ -174,6 +178,16 @@ namespace ceres::vm
 				case Opcode::POPF:   return { "POPF",  Shape::None };
 				case Opcode::FPUSH:  return { "FPUSH", Shape::Fs };
 				case Opcode::FPOP:   return { "FPOP",  Shape::Fd };
+				case Opcode::LDRX:    return { "LDRX",    Shape::IndexedLoad };
+				case Opcode::LDRBX:   return { "LDRBX",   Shape::IndexedLoad };
+				case Opcode::LDRHX:   return { "LDRHX",   Shape::IndexedLoad };
+				case Opcode::LDRSBX:  return { "LDRSBX",  Shape::IndexedLoad };
+				case Opcode::LDRSHX:  return { "LDRSHX",  Shape::IndexedLoad };
+				case Opcode::FLDRX:  return { "FLDRX",  Shape::IndexedFLoad };
+				case Opcode::STRX:    return { "STRX",    Shape::IndexedStore };
+				case Opcode::STRBX:   return { "STRBX",   Shape::IndexedStore };
+				case Opcode::STRHX:   return { "STRHX",   Shape::IndexedStore };
+				case Opcode::FSTRX:  return { "FSTRX",  Shape::IndexedFStore };
 				case Opcode::PUSHM:  return { "PUSHM", Shape::Mask16 };
 				case Opcode::POPM:   return { "POPM",  Shape::Mask16 };
 
@@ -253,6 +267,10 @@ namespace ceres::vm
 				case Shape::Lea:        return std::format("{} r{}, [r{} {} {}]", entry.name, rd, rs, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)));
 				case Shape::Simm24:     return std::format("{} {}{}", entry.name, simm24 < 0 ? "" : "+", simm24);
 				case Shape::Mask16:     return std::format("{} {:#06x}", entry.name, imm16);
+				case Shape::IndexedLoad:   return std::format("{} r{}, [r{} + r{}]", entry.name, rd, rs, rt);
+				case Shape::IndexedFLoad:  return std::format("{} f{}, [r{} + r{}]", entry.name, rd, rs, rt);
+				case Shape::IndexedStore:  return std::format("{} [r{} + r{}], r{}", entry.name, rd, rt, rs);
+				case Shape::IndexedFStore: return std::format("{} [r{} + r{}], f{}", entry.name, rd, rt, rs);
 				case Shape::RdImm8:     return std::format("{} r{}, {:#04x}", entry.name, rd, imm8);
 				case Shape::RsImm8:     return std::format("{} {:#04x}, r{}", entry.name, imm8, rs);
 				case Shape::RdRsImm8:   return std::format("{} {:#04x}, r{}, r{}", entry.name, imm8, rd, rs);
