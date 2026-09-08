@@ -11,7 +11,7 @@ expands it into a short, fixed sequence of real instructions. From
 | Written | Expands to | Size |
 | --- | --- | --- |
 | `la rd, symbol` | `lui` + `ori` | 8 bytes |
-| `lc rd, imm32` | `lui` + `ori` | 8 bytes |
+| `la rd, imm32` | `lui` + `ori` | 8 bytes |
 | `ldv rd, variable` | `lui` + `ori` + a load chosen by the variable's declared type | 12 bytes |
 | `stv rs, variable` | `lui` + `ori` + a store chosen by the variable's declared type | 12 bytes |
 
@@ -253,16 +253,19 @@ by `-1` (see [Instruction set → Arithmetic](05-Instruction-Set.md#arithmetic-0
 floating-point form does have a dedicated real opcode (`FNEG`, `0x28`), so `neg f0, f1` compiles to a
 single instruction, not two.
 
-## `lc` — Load Constant
+## `la` with a literal — what `lc` used to spell
 
-`la` materialises the address of a *symbol*; `lc` does the same for a plain 32-bit **value**:
+`la` materialises the address of a *symbol*, and the same thing for a plain 32-bit **value**. Both
+are `lui` + `ori`; the operand's type is the only difference, which is why they no longer need two
+names. `lc` still parses — it was the spelling this had when only the literal form existed.
+
 
 ```casm
     li r1, 0x1234           // fits in 16 bits, one instruction
-    lc r1, 0x12345678       // does not: lui r1, 0x1234 then ori r1, r1, 0x5678
+    la r1, 0x12345678       // does not: lui r1, 0x1234 then ori r1, r1, 0x5678
 ```
 
-`li` only reaches 16 bits and `la` only takes symbols, so before `lc` a full-width constant had to
+`li` only reaches 16 bits, so before this a full-width constant had to
 be written as the `lui`/`ori` pair by hand. Unlike `stv` it needs no scratch register: both
 halves target `rd` directly.
 
@@ -347,4 +350,4 @@ plainly than `cmp r1, 0` does, and costs the same single instruction.
 - [Instruction format](04-Instruction-Format.md) — why no single instruction can hold a 32-bit immediate.
 - [Instruction set](05-Instruction-Set.md) — the real opcodes these expand into.
 - [Registers and flags](03-Registers-and-Flags.md) — the role of `at`/`fp`/`sp`.
-- [Constants and expressions](13-Constants-and-Expressions.md) — what can be written as the immediate of an `lc` or an `ifXX`.
+- [Constants and expressions](13-Constants-and-Expressions.md) — what can be written as the immediate of an `la` or an `ifXX`.

@@ -118,7 +118,7 @@ namespace ceres::casm
 		{ "IFBE", Mnemonic::IFBE },
 		{ "INC", Mnemonic::INC },
 		{ "DEC", Mnemonic::DEC },
-		{ "LC", Mnemonic::LC },
+		{ "LC", Mnemonic::LA }, // The spelling from when only the literal form existed.
 		{ "CLR", Mnemonic::CLR },
 		{ "SWAP", Mnemonic::SWAP },
 		{ "ENTER", Mnemonic::ENTER },
@@ -130,8 +130,8 @@ namespace ceres::casm
 		{ "BL", Mnemonic::BL },
 		{ "PUSHM", Mnemonic::PUSHM },
 		{ "POPM", Mnemonic::POPM },
-		{ "PUSHF", Mnemonic::PUSHF },
-		{ "POPF", Mnemonic::POPF },
+		{ "PUSHF", Mnemonic::PUSH }, // `push` with no operand means the same thing.
+		{ "POPF", Mnemonic::POP },
 
 		{ "ITOF", Mnemonic::ITOF },
 		{ "IITOF", Mnemonic::IITOF },
@@ -253,7 +253,6 @@ namespace ceres::casm
 		{ Mnemonic::IFBE, "IFBE" },
 		{ Mnemonic::INC, "INC" },
 		{ Mnemonic::DEC, "DEC" },
-		{ Mnemonic::LC, "LC" },
 		{ Mnemonic::CLR, "CLR" },
 		{ Mnemonic::SWAP, "SWAP" },
 		{ Mnemonic::ENTER, "ENTER" },
@@ -265,8 +264,6 @@ namespace ceres::casm
 		{ Mnemonic::BL, "BL" },
 		{ Mnemonic::PUSHM, "PUSHM" },
 		{ Mnemonic::POPM, "POPM" },
-		{ Mnemonic::PUSHF, "PUSHF" },
-		{ Mnemonic::POPF, "POPF" },
 
 		{ Mnemonic::ITOF, "ITOF" },
 		{ Mnemonic::IITOF, "IITOF" },

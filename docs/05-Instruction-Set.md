@@ -4,7 +4,7 @@
 
 This page documents every **real** opcode the VM executes — the values of `ceres::vm::Opcode` in
 [`opcodes.h`](../Ceres-ASM/src/vm/opcodes.h). For the **pseudo-instructions** that expand into
-several real ones (`la`, `ldv`, `stv`, `neg`, `lc`, `enter`, `leave`, `swap`, the `ifXX` family and
+several real ones (`la`, `ldv`, `stv`, `neg`, `swap`, the `ifXX` family and
 the rest), see [Pseudo-instructions](06-Pseudo-Instructions.md).
 
 ## How to read these tables
@@ -189,7 +189,7 @@ The signed and unsigned halves genuinely differ. `0xFFFFFFFF` is `-1` as an `i32
 billion as a `u32`, so against `1`:
 
 ```casm
-    lc  r1, 0xFFFFFFFF
+    la  r1, 0xFFFFFFFF
     li  r2, 1
     cmp r1, r2
     jls .below      // taken:     -1 < 1
@@ -344,8 +344,8 @@ to do.
 | --- | --- | --- |
 | `push rs` | `PUSH` `0x80` | `*(u32*)(--sp) = rs`. |
 | `pop rd` | `POP` `0x81` | `rd = *(u32*)(sp); sp += 4`. |
-| `pushf` | `PUSHF` `0x82` | Pushes the full flags register. |
-| `popf` | `POPF` `0x83` | Pops into the flags register (overwrites all flags at once). |
+| `push` | `PUSHF` `0x82` | With no operand: pushes the full flags register. `pushf` spells the same thing. |
+| `pop` | `POPF` `0x83` | With no operand: pops into the flags register, overwriting all flags at once. |
 | `push fs` | `FPUSH` `0x84` | Pushes a float register (4 bytes, bit pattern preserved). |
 | `pop fd` | `FPOP` `0x85` | Pops into a float register. |
 | `pushm imm16` | `PUSHM` `0x86` | Pushes every register whose bit is set, `r15` first. |
@@ -467,6 +467,6 @@ which of these are actually backed by a device today.
 ## Related pages
 
 - [Instruction format](04-Instruction-Format.md) — bit-level encoding these tables build on.
-- [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `lc`, `ldv`, `stv`, `neg`, `ifXX`, `enter`/`leave` and the rest.
+- [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `ldv`, `stv`, `neg`, `ifXX` and the rest.
 - [I/O devices and ports](07-IO-Devices-and-Ports.md) — what's actually listening on each port.
 - [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — `int`/`iret` and hardware-raised faults.

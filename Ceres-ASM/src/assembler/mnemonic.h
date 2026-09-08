@@ -37,7 +37,7 @@ namespace ceres::casm
 		SHR, // SHR, SHRI
 		SAR, // SAR, SARI
 
-		MOV, // MOV, MOVI, FMOV, LDRB, LDRW, LDRD, FLDR, STRB, STRW, STRD, FSTR
+		MOV, // MOV, FMOV. Register to register only: a 16-bit immediate is LI and a 32-bit one is LA.
 		LI, // LI
 		LUI, // LUI
 		LDR, // LDR, FLDR
@@ -50,8 +50,9 @@ namespace ceres::casm
 		STRB, // STRB,
 		STRH, // STRH,
 		STV, // Pseudo-instruction // Store variable address: LUI + ORI + (STR | STRB | STRH | FSTR)
-		LA, // Pseudo-instruction // Load address: LUI + ORI
-		LC, // Pseudo-instruction // Load a full 32-bit constant: LUI + ORI
+		// LUI + ORI, whether what goes in rd is the address of a symbol or a 32-bit literal. `lc`
+		// still parses, as the spelling this had when only the literal form existed.
+		LA, // Pseudo-instruction // Load address, or a full 32-bit constant
 		CLR, // Pseudo-instruction // LI rd, 0
 		SWAP, // Pseudo-instruction // three XORs, no temporary
 		MULH,
@@ -104,13 +105,14 @@ namespace ceres::casm
 		// Compare and jump in one written instruction: CMP/CMPI/FCMP followed by the matching jump.
 		IFEQ, IFNE, IFGR, IFGE, IFLS, IFLE, IFAB, IFAE, IFBL, IFBE,
 
-		PUSH, // PUSH, FPUSH
-		POP, // POP, FPOP
+		// With no operand at all it is the flags register, which nothing else can be confused with.
+		PUSH, // PUSH, FPUSH, PUSHF
+		POP, // POP, FPOP, POPF
 		BL, // BL, BLR
+		// Kept apart from PUSH/POP on purpose: `push 5` is an error today and would silently become
+		// a register-mask push if the immediate form shared the name.
 		PUSHM, // PUSHM
 		POPM, // POPM
-		PUSHF, // PUSHF
-		POPF, // POPF
 		ENTER, // Pseudo-instruction // PUSH fp + MOV fp, sp
 		LEAVE, // Pseudo-instruction // MOV sp, fp + POP fp
 

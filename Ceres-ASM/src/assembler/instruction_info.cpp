@@ -498,7 +498,7 @@ namespace ceres::casm
 			op(Opcode::JBE, param(OpcodeParameterType::REL_ADDR, 2))
 		}),
 		// A full 32-bit constant, the immediate counterpart of LA. LI only reaches 16 bits.
-		inst(sig(Mnemonic::LC, OperandType::IntegralRegister, OperandType::Immediate), {
+		inst(sig(Mnemonic::LA, OperandType::IntegralRegister, OperandType::Immediate), {
 			op(Opcode::LUI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
 			op(Opcode::ORI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::RS, 0), param(OpcodeParameterType::IMM16_LOW, 1))
 		}),
@@ -536,8 +536,9 @@ namespace ceres::casm
 		inst(Opcode::POP, Mnemonic::POP, OpcodeParameterType::RD),
 		inst(Opcode::PUSHM, Mnemonic::PUSHM, OpcodeParameterType::IMM16),
 		inst(Opcode::POPM, Mnemonic::POPM, OpcodeParameterType::IMM16),
-		inst(Opcode::PUSHF, Mnemonic::PUSHF),
-		inst(Opcode::POPF, Mnemonic::POPF),
+		// No operands, which no other overload of PUSH/POP has, so the signature tells them apart.
+		inst(Opcode::PUSHF, Mnemonic::PUSH),
+		inst(Opcode::POPF, Mnemonic::POP),
 		inst(Opcode::FPUSH, Mnemonic::PUSH, OpcodeParameterType::FS),
 		inst(Opcode::FPOP, Mnemonic::POP, OpcodeParameterType::FD),
 

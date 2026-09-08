@@ -230,7 +230,10 @@ somewhere, which is exactly the discipline `call`/`ret` does for you — so `bl`
 
 ### Stack · `0x80`–`0x89`
 
-`push` `pop` `pushf` `popf` `pushm` `popm` `enter` `leave`
+`push` `pop` `pushm` `popm` `enter` `leave`
+
+`push` with **no operand** is the flags register — nothing else `push` takes has no operand, so
+the signature says which is meant. `pushf` and `popf` still parse and mean exactly that.
 
 `enter N` saves `fp`, points it at the saved word and opens a frame of `N` bytes; `leave` undoes
 all three. A bare `enter` opens a frame of nothing, for a function whose locals live in registers.
@@ -467,7 +470,7 @@ Write the spaces: `[r5+0]` lexes the `+0` as a signed literal and fails to parse
 | `stv rs, variable` | one PC-relative store, or `lui` + `ori` + a store | 4 B or 12 B |
 | `ldvp` / `stvp` | the PC-relative form, demanded rather than hoped for | 4 B |
 | `neg rd, rs` | `imul rd, rs, -1`, or `fneg` for float registers | 4 B |
-| `lc rd, imm32` | `lui` + `ori` | 8 B |
+| `la rd, imm32` | `lui` + `ori` | 8 B |
 | `ifXX rs, rt, label` | `cmp` (or `cmpi`, or `fcmp`) + the matching branch | 8 B |
 | `swap rd, rs` | three `xor`s, using no temporary | 12 B |
 | `inc rd` / `dec rd` | `addi rd, rd, 1` / `subi rd, rd, 1` | 4 B |
@@ -475,8 +478,10 @@ Write the spaces: `[r5+0]` lexes the `+0` as a signed literal and fails to parse
 | `tst rs` | `cmpi rs, 0` | 4 B |
 | `jmp label` | `jp` | 4 B |
 
-`lc` is the immediate counterpart of `la`: `li` only reaches 16 bits, so a full 32-bit constant
-used to have to be written as the `lui`/`ori` pair by hand.
+`la` takes a plain 32-bit value as well as a symbol — the same `lui`/`ori` pair either way, and the
+operand's type is what tells them apart. `li` only reaches 16 bits, so a full-width constant used
+to have to be written as the pair by hand. `lc` still parses, as the spelling this had when only
+the literal form existed.
 
 `ifXX` writes the comparison and the branch as one instruction, and covers every condition the
 branches do — `ifeq` `ifne` `ifgr` `ifge` `ifls` `ifle` `ifab` `ifae` `ifbl` `ifbe`. The second

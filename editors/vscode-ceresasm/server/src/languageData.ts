@@ -120,7 +120,7 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	ifae: { operands: 'rs, rt|imm, label', summary: 'Compare, then jump if above or equal (unsigned).' },
 	ifbl: { operands: 'rs, rt|imm, label', summary: 'Compare, then jump if below (unsigned).' },
 	ifbe: { operands: 'rs, rt|imm, label', summary: 'Compare, then jump if below or equal (unsigned).' },
-	lc: { operands: 'rd, imm32', summary: 'Load a full 32-bit constant. Expands to lui + ori.' },
+	lc: { operands: 'rd, imm32', pseudo: true, summary: 'The old spelling of `la` with a literal operand. Still parses; `la rd, imm32` is the same instruction.' },
 	inc: { operands: 'rd', summary: 'Add one. Expands to addi rd, rd, 1.' },
 	dec: { operands: 'rd', summary: 'Subtract one. Expands to subi rd, rd, 1.' },
 	clr: { operands: 'rd', summary: 'Set to zero. Expands to li rd, 0.' },
@@ -141,10 +141,10 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	cmp: { operands: 'ra, rb|imm16', summary: 'Compares and sets flags without writing a result. A float-register operand selects `fcmp`.' },
 
 	// Stack - 0x70-0x75
-	push: { operands: 'rs', summary: 'Pushes a register. A float register selects `fpush`.' },
-	pop: { operands: 'rd', summary: 'Pops into a register. A float register selects `fpop`.' },
-	pushf: { summary: 'Pushes the flags register.' },
-	popf: { summary: 'Pops the flags register.' },
+	push: { operands: 'rs?', summary: 'Pushes a register. A float register selects `fpush`; **no operand at all** selects `pushf` and pushes the flags. An immediate is deliberately not accepted - that is `pushm`, and letting `push 5` mean a register mask would turn a diagnostic into a silent bug.' },
+	pop: { operands: 'rd?', summary: 'Pops into a register. A float register selects `fpop`; no operand selects `popf`.' },
+	pushf: { summary: 'Pushes the flags register. `push` with no operand is the same instruction.' },
+	popf: { summary: 'Pops the flags register. `pop` with no operand is the same instruction.' },
 	pushm: {
 		operands: 'imm16',
 		summary: 'Pushes every register whose bit is set in the mask - bit n means register n, so 0x0F00 is r8-r11. Stores from the highest set bit down, so `popm` with the same mask restores exactly what it saved. All or nothing: if the whole mask does not fit, nothing is pushed.'
@@ -173,9 +173,9 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 
 	// Pseudo-instructions
 	la: {
-		operands: 'rd, symbol',
+		operands: 'rd, symbol|imm32',
 		pseudo: true,
-		summary: 'Loads the 32-bit address of `symbol`. Expands to `lui` + `ori` (8 B), both targeting `rd`, so it needs no scratch register and clobbers nothing.'
+		summary: 'Loads the 32-bit address of `symbol`, or a plain 32-bit literal - the operand type is the only difference, and both expand to `lui` + `ori` (8 B) targeting `rd`, so neither needs a scratch register. `lc` is the old spelling of the literal form.'
 	},
 	ldv: {
 		operands: 'rd, variable',

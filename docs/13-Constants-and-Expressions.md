@@ -128,7 +128,7 @@ const N = 3
 @text
     li r1, 2 + N * 4            // immediate operands
     li r2, sizeof(buf)
-    lc r3, 0x10000 + N          // including a full 32-bit one
+    la r3, 0x10000 + N          // including a full 32-bit one
     ifge r4, N * 2, .enough     // the immediate of an ifXX
 ```
 
