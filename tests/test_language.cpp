@@ -736,6 +736,154 @@ TEST(language, a_struct_field_offset_works_as_a_memory_displacement)
 	CHECK_EQ(Instruction(r.words()[2]).imm16(), u16{ 4 });
 }
 
+// A byte array dimensioned by a struct initialises positionally, in field order: each value is
+// coerced to its field's type and padding is zero-filled, so the emitter still sees plain bytes.
+TEST(language, a_struct_initialiser_maps_values_to_fields_in_order)
+{
+	AssembleResult r = assembleSource(
+		"struct Entity\r\n"
+		"    x:      i32\r\n"
+		"    y:      i32\r\n"
+		"    health: u16\r\n"
+		"    flags:  u8\r\n"
+		"endstruct\r\n"
+		"@data\r\n"
+		"    let player: u8[Entity] = [10, 20, 100, 1]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto data = r.program->data();
+	const u8 expected[] = { 10, 0, 0, 0, 20, 0, 0, 0, 100, 0, 1, 0 };
+	CHECK_EQ(data.size(), sizeof(expected));
+	for (usize i = 0; i < sizeof(expected); ++i)
+		CHECK_EQ(data[i], expected[i]);
+}
+
+TEST(language, a_short_struct_initialiser_zero_fills_the_remaining_fields)
+{
+	AssembleResult r = assembleSource(
+		"struct Entity\r\n"
+		"    x:      i32\r\n"
+		"    y:      i32\r\n"
+		"    health: u16\r\n"
+		"    flags:  u8\r\n"
+		"endstruct\r\n"
+		"@data\r\n"
+		"    let player: u8[Entity] = [7]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto data = r.program->data();
+	const u8 expected[] = { 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	CHECK_EQ(data.size(), sizeof(expected));
+	for (usize i = 0; i < sizeof(expected); ++i)
+		CHECK_EQ(data[i], expected[i]);
+}
+
+TEST(language, a_struct_initialiser_with_too_many_values_is_rejected)
+{
+	AssembleResult r = assembleSource(
+		"struct Entity\r\n"
+		"    x: i32\r\n"
+		"    y: i32\r\n"
+		"endstruct\r\n"
+		"@data\r\n"
+		"    let player: u8[Entity] = [1, 2, 3]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+}
+
+TEST(language, a_struct_initialiser_checks_each_value_against_its_field_type)
+{
+	AssembleResult r = assembleSource(
+		"struct S\r\n"
+		"    a: u16\r\n"
+		"endstruct\r\n"
+		"@data\r\n"
+		"    let v: u8[S] = [70000]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+}
+
+TEST(language, a_struct_array_field_initialises_from_a_nested_group)
+{
+	AssembleResult r = assembleSource(
+		"struct Tile\r\n"
+		"    corners: i16[4]\r\n"
+		"    id:      u32\r\n"
+		"endstruct\r\n"
+		"@data\r\n"
+		"    let t: u8[Tile] = [[1, 2, 3, 4], 99]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto data = r.program->data();
+	const u8 expected[] = { 1, 0, 2, 0, 3, 0, 4, 0, 99, 0, 0, 0 };
+	CHECK_EQ(data.size(), sizeof(expected));
+	for (usize i = 0; i < sizeof(expected); ++i)
+		CHECK_EQ(data[i], expected[i]);
+}
+
+TEST(language, a_struct_used_only_through_an_initialiser_is_not_reported_as_unused)
+{
+	AssembleResult r = assembleSource(
+		"struct Entity\r\n"
+		"    x: i32\r\n"
+		"    y: i32\r\n"
+		"endstruct\r\n"
+		"@data\r\n"
+		"    let player: u8[Entity] = [1, 2]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    la r1, player\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK(r.joinedWarnings().find("Entity") == std::string::npos);
+}
+
+TEST(language, an_array_of_structs_initialises_one_group_per_instance)
+{
+	AssembleResult r = assembleSource(
+		"struct Point\r\n"
+		"    x: i32\r\n"
+		"    y: i32\r\n"
+		"endstruct\r\n"
+		"@data\r\n"
+		"    let pts: u8[2][Point] = [[1, 2], [3, 4]]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto data = r.program->data();
+	const u8 expected[] = { 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0 };
+	CHECK_EQ(data.size(), sizeof(expected));
+	for (usize i = 0; i < sizeof(expected); ++i)
+		CHECK_EQ(data[i], expected[i]);
+}
+
 // --- Unused private declarations --------------------------------------------------------------
 
 // `global` created a category the language did not have: a declaration that provably cannot be

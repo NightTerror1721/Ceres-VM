@@ -42,6 +42,35 @@ bytes and address them through the offsets.
 `u8[32][Entity]` is a two-dimensional one — 32 rows of 12 (see
 [Data types and literals](11-Data-Types-and-Literals.md#multidimensional-arrays)).
 
+## Initializing one
+
+A byte array dimensioned by a struct accepts a **positional** initializer: values map to fields
+in declaration order, each checked against its field's type, with padding zero-filled:
+
+```casm
+@data
+    let player: u8[Entity] = [10, 20, 100, 1]   // x, y, health, flags; trailing pad byte is 0
+    let origin: u8[Entity] = [7]                // the rest zero-fills, like arrays
+```
+
+An array field takes a nested group, and an array of structs takes one group per instance:
+
+```casm
+struct Tile
+    corners: i16[4]
+    id:      u32
+endstruct
+
+@data
+    let t:   u8[Tile]      = [[1, 2, 3, 4], 99]
+    let pts: u8[2][Point]  = [[1, 2], [3, 4]]
+```
+
+Too many values is an error, as is a value that does not fit its field's type (`70000` where a
+`u16` field is expected fails even though the storage is `u8` bytes). There is no nominal
+`{field: value}` form — like `MASM`'s `<>` and `NASM`'s `istruc/at`, order is the contract.
+`@bss` still forbids any initializer; `@rodata` still requires one.
+
 ## Reading and writing fields
 
 ```casm

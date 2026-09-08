@@ -77,7 +77,7 @@ namespace ceres::casm
 						if (!data.isConstant)
 							error(statement.line(), "Data statement must be preceded by a section statement");
 					}
-					
+
 					DataType dataType = DataType::Invalid;
 					std::optional<LiteralValue> literalValue = std::nullopt;
 					std::expected<u32, std::string_view> size = 0;
@@ -85,10 +85,22 @@ namespace ceres::casm
 					{
 						if (data.dataType.isValid())
 						{
-							auto result = resolveLiteralValue(statement.line(), data.dataType, data.value);
-							dataType = result.first;
-							literalValue = std::move(result.second);
-							size = sizeOf(statement.line(), dataType, literalValue.value());
+							// A byte array dimensioned by a struct with an initialiser is a
+							// positional struct initialiser: values map to fields in order.
+							if (auto structResult = tryResolveStructLiteral(statement.line(), data.dataType, data.value);
+								structResult.has_value())
+							{
+								dataType = structResult->first;
+								literalValue = std::move(structResult->second);
+								size = sizeOf(statement.line(), dataType, literalValue.value());
+							}
+							else
+							{
+								auto result = resolveLiteralValue(statement.line(), data.dataType, data.value);
+								dataType = result.first;
+								literalValue = std::move(result.second);
+								size = sizeOf(statement.line(), dataType, literalValue.value());
+							}
 						}
 						else
 						{
@@ -214,6 +226,10 @@ namespace ceres::casm
 
 					u32 offset = 0;
 					u32 widestAlignment = 1;
+					StructLayout layout;
+					layout.name = std::string(structDecl.name.view());
+					layout.isGlobal = structDecl.isGlobal;
+					layout.fields.reserve(structDecl.fields.size());
 					for (const auto& field : structDecl.fields)
 					{
 						const DataType fieldType = resolveDataType(statement.line(), field.dataType, false);
@@ -230,6 +246,12 @@ namespace ceres::casm
 							std::format("{}.{}", structDecl.name, field.name),
 							structDecl.isGlobal, LiteralValue::make(offset));
 
+						StructFieldLayout fieldLayout;
+						fieldLayout.name = std::string(field.name.view());
+						fieldLayout.type = fieldType;
+						fieldLayout.offset = offset;
+						layout.fields.push_back(std::move(fieldLayout));
+
 						offset += fieldSize.value();
 					}
 
@@ -238,6 +260,10 @@ namespace ceres::casm
 						offset += widestAlignment - misaligned;
 
 					symbolTable.defineConstant(statement.line(), structDecl.name, structDecl.isGlobal, LiteralValue::make(offset));
+
+					layout.totalSize = offset;
+					layout.widestAlignment = widestAlignment;
+					_translationUnit.defineStruct(std::move(layout));
 				}
 				else if (statement.isMacroDeclaration())
 				{
@@ -698,6 +724,169 @@ namespace ceres::casm
 		return { DataType::makeArray(scalarCode, dimensions).withAlias(expectedDataType.alias()), LiteralValue::make(std::move(resolvedElements)) };
 	}
 
+	// A byte array dimensioned by a struct name, e.g. `u8[Entity]` or `u8[2][Entity]`, with an
+	// initialiser. Values map to fields in declaration order; padding is zero-filled. Anything
+	// else (plain sizes, constants, non-u8 element types) returns nullopt for the ordinary path.
+	std::optional<std::pair<DataType, LiteralValue>> TranslationUnitBuilder::tryResolveStructLiteral(
+		u32 line, const DataTypeReference& dataType, const LiteralValueReference& value) const
+	{
+		if (!dataType.isArray() || dataType.scalarCode() != DataTypeScalarCode::U8)
+			return std::nullopt;
+
+		const u8 rank = dataType.rank();
+		if (rank == 0)
+			return std::nullopt;
+
+		const auto& lastDim = dataType.dimension(rank - 1);
+		if (!lastDim.has_value() || !lastDim->isIdentifier())
+			return std::nullopt;
+
+		auto layoutRef = _translationUnit.resolveStruct(lastDim->name().view());
+		if (!layoutRef.has_value())
+			return std::nullopt;
+		const StructLayout& layout = layoutRef->get();
+
+		// Naming the struct as an array size counts as a use of its size constant, exactly as
+		// the ordinary `u8[Entity]` path does through evaluateDimension. Without this a struct
+		// used only through an initialiser would be reported as never used.
+		(void)_translationUnit.resolveSymbol(lastDim->name().view());
+
+		// Outer dimensions are instance counts; the last one is the struct itself. A missing
+		// outer size is read off the initialiser, like ordinary multidimensional arrays.
+		std::vector<u32> outerCounts;
+		outerCounts.reserve(rank - 1);
+		bool hasInferredOuter = false;
+		for (u8 level = 0; level + 1 < rank; ++level)
+		{
+			const auto& declared = dataType.dimension(level);
+			if (declared.has_value())
+				outerCounts.push_back(evaluateDimension(line, declared.value()));
+			else
+				hasInferredOuter = true;
+		}
+
+		u32 instanceCount = 1;
+		if (!outerCounts.empty() || hasInferredOuter)
+		{
+			if (hasInferredOuter)
+			{
+				// Only the common single-level case is inferred (`u8[][Struct]`): deeper
+				// inference would be ambiguous against the fields' own nesting.
+				if (rank != 2 || !outerCounts.empty())
+					error(line, "Only the outermost dimension may be inferred for a struct initialiser: {}", dataType.toString());
+				if (value.empty())
+					error(line, "Cannot work out dimension 0 of {}: it is empty", dataType.toString());
+				instanceCount = static_cast<u32>(value.elements().size());
+				outerCounts.push_back(instanceCount);
+			}
+			else
+			{
+				for (u32 count : outerCounts)
+					instanceCount *= count;
+			}
+		}
+
+		std::vector<LiteralScalar> outBytes;
+		outBytes.reserve(static_cast<usize>(instanceCount) * layout.totalSize);
+
+		if (outerCounts.empty())
+		{
+			resolveStructInstance(line, layout, value.elements(), outBytes);
+		}
+		else
+		{
+			if (value.elements().size() != instanceCount)
+				error(line, "The initialiser has {} element(s) but {} declares {} struct instance(s)",
+					value.elements().size(), dataType.toString(), instanceCount);
+			for (const auto& element : value.elements())
+			{
+				if (!element.isGroup())
+					error(line, "Expected a nested initialiser [...] for each '{}' instance", layout.name);
+				resolveStructInstance(line, layout, element.group(), outBytes);
+			}
+		}
+
+		std::vector<u32> byteDims = outerCounts;
+		byteDims.push_back(layout.totalSize);
+		DataType byteType = DataType::makeArray(DataTypeScalarCode::U8, byteDims).withAlias(dataType.alias());
+		return std::pair{ byteType, LiteralValue::make(std::move(outBytes)) };
+	}
+
+	void TranslationUnitBuilder::resolveStructInstance(u32 line, const StructLayout& layout,
+		std::span<const LiteralValueReferenceElement> elements, std::vector<LiteralScalar>& outBytes) const
+	{
+		if (elements.size() > layout.fields.size())
+			error(line, "Too many values for struct '{}': it has {} field(s) but {} were given",
+				layout.name, layout.fields.size(), elements.size());
+
+		u32 offset = 0;
+		for (usize i = 0; i < layout.fields.size(); ++i)
+		{
+			const StructFieldLayout& field = layout.fields[i];
+			const u32 alignment = field.type.alignment();
+			if (const u32 misaligned = offset % alignment; misaligned != 0)
+			{
+				const u32 padding = alignment - misaligned;
+				outBytes.insert(outBytes.end(), padding, LiteralScalar::makeU8(0));
+				offset += padding;
+			}
+
+			if (i < elements.size())
+				appendStructFieldBytes(line, layout, field, elements[i], outBytes);
+			else
+			{
+				// A short initialiser zero-fills the remaining fields, like arrays do.
+				const u32 fieldBytes = field.type.sizeInBytes().value_or(0);
+				outBytes.insert(outBytes.end(), fieldBytes, LiteralScalar::makeU8(0));
+			}
+			offset += field.type.sizeInBytes().value_or(0);
+		}
+
+		while (offset < layout.totalSize)
+		{
+			outBytes.push_back(LiteralScalar::makeU8(0));
+			++offset;
+		}
+	}
+
+	void TranslationUnitBuilder::appendStructFieldBytes(u32 line, const StructLayout& layout,
+		const StructFieldLayout& field, const LiteralValueReferenceElement& element,
+		std::vector<LiteralScalar>& outBytes) const
+	{
+		if (field.type.isScalar())
+		{
+			if (element.isGroup())
+				error(line, "Field '{}.{}' expects a single value, not a nested initialiser", layout.name, field.name);
+			LiteralScalar resolved = evaluateElement(line, element, field.type.scalarCode());
+			const LiteralScalar values[1]{ resolved };
+			checkAliasBounds(line, field.type.alias(), std::span<const LiteralScalar>(values, 1));
+			appendScalarBytes(resolved, outBytes);
+			return;
+		}
+
+		if (!element.isGroup())
+			error(line, "Field '{}.{}' expects a nested initialiser [...] of {} element(s)", layout.name, field.name, field.type.numElements());
+
+		std::vector<u32> dims;
+		dims.reserve(field.type.rank());
+		for (u8 i = 0; i < field.type.rank(); ++i)
+			dims.push_back(field.type.dimension(i));
+
+		std::vector<LiteralScalar> resolved;
+		flattenLiteral(line, element.group(), dims, field.type.scalarCode(), resolved);
+		checkAliasBounds(line, field.type.alias(), resolved);
+		for (const LiteralScalar& scalar : resolved)
+			appendScalarBytes(scalar, outBytes);
+	}
+
+	void TranslationUnitBuilder::appendScalarBytes(LiteralScalar scalar, std::vector<LiteralScalar>& outBytes)
+	{
+		const u32 raw = scalar.rawBits();
+		const u32 byteCount = LiteralScalar::bitWidthOf(scalar.scalarCode()) / 8;
+		for (u32 i = 0; i < byteCount; ++i)
+			outBytes.push_back(LiteralScalar::makeU8(static_cast<u8>((raw >> (8 * i)) & 0xFFu)));
+	}
+
 	std::expected<u32, std::string_view> TranslationUnitBuilder::sizeOf(u32 line, DataType dataType) const
 	{
 		auto size = dataType.sizeInBytes();
@@ -909,6 +1098,90 @@ namespace ceres::casm
 		{
 			if (auto unit = state().getTranslationUnit(entry.path); unit.has_value())
 				unit->get().collectUnexportedMacro(signature, visited, origin);
+		}
+	}
+
+	void TranslationUnit::defineStruct(StructLayout&& layout)
+	{
+		auto key = layout.name;
+		if (_structTable.contains(key))
+			throw AssemblerError(_file, 0, 1, std::format("Struct '{}' is already defined", key));
+		_structTable.emplace(std::move(key), std::move(layout));
+	}
+
+	OptionalConstRef<StructLayout> TranslationUnit::getStruct(std::string_view name) const
+	{
+		if (auto it = _structTable.find(std::string(name)); it != _structTable.end())
+			return std::cref(it->second);
+		return std::nullopt;
+	}
+
+	OptionalConstRef<StructLayout> TranslationUnit::resolveStruct(std::string_view name) const
+	{
+		// A qualified name is answered by exactly one module, like symbols.
+		if (const auto qualified = splitQualifiedName(name); qualified.has_value())
+		{
+			if (auto module = moduleNamed(qualified->first); module.has_value())
+			{
+				ImportLookup<StructLayout> result;
+				std::vector<const TranslationUnit*> visited;
+				visited.push_back(this);
+				module->get().collectExportedStruct(qualified->second, visited, result);
+				// Own table first so a struct shadowed deeper in the graph still resolves.
+				if (auto own = module->get().getStruct(qualified->second);
+					own.has_value() && own->get().isGlobal)
+					return own;
+				if (result.has())
+					return std::cref(*result.found);
+				return std::nullopt;
+			}
+			// Not a module name: fall through, because a field offset is stored as `parent.name`.
+		}
+
+		if (auto own = getStruct(name); own.has_value())
+			return own;
+
+		ImportLookup<StructLayout> result;
+		std::vector<const TranslationUnit*> visited;
+		visited.push_back(this);
+
+		for (const auto& entry : _directImports)
+		{
+			if (auto unit = state().getTranslationUnit(entry.path); unit.has_value())
+				unit->get().collectExportedStruct(name, visited, result);
+		}
+
+		if (!result.has())
+			return std::nullopt;
+
+		return std::cref(*result.found);
+	}
+
+	void TranslationUnit::collectExportedStruct(std::string_view name, std::vector<const TranslationUnit*>& visited, ImportLookup<StructLayout>& result) const
+	{
+		if (std::find(visited.begin(), visited.end(), this) != visited.end())
+			return;
+		visited.push_back(this);
+
+		if (auto own = getStruct(name); own.has_value() && own->get().isGlobal)
+		{
+			const StructLayout* layout = &own->get();
+			if (result.found == nullptr)
+			{
+				result.found = layout;
+				result.foundIn = _file;
+			}
+			else if (result.found != layout && !result.ambiguous)
+			{
+				result.ambiguous = true;
+				result.alsoIn = _file;
+			}
+		}
+
+		for (const auto& entry : _directImports)
+		{
+			if (auto unit = state().getTranslationUnit(entry.path); unit.has_value())
+				unit->get().collectExportedStruct(name, visited, result);
 		}
 	}
 

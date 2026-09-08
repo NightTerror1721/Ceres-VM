@@ -592,6 +592,10 @@ offset, plus the struct's own name holding the total size — rounded up to the 
 array of them stays aligned. `Entity.y` is therefore an ordinary constant displacement and
 `u8[32][Entity]` an ordinary array. `global struct` exports the lot.
 
+A `u8[Entity]` in `@data`/`@rodata` accepts a positional initializer — values map to fields in
+order, each checked against its field's type, padding zero-filled:
+`let player: u8[Entity] = [10, 20, 100, 1]`.
+
 ## Unused private declarations
 
 A `const`, `let` or `macro` that is not `global` and that nothing in its own file names cannot be

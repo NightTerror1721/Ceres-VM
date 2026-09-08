@@ -8,7 +8,9 @@
 #include "size.h"
 #include <algorithm>
 #include <vector>
+#include <string>
 #include <string_view>
+#include <unordered_map>
 #include <expected>
 #include <filesystem>
 
@@ -22,6 +24,25 @@ namespace ceres::casm
 		u32 dataSize = 0; // Size of the data section in bytes
 		u32 rodataSize = 0; // Size of the read-only data section in bytes
 		u32 bssSize = 0; // Size of the BSS section in bytes
+	};
+
+	// A struct's field layout, kept so `let x: u8[Struct] = [...]` can map each value to
+	// its field's type and offset. Offsets and the total size mirror exactly the constants the
+	// struct declaration also defines (`Struct.field` and `Struct`).
+	struct StructFieldLayout
+	{
+		std::string name;
+		DataType type = DataType::Invalid;
+		u32 offset = 0;
+	};
+
+	struct StructLayout
+	{
+		std::string name;
+		bool isGlobal = false;
+		std::vector<StructFieldLayout> fields;
+		u32 totalSize = 0;
+		u32 widestAlignment = 1;
 	};
 
 	class TranslationUnit
@@ -45,6 +66,9 @@ namespace ceres::casm
 			std::string alias; // Empty for a plain `import`; the name given by `as` otherwise
 		};
 		std::vector<DirectImport> _directImports;
+		// Struct layouts by name, so a later `let x: u8[Struct] = [...]` can map values to
+		// fields. The offset constants themselves live in the symbol table, as before.
+		std::unordered_map<std::string, StructLayout> _structTable;
 
 	public:
 		TranslationUnit() = delete;
@@ -127,6 +151,13 @@ namespace ceres::casm
 		OptionalConstRef<Symbol> resolveSymbol(std::string_view name) const;
 		OptionalConstRef<Macro> resolveMacro(const MacroSignature& signature) const;
 
+		// Struct layout lookup. Same visibility rule as symbols: the unit's own table first, then
+		// only `global struct` layouts from the import graph. Qualified `alias.Name` looks only in
+		// the module imported under that alias.
+		void defineStruct(StructLayout&& layout);
+		OptionalConstRef<StructLayout> getStruct(std::string_view name) const;
+		OptionalConstRef<StructLayout> resolveStruct(std::string_view name) const;
+
 		// `math.PI`. Splits a qualified name and looks only in the module that import named `math`,
 		// which is what makes two libraries exporting the same name usable in one file.
 		OptionalConstRef<TranslationUnit> moduleNamed(std::string_view alias) const;
@@ -154,6 +185,7 @@ namespace ceres::casm
 		// d once instead of finding the same declaration twice and calling it a redefinition.
 		void collectExportedSymbol(std::string_view name, std::vector<const TranslationUnit*>& visited, ImportLookup<Symbol>& result) const;
 		void collectExportedMacro(const MacroSignature& signature, std::vector<const TranslationUnit*>& visited, ImportLookup<Macro>& result) const;
+		void collectExportedStruct(std::string_view name, std::vector<const TranslationUnit*>& visited, ImportLookup<StructLayout>& result) const;
 
 		void collectUnexportedSymbol(std::string_view name, std::vector<const TranslationUnit*>& visited, std::string_view& origin) const;
 		void collectUnexportedMacro(const MacroSignature& signature, std::vector<const TranslationUnit*>& visited, std::string_view& origin) const;
@@ -238,6 +270,14 @@ namespace ceres::casm
 		DataType resolveDataType(u32 line, const DataTypeReference& dataType, bool allowUnsizedArrays) const;
 		LiteralValue resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays = false, std::optional<DataTypeScalarCode> targetScalarCode = std::nullopt) const;
 		std::pair<DataType, LiteralValue> resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const;
+
+		// Positional struct initialisation: `let x: u8[Struct] = [v0, v1, ...]` (or
+		// `u8[N][Struct]` for N instances). Returns nullopt when the declaration is not a
+		// struct-sized byte array, so the caller falls back to the ordinary array path.
+		std::optional<std::pair<DataType, LiteralValue>> tryResolveStructLiteral(u32 line, const DataTypeReference& dataType, const LiteralValueReference& value) const;
+		void resolveStructInstance(u32 line, const StructLayout& layout, std::span<const LiteralValueReferenceElement> elements, std::vector<LiteralScalar>& outBytes) const;
+		void appendStructFieldBytes(u32 line, const StructLayout& layout, const StructFieldLayout& field, const LiteralValueReferenceElement& element, std::vector<LiteralScalar>& outBytes) const;
+		static void appendScalarBytes(LiteralScalar scalar, std::vector<LiteralScalar>& outBytes);
 
 		// How the constant expressions in a declaration find their names.
 		ConstExprSymbolLookup symbolLookup() const;
