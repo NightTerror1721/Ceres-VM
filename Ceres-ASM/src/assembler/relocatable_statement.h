@@ -18,8 +18,12 @@ namespace ceres::casm
 	class RelocatableStatement
 	{
 	public:
+		// Zero bytes reserved by `align` or `org`; nothing to resolve, only to emit.
+		struct PaddingStatement {};
+
 		using RelocatableStatementVariant = std::variant<
 			SectionStatement,
+			PaddingStatement,
 			LabelStatement,
 			ResolvedDataStatement,
 			InstructionStatement
@@ -85,6 +89,7 @@ namespace ceres::casm
 		constexpr u32 size() const noexcept { return _size; }
 
 		constexpr bool isSection() const noexcept { return std::holds_alternative<SectionStatement>(_value); }
+		constexpr bool isPadding() const noexcept { return std::holds_alternative<PaddingStatement>(_value); }
 		constexpr bool isLabel() const noexcept { return std::holds_alternative<LabelStatement>(_value); }
 		constexpr bool isData() const noexcept { return std::holds_alternative<ResolvedDataStatement>(_value); }
 		constexpr bool isInstruction() const noexcept { return std::holds_alternative<InstructionStatement>(_value); }
@@ -100,6 +105,13 @@ namespace ceres::casm
 		void setSize(u32 size) noexcept { _size = size; }
 
 	public:
+		// Bytes that exist only because `align` or `org` asked for them. They have no declaration
+		// behind them, so they are their own kind rather than a nameless variable.
+		static RelocatableStatement makePadding(std::string_view file, u32 line, u32 size, vm::Address address) noexcept
+		{
+			return RelocatableStatement(file, line, size, address, PaddingStatement{});
+		}
+
 		static RelocatableStatement makeSection(std::string_view file, u32 line, SectionStatement&& section) noexcept
 		{
 			return RelocatableStatement(file, line, 0, std::nullopt, std::move(section));

@@ -65,6 +65,18 @@ namespace ceres::casm
 		std::vector<Statement> body; // List of statements that make up the macro's body
 	};
 
+	// `align 16`, `org 64` and `assert <expr>`. All three are answered while the section is being
+	// laid out, and none of them survives into the program: align and org are padding, and an
+	// assert is either true or a diagnostic.
+	struct DirectiveStatement
+	{
+		enum class Kind : u8 { Align, Org, Assert };
+
+		Kind kind;
+		ConstExpr value;
+		std::optional<LiteralString> message; // Only for assert, and absent unless one was given
+	};
+
 	struct MacroLabelStatement
 	{
 		Identifier name; // Name of the macro label being defined
@@ -104,7 +116,8 @@ namespace ceres::casm
 			StructDeclarationStatement,
 			MacroLabelStatement,
 			MacroCallStatement,
-			InstructionStatement
+			InstructionStatement,
+			DirectiveStatement
 		>;
 
 	private:
@@ -164,6 +177,7 @@ namespace ceres::casm
 		constexpr bool isStructDeclaration() const noexcept { return std::holds_alternative<StructDeclarationStatement>(_value); }
 		constexpr bool isMacroLabel() const noexcept { return std::holds_alternative<MacroLabelStatement>(_value); }
 		constexpr bool isMacroCall() const noexcept { return std::holds_alternative<MacroCallStatement>(_value); }
+		constexpr bool isDirective() const noexcept { return std::holds_alternative<DirectiveStatement>(_value); }
 		constexpr bool isInstruction() const noexcept { return std::holds_alternative<InstructionStatement>(_value); }
 
 		constexpr const SectionStatement& asSection() const noexcept { return std::get<SectionStatement>(_value); }
@@ -174,6 +188,7 @@ namespace ceres::casm
 		constexpr const StructDeclarationStatement& asStructDeclaration() const noexcept { return std::get<StructDeclarationStatement>(_value); }
 		constexpr const MacroLabelStatement& asMacroLabel() const noexcept { return std::get<MacroLabelStatement>(_value); }
 		constexpr const MacroCallStatement& asMacroCall() const noexcept { return std::get<MacroCallStatement>(_value); }
+		constexpr const DirectiveStatement& asDirective() const noexcept { return std::get<DirectiveStatement>(_value); }
 		constexpr const InstructionStatement& asInstruction() const noexcept { return std::get<InstructionStatement>(_value); }
 
 		constexpr SectionStatement& asSection() noexcept { return std::get<SectionStatement>(_value); }
@@ -225,6 +240,11 @@ namespace ceres::casm
 		static Statement makeMacroLabel(std::string_view file, u32 line, Identifier name) noexcept
 		{
 			return Statement{ file, line, MacroLabelStatement{ name } };
+		}
+
+		static Statement makeDirective(std::string_view file, u32 line, DirectiveStatement::Kind kind, ConstExpr&& value, std::optional<LiteralString> message = std::nullopt) noexcept
+		{
+			return Statement(file, line, DirectiveStatement{ kind, std::move(value), message });
 		}
 
 		static Statement makeMacroCall(std::string_view file, u32 line, Identifier name, std::vector<Operand>&& arguments) noexcept

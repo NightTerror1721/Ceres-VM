@@ -26,6 +26,9 @@ namespace ceres::casm
 		Alias, // 'alias' keyword for naming a register.
 		Struct, // 'struct' keyword for declaring a record layout.
 		EndStruct, // 'endstruct' keyword for closing one.
+		Align, // 'align' directive: pad the current section up to a boundary.
+		Org, // 'org' directive: pad the current section up to an offset within it.
+		Assert, // 'assert' directive: a constant expression that has to hold at assembly time.
 	};
 
 	enum class LabelLevel : u8

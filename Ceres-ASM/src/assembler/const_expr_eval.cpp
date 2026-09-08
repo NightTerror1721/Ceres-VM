@@ -105,6 +105,15 @@ namespace ceres::casm
 							if (b == 0.0f)
 								return std::unexpected("Division by zero in constant expression");
 							return LiteralScalar::makeF32(a / b);
+						// A comparison is a whole number whichever kind of thing it compared.
+						case ConstExpr::Op::Equal: return LiteralScalar::makeI32(a == b ? 1 : 0);
+						case ConstExpr::Op::NotEqual: return LiteralScalar::makeI32(a != b ? 1 : 0);
+						case ConstExpr::Op::Less: return LiteralScalar::makeI32(a < b ? 1 : 0);
+						case ConstExpr::Op::LessEqual: return LiteralScalar::makeI32(a <= b ? 1 : 0);
+						case ConstExpr::Op::Greater: return LiteralScalar::makeI32(a > b ? 1 : 0);
+						case ConstExpr::Op::GreaterEqual: return LiteralScalar::makeI32(a >= b ? 1 : 0);
+						case ConstExpr::Op::Modulo:
+							return std::unexpected("'%' has no meaning for floating-point values");
 						default: return std::unexpected("Unknown operator in constant expression");
 					}
 				}
@@ -121,7 +130,17 @@ namespace ceres::casm
 						if (b == 0)
 							return std::unexpected("Division by zero in constant expression");
 						return LiteralScalar::makeI32(a / b);
-					default: return std::unexpected("Unknown operator in constant expression");
+					case ConstExpr::Op::Modulo:
+						if (b == 0)
+							return std::unexpected("Remainder by zero in constant expression");
+						return LiteralScalar::makeI32(a % b);
+					case ConstExpr::Op::Equal: return LiteralScalar::makeI32(a == b ? 1 : 0);
+					case ConstExpr::Op::NotEqual: return LiteralScalar::makeI32(a != b ? 1 : 0);
+					case ConstExpr::Op::Less: return LiteralScalar::makeI32(a < b ? 1 : 0);
+					case ConstExpr::Op::LessEqual: return LiteralScalar::makeI32(a <= b ? 1 : 0);
+					case ConstExpr::Op::Greater: return LiteralScalar::makeI32(a > b ? 1 : 0);
+					case ConstExpr::Op::GreaterEqual: return LiteralScalar::makeI32(a >= b ? 1 : 0);
+				default: return std::unexpected("Unknown operator in constant expression");
 				}
 			}
 

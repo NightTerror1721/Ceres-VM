@@ -1055,3 +1055,142 @@ TEST(language, only_a_struct_can_be_written_as_a_type)
 	CHECK(!r.ok());
 	CHECK(r.joinedErrors().find("is not a struct") != std::string::npos);
 }
+
+// --- align, org and assert -------------------------------------------------------------------
+
+TEST(language, align_and_org_place_what_follows_them)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    global let a: u8 = 1\r\n"
+		"    align 16\r\n"
+		"    global let b: u8 = 2\r\n"
+		"    org 32\r\n"
+		"    global let c: u8 = 3\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto& data = r.program->data();
+	CHECK_EQ(data.size(), usize{ 36 }); // 32 + one byte, padded to four
+	if (data.size() < 33) return;
+	CHECK_EQ(data[0], u8{ 1 });
+	CHECK_EQ(data[16], u8{ 2 });  // align 16
+	CHECK_EQ(data[32], u8{ 3 });  // org 32
+	CHECK_EQ(data[1], u8{ 0 });   // and the gap is zero
+}
+
+TEST(language, assert_checks_a_constant_expression_at_assembly_time)
+{
+	AssembleResult ok = assembleSource(
+		"struct Frame\r\n"
+		"    saved: u32\r\n"
+		"    count: u32\r\n"
+		"endstruct\r\n"
+		"assert Frame % 4 == 0\r\n"
+		"assert Frame >= 8\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+	CHECK(ok.ok());
+	if (!ok.ok()) { Registry::instance().recordFailure(ok.joinedErrors()); return; }
+
+	AssembleResult bad = assembleSource(
+		"const N = 5\r\n"
+		"assert N % 4 == 0, \"N has to be a multiple of four\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+	CHECK(!bad.ok());
+	CHECK(bad.joinedErrors().find("N has to be a multiple of four") != std::string::npos);
+}
+
+TEST(language, align_and_org_refuse_what_they_cannot_do)
+{
+	AssembleResult notPowerOfTwo = assembleSource(
+		"@data\r\n"
+		"    global let a: u8 = 1\r\n"
+		"    align 6\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+	CHECK(!notPowerOfTwo.ok());
+	CHECK(notPowerOfTwo.joinedErrors().find("power of two") != std::string::npos);
+
+	// Sections are placed by the linker, so org is an offset within one - and it cannot go back
+	// over what is already there.
+	AssembleResult backwards = assembleSource(
+		"@data\r\n"
+		"    global let a: u32 = 1\r\n"
+		"    org 2\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+	CHECK(!backwards.ok());
+	CHECK(backwards.joinedErrors().find("would move backwards") != std::string::npos);
+}
+
+TEST(language, a_constant_expression_can_compare_and_take_a_remainder)
+{
+	AssembleResult r = assembleSource(
+		"const A = 10 % 4\r\n"
+		"const B = 3 < 4\r\n"
+		"const C = 3 == 4\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, A\r\n"
+		"    li r2, B\r\n"
+		"    li r3, C\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(Instruction(words[0]).imm16(), u16{ 2 });
+	CHECK_EQ(Instruction(words[1]).imm16(), u16{ 1 });
+	CHECK_EQ(Instruction(words[2]).imm16(), u16{ 0 });
+}
+
+TEST(language, a_string_or_a_float_can_be_written_where_an_operand_goes)
+{
+	// Neither fits in an instruction: a string is a run of bytes and a float needs 32 bits. Both
+	// become an anonymous .rodata declaration, and the operand becomes its address.
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    la  r1, \"listo\"\r\n"
+		"    ldv f1, 1.5\r\n"
+		"    ret\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	// The string's address is built the way any other address is.
+	CHECK_EQ(Instruction(words[0]).opcode() == Opcode::LUI, true);
+	CHECK_EQ(Instruction(words[1]).opcode() == Opcode::ORI, true);
+	// And the float is close enough to read PC-relatively, in one word.
+	CHECK_EQ(Instruction(words[2]).opcode() == Opcode::FLDRP, true);
+
+	// "listo" and its terminator, padded, then the four bytes of the float.
+	const auto& rodata = r.program->rodata();
+	CHECK_EQ(rodata.size(), usize{ 12 });
+	if (rodata.size() < 6) return;
+	CHECK_EQ(rodata[0], u8{ 'l' });
+	CHECK_EQ(rodata[5], u8{ 0 });
+}
+
+TEST(pipeline_like, an_anonymous_string_prints)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    la r1, \"listo\"\r\n"
+		"    li r2, 5\r\n"
+		"    outm 0x01, r1, r2\r\n"
+		"    ret\r\n");
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+}

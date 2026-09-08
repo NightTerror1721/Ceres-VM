@@ -282,6 +282,7 @@ namespace ceres::casm
 		std::optional<std::pair<DataType, LiteralValue>> tryResolveStructLiteral(u32 line, const DataTypeReference& dataType, const LiteralValueReference& value) const;
 		// `let p: Entity` is `u8[Entity]`, but only when Entity is a struct. Without this,
 		// `let p: MAX_PLAYERS` would quietly be four bytes of nothing in particular.
+		void processDirective(const Statement& statement, SectionSizes& sectionSizes);
 		void checkStructNamedType(u32 line, const DataTypeReference& dataType) const;
 		// The struct a type reference is made of, if any: the innermost dimension of `u8[Entity]`,
 		// `Entity` or `Entity[4]`. Empty for everything else.

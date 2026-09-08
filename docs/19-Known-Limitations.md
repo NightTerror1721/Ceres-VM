@@ -39,14 +39,15 @@ Disk, GPU, mouse/gamepad, audio, and network are all reserved port ranges with n
 reading them returns all-ones and writing them does nothing, exactly like any other unattached port.
 See [I/O devices and ports](07-IO-Devices-and-Ports.md) for the full map.
 
-## Gaps in `parseOperand`
+## One gap left in `parseOperand`
 
-A handful of literal kinds are not accepted as instruction *operands* today (they work fine as
-`let`/`const` initializers, just not directly as, say, an immediate operand to an instruction):
+Float and string literals **are** operands now: each becomes an anonymous `.rodata` declaration and
+the operand becomes its name, which is what you would have had to write out by hand.
 
-- Float and string literals cannot be used directly as an operand.
-- A `%%label` cannot start a statement outside a macro body (it can only be used *as an operand*
-  outside one, referencing a hygienic label that was already defined inside some macro's expansion).
+What remains: a `%%label` cannot start a statement outside a macro body. It can be used *as an
+operand* out there, referring to a hygienic label some expansion already defined — but defining one
+outside a macro would be a label with an expansion number and no expansion, which is not a thing
+worth having.
 
 ## The debugger's call stack is inferred, and its watchpoints only see writes
 

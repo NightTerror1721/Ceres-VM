@@ -39,6 +39,15 @@ namespace ceres::casm
 		Dot,			// . (used for local labels)
 		Comma,			// , (used for separating operands)
 		Equals,			// = (used for defining constants and variables)
+		// Comparison and remainder, which exist so that `assert` has something to assert. `=` stays
+		// the assignment in a declaration; the comparison is spelled `==`, as everywhere else.
+		Percent,		// %
+		EqualEqual,		// ==
+		BangEqual,		// !=
+		Less,			// <
+		LessEqual,		// <=
+		Greater,		// >
+		GreaterEqual,	// >=
 		Plus,			// + (used for memory address calculations and const expressions)
 		Minus,			// - (used for memory address calculations and const expressions)
 		Asterisk,		// * (used for const expressions)
@@ -256,6 +265,13 @@ namespace ceres::casm
 		static Token makeDot(u32 line, u32 column) noexcept { return Token{ TokenType::Dot, ".", {}, line, column }; }
 		static Token makeComma(u32 line, u32 column) noexcept { return Token{ TokenType::Comma, ",", {}, line, column }; }
 		static Token makeEquals(u32 line, u32 column) noexcept { return Token{ TokenType::Equals, "=", {}, line, column }; }
+		static Token makePercent(u32 line, u32 column) noexcept { return Token{ TokenType::Percent, "%", {}, line, column }; }
+		static Token makeEqualEqual(u32 line, u32 column) noexcept { return Token{ TokenType::EqualEqual, "==", {}, line, column }; }
+		static Token makeBangEqual(u32 line, u32 column) noexcept { return Token{ TokenType::BangEqual, "!=", {}, line, column }; }
+		static Token makeLess(u32 line, u32 column) noexcept { return Token{ TokenType::Less, "<", {}, line, column }; }
+		static Token makeLessEqual(u32 line, u32 column) noexcept { return Token{ TokenType::LessEqual, "<=", {}, line, column }; }
+		static Token makeGreater(u32 line, u32 column) noexcept { return Token{ TokenType::Greater, ">", {}, line, column }; }
+		static Token makeGreaterEqual(u32 line, u32 column) noexcept { return Token{ TokenType::GreaterEqual, ">=", {}, line, column }; }
 		static Token makePlus(u32 line, u32 column) noexcept { return Token{ TokenType::Plus, "+", {}, line, column }; }
 		static Token makeMinus(u32 line, u32 column) noexcept { return Token{ TokenType::Minus, "-", {}, line, column }; }
 		static Token makeAsterisk(u32 line, u32 column) noexcept { return Token{ TokenType::Asterisk, "*", {}, line, column }; }

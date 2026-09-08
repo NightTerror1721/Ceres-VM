@@ -68,7 +68,8 @@ namespace ceres::casm
 			}
 			else
 			{
-				return Token::makeInvalid(startLine, startColumn);
+				// A single '%' is the remainder operator; '%%' introduces a hygienic macro label.
+				return Token::makePercent(startLine, startColumn);
 			}
 		}
 
@@ -78,7 +79,20 @@ namespace ceres::casm
 			case ':': return Token::makeColon(startLine, startColumn);
 			case '.': return Token::makeDot(startLine, startColumn);
 			case ',': return Token::makeComma(startLine, startColumn);
-			case '=': return Token::makeEquals(startLine, startColumn);
+			// Two-character operators first: `==` is a comparison and `=` an assignment, and `<=`
+			// would otherwise lex as `<` followed by an assignment.
+			case '=':
+				if (*_source == '=') { _source.next(); return Token::makeEqualEqual(startLine, startColumn); }
+				return Token::makeEquals(startLine, startColumn);
+			case '!':
+				if (*_source == '=') { _source.next(); return Token::makeBangEqual(startLine, startColumn); }
+				return Token::makeInvalid(startLine, startColumn);
+			case '<':
+				if (*_source == '=') { _source.next(); return Token::makeLessEqual(startLine, startColumn); }
+				return Token::makeLess(startLine, startColumn);
+			case '>':
+				if (*_source == '=') { _source.next(); return Token::makeGreaterEqual(startLine, startColumn); }
+				return Token::makeGreater(startLine, startColumn);
 			case '+': return Token::makePlus(startLine, startColumn);
 			case '-': return Token::makeMinus(startLine, startColumn);
 			case '*': return Token::makeAsterisk(startLine, startColumn);
@@ -474,6 +488,9 @@ namespace ceres::casm
 		if (identifier == "alias") return KeywordType::Alias;
 		if (identifier == "struct") return KeywordType::Struct;
 		if (identifier == "endstruct") return KeywordType::EndStruct;
+		if (identifier == "align") return KeywordType::Align;
+		if (identifier == "org") return KeywordType::Org;
+		if (identifier == "assert") return KeywordType::Assert;
 
 		return std::nullopt;
 	}

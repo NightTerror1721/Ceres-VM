@@ -415,6 +415,26 @@ initialiser cannot supply it:
 
 Dimensions run outermost first, elements are stored row-major, and the rank is capped at four.
 
+### Directives
+
+```casm
+@data
+    let header: u8 = 1
+    align 16            // pad up to a 16-byte boundary
+    let body:   u8 = 2
+    org 64              // pad up to offset 64 within this section
+
+assert Frame % 4 == 0
+assert BLOCK >= 8, "a block smaller than eight will not fit"
+```
+
+`align` takes a power of two. `org` is an offset **within the section**, not an absolute address
+— the linker places sections — and it only moves forward; going back would write over what is
+already there. Both pad with zeroes.
+
+`assert` fails the build when its expression is zero, with the message if one was given. It is
+what makes part of the calling convention checkable rather than merely written down.
+
 ### Constant expressions
 
 ```casm
@@ -431,7 +451,9 @@ const PAYLOAD = BLOCK - HEADER      // constants may refer to earlier constants
     li r3, dimof(grid, 1)           // the length of one dimension
 ```
 
-`+ - * /` with the usual precedence, and parentheses. A constant is evaluated when its own
+`+ - * / %` with the usual precedence, then a single comparison — `==` `!=` `<` `<=` `>` `>=`,
+answering 1 or 0 — and parentheses. Comparisons do not chain: `a < b < c` would compare a truth
+value against `c`, which never means what it looks like. A constant is evaluated when its own
 declaration is reached, so it can only refer to constants already declared above it — which is also
 why a cycle cannot form.
 
@@ -512,6 +534,8 @@ Write the spaces: `[r5+0]` lexes the `+0` as a signed literal and fails to parse
 | Written | Expands to | Size |
 | --- | --- | --- |
 | `la rd, symbol` | `lui` + `ori` | 8 B |
+| `la rd, "text"` | an anonymous `.rodata` string, then its address | 8 B |
+| `ldv fd, 1.5` | an anonymous `.rodata` float, then a load of it | 4 B or 12 B |
 | `ldv rd, variable` | one PC-relative load, or `lui` + `ori` + a load | 4 B or 12 B |
 | `stv rs, variable` | one PC-relative store, or `lui` + `ori` + a store | 4 B or 12 B |
 | `ldvp` / `stvp` | the PC-relative form, demanded rather than hoped for | 4 B |

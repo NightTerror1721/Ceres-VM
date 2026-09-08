@@ -37,6 +37,15 @@ namespace ceres::casm
 			Subtract,
 			Multiply,
 			Divide,
+			Modulo,
+			// Comparisons answer 1 or 0. They exist for `assert`, which needs something to be true
+			// about rather than merely non-zero.
+			Equal,
+			NotEqual,
+			Less,
+			LessEqual,
+			Greater,
+			GreaterEqual,
 			Negate, // Unary; only the left child is used
 		};
 

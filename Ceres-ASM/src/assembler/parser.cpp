@@ -14,6 +14,17 @@ namespace ceres::casm
 				statements.push_back(std::move(statement.value()));
 		}
 
+		// Anonymous strings and floats, gathered as they were met and declared at the end in their
+		// own `.rodata`. Appending rather than interleaving keeps the sections the file wrote in
+		// the order it wrote them.
+		if (!_literalPool.empty())
+		{
+			statements.push_back(Statement::makeSection(_file, 0, SectionType::Rodata));
+			for (auto& literal : _literalPool)
+				statements.push_back(std::move(literal));
+			_literalPool.clear();
+		}
+
 		return statements;
 	}
 
@@ -76,6 +87,8 @@ namespace ceres::casm
 					statement = parseMacroDeclaration(false);
 				else if (_cursor.match(KeywordType::Struct))
 					statement = parseStructDeclaration(false);
+				else if (_cursor.matchAny({ KeywordType::Align, KeywordType::Org, KeywordType::Assert }))
+					return parseDirective();
 				else if (_cursor.match(KeywordType::Alias))
 				{
 					parseRegisterAlias();
@@ -222,6 +235,45 @@ namespace ceres::casm
 	}
 
 	// `alias cursor = r5`, and from here on `cursor` is r5 everywhere a register can be written.
+	// `align 16`, `org 64`, `assert <expr>` and `assert <expr>, "why"`. All three take a constant
+	// expression, which is the whole reason the expression grammar grew comparisons.
+	Operand Parser::poolLiteral(LiteralValueReference&& value, DataTypeReference&& type)
+	{
+		// The name cannot collide with anything a program can write - '$' never appears in a
+		// parsed identifier - and it must not contain a dot either, because a dot is what tells
+		// a qualified `module.name` from a plain one.
+		const std::string name = std::format("lit${}", _nextLiteralIndex++);
+		const Identifier identifier = _stringPool.makeIdentifier(name);
+
+		_literalPool.push_back(Statement::makeData(_file, _cursor.current().line(),
+			false, false, identifier, std::move(type), std::move(value)));
+
+		return Operand::makeIdentifier(identifier, false);
+	}
+
+	Statement Parser::parseDirective()
+	{
+		const u32 line = _cursor.current().line();
+		const KeywordType keyword = _cursor.current().keywordTypeValue();
+		_cursor.next(); // Consume the directive
+
+		const auto kind = keyword == KeywordType::Align ? DirectiveStatement::Kind::Align
+			: keyword == KeywordType::Org ? DirectiveStatement::Kind::Org
+			: DirectiveStatement::Kind::Assert;
+
+		ConstExpr value = parseConstExpr();
+
+		std::optional<LiteralString> message;
+		if (kind == DirectiveStatement::Kind::Assert && _cursor.match(TokenType::Comma))
+		{
+			_cursor.next(); // Consume ','
+			Token messageToken = _cursor.consume(TokenType::LiteralString, "Expected a message in quotes after ',' in assert");
+			message = messageToken.literalStringValue();
+		}
+
+		return Statement::makeDirective(_file, line, kind, std::move(value), message);
+	}
+
 	void Parser::parseRegisterAlias()
 	{
 		_cursor.consume(KeywordType::Alias, "Expected 'alias' keyword");
@@ -636,9 +688,11 @@ namespace ceres::casm
 	{
 		ConstExpr value = parseConstFactor();
 
-		while (_cursor.match(TokenType::Asterisk) || _cursor.match(TokenType::Slash))
+		while (_cursor.match(TokenType::Asterisk) || _cursor.match(TokenType::Slash) || _cursor.match(TokenType::Percent))
 		{
-			const ConstExpr::Op op = _cursor.match(TokenType::Slash) ? ConstExpr::Op::Divide : ConstExpr::Op::Multiply;
+			const ConstExpr::Op op = _cursor.match(TokenType::Slash) ? ConstExpr::Op::Divide
+				: _cursor.match(TokenType::Percent) ? ConstExpr::Op::Modulo
+				: ConstExpr::Op::Multiply;
 			_cursor.next();
 			value = ConstExpr::makeBinary(op, std::move(value), parseConstFactor());
 		}
@@ -646,7 +700,8 @@ namespace ceres::casm
 		return value;
 	}
 
-	ConstExpr Parser::parseConstExpr()
+	// Sums, which bind tighter than a comparison and looser than a product.
+	ConstExpr Parser::parseConstSum()
 	{
 		ConstExpr value = parseConstTerm();
 
@@ -655,6 +710,34 @@ namespace ceres::casm
 			const ConstExpr::Op op = _cursor.match(TokenType::Minus) ? ConstExpr::Op::Subtract : ConstExpr::Op::Add;
 			_cursor.next();
 			value = ConstExpr::makeBinary(op, std::move(value), parseConstTerm());
+		}
+
+		return value;
+	}
+
+	// A comparison answers 1 or 0 and binds loosest, so `a % 4 == 0` groups the way it reads.
+	// Not chained: `a < b < c` would compare a boolean against c, which never means what it
+	// looks like, so exactly one comparison is allowed.
+	ConstExpr Parser::parseConstExpr()
+	{
+		ConstExpr value = parseConstSum();
+
+		static constexpr std::pair<TokenType, ConstExpr::Op> comparisons[] = {
+			{ TokenType::EqualEqual, ConstExpr::Op::Equal },
+			{ TokenType::BangEqual, ConstExpr::Op::NotEqual },
+			{ TokenType::LessEqual, ConstExpr::Op::LessEqual },
+			{ TokenType::GreaterEqual, ConstExpr::Op::GreaterEqual },
+			{ TokenType::Less, ConstExpr::Op::Less },
+			{ TokenType::Greater, ConstExpr::Op::Greater },
+		};
+
+		for (const auto& [token, op] : comparisons)
+		{
+			if (!_cursor.match(token))
+				continue;
+
+			_cursor.next();
+			return ConstExpr::makeBinary(op, std::move(value), parseConstSum());
 		}
 
 		return value;
@@ -874,6 +957,29 @@ namespace ceres::casm
 			Token macroLabelToken = _cursor.current();
 			_cursor.next(); // Consume the macro label identifier
 			return Operand::makeMacroLabel(macroLabelToken.identifierValue());
+		}
+
+		// A float has 32 bits and an instruction has 16 to spare, and a string is a run of bytes
+		// that is not a value at all. Both go into `.rodata` under a name nobody had to invent, and
+		// the operand becomes that name - so `ldv f1, 1.5` and `la r1, "listo" ` mean what they read
+		// as, instead of being rejected.
+		if (_cursor.match(TokenType::LiteralFloat))
+		{
+			const f32 value = _cursor.current().floatValue();
+			_cursor.next();
+			return poolLiteral(LiteralValueReference::makeF32(value),
+				DataTypeReference::makeScalar(DataTypeScalarCode::F32));
+		}
+
+		if (_cursor.match(TokenType::LiteralString))
+		{
+			const LiteralString text = _cursor.current().literalStringValue();
+			_cursor.next();
+			// One dimension, left for the initialiser to size - which is exactly what `string` is.
+			std::vector<DataTypeReference::Dimension> unsized;
+			unsized.emplace_back(std::nullopt);
+			return poolLiteral(LiteralValueReference::makeString(text),
+				DataTypeReference::makeArray(DataTypeScalarCode::U8, std::move(unsized), DataTypeAlias::String));
 		}
 
 		// Handle immediate operand: a literal, or an expression over constants and size queries.

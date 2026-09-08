@@ -297,6 +297,10 @@ namespace ceres::casm
 
 					currentOffset() += sizeOpt.value();
 				}
+				else if (statement.isDirective())
+				{
+					processDirective(statement, sectionSizes);
+				}
 				else if (statement.isMacroCall())
 				{
 					// Anything that is not a known mnemonic parses as a macro call, so this is also where a
@@ -360,6 +364,79 @@ namespace ceres::casm
 		}
 
 		_sectionSizes.textSize = offset.value();
+	}
+
+	// `align`, `org` and `assert`, none of which puts anything in the program: the first two are
+	// padding and the third is either true or a diagnostic.
+	void TranslationUnitBuilder::processDirective(const Statement& statement, SectionSizes& sectionSizes)
+	{
+		const DirectiveStatement& directive = statement.asDirective();
+		const u32 line = statement.line();
+
+		const auto folded = evaluateConstExpr(directive.value, symbolLookup());
+		if (!folded.has_value())
+			error(line, "{}", folded.error());
+		const i64 value = static_cast<i64>(static_cast<i32>(folded->asRawValue()));
+
+		if (directive.kind == DirectiveStatement::Kind::Assert)
+		{
+			if (value != 0)
+				return;
+
+			if (directive.message.has_value())
+				error(line, "Assertion failed: {}", directive.message->view());
+			error(line, "Assertion failed: {}", directive.value.toString());
+		}
+
+		if (!_currentSection.has_value())
+			error(line, "'{}' must appear inside a section",
+				directive.kind == DirectiveStatement::Kind::Align ? "align" : "org");
+
+		Address& offset = currentOffset();
+		u32 padding = 0;
+
+		if (directive.kind == DirectiveStatement::Kind::Align)
+		{
+			// A boundary that is not a power of two is almost always a typo for one that is, and
+			// padding to it would quietly produce a layout nobody meant.
+			if (value <= 0 || (value & (value - 1)) != 0)
+				error(line, "'align' needs a positive power of two, not {}", value);
+
+			const u32 alignment = static_cast<u32>(value);
+			if (const u32 misaligned = offset.value() % alignment; misaligned != 0)
+				padding = alignment - misaligned;
+		}
+		else
+		{
+			// Section-relative, and forward only: sections are placed by the linker, so an
+			// absolute address is not a thing this can promise, and moving backwards would write
+			// over what is already there.
+			if (value < 0)
+				error(line, "'org' needs an offset within the section, not {}", value);
+
+			const u32 target = static_cast<u32>(value);
+			if (target < offset.value())
+				error(line, "'org {}' would move backwards: the section is already {} bytes long",
+					target, offset.value());
+
+			padding = target - offset.value();
+		}
+
+		if (padding == 0)
+			return;
+
+		offset += padding;
+		switch (_currentSection.value())
+		{
+			case SectionType::Text: sectionSizes.textSize += padding; break;
+			case SectionType::Rodata: sectionSizes.rodataSize += padding; break;
+			case SectionType::Data: sectionSizes.dataSize += padding; break;
+			case SectionType::BSS: sectionSizes.bssSize += padding; break;
+		}
+
+		// The padding has to exist in the emitted bytes too, and .bss has no bytes to emit.
+		if (_currentSection.value() != SectionType::BSS)
+			_ast.push_back(RelocatableStatement::makePadding(statement.file(), line, padding, offset - Address(padding)));
 	}
 
 	std::vector<Statement> TranslationUnitBuilder::expandMacroCall(const Statement& callStatement, u32 expansionDepth)

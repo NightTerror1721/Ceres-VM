@@ -191,6 +191,14 @@ namespace ceres::casm
 		Statement parseMacroLabel();
 		Statement parseMacroDeclaration(bool isGlobal);
 		Statement parseStructDeclaration(bool isGlobal);
+		Statement parseDirective();
+		// A string or a float written where an operand goes has nowhere to live in an instruction:
+		// one is a run of bytes and the other needs 32 bits. Both become an anonymous `.rodata`
+		// declaration, and the operand becomes its name - which is what a programmer would have had
+		// to write out by hand, given a name nobody has to invent.
+		Operand poolLiteral(LiteralValueReference&& value, DataTypeReference&& type);
+		std::vector<Statement> _literalPool;
+		u32 _nextLiteralIndex = 0;
 		void parseRegisterAlias();
 		std::optional<u8> indexRegisterOf(const Token& token) const;
 		bool atQualifiedName() const noexcept;
@@ -205,6 +213,7 @@ namespace ceres::casm
 		// Constant expressions, with the usual precedence, kept as a tree rather than folded on the
 		// spot. The parser sees the operator tokens but not the constants - those are not defined
 		// until the translation unit is built - so folding here is what made `BASE + 4` impossible.
+		ConstExpr parseConstSum();
 		ConstExpr parseConstExpr();
 		ConstExpr parseConstTerm();
 		ConstExpr parseConstFactor();

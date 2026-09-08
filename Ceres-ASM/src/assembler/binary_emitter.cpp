@@ -57,6 +57,22 @@ namespace ceres::casm
 				{
 					currentSection = statement.asSection().section;
 				}
+				else if (statement.isPadding())
+				{
+					// `align` and `org` reserved these; they are zero, like every other gap. .bss
+					// emits nothing at all, so its padding was never recorded as a statement.
+					if (!currentSection.has_value())
+					{
+						reportError(statement.line(), "Padding must be preceded by a section statement");
+						return std::nullopt;
+					}
+
+					auto& buffer = currentSection.value() == SectionType::Text ? _textBuffer
+						: currentSection.value() == SectionType::Rodata ? _rodataBuffer
+						: _dataBuffer;
+					for (u32 i = 0; i < statement.size(); ++i)
+						buffer.push_back(u8{ 0 });
+				}
 				else if (statement.isData())
 				{
 					if (!currentSection.has_value())
