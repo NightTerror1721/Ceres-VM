@@ -87,7 +87,7 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	},
 	strb: { operands: 'rs, [rd + imm16|rt]', summary: 'Stores a byte, same operand order as `str`.' },
 	strh: { operands: 'rs, [rd + imm16|rt]', summary: 'Stores a half-word, same operand order as `str`.' },
-	lea: { operands: 'rd, [rs + imm16]', summary: 'Loads the effective address rs + imm16 into rd, without accessing memory.' },
+	lea: { operands: 'rd, [rs + imm16]', summary: 'The old spelling of `la rd, [rs + imm16]`. Still parses; computes rs + imm16 into rd without accessing memory.' },
 
 	// Control flow - 0x50-0x67
 	jp: { operands: 'label|rs', summary: 'Unconditional jump. A register operand selects the register form (`jpr`) automatically.' },
@@ -173,9 +173,9 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 
 	// Pseudo-instructions
 	la: {
-		operands: 'rd, symbol|imm32',
+		operands: 'rd, symbol|imm32|[rs + imm16]',
 		pseudo: true,
-		summary: 'Loads the 32-bit address of `symbol`, or a plain 32-bit literal - the operand type is the only difference, and both expand to `lui` + `ori` (8 B) targeting `rd`, so neither needs a scratch register. `lc` is the old spelling of the literal form.'
+		summary: 'Puts an address in `rd`, however it is written: the address of a `symbol`, a full 32-bit literal (both `lui` + `ori`, 8 B, targeting `rd`, so neither needs a scratch register), or `[rs + imm16]` computed at run time (one word, the real LEA opcode). `lc` and `lea` are the old spellings.'
 	},
 	ldv: {
 		operands: 'rd, variable',

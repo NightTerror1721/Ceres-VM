@@ -421,7 +421,10 @@ namespace ceres::casm
 			return;
 		}
 
-		isize remainingOpcodes = infoOpt.value().maxOpcodeCountAtAllOverloads();
+		// What the layout set aside for this statement, not the largest this mnemonic can be: those
+		// differ whenever the operands already resolved when it was laid out, and padding to the
+		// larger of the two would write past the space the addresses were computed from.
+		isize remainingOpcodes = static_cast<isize>(statement.size() / vm::Instruction::Size);
 
 		const InstructionInfo& info = infoOpt.value();
 		for (const auto& opcodeInfo : info.opcodes())

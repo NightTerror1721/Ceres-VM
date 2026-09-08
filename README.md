@@ -163,7 +163,7 @@ without a pair of shifts.
 
 ### Memory · `0x40`–`0x4E`, `0xB4`–`0xBD`
 
-`mov` `li` `lui` `ldr` `ldrb` `ldrh` `ldrsb` `ldrsh` `str` `strb` `strh` `lea`
+`mov` `li` `lui` `ldr` `ldrb` `ldrh` `ldrsb` `ldrsh` `str` `strb` `strh` `la`
 
 ```casm
 ldrb r2, [r1 + 4]     // load, base then displacement
@@ -471,6 +471,7 @@ Write the spaces: `[r5+0]` lexes the `+0` as a signed literal and fails to parse
 | `ldvp` / `stvp` | the PC-relative form, demanded rather than hoped for | 4 B |
 | `neg rd, rs` | `imul rd, rs, -1`, or `fneg` for float registers | 4 B |
 | `la rd, imm32` | `lui` + `ori` | 8 B |
+| `la rd, [rs + imm16]` | `lea` | 4 B |
 | `ifXX rs, rt, label` | `cmp` (or `cmpi`, or `fcmp`) + the matching branch | 8 B |
 | `swap rd, rs` | three `xor`s, using no temporary | 12 B |
 | `inc rd` / `dec rd` | `addi rd, rd, 1` / `subi rd, rd, 1` | 4 B |
@@ -478,10 +479,14 @@ Write the spaces: `[r5+0]` lexes the `+0` as a signed literal and fails to parse
 | `tst rs` | `cmpi rs, 0` | 4 B |
 | `jmp label` | `jp` | 4 B |
 
-`la` takes a plain 32-bit value as well as a symbol — the same `lui`/`ori` pair either way, and the
-operand's type is what tells them apart. `li` only reaches 16 bits, so a full-width constant used
-to have to be written as the pair by hand. `lc` still parses, as the spelling this had when only
-the literal form existed.
+`la` is **putting an address in a register**, however the address is written: the address of a
+symbol, a full 32-bit literal (`lui` + `ori` for both), or `[rs + imm16]` computed at run time
+(one word, the real `LEA` opcode). The operand's type is what tells them apart. `lc` and `lea`
+still parse, as the spellings these had when they were separate.
+
+The two lengths in one mnemonic are why a statement reserves the size **its own signature** needs
+rather than the largest its mnemonic can be: otherwise every `la rd, [rs + imm16]` would reserve
+eight bytes and pad with a `nop`.
 
 `ifXX` writes the comparison and the branch as one instruction, and covers every condition the
 branches do — `ifeq` `ifne` `ifgr` `ifge` `ifls` `ifle` `ifab` `ifae` `ifbl` `ifbe`. The second

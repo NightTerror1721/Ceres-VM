@@ -259,12 +259,12 @@ namespace ceres::casm
 					for (auto& operand : instruction.operands)
 						symbolTable.tryResolveOperand(statement.file(), statement.line(), operand, _lastParentLabel, _unresolvedSymbols, &_translationUnit);
 
-					_ast.push_back(RelocatableStatement::makeInstruction(statement.file(), statement.line(), currentOffset(), std::move(instruction)));
-					_ast.back().setExpansionSite(statement.expansionFile(), statement.expansionLine(), static_cast<u16>(expansionDepth));
-
-					auto sizeOpt = InstructionInfo::findMaxSizeInBytes(instruction.mnemonic);
+					auto sizeOpt = InstructionInfo::reservedSizeOf(instruction.signature());
 					if (!sizeOpt.has_value() || sizeOpt.value() == 0)
 						error(statement.line(), "Failed to determine size of instruction statement");
+
+					_ast.push_back(RelocatableStatement::makeInstruction(statement.file(), statement.line(), sizeOpt.value(), currentOffset(), std::move(instruction)));
+					_ast.back().setExpansionSite(statement.expansionFile(), statement.expansionLine(), static_cast<u16>(expansionDepth));
 
 					sectionSizes.textSize += sizeOpt.value();
 
@@ -327,12 +327,14 @@ namespace ceres::casm
 			statement.setAddress(offset);
 
 			// The build pass already refused anything whose size it could not work out, so a
-			// mnemonic that has none here would be one relaxation invented.
-			const auto size = InstructionInfo::findMaxSizeInBytes(statement.asInstruction().mnemonic);
+			// signature that has none here would be one relaxation invented. Operands are all
+			// resolved by now, so this is the exact size rather than a reservation.
+			const auto size = InstructionInfo::reservedSizeOf(statement.asInstruction().signature());
 			if (!size.has_value() || size.value() == 0)
 				throw AssemblerError(statement.file(), statement.line(), 1,
 					"Failed to determine size of instruction statement during relayout");
 
+			statement.setSize(size.value());
 			offset += size.value();
 		}
 

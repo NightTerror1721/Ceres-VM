@@ -463,6 +463,16 @@ namespace ceres::casm
 		static std::optional<InstructionInfo> find(InstructionSignature signature) noexcept;
 		static std::optional<u32> findMaxSizeInBytes(Mnemonic mnemonic) noexcept;
 
+		// How many bytes to set aside for a statement before its address is known. When the operand
+		// types already resolve to one overload, that overload's size is the answer and nothing has
+		// to be padded. An operand that is still an unresolved name could turn out to be any of
+		// them, so the largest is reserved and the emitter fills the rest with NOPs.
+		//
+		// Reserving the maximum for every mnemonic was cheap while no mnemonic had overloads of
+		// different lengths. The moment one does - `la`, which is two words for a symbol and one for
+		// `[rs + imm]` - it costs four bytes at every short use.
+		static std::optional<u32> reservedSizeOf(const InstructionSignature& signature) noexcept;
+
 		// The one-word form of a mnemonic that also has a long one, for a target the short form can
 		// reach. Relaxation is the only caller; see Linker::relaxInstructions.
 		static constexpr std::optional<Mnemonic> shortFormOf(Mnemonic mnemonic) noexcept

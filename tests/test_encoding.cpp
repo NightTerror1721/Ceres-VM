@@ -767,3 +767,32 @@ TEST(encoding, bl_picks_its_form_from_the_second_operand)
 	CHECK_EQ(indirect.rd(), u8{ 11 });
 	CHECK_EQ(indirect.rs(), u8{ 5 });
 }
+
+TEST(encoding, la_reserves_what_its_own_operands_need)
+{
+	// `la` is two words for a symbol or a literal and one for `[rs + imm]`. Reserving the largest
+	// overload of the mnemonic - which is what every statement used to do - would pad the short
+	// form with a nop and cost four bytes at every use.
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let counter: u32 = 0\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    la r2, [r1 + 8]\r\n"
+		"    lea r3, [r1 + 12]\r\n"
+		"    la r4, 0xDEADBEEF\r\n"
+		"    la r1, counter\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	// One word, one word, two, two - and no padding anywhere.
+	CHECK_EQ(words.size(), 6u);
+	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::LEA, true);
+	CHECK_EQ(Instruction{ words[1] }.opcode() == Opcode::LEA, true); // `lea` is the old spelling
+	CHECK_EQ(Instruction{ words[2] }.opcode() == Opcode::LUI, true);
+	CHECK_EQ(Instruction{ words[3] }.opcode() == Opcode::ORI, true);
+	CHECK_EQ(Instruction{ words[4] }.opcode() == Opcode::LUI, true);
+	CHECK_EQ(Instruction{ words[5] }.opcode() == Opcode::ORI, true);
+}

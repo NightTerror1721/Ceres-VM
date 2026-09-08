@@ -110,7 +110,7 @@ register. A value outside that range is rejected at assembly time rather than tr
 | `strb rs, [rd + imm16]` | `STRB` `0x4B` | reg + reg + imm16 | `*(u8*)(rd + simm16) = rs`. Never faults on alignment. |
 | `strh rs, [rd + imm16]` | `STRH` `0x4C` | reg + reg + imm16 | `*(u16*)(rd + simm16) = rs`. Alignment-checked. |
 | `str fs, [rd + imm16]` | `FSTR` `0x4D` | reg + float reg + imm16 | `*(float*)(rd + simm16) = fs`. Alignment-checked. |
-| `lea rd, [rs + imm16]` | `LEA` `0x4E` | reg + reg + imm16 | `rd = rs + simm16` (computes the address, doesn't dereference it). |
+| `la rd, [rs + imm16]` | `LEA` `0x4E` | reg + reg + imm16 | `rd = rs + simm16` (computes the address, doesn't dereference it). `lea` is the old spelling. |
 
 None of the memory instructions touch the flags register.
 

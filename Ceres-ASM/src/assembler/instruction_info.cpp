@@ -309,7 +309,9 @@ namespace ceres::casm
 			op(Opcode::STRP, param(OpcodeParameterType::RS, 0), param(OpcodeParameterType::REL_SIMM16, 1))),
 		inst(sig(Mnemonic::STVP, OperandType::FloatingPointRegister, OperandType::VariableF32),
 			op(Opcode::FSTRP, param(OpcodeParameterType::FS, 0), param(OpcodeParameterType::REL_SIMM16, 1))),
-		inst(Opcode::LEA, Mnemonic::LEA, OpcodeParameterType::RD, OpcodeParameterType::RS_SIMM16),
+		// One word where the other two overloads of LA are two, which is why the size a statement
+		// reserves has to come from its own signature rather than from the mnemonic.
+		inst(Opcode::LEA, Mnemonic::LA, OpcodeParameterType::RD, OpcodeParameterType::RS_SIMM16),
 
 		inst(Opcode::JP, Mnemonic::JP, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::JP, Mnemonic::JP, OpcodeParameterType::SIMM24),
@@ -639,6 +641,14 @@ namespace ceres::casm
 	}
 
 	static std::unordered_map<Mnemonic, u32> __instructionMaxSizesInBytesMap = calculateInstructionMaxSizesInBytesMap();
+
+	std::optional<u32> InstructionInfo::reservedSizeOf(const InstructionSignature& signature) noexcept
+	{
+		if (const auto info = find(signature); info.has_value())
+			return info.value().sizeInBytes();
+
+		return findMaxSizeInBytes(signature.mnemonic);
+	}
 
 	std::optional<u32> InstructionInfo::findMaxSizeInBytes(Mnemonic mnemonic) noexcept
 	{

@@ -97,6 +97,7 @@ namespace ceres::casm
 		InstructionStatement& asInstruction() noexcept { return std::get<InstructionStatement>(_value); }
 
 		void setAddress(vm::Address address) noexcept { _address = address; }
+		void setSize(u32 size) noexcept { _size = size; }
 
 	public:
 		static RelocatableStatement makeSection(std::string_view file, u32 line, SectionStatement&& section) noexcept
@@ -118,9 +119,12 @@ namespace ceres::casm
 			return RelocatableStatement(file, line, size, address, std::move(data));
 		}
 
-		static RelocatableStatement makeInstruction(std::string_view file, u32 line, vm::Address address, InstructionStatement&& instruction) noexcept
+		// `size` is what the layout set aside, which is not always what the chosen overload needs:
+		// an operand still unresolved when the statement was laid out reserves the largest overload
+		// of its mnemonic. The emitter pads the difference.
+		static RelocatableStatement makeInstruction(std::string_view file, u32 line, u32 size, vm::Address address, InstructionStatement&& instruction) noexcept
 		{
-			return RelocatableStatement(file, line, vm::Instruction::Size, address, std::move(instruction));
+			return RelocatableStatement(file, line, size, address, std::move(instruction));
 		}
 	};
 }

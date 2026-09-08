@@ -50,9 +50,10 @@ namespace ceres::casm
 		STRB, // STRB,
 		STRH, // STRH,
 		STV, // Pseudo-instruction // Store variable address: LUI + ORI + (STR | STRB | STRH | FSTR)
-		// LUI + ORI, whether what goes in rd is the address of a symbol or a 32-bit literal. `lc`
-		// still parses, as the spelling this had when only the literal form existed.
-		LA, // Pseudo-instruction // Load address, or a full 32-bit constant
+		// Putting an address in rd, whichever way it is written: the address of a symbol, a full
+		// 32-bit literal (LUI + ORI for both), or `[rs + imm]` computed at run time (LEA, one word).
+		// `lc` and `lea` still parse, as the spellings these had when they were separate.
+		LA, // Pseudo-instruction, except for the [rs + imm] form which is a real opcode
 		CLR, // Pseudo-instruction // LI rd, 0
 		SWAP, // Pseudo-instruction // three XORs, no temporary
 		MULH,
@@ -70,7 +71,6 @@ namespace ceres::casm
 		SXTB,
 		SXTH,
 		SQRT,
-		LEA, // LEA
 		LDVP, // PC-relative load of a variable within reach
 		STVP, // PC-relative store of a variable within reach
 

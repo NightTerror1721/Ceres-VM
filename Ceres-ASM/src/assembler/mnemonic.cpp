@@ -79,7 +79,7 @@ namespace ceres::casm
 		{ "SXTB", Mnemonic::SXTB },
 		{ "SXTH", Mnemonic::SXTH },
 		{ "SQRT", Mnemonic::SQRT },
-		{ "LEA", Mnemonic::LEA },
+		{ "LEA", Mnemonic::LA }, // `la rd, [rs + imm]` is the same instruction.
 		{ "LDVP", Mnemonic::LDVP },
 		{ "STVP", Mnemonic::STVP },
 
@@ -214,7 +214,6 @@ namespace ceres::casm
 		{ Mnemonic::SXTB, "SXTB" },
 		{ Mnemonic::SXTH, "SXTH" },
 		{ Mnemonic::SQRT, "SQRT" },
-		{ Mnemonic::LEA, "LEA" },
 		{ Mnemonic::LDVP, "LDVP" },
 		{ Mnemonic::STVP, "STVP" },
 
