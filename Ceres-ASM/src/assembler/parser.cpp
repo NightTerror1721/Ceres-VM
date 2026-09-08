@@ -290,8 +290,6 @@ namespace ceres::casm
 
 		if (RegisterInfo::get(nameToken.identifierValue()).has_value())
 			error("'{}' is already a register name", name);
-		if (_registerAliases.contains(name))
-			error("'{}' is already an alias", name);
 
 		_cursor.consume(TokenType::Equals, "Expected '=' in a register alias");
 
@@ -303,6 +301,21 @@ namespace ceres::casm
 		Operand operand = registerInfo->isFloatingPoint
 			? Operand::makeFloatingPointRegister(registerInfo->index)
 			: Operand::makeRegister(registerInfo->index);
+
+		// Saying the same thing twice is not a mistake, and it happens for a good reason: a file
+		// that declares the convention's own names and also imports the module that publishes
+		// them is writing one alias, not two. Only a name that would come to mean a *different*
+		// register is an error.
+		if (const auto existing = _registerAliases.find(name); existing != _registerAliases.end())
+		{
+			const bool sameRegister = existing->second.isRegister() == operand.isRegister() &&
+				(operand.isRegister()
+					? existing->second.asRegister().regIndex == operand.asRegister().regIndex
+					: existing->second.asFloatingPointRegister().regIndex == operand.asFloatingPointRegister().regIndex);
+			if (!sameRegister)
+				error("'{}' is already an alias for another register", name);
+			return;
+		}
 
 		_registerAliases.emplace(name, operand);
 

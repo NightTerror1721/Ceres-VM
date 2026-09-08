@@ -24,6 +24,24 @@
 // the frame it reserved once, which is what keeps every `[sp + Frame.field]` valid for the whole
 // body - including across a `call`.
 
+// The convention's own names for the registers that have a role in it. They are `global`, so a
+// file that imports this one writes `arg0` without declaring anything; and declaring the same
+// alias again is not an error, so a file that already had its own copies keeps working.
+//
+// Only the roles are named. r4-r7 and r8-r11 are deliberately left as numbers: what they hold is
+// a decision each function makes, and a name here would be a name for nothing.
+global alias arg0 = r0
+global alias arg1 = r1
+global alias arg2 = r2
+global alias arg3 = r3
+global alias ret0 = r0
+
+global alias farg0 = f0
+global alias farg1 = f1
+global alias farg2 = f2
+global alias farg3 = f3
+global alias fret0 = f0
+
 // Opens a frame of $frame_size bytes. Pass a struct's own name and the size comes from it:
 //
 //   struct Frame

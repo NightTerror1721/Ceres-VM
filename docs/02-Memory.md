@@ -89,16 +89,23 @@ Integers are assembled and disassembled byte-by-byte in little-endian order (see
 
 ## The stack
 
-The stack pointer (`r15`/`sp`) is initialized to the size of memory on reset
-(`ExecutionEngine::reset()` sets `sp = memory.size()`), and the stack **grows down** from there.
+The stack pointer (`r15`/`sp`) is initialized to the top of the **program's own** region on reset
+and **grows down** from there. That is not quite the top of memory: the last kilobyte
+(`Memory::SystemStackSize`) is the system stack, which interrupt handlers run on, so
+`ExecutionEngine::reset()` sets `sp = memory.size() - SystemStackSize`.
 
 - Pushing below the **stack limit** raises `StackOverflow` (`hasStackRoom()` in
-  `execution_engine.h` checks `sp() >= _stackLimit + bytes`). `CeresVM::loadProgram` sets the
-  limit to the address one past the loaded image, which it has to walk the sections to find
-  anyway; with no program loaded it stays at `UnrestrictedSegmentStart` (`0x400`).
-- Popping past the top of memory (i.e., more data popped than was ever pushed) also raises
+  `execution_engine.h`). `CeresVM::loadProgram` sets the limit to the address one past the loaded
+  image, which it has to walk the sections to find anyway; with no program loaded it stays at
+  `UnrestrictedSegmentStart` (`0x400`).
+- Popping past where the stack started (i.e., more data popped than was ever pushed) also raises
   `StackOverflow` — same fault class, since a `RET` without a matching `CALL` and an overflow are
   both "the stack is unbalanced".
+- **A handler is measured against the system stack instead**, in both directions: while an
+  interrupt is being serviced the floor is the top of the program's stack and the ceiling is the
+  top of memory. That is what lets a fault be reported when the program's own stack is the thing
+  that overflowed — see
+  [Interrupts and exceptions](08-Interrupts-and-Exceptions.md).
 
 A `reset` leaves the limit where it is: the same image is still in memory, so the same ground is
 still worth guarding.

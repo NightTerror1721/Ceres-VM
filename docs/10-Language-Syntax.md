@@ -148,6 +148,34 @@ parses, since parsing the imported file would need *its* imports scanned first.
 The practical consequence: an alias must be declared before it is used, in the importing file as in
 its own. Nothing else about it is special.
 
+## Directives
+
+Three statements that emit no instruction and say something about the layout instead:
+
+```casm
+@data
+    let header: u8 = 1
+    align 16            // pad up to a 16-byte boundary
+    let body:   u8 = 2
+    org 64              // pad up to offset 64 within this section
+
+assert Frame % 4 == 0
+assert BLOCK >= 8, "a block smaller than eight will not fit"
+```
+
+- **`align <power of two>`** pads the current section forward to a boundary. Anything that is not a
+  power of two is an error.
+- **`org <offset>`** pads the current section forward to an offset **within that section**, not to
+  an absolute address — the linker is what places sections, and a file cannot know where its own
+  will land. It only moves forward: going back would mean writing over what is already there.
+- **`assert <expression>`**, optionally with a message, fails the build when the expression is zero.
+  It emits nothing. This is what turns a rule that used to live in a comment
+  (— `assert Frame % 4 == 0`) into something the machine checks; the expression is an ordinary
+  [constant expression](13-Constants-and-Expressions.md), so it can ask about sizes and offsets.
+
+`align` and `org` pad with zeroes, and both belong to the section they are written in — they are
+statements, so they take effect where they appear rather than applying to the whole file.
+
 ## Sections
 
 ```casm

@@ -91,7 +91,7 @@ Two banks of sixteen 32-bit registers.
 | `r0`–`r12` | General purpose. |
 | `r13` / `at` | General purpose, but **the assembler uses it as scratch** when materialising a 32-bit address for `stv` and for `ldv` into a float register. Do not expect it to survive those. `lr` is still accepted as a name for it, but nothing in the machine links through it: `call` pushes the return address on the stack and `ret` pops it. |
 | `r14` / `fp` | Named Frame Pointer. Defined, but no instruction touches it. |
-| `r15` / `sp` | Stack pointer. Initialised to the top of memory on reset. |
+| `r15` / `sp` | Stack pointer. Initialised on reset to the top of the program's own region: the end of memory minus the kilobyte reserved for the system stack. |
 | `f0`–`f15` | 32-bit IEEE-754 floats. They share the instruction's register fields with the integer bank. |
 
 ### Flags

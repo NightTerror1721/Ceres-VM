@@ -9,13 +9,10 @@
 //
 // Prints "120" and then "21".
 
+// The import brings the two macros and the convention's names for the registers that have a
+// role in it: arg0-arg3, ret0, and the float ones. They are `global alias`, so nothing has to
+// be declared here.
 import "../lib/call.casm"
-
-alias arg0 = r0
-alias arg1 = r1
-alias arg2 = r2
-alias arg3 = r3
-alias ret0 = r0
 
 const TERM_OUT = 0x01
 const SYS_CTRL = 0xFF
