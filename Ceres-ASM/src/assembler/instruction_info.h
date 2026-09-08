@@ -19,6 +19,11 @@ namespace ceres::casm
 		Immediate,					// Immediate value (e.g., 42, 0xFF, etc.)
 		RegisterPlusAddress,		// Register plus address (e.g., [r0 + 0x10], [r1 + label], etc.)
 		RegisterPlusRegister,		// Register plus register (e.g., [r0 + r1]) - an index, not a displacement
+		// The same two shapes with the access width written down: `u8[r0 + 4]`, `i16[r0 + r1]`.
+		// The encoding is identical; the type is what lets one mnemonic pick among the widths, the
+		// way a variable's declared type already does for LDV and STV.
+		MemoryU8, MemoryS8, MemoryU16, MemoryS16, MemoryU32, MemoryS32, MemoryF32,
+		IndexedU8, IndexedS8, IndexedU16, IndexedS16, IndexedU32, IndexedS32, IndexedF32,
 		VariableU8,					// 8-bit variable (for pseudo-instructions)
 		VariableS8,					// 8-bit signed variable (for pseudo-instructions)
 		VariableU16,				// 16-bit variable (for pseudo-instructions)
@@ -205,6 +210,20 @@ namespace ceres::casm
 				case OperandType::Immediate: return "Imm";
 				case OperandType::RegisterPlusAddress: return "Reg+Addr";
 				case OperandType::RegisterPlusRegister: return "Reg+Reg";
+				case OperandType::MemoryU8: return "u8[Reg+Addr]";
+				case OperandType::MemoryS8: return "i8[Reg+Addr]";
+				case OperandType::MemoryU16: return "u16[Reg+Addr]";
+				case OperandType::MemoryS16: return "i16[Reg+Addr]";
+				case OperandType::MemoryU32: return "u32[Reg+Addr]";
+				case OperandType::MemoryS32: return "i32[Reg+Addr]";
+				case OperandType::MemoryF32: return "f32[Reg+Addr]";
+				case OperandType::IndexedU8: return "u8[Reg+Reg]";
+				case OperandType::IndexedS8: return "i8[Reg+Reg]";
+				case OperandType::IndexedU16: return "u16[Reg+Reg]";
+				case OperandType::IndexedS16: return "i16[Reg+Reg]";
+				case OperandType::IndexedU32: return "u32[Reg+Reg]";
+				case OperandType::IndexedS32: return "i32[Reg+Reg]";
+				case OperandType::IndexedF32: return "f32[Reg+Reg]";
 				case OperandType::VariableU8: return "VarU8";
 				case OperandType::VariableS8: return "VarS8";
 				case OperandType::VariableU16: return "VarU16";

@@ -170,6 +170,20 @@ ldrb r2, [r1 + 4]     // load, base then displacement
 strb r6, [r5 + 1]     // store, value first then destination
 ```
 
+The access may carry its **width** instead of the mnemonic. `u8[r2 + 4]` is a byte access,
+`i16[...]` a sign-extending halfword one, and so on — so one `ldr` and one `str` cover what the
+whole `ldrb`/`ldrh`/`ldrsb`/`ldrsh` family covers:
+
+```casm
+ldr r1, u8[r2 + 4]    // LDRB
+ldr r1, i16[r2 + r3]  // LDRSHX - an index works too
+str r1, u8[r2 + 4]    // STRB
+```
+
+This is the same thing `ldv` and `stv` already do with a variable's declared type; a bare
+`[r2 + 4]` had no type to read it from. Any scalar works, aliases included — `byte[r2]` is
+`u8[r2]`. The width-suffixed mnemonics keep working unchanged.
+
 The offset may be a **register** instead, which is an index rather than a displacement and picks
 an opcode of its own — the same mnemonic either way, exactly as `add` chooses between a register
 and an immediate:

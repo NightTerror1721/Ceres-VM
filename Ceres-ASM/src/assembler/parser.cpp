@@ -718,6 +718,21 @@ namespace ceres::casm
 	{
 		Token token = _cursor.current();
 
+		// `u8[r2 + 4]`: the access width written on the access rather than in the mnemonic, which
+		// is what lets `ldr` cover what ldrb/ldrh/ldrsb/ldrsh cover. A base register alone cannot
+		// say how wide the access is - unlike a variable, which has a declared type - so this is
+		// where the missing half of the information goes.
+		std::optional<DataTypeScalarCode> accessType;
+		if (_cursor.match(TokenType::DataType) && _cursor.peek().is(TokenType::BracketOpen))
+		{
+			const DataType accessDataType = _cursor.current().dataTypeValue();
+			if (!accessDataType.isScalar())
+				error("An access type must be a scalar: '{}' is not", accessDataType.toString());
+
+			accessType = accessDataType.scalarCode();
+			_cursor.next(); // Consume the type, leaving the '[' for the memory operand below
+		}
+
 		// Handle memory operand (e.g., [r1], [r2 + 4], etc.)
 		if (_cursor.match(TokenType::BracketOpen))
 		{
@@ -746,7 +761,8 @@ namespace ceres::casm
 			if (_cursor.match(TokenType::BracketClose))
 			{
 				_cursor.next(); // Consume ']'
-				return Operand::makeMemory(baseRegIndex);
+				Operand memory = Operand::makeMemory(baseRegIndex);
+				return accessType.has_value() ? Operand::withAccessType(std::move(memory), accessType.value()) : memory;
 			}
 
 			bool isMinus = _cursor.match(TokenType::Minus);
@@ -787,8 +803,13 @@ namespace ceres::casm
 				error("Expected integer literal or identifier after '+' or '-' in memory operand");
 
 			_cursor.consume(TokenType::BracketClose, "Expected ']' to close memory operand");
-			return memOp;
+			return accessType.has_value() ? Operand::withAccessType(std::move(memOp), accessType.value()) : memOp;
 		}
+
+		// A type name got this far only by not being followed by '[', which is the one place a
+		// type means anything in an operand.
+		if (_cursor.match(TokenType::DataType))
+			error("A type must be followed by a memory operand, as in u8[r1 + 4]");
 
 		// Handle register operand or identifier operand
 		if (atQualifiedName())

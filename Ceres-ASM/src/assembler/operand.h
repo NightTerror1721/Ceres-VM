@@ -34,6 +34,10 @@ namespace ceres::casm
 	struct MemoryOperand
 	{
 		u8 baseRegIndex; // Base register index (0-15)
+		// The width and signedness of the access, when it was written down: `u8[r2 + 4]`. Absent
+		// for a plain `[r2 + 4]`, where the mnemonic carries the width instead. The encoding is the
+		// same either way - this only picks which opcode the signature resolves to.
+		std::optional<DataTypeScalarCode> accessType;
 		// An immediate, an identifier (a symbolic address), or a second register - `[r1 + r2]`,
 		// which is an index rather than a displacement and picks a different opcode.
 		std::variant<std::monostate, ImmediateOperand, IdentifierOperand, RegisterOperand> offset;
@@ -150,9 +154,24 @@ namespace ceres::casm
 			else if (isIdentifier() || isConstExpr())
 				return OperandType::Invalid; // Neither is a valid operand type until it is resolved to a value
 			else if (isMemory())
-				return asMemory().isRegisterOffset()
-					? OperandType::RegisterPlusRegister
-					: OperandType::RegisterPlusAddress;
+			{
+				const auto& memory = asMemory();
+				const bool indexed = memory.isRegisterOffset();
+				if (!memory.accessType.has_value())
+					return indexed ? OperandType::RegisterPlusRegister : OperandType::RegisterPlusAddress;
+
+				switch (memory.accessType.value())
+				{
+					case DataTypeScalarCode::U8:  return indexed ? OperandType::IndexedU8 : OperandType::MemoryU8;
+					case DataTypeScalarCode::I8:  return indexed ? OperandType::IndexedS8 : OperandType::MemoryS8;
+					case DataTypeScalarCode::U16: return indexed ? OperandType::IndexedU16 : OperandType::MemoryU16;
+					case DataTypeScalarCode::I16: return indexed ? OperandType::IndexedS16 : OperandType::MemoryS16;
+					case DataTypeScalarCode::U32: return indexed ? OperandType::IndexedU32 : OperandType::MemoryU32;
+					case DataTypeScalarCode::I32: return indexed ? OperandType::IndexedS32 : OperandType::MemoryS32;
+					case DataTypeScalarCode::F32: return indexed ? OperandType::IndexedF32 : OperandType::MemoryF32;
+					default: return OperandType::Invalid;
+				}
+			}
 			else if (isVariable())
 			{
 				const auto& var = asVariable();
@@ -187,15 +206,24 @@ namespace ceres::casm
 		static Operand makeFloatingPointRegister(u8 regIndex) noexcept { return Operand{ FloatingPointRegisterOperand{ regIndex } }; }
 		static Operand makeImmediate(u32 value) noexcept { return Operand{ ImmediateOperand{ value } }; }
 		static Operand makeIdentifier(Identifier name, bool isLocal) noexcept { return Operand{ IdentifierOperand{ name, isLocal } }; }
-		static Operand makeMemory(u8 baseRegIndex) noexcept { return Operand{ MemoryOperand{ baseRegIndex, std::monostate{} } }; }
-		static Operand makeMemory(u8 baseRegIndex, u32 immediateOffset) noexcept { return Operand{ MemoryOperand{ baseRegIndex, ImmediateOperand{ immediateOffset } } }; }
+		static Operand makeMemory(u8 baseRegIndex) noexcept { return Operand{ MemoryOperand{ baseRegIndex, std::nullopt, std::monostate{} } }; }
+		static Operand makeMemory(u8 baseRegIndex, u32 immediateOffset) noexcept { return Operand{ MemoryOperand{ baseRegIndex, std::nullopt, ImmediateOperand{ immediateOffset } } }; }
 		static Operand makeMemoryIndexed(u8 baseRegIndex, u8 indexRegIndex) noexcept
 		{
-			return Operand{ MemoryOperand{ baseRegIndex, RegisterOperand{ indexRegIndex } } };
+			return Operand{ MemoryOperand{ baseRegIndex, std::nullopt, RegisterOperand{ indexRegIndex } } };
+		}
+
+		// Stamps the access type onto a memory operand that has already been parsed, which is the
+		// order the parser meets them in: the type comes first but the operand is built after.
+		static Operand withAccessType(Operand memory, DataTypeScalarCode scalarCode) noexcept
+		{
+			MemoryOperand typed = memory.asMemory();
+			typed.accessType = scalarCode;
+			return Operand{ std::move(typed) };
 		}
 		static Operand makeMemory(u8 baseRegIndex, Identifier identifierOffset) noexcept
 		{
-			return Operand{ MemoryOperand{ baseRegIndex, IdentifierOperand{ identifierOffset } } };
+			return Operand{ MemoryOperand{ baseRegIndex, std::nullopt, IdentifierOperand{ identifierOffset } } };
 		}
 		static Operand makeVariable(DataTypeScalarCode scalarCode, vm::Address address) noexcept
 		{

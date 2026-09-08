@@ -796,3 +796,53 @@ TEST(encoding, la_reserves_what_its_own_operands_need)
 	CHECK_EQ(Instruction{ words[4] }.opcode() == Opcode::LUI, true);
 	CHECK_EQ(Instruction{ words[5] }.opcode() == Opcode::ORI, true);
 }
+
+TEST(encoding, an_access_type_picks_the_width_instead_of_the_mnemonic)
+{
+	// A bare `[rs + imm]` cannot say how wide the access is, which is why there is a mnemonic per
+	// width. Written on the access, one `ldr` covers all of them.
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldr r1, u8[r2 + 4]\r\n"
+		"    ldr r1, i8[r2 + 4]\r\n"
+		"    ldr r1, u16[r2 + 4]\r\n"
+		"    ldr r1, i16[r2 + 4]\r\n"
+		"    ldr r1, u32[r2 + 4]\r\n"
+		"    ldr f1, f32[r2 + 4]\r\n"
+		"    ldr r1, byte[r2 + 4]\r\n"
+		"    ldr r1, u8[r2 + r3]\r\n"
+		"    str r1, u16[r2 + 4]\r\n"
+		"    str f1, f32[r2 + r3]\r\n"
+		"    ldr r1, [r2 + 4]\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(words.size(), 11u);
+
+	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::LDRB, true);
+	CHECK_EQ(Instruction{ words[1] }.opcode() == Opcode::LDRSB, true);
+	CHECK_EQ(Instruction{ words[2] }.opcode() == Opcode::LDRH, true);
+	CHECK_EQ(Instruction{ words[3] }.opcode() == Opcode::LDRSH, true);
+	CHECK_EQ(Instruction{ words[4] }.opcode() == Opcode::LDR, true);
+	CHECK_EQ(Instruction{ words[5] }.opcode() == Opcode::FLDR, true);
+	CHECK_EQ(Instruction{ words[6] }.opcode() == Opcode::LDRB, true); // `byte` is u8
+	CHECK_EQ(Instruction{ words[7] }.opcode() == Opcode::LDRBX, true); // and it indexes
+	CHECK_EQ(Instruction{ words[8] }.opcode() == Opcode::STRH, true);
+	CHECK_EQ(Instruction{ words[9] }.opcode() == Opcode::FSTRX, true);
+
+	// The width-suffixed mnemonics and the untyped access are untouched.
+	CHECK_EQ(Instruction{ words[10] }.opcode() == Opcode::LDR, true);
+}
+
+TEST(encoding, an_access_type_needs_an_access_to_go_with_it)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldr r1, u8\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("must be followed by a memory operand") != std::string::npos);
+}
