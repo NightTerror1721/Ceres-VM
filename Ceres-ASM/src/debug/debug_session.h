@@ -13,6 +13,7 @@
 #include "history.h"
 #include "vm/ceresvm.h"
 #include "vm/devices.h"
+#include "vm/storage_devices.h"
 #include "vm/program.h"
 #include <atomic>
 #include <deque>
@@ -207,6 +208,8 @@ namespace ceres::debug
 		std::unique_ptr<vm::TerminalDevice> _terminal;
 		std::unique_ptr<vm::TimerDevice> _timer;
 		std::unique_ptr<vm::SystemControlDevice> _systemControl;
+		std::unique_ptr<vm::DiskDevice> _disk;
+		std::unique_ptr<vm::FramebufferDevice> _framebuffer;
 
 		std::vector<Breakpoint> _breakpoints;
 		std::vector<DataBreakpoint> _dataBreakpoints;

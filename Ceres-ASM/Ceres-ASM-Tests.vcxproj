@@ -225,6 +225,7 @@
     <ClInclude Include="src\vm\bios.h" />
     <ClInclude Include="src\vm\ceresvm.h" />
     <ClInclude Include="src\vm\devices.h" />
+    <ClInclude Include="src\vm\storage_devices.h" />
     <ClInclude Include="src\vm\disassembler.h" />
     <ClInclude Include="..\tests\framework.h" />
     <ClInclude Include="..\tests\assemble_helper.h" />

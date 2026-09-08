@@ -98,11 +98,20 @@ y ejecutando cada uno.
 | 5 | [`05_notas.casm`](../Ceres-ASM/examples/tutorial/05_notas.casm) | Arrays en `@data`, direccionamiento `[reg + offset]`, `div`/`mod` |
 | 6 | [`06_macros.casm`](../Ceres-ASM/examples/tutorial/06_macros.casm) | `macro`, convención de llamada `proc_enter`/`proc_leave` |
 | 7 | [`07_aleatorio.casm`](../Ceres-ASM/examples/tutorial/07_aleatorio.casm) | Un generador congruencial lineal sembrado con `RTC_TIME` |
+| 8 | [`08_pantalla.casm`](../Ceres-ASM/examples/tutorial/08_pantalla.casm) | El framebuffer: fijar la rejilla, dibujar en memoria y volcarla con `outm` |
+| 9 | [`09_disco.casm`](../Ceres-ASM/examples/tutorial/09_disco.casm) | El disco: seleccionar sector, `inm`/`outm`, comprobar `DISK_STATUS` y volcar a fichero |
 
 Para cada uno:
 
 ```bash
 ceres run examples/tutorial/0N_nombre.casm
+```
+
+El 9 es la excepción: sin `--disk` el disco existe pero olvida todo al parar la máquina, así
+que el contador dirá siempre "1". Con un fichero detrás, sobrevive:
+
+```bash
+ceres run examples/tutorial/09_disco.casm --disk partidas.img
 ```
 
 y lee el comentario de cabecera antes de mirar el código: plantea un reto concreto para que lo

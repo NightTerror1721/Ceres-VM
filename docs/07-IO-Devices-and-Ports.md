@@ -32,8 +32,8 @@ device is written and wired up.
 | `0x10` | Timer: tick count | **Implemented** |
 | `0x11` | Timer: real-time clock | **Implemented** |
 | `0x12` | Timer: command (arm/disarm) | **Implemented** |
-| `0x20`–`0x23` | Disk (status, command, sector, data) | Reserved, not implemented |
-| `0x30`–`0x33` | GPU (command, width, height, sprite data) | Reserved, not implemented |
+| `0x20`–`0x23` | Disk (status, command, sector, data) | **Implemented** |
+| `0x30`–`0x33` | Framebuffer (command, width, height, cell data) | **Implemented** |
 | `0x40`–`0x43` | Mouse and gamepad | Reserved, not implemented |
 | `0x50`–`0x51` | Audio (command, frequency) | Reserved, not implemented |
 | `0x60`–`0x62` | Network (status, send, receive) | Reserved, not implemented |
@@ -41,8 +41,8 @@ device is written and wired up.
 | `0xFE` | Random number source | Reserved, not implemented |
 | `0xFF` | System control | **Implemented** |
 
-Of the 26 ports the default map reserves, 7 have a working device behind them today; disk, GPU,
-input devices, audio and network are all still stubs — see
+Of the 26 ports the default map reserves, 15 have a working device behind them today; input
+devices, audio, network and the debug-hex port are the ones still missing — see
 [Known limitations](19-Known-Limitations.md).
 
 ## Devices implemented today
@@ -130,6 +130,66 @@ outb 0x01, r0
 The block forms (`outm`, `inm`) work here too: `outm 0x01, r_addr, r_size` prints `r_size` bytes
 starting at `r_addr` in one instruction, instead of looping byte by byte — this is exactly what
 [`examples/main.casm`](../Ceres-ASM/examples/main.casm)'s `print` routine does.
+
+### `DiskDevice` (ports `0x20`–`0x23`)
+
+Block storage in sectors of 512 bytes, in
+[`storage_devices.h`](../Ceres-ASM/src/vm/storage_devices.h). One sector moves at a time: the
+sector port selects which, and a block transfer on the data port moves it.
+
+| Port | Direction | Meaning |
+| --- | --- | --- |
+| `0x20` `DISK_STATUS` | Read | Bit 0 `READY`, bit 1 `ERROR`. Set by whatever the last operation did. |
+| `0x21` `DISK_CMD` | Write | `1` flushes to the host file. Anything else is ignored. |
+| `0x22` `DISK_SECTOR` | Read/write | Which sector the next transfer uses. Selecting one past the end of the disk sets `ERROR`. |
+| `0x23` `DISK_DATA` | Block | `inm` reads the selected sector into memory, `outm` writes memory into it. |
+
+```casm
+li   r1, 3
+out  DISK_SECTOR, r1        // which sector
+li   r2, 512
+inm  buffer, DISK_DATA, r2  // read it into `buffer`
+inb  r3, DISK_STATUS        // and check it worked
+```
+
+A transfer larger than a sector is refused rather than spilling into the next one, and a shorter
+one moves only what it asked for: the sector is the unit of the device, not of every transfer.
+
+Without `--disk` the disk is still there — the ports answer and sectors keep what was written —
+but the contents live only as long as the machine does. `ceres run program.casm --disk image.img`
+puts a host file behind it, creating it if it is not there. `DISK_CMD = 1` writes it out, and so
+does the device going away when the run ends, so a program that forgets to flush still keeps its
+data.
+
+### `FramebufferDevice` (ports `0x30`–`0x33`)
+
+A grid of characters that a program draws into and then shows. Not pixels: this machine has no
+window to put them in, and a grid redrawn whole is what a game on this VM actually wants — the
+terminal ports are a stream that only ever moves forward.
+
+| Port | Direction | Meaning |
+| --- | --- | --- |
+| `0x30` `GPU_CMD` | Write | `1` clears the grid and rewinds the write cursor; `2` shows the frame. |
+| `0x31` `GPU_WIDTH` | Read/write | Columns, up to 200. Zero or more than that is ignored as a typo. |
+| `0x32` `GPU_HEIGHT` | Read/write | Rows, up to 100. Resizing clears the grid. |
+| `0x33` `SPRITE_DATA` | Write / block | One cell per word write, or a run of cells with `outm`, continuing from where the last write left off. |
+
+```casm
+li   r1, 20
+out  GPU_WIDTH, r1
+li   r1, 10
+out  GPU_HEIGHT, r1
+li   r1, 1
+out  GPU_CMD, r1              // clear
+outm SPRITE_DATA, cells, size // the whole grid in one instruction
+li   r1, 2
+out  GPU_CMD, r1              // show it
+```
+
+A cell holds one printable ASCII byte; anything below `0x20` or above `0x7E` is shown as a space,
+so a stray control byte cannot move the host terminal's own cursor. A presented frame goes to
+stdout by default, and a host that would rather route it elsewhere — an editor, a test —
+installs a sink with `setPresentSink`.
 
 ## Related pages
 

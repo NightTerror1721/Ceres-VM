@@ -134,6 +134,9 @@
     <ClInclude Include="src\vm\devices.h">
       <Filter>Archivos de encabezado\vm</Filter>
     </ClInclude>
+    <ClInclude Include="src\vm\storage_devices.h">
+      <Filter>Archivos de encabezado\vm</Filter>
+    </ClInclude>
     <ClInclude Include="src\assembler\token.h">
       <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>

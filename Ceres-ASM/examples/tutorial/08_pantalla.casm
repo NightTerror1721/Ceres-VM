@@ -1,0 +1,110 @@
+// Ejercicio 8: Una pantalla de verdad
+//
+// Objetivo: dibujar en el framebuffer (puertos 0x30-0x33) en lugar de escribir
+// caracteres sueltos por la terminal. La diferencia importa: la terminal es un
+// flujo que solo avanza, y la pantalla es una rejilla que se redibuja entera.
+//
+// El ciclo es siempre el mismo:
+//   1. Fijar ancho y alto (GPU_WIDTH / GPU_HEIGHT).
+//   2. GPU_CMD = 1 borra la rejilla y deja el cursor de escritura al principio.
+//   3. Escribir celdas: una a una por GPU_DATA, o todas de golpe con "outm".
+//   4. GPU_CMD = 2 muestra el fotograma.
+//
+// PRUEBA TÚ MISMO:
+//   1. Cambia ANCHO y ALTO y observa cómo cambia el marco (se dibuja solo).
+//   2. Mueve la pelota a otra casilla cambiando FILA_PELOTA / COL_PELOTA.
+//   3. Dibuja dos fotogramas seguidos con la pelota en sitios distintos.
+
+const GPU_CMD    = 0x30
+const GPU_WIDTH  = 0x31
+const GPU_HEIGHT = 0x32
+const GPU_DATA   = 0x33
+const SYS_CTRL   = 0xFF
+
+const CMD_BORRAR  = 1
+const CMD_MOSTRAR = 2
+
+const ANCHO  = 16
+const ALTO   = 6
+const CELDAS = ANCHO * ALTO
+
+const FILA_PELOTA = 3
+const COL_PELOTA  = 9
+
+@bss
+    // La rejilla completa, tal y como se la vamos a entregar a la pantalla.
+    let pantalla: u8[CELDAS]
+
+@text
+global main:
+    // La pantalla mide lo que le digamos, dentro de lo razonable: un ancho de
+    // cero o de cien mil es una errata, y el dispositivo la ignora.
+    li r1, ANCHO
+    out GPU_WIDTH, r1
+    li r1, ALTO
+    out GPU_HEIGHT, r1
+
+    call dibujar_marco
+    call poner_pelota
+
+    // Borrar deja el cursor al principio, así que el volcado empieza arriba a
+    // la izquierda; sin ese borrado el segundo fotograma continuaría donde
+    // acabó el primero.
+    li r1, CMD_BORRAR
+    out GPU_CMD, r1
+
+    la r1, pantalla
+    li r2, CELDAS
+    outm GPU_DATA, r1, r2
+
+    li r1, CMD_MOSTRAR
+    out GPU_CMD, r1
+
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+// Rellena la rejilla: '#' en el borde, ' ' dentro.
+dibujar_marco:
+    la r1, pantalla
+    xor r2, r2, r2          // fila
+.fila:
+    xor r3, r3, r3          // columna
+.columna:
+    li r4, 0x20             // ' ' por defecto
+
+    cmp r2, 0
+    jz .borde
+    cmp r2, ALTO - 1
+    jz .borde
+    cmp r3, 0
+    jz .borde
+    cmp r3, ANCHO - 1
+    jz .borde
+    jmp .escribir
+
+.borde:
+    li r4, 0x23             // '#'
+
+.escribir:
+    strb [r1], r4
+    add r1, r1, 1
+    add r3, r3, 1
+    cmp r3, ANCHO
+    jnz .columna
+
+    add r2, r2, 1
+    cmp r2, ALTO
+    jnz .fila
+    ret
+
+// Una celda concreta: fila * ancho + columna, como cualquier rejilla.
+poner_pelota:
+    la r1, pantalla
+    li r2, FILA_PELOTA
+    mul r2, r2, ANCHO
+    add r2, r2, COL_PELOTA
+    add r1, r1, r2
+    li r3, 0x6F             // 'o'
+    strb [r1], r3
+    ret

@@ -9,6 +9,7 @@
 
 #include "vm/ceresvm.h"
 #include "vm/devices.h"
+#include "vm/storage_devices.h"
 #include "vm/disassembler.h"
 #include "assembler/assembler.h"
 #include "debug/debug_info.h"
@@ -34,8 +35,10 @@ namespace
 		"      to the .cres file. --emit-debug-json prints them on stdout as JSON and\n"
 		"      implies --debug.\n"
 		"\n"
-		"  ceres run <file.casm|file.cres> [--memory <bytes>]\n"
+		"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>]\n"
 		"      Run a program, assembling it first if given a source file.\n"
+		"      --disk backs the disk ports with a host file, created if it is not\n"
+		"      there; without it the disk keeps its sectors only while the machine runs.\n"
 		"\n"
 		"  ceres profile <file.casm|file.cres> [--memory <bytes>]\n"
 		"      Run, then report executed instructions per source line. Time is counted in\n"
@@ -234,7 +237,8 @@ namespace
 
 	void printProfile(CeresVM& vm, const debug::DebugInfo& info);
 
-	int runProgram(const Program& program, usize memorySize, const debug::DebugInfo* profileInfo = nullptr)
+	int runProgram(const Program& program, usize memorySize, const debug::DebugInfo* profileInfo = nullptr,
+		const std::filesystem::path& diskImage = {})
 	{
 		CeresVM vm{ memorySize };
 
@@ -267,6 +271,20 @@ namespace
 		// has. Disarmed until a program writes to the command port.
 		TimerDevice timer{};
 		timer.attachTo(vm.io());
+
+		// Storage and a screen. Both are attached whether or not the program uses them: a port
+		// that answers nothing is indistinguishable from a machine that has no such device, and
+		// the whole point of these two is that the machine finally has them.
+		DiskDevice disk{};
+		if (!diskImage.empty() && !disk.open(diskImage))
+		{
+			std::cerr << "Failed to open disk image: " << diskImage.string() << '\n';
+			return 1;
+		}
+		disk.attachTo(vm.io());
+
+		FramebufferDevice framebuffer{};
+		framebuffer.attachTo(vm.io());
 
 		if (auto loaded = vm.loadProgram(program); !loaded)
 		{
@@ -348,6 +366,9 @@ namespace
 		bool server = false;
 		bool recordHistory = true;
 		usize memorySize = Memory::DefaultSize;
+		// A host file behind the disk ports. Without one the disk is still there, but it forgets
+		// everything when the machine stops.
+		std::filesystem::path disk;
 	};
 
 	// Returns nullopt when the arguments do not describe a runnable command; the caller prints
@@ -399,6 +420,15 @@ namespace
 			else if (argument == "--no-history")
 			{
 				options.recordHistory = false;
+			}
+			else if (argument == "--disk")
+			{
+				if (++i >= argc)
+				{
+					std::cerr << "Missing path after --disk\n";
+					return std::nullopt;
+				}
+				options.disk = argv[i];
 			}
 			else if (argument == "--memory")
 			{
@@ -577,5 +607,6 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	return runProgram(loaded->program, options.memorySize, profiling ? &loaded->debugInfo : nullptr);
+	return runProgram(loaded->program, options.memorySize, profiling ? &loaded->debugInfo : nullptr,
+		options.disk);
 }

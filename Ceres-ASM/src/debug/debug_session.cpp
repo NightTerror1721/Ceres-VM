@@ -191,6 +191,17 @@ namespace ceres::debug
 		_timer = std::make_unique<vm::TimerDevice>();
 		_timer->attachTo(_vm->io());
 
+		// A program being debugged sees the same machine as one being run, devices included.
+		// The disk is the one difference: nothing here names a host file, so it keeps its
+		// sectors for the length of the session and no further - a debugger that quietly wrote
+		// to the user's disk image on every re-run would be the wrong kind of surprise.
+		_disk = std::make_unique<vm::DiskDevice>();
+		_disk->attachTo(_vm->io());
+
+		_framebuffer = std::make_unique<vm::FramebufferDevice>();
+		_framebuffer->attachTo(_vm->io());
+		setOutputHandler(_outputHandler); // Routes both the terminal and the screen
+
 		// Recorded rather than acted on: triggerInterrupt is noexcept and in the middle of
 		// redirecting the machine, so all this does is leave a note for stepOnce to read once the
 		// instruction is over.
@@ -214,6 +225,24 @@ namespace ceres::debug
 		_outputHandler = std::move(handler);
 		if (!_terminal)
 			return;
+
+		if (_framebuffer)
+		{
+			// A presented frame goes wherever the program's other output goes. Left to itself the
+			// device writes to stdout, which under --server is the protocol's own stream.
+			if (_outputHandler)
+			{
+				_framebuffer->setPresentSink([this](std::string_view frame)
+				{
+					if (_outputHandler)
+						_outputHandler(std::span<const u8>(reinterpret_cast<const u8*>(frame.data()), frame.size()));
+				});
+			}
+			else
+			{
+				_framebuffer->setPresentSink({});
+			}
+		}
 
 		if (_outputHandler)
 		{

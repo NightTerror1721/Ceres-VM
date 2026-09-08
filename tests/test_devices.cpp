@@ -7,8 +7,12 @@
 #include "assemble_helper.h"
 #include "vm/ceresvm.h"
 #include "vm/devices.h"
+#include "vm/storage_devices.h"
 #include "vm/bios.h"
 #include "vm/memory.h"
+#include <filesystem>
+#include <string>
+#include <string_view>
 
 using namespace ceres;
 using namespace ceres::vm;
@@ -391,4 +395,178 @@ TEST(devices, a_debugger_can_write_the_machine_state_back)
 	const Address target = Memory::UnrestrictedSegmentStart + Address(Instruction::Size);
 	engine.setProgramCounter(target);
 	CHECK_EQ(m.pc().value(), target.value());
+}
+
+// --- The two device ranges that were reserved and empty -------------------------------------------
+//
+// Ports 0x20-0x23 and 0x30-0x33 were named in the port map from the start and answered nothing.
+// A program could read them and get 0xFF back, which is what an absent device looks like.
+
+namespace
+{
+	// Somewhere well clear of the handful of instructions each test loads at the start of the
+	// unrestricted segment.
+	constexpr u32 SourceBuffer = 0x1000;
+	constexpr u32 DestinationBuffer = 0x2000;
+
+	void fill(Memory& memory, u32 address, std::string_view bytes)
+	{
+		for (u32 i = 0; i < bytes.size(); ++i)
+			memory.writeUnchecked<u8>(Address(address + i), static_cast<u8>(bytes[i]));
+	}
+
+	std::string readBack(Memory& memory, u32 address, u32 size)
+	{
+		std::string out;
+		for (u32 i = 0; i < size; ++i)
+			out.push_back(static_cast<char>(memory.readUnchecked<u8>(Address(address + i))));
+		return out;
+	}
+}
+
+TEST(devices, a_sector_written_to_the_disk_comes_back_the_same)
+{
+	Machine m{
+		Instruction::LI(1, 1),
+		Instruction::OUT(1, DiskDevice::SectorPort),
+		Instruction::LI(2, static_cast<u16>(SourceBuffer)),
+		Instruction::LI(3, 8),
+		Instruction::OUTM(2, 3, DiskDevice::DataPort),   // memory -> sector 1
+		Instruction::LI(4, static_cast<u16>(DestinationBuffer)),
+		Instruction::INM(4, 3, DiskDevice::DataPort),    // sector 1 -> memory, somewhere else
+	};
+
+	DiskDevice disk{};
+	disk.attachTo(m.vm().io());
+
+	fill(m.memory(), SourceBuffer, "ON A DISK");
+	m.step(7);
+
+	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 8), std::string{ "ON A DIS" });
+
+	// And the sector it did not select is untouched, which is the whole reason for selecting one.
+	CHECK_EQ(disk.image()[0], u8{ 0 });
+}
+
+TEST(devices, a_sector_past_the_end_of_the_disk_is_refused_rather_than_wrapped)
+{
+	Machine m{
+		Instruction::LI(1, 9999),
+		Instruction::OUT(1, DiskDevice::SectorPort),
+		Instruction::LI(2, static_cast<u16>(SourceBuffer)),
+		Instruction::LI(3, 8),
+		Instruction::OUTM(2, 3, DiskDevice::DataPort),
+		Instruction::INB(5, DiskDevice::StatusPort),
+	};
+
+	DiskDevice disk{ 4 }; // Four sectors, so 9999 is nowhere
+	disk.attachTo(m.vm().io());
+
+	fill(m.memory(), SourceBuffer, "NOWHERE");
+	m.step(6);
+
+	CHECK_EQ(m.reg(5) & DiskDevice::StatusError, DiskDevice::StatusError);
+	CHECK_EQ(m.reg(5) & DiskDevice::StatusReady, 0u);
+}
+
+TEST(devices, a_file_backed_disk_still_holds_what_was_written_after_the_machine_stops)
+{
+	const auto path = std::filesystem::temp_directory_path() / "ceres_test_disk.img";
+	std::filesystem::remove(path);
+
+	{
+		Machine m{
+			Instruction::LI(1, 2),
+			Instruction::OUT(1, DiskDevice::SectorPort),
+			Instruction::LI(2, static_cast<u16>(SourceBuffer)),
+			Instruction::LI(3, 6),
+			Instruction::OUTM(2, 3, DiskDevice::DataPort),
+			Instruction::LI(4, DiskDevice::CommandFlush),
+			Instruction::OUT(4, DiskDevice::CommandPort),
+		};
+
+		DiskDevice disk{};
+		CHECK(disk.open(path, 8));
+		disk.attachTo(m.vm().io());
+
+		fill(m.memory(), SourceBuffer, "PERSIST");
+		m.step(7);
+	}
+
+	// A second machine, a second device, the same file.
+	Machine m{
+		Instruction::LI(1, 2),
+		Instruction::OUT(1, DiskDevice::SectorPort),
+		Instruction::LI(2, static_cast<u16>(DestinationBuffer)),
+		Instruction::LI(3, 6),
+		Instruction::INM(2, 3, DiskDevice::DataPort),
+	};
+
+	DiskDevice disk{};
+	CHECK(disk.open(path, 8));
+	disk.attachTo(m.vm().io());
+	m.step(5);
+
+	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 6), std::string{ "PERSIS" });
+	std::filesystem::remove(path);
+}
+
+TEST(devices, the_framebuffer_shows_the_grid_it_was_given)
+{
+	Machine m{
+		Instruction::LI(1, 4),
+		Instruction::OUT(1, FramebufferDevice::WidthPort),
+		Instruction::LI(1, 2),
+		Instruction::OUT(1, FramebufferDevice::HeightPort),
+		Instruction::LI(1, FramebufferDevice::CommandClear),
+		Instruction::OUT(1, FramebufferDevice::CommandPort),
+		Instruction::LI(2, static_cast<u16>(SourceBuffer)),
+		Instruction::LI(3, 8),
+		Instruction::OUTM(2, 3, FramebufferDevice::DataPort),
+		Instruction::LI(1, FramebufferDevice::CommandPresent),
+		Instruction::OUT(1, FramebufferDevice::CommandPort),
+	};
+
+	FramebufferDevice framebuffer{};
+	framebuffer.attachTo(m.vm().io());
+
+	std::string shown;
+	framebuffer.setPresentSink([&shown](std::string_view frame) { shown = frame; });
+
+	fill(m.memory(), SourceBuffer, "ab..#..#");
+	m.step(11);
+
+	// Rows, not a stream: the second four cells are the second line.
+	CHECK_EQ(shown, std::string{ "ab..\n#..#\n" });
+}
+
+TEST(devices, a_cell_that_would_move_the_terminals_own_cursor_is_shown_as_a_space)
+{
+	Machine m{ Instruction::NOP() };
+
+	FramebufferDevice framebuffer{};
+	framebuffer.attachTo(m.vm().io());
+
+	framebuffer.writePortWord(FramebufferDevice::WidthPort, 3);
+	framebuffer.writePortWord(FramebufferDevice::HeightPort, 1);
+	framebuffer.writePortWord(FramebufferDevice::DataPort, 'x');
+	framebuffer.writePortWord(FramebufferDevice::DataPort, 0x07); // a bell
+	framebuffer.writePortWord(FramebufferDevice::DataPort, 'y');
+
+	CHECK_EQ(framebuffer.toText(), std::string{ "x y\n" });
+}
+
+TEST(devices, a_grid_larger_than_any_terminal_is_a_typo_and_is_ignored)
+{
+	Machine m{ Instruction::NOP() };
+
+	FramebufferDevice framebuffer{};
+	framebuffer.attachTo(m.vm().io());
+
+	const u32 before = framebuffer.width();
+	framebuffer.writePortWord(FramebufferDevice::WidthPort, 100000);
+	CHECK_EQ(framebuffer.width(), before);
+
+	framebuffer.writePortWord(FramebufferDevice::HeightPort, 0);
+	CHECK_EQ(framebuffer.height(), u32{ 20 });
 }

@@ -331,8 +331,8 @@ inm  r3, 0x02, r2     // destination first: the memory, then the port and the si
 | --- | --- |
 | `0x00`–`0x03` | Terminal: status, output, input, debug hex. **Implemented.** |
 | `0x10`–`0x12` | Timer: tick count, real-time clock, command. **Implemented.** |
-| `0x20`–`0x23` | Disk. |
-| `0x30`–`0x33` | GPU. |
+| `0x20`–`0x23` | Disk: status, command, sector, block data. **Implemented:** 512-byte sectors, backed by a host file with `--disk`. |
+| `0x30`–`0x33` | Framebuffer: command, width, height, cell data. **Implemented:** a grid of characters, cleared and presented by command. |
 | `0x40`–`0x43` | Mouse and gamepad. |
 | `0x50`–`0x51` | Audio. |
 | `0x60`–`0x62` | Network. |
@@ -715,8 +715,8 @@ The assembler and the VM work end to end. What is not done:
 - **Nothing enforces the calling convention.** It is written down — register roles, a frame shape
   and the two macros that open and close it, in `lib/call.casm` — but no macro can verify that you
   preserved `r8` or left `sp` where you found it.
-- **Devices.** Twenty-six ports are reserved and seven are implemented. Disk, GPU, input, audio
-  and network are all still stubs.
+- **Devices.** Twenty-six ports are reserved and fifteen are implemented. Input, audio and
+  network are still stubs, and the framebuffer draws characters rather than pixels.
 - **`parseOperand` gaps.** Float, character and string literals are not accepted as operands, and
   a `%%label` cannot start a statement outside a macro body.
 - **Reverse debugging has a horizon.** The debugger ([wiki](docs/22-Debugger.md)) runs backwards,
