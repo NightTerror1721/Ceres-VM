@@ -136,6 +136,11 @@ namespace ceres::vm
 		// POPM walks back up in order: a matching pair restores what it saved whatever the mask.
 		PUSHM = 0x86, // [imm16] - Push every register whose bit is set, r15 first.
 		POPM = 0x87, // [imm16] - Pop into every register whose bit is set, r0 first.
+		// A whole prologue and epilogue. ENTER was three instructions and twelve bytes at the top
+		// of every function that had a frame; it is the one sequence common enough to be worth an
+		// opcode, and the one place fp is written at all.
+		ENTER = 0x88, // [imm16] - push fp; fp = sp; sp -= imm16
+		LEAVE = 0x89, // [] - sp = fp; pop fp
 
 		// Conversions //
 		ITOF = 0x90, // [fd, rs] - Convert the integer value in rs to a floating-point value and store it in fd.
@@ -197,7 +202,7 @@ namespace ceres::vm
 		STRHP = 0xC6, // [rs, simm16] - *(u16*)(pc + simm16) = rs
 		FSTRP = 0xC7, // [fs, simm16] - *(float*)(pc + simm16) = fs
 
-		// Free: 0x08-0x0F, 0x29-0x2F, 0x3D-0x3F, 0x4F, 0x78-0x7F, 0x88-0x8F, 0x96-0x9F, 0xC8-0xFF.
+		// Free: 0x08-0x0F, 0x29-0x2F, 0x3D-0x3F, 0x4F, 0x78-0x7F, 0x8A-0x8F, 0x96-0x9F, 0xC8-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

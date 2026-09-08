@@ -311,6 +311,7 @@ TEST(vm, the_disassembler_names_every_mapped_opcode)
 		Opcode::JZ, Opcode::CALL, Opcode::RET, Opcode::PUSH, Opcode::POP, Opcode::ITOF,
 		Opcode::FTOI, Opcode::MTF, Opcode::MFF, Opcode::IN, Opcode::OUT, Opcode::OUTM,
 		Opcode::OUTR, Opcode::INRM, Opcode::OUTRM, Opcode::PUSHM, Opcode::POPM,
+		Opcode::ENTER, Opcode::LEAVE,
 		Opcode::LDRX, Opcode::LDRBX, Opcode::LDRHX, Opcode::LDRSBX, Opcode::LDRSHX, Opcode::FLDRX,
 		Opcode::STRX, Opcode::STRBX, Opcode::STRHX, Opcode::FSTRX,
 		Opcode::LDRP, Opcode::LDRBP, Opcode::LDRHP, Opcode::LDRSBP, Opcode::LDRSHP,
@@ -593,4 +594,51 @@ TEST(vm, an_indexed_load_faults_on_a_misaligned_sum)
 
 	m.step();
 	CHECK_EQ(m.reg(1), 0xAAAAAAAAu); // the load never happened
+}
+
+// --- A prologue in one instruction ------------------------------------------------------------
+
+TEST(vm, enter_saves_fp_and_opens_the_frame_in_one_step)
+{
+	Machine m{ Instruction::ENTER(24), Instruction::LEAVE() };
+
+	const u32 spBefore = m.reg(15);
+	m.engine().setRegister(14, 0xF00DF00Du); // the caller's frame pointer
+
+	m.step();
+	CHECK_EQ(m.reg(15), spBefore - 4 - 24);       // one saved word, then the frame
+	CHECK_EQ(m.reg(14), spBefore - 4);            // fp points at the saved word
+	CHECK_EQ(m.memory().readUnchecked<u32>(Address(m.reg(14))), 0xF00DF00Du);
+
+	m.step();
+	CHECK_EQ(m.reg(15), spBefore);                // leave undoes all of it
+	CHECK_EQ(m.reg(14), 0xF00DF00Du);
+}
+
+TEST(vm, enter_opens_nothing_or_everything)
+{
+	// A frame of zero is the leaf case: fp still gets saved, so leave still works.
+	Machine m{ Instruction::ENTER(0) };
+	const u32 spBefore = m.reg(15);
+	m.step();
+	CHECK_EQ(m.reg(15), spBefore - 4);
+	CHECK_EQ(m.reg(14), spBefore - 4);
+}
+
+TEST(vm, enter_saves_nothing_when_the_frame_does_not_fit)
+{
+	// A prologue that pushed fp and then found no room for the frame would leave the function
+	// running on a stack it does not own, so the whole thing is checked first.
+	Machine m{ Instruction::ENTER(64) };
+
+	const u32 limit = static_cast<u32>(Memory::UnrestrictedSegmentStartValue) + 0x1000;
+	m.engine().setStackLimit(limit);
+	m.engine().setRegister(15, limit + 16); // room for the saved fp, not for the frame
+	m.engine().setRegister(14, 0xF00DF00Du);
+	m.memory().writeUnchecked<u32>(
+		Address(static_cast<u32>(InterruptNumber::StackOverflow) * Address::Size),
+		Memory::UnrestrictedSegmentStart.value());
+
+	m.step();
+	CHECK_EQ(m.reg(14), 0xF00DF00Du); // fp was never moved
 }

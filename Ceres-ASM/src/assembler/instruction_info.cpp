@@ -66,10 +66,6 @@ namespace ceres::casm
 	// warns about it (`at`, the assembler temporary), and R0-R12 are contiguous and all usable.
 	static inline constexpr u32 ScratchRegister = 13;
 
-	// ENTER/LEAVE are the only things in the project that name these two by role.
-	static inline constexpr u32 FramePointerRegister = 14;
-	static inline constexpr u32 StackPointerRegister = 15;
-
 	static constexpr OpcodeParameter paramSFixed(OpcodeParameterType type, i32 fixedValue, u8 valueShift = 0) noexcept
 	{
 		return OpcodeParameter::makeSFixed(type, fixedValue, valueShift);
@@ -495,15 +491,11 @@ namespace ceres::casm
 			op(Opcode::XOR, param(OpcodeParameterType::RD, 1), param(OpcodeParameterType::RS, 0), param(OpcodeParameterType::RT, 1)),
 			op(Opcode::XOR, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::RS, 0), param(OpcodeParameterType::RT, 1))
 		}),
-		// The frame pointer had no instruction that touched it; these are it.
-		inst(sig(Mnemonic::ENTER), {
-			op(Opcode::PUSH, paramUFixed(OpcodeParameterType::RS, FramePointerRegister)),
-			op(Opcode::MOV, paramUFixed(OpcodeParameterType::RD, FramePointerRegister), paramUFixed(OpcodeParameterType::RS, StackPointerRegister))
-		}),
-		inst(sig(Mnemonic::LEAVE), {
-			op(Opcode::MOV, paramUFixed(OpcodeParameterType::RD, StackPointerRegister), paramUFixed(OpcodeParameterType::RS, FramePointerRegister)),
-			op(Opcode::POP, paramUFixed(OpcodeParameterType::RD, FramePointerRegister))
-		}),
+		// The frame pointer had no instruction that touched it; these are it. `enter` on its own
+		// opens a frame of nothing, for a function whose locals all live in registers.
+		inst(sig(Mnemonic::ENTER), op(Opcode::ENTER, paramUFixed(OpcodeParameterType::IMM16, 0))),
+		inst(Opcode::ENTER, Mnemonic::ENTER, OpcodeParameterType::IMM16),
+		inst(Opcode::LEAVE, Mnemonic::LEAVE),
 		inst(Opcode::JO, Mnemonic::JO, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::JO, Mnemonic::JO, OpcodeParameterType::SIMM24),
 		inst(Opcode::JOR, Mnemonic::JO, OpcodeParameterType::RS),

@@ -508,15 +508,12 @@ TEST(encoding, enter_and_leave_are_the_only_things_that_touch_fp)
 	CHECK(r.ok());
 	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
 
-	CHECK_EQ(Instruction(r.words()[0]).opcode() == Opcode::PUSH, true);
-	CHECK_EQ(Instruction(r.words()[0]).rs(), u8{ 14 });
-	CHECK_EQ(Instruction(r.words()[1]).opcode() == Opcode::MOV, true);
-	CHECK_EQ(Instruction(r.words()[1]).rd(), u8{ 14 });
-	CHECK_EQ(Instruction(r.words()[1]).rs(), u8{ 15 });
-	CHECK_EQ(Instruction(r.words()[2]).opcode() == Opcode::MOV, true);
-	CHECK_EQ(Instruction(r.words()[2]).rd(), u8{ 15 });
-	CHECK_EQ(Instruction(r.words()[3]).opcode() == Opcode::POP, true);
-	CHECK_EQ(Instruction(r.words()[3]).rd(), u8{ 14 });
+	// One instruction each, and a bare `enter` opens a frame of nothing.
+	CHECK_EQ(r.words().size(), 3u);
+	CHECK_EQ(Instruction(r.words()[0]).opcode() == Opcode::ENTER, true);
+	CHECK_EQ(Instruction(r.words()[0]).imm16(), u16{ 0 });
+	CHECK_EQ(Instruction(r.words()[1]).opcode() == Opcode::LEAVE, true);
+	CHECK_EQ(Instruction(r.words()[2]).opcode() == Opcode::RET, true);
 }
 
 TEST(encoding, the_small_pseudo_instructions_expand_as_documented)
@@ -719,4 +716,26 @@ TEST(encoding, a_variable_out_of_pc_relative_reach_is_reported)
 
 	CHECK(!r.ok());
 	CHECK(r.joinedErrors().find("out of reach") != std::string::npos);
+}
+
+TEST(encoding, enter_takes_the_frame_size_as_an_immediate)
+{
+	AssembleResult r = assembleSource(
+		"struct Frame\r\n"
+		"    saved_r8: u32\r\n"
+		"    count: u32\r\n"
+		"endstruct\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    enter Frame\r\n"
+		"    leave\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	// A prologue that used to be three instructions and twelve bytes.
+	CHECK_EQ(words.size(), 2u);
+	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::ENTER, true);
+	CHECK_EQ(Instruction{ words[0] }.imm16(), u16{ 8 }); // the struct's own size
 }

@@ -264,6 +264,8 @@ namespace ceres::vm
 		static constexpr Instruction STRBP(u8 reg, i16 disp) noexcept { return make(Opcode::STRBP, 0, reg, static_cast<u16>(disp)); }
 		static constexpr Instruction STRHP(u8 reg, i16 disp) noexcept { return make(Opcode::STRHP, 0, reg, static_cast<u16>(disp)); }
 		static constexpr Instruction FSTRP(u8 reg, i16 disp) noexcept { return make(Opcode::FSTRP, 0, reg, static_cast<u16>(disp)); }
+		static constexpr Instruction ENTER(u16 frameSize) noexcept { return make(Opcode::ENTER, 0, 0, frameSize); }
+		static constexpr Instruction LEAVE() noexcept { return make(Opcode::LEAVE); }
 		static constexpr Instruction PUSHM(u16 mask) noexcept { return make(Opcode::PUSHM, 0, 0, mask); }
 		static constexpr Instruction POPM(u16 mask) noexcept { return make(Opcode::POPM, 0, 0, mask); }
 		static constexpr Instruction FPOP(u8 fd) noexcept { return make(Opcode::FPOP, fd, 0); }

@@ -194,9 +194,14 @@ more branches read two flags each:
 
 `jeq` and `jne` are aliases of `jz` and `jnz`, and `jmp` is an alias of `jp`.
 
-### Stack · `0x80`–`0x87`
+### Stack · `0x80`–`0x89`
 
-`push` `pop` `pushf` `popf` `pushm` `popm`
+`push` `pop` `pushf` `popf` `pushm` `popm` `enter` `leave`
+
+`enter N` saves `fp`, points it at the saved word and opens a frame of `N` bytes; `leave` undoes
+all three. A bare `enter` opens a frame of nothing, for a function whose locals live in registers.
+`enter` is all or nothing: a prologue that saved `fp` and then found no room for the frame would
+leave the function running on a stack it does not own.
 
 `pushm` and `popm` take a **bit per register**, which is what `imm16` has exactly sixteen of:
 
@@ -431,8 +436,6 @@ Write the spaces: `[r5+0]` lexes the `+0` as a signed literal and fails to parse
 | `neg rd, rs` | `imul rd, rs, -1`, or `fneg` for float registers | 4 B |
 | `lc rd, imm32` | `lui` + `ori` | 8 B |
 | `ifXX rs, rt, label` | `cmp` (or `cmpi`, or `fcmp`) + the matching branch | 8 B |
-| `enter` | `push fp` + `mov fp, sp` | 8 B |
-| `leave` | `mov sp, fp` + `pop fp` | 8 B |
 | `swap rd, rs` | three `xor`s, using no temporary | 12 B |
 | `inc rd` / `dec rd` | `addi rd, rd, 1` / `subi rd, rd, 1` | 4 B |
 | `clr rd` | `li rd, 0` | 4 B |
@@ -451,9 +454,6 @@ operand may be a register or an immediate, and a pair of float registers picks `
     ifge r3, 100, .at_least     // against an immediate
     ifgr f0, f1, .bigger        // fcmp, without remembering which flag it sets
 ```
-
-`enter` and `leave` are the only instructions that touch `fp` (`r14`), which is otherwise defined
-and unused.
 
 `ldvp` and `stvp` are the same thing for a variable that is **near**: the displacement is measured
 from the instruction itself, exactly as a branch's is, so there is no address to build — one word

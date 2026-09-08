@@ -262,7 +262,7 @@ The store form keeps the base in `Rd` and the value in `Rs`, like the displaceme
 `Rt` is now spoken for. Alignment is checked on the **sum**: two registers that are each aligned
 can still add up to an address that is not.
 
-## Stack operations · `0x80`–`0x87`
+## Stack operations · `0x80`–`0x89`
 
 | Assembly | Opcode | Semantics |
 | --- | --- | --- |
@@ -274,6 +274,32 @@ can still add up to an address that is not.
 | `pop fd` | `FPOP` `0x85` | Pops into a float register. |
 | `pushm imm16` | `PUSHM` `0x86` | Pushes every register whose bit is set, `r15` first. |
 | `popm imm16` | `POPM` `0x87` | Pops into every register whose bit is set, `r0` first. |
+| `enter imm16` | `ENTER` `0x88` | `push fp; fp = sp; sp -= imm16` — a whole prologue. |
+| `leave` | `LEAVE` `0x89` | `sp = fp; pop fp` — and the whole epilogue. |
+
+### `enter` and `leave`
+
+These are the only instructions that touch `fp`. A frame used to cost three instructions and
+twelve bytes at the top of every function that had one:
+
+```casm
+    push fp
+    mov  fp, sp
+    sub  sp, sp, Frame
+```
+
+```casm
+    enter Frame         // the same thing, in one word
+```
+
+The operand is an ordinary 16-bit immediate, so a [`struct`](23-Structs.md) name works directly —
+the struct's own name is its size. A bare `enter` opens a frame of nothing, which still saves `fp`
+so that `leave` has something to restore; that is the shape for a function whose locals all live in
+registers but which still wants a frame pointer.
+
+`enter` checks room for the saved `fp` **and** the frame before it writes anything. A prologue that
+saved `fp` and then found no room for the frame would leave the function running on a stack it does
+not own, with an epilogue that would restore from the wrong place.
 
 ### `pushm` and `popm`
 

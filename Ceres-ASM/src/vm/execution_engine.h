@@ -1116,6 +1116,31 @@ namespace ceres::vm
 			}
 			advancePC();
 		}
+		// The saved fp and the frame are one indivisible step: a prologue that pushed fp and then
+		// found no room for the frame would leave a function running on a stack it does not own.
+		forceinline void ENTER(const Instruction inst) noexcept
+		{
+			const u32 frameSize = inst.imm16();
+			if (!hasStackRoom(static_cast<u32>(sizeof(u32)) + frameSize))
+			{
+				triggerInterrupt(InterruptNumber::StackOverflow);
+				return;
+			}
+
+			(void)push<u32>(fp());
+			fp(sp());
+			sp(sp() - frameSize);
+			advancePC();
+		}
+		forceinline void LEAVE(const Instruction inst) noexcept
+		{
+			sp(fp());
+			if (const auto saved = pop<u32>())
+			{
+				fp(*saved);
+				advancePC();
+			}
+		}
 		forceinline void FPUSH(const Instruction inst) noexcept { if (push<f32>(getFloatReg(inst.fs()))) advancePC(); }
 		forceinline void FPOP(const Instruction inst) noexcept { if (const auto v = pop<f32>()) { setFloatReg(inst.fd(), *v); advancePC(); } }
 
@@ -1400,6 +1425,8 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::STRBP)] = &ExecutionEngine::STRBP;
 				handlers[static_cast<u8>(Opcode::STRHP)] = &ExecutionEngine::STRHP;
 				handlers[static_cast<u8>(Opcode::FSTRP)] = &ExecutionEngine::FSTRP;
+				handlers[static_cast<u8>(Opcode::ENTER)] = &ExecutionEngine::ENTER;
+				handlers[static_cast<u8>(Opcode::LEAVE)] = &ExecutionEngine::LEAVE;
 				handlers[static_cast<u8>(Opcode::PUSHM)] = &ExecutionEngine::PUSHM;
 				handlers[static_cast<u8>(Opcode::POPM)] = &ExecutionEngine::POPM;
 				handlers[static_cast<u8>(Opcode::FPUSH)] = &ExecutionEngine::FPUSH;

@@ -40,8 +40,7 @@
 // A function that takes four arguments or fewer, keeps everything in r0-r7 and calls nothing needs
 // no frame at all - just `ret`.
 global macro proc_enter $frame_size
-    enter
-    sub sp, sp, $frame_size
+    enter $frame_size
 endmacro
 
 // Closes the frame and returns. `leave` restores sp from fp, so the frame size is not repeated
