@@ -739,3 +739,28 @@ TEST(encoding, enter_takes_the_frame_size_as_an_immediate)
 	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::ENTER, true);
 	CHECK_EQ(Instruction{ words[0] }.imm16(), u16{ 8 }); // the struct's own size
 }
+
+TEST(encoding, bl_picks_its_form_from_the_second_operand)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    bl r11, helper\r\n"
+		"    bl r11, r5\r\n"
+		"helper:\r\n"
+		"    jp r11\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const Instruction linked{ words[0] };
+	CHECK_EQ(linked.opcode() == Opcode::BL, true);
+	CHECK_EQ(linked.rd(), u8{ 11 });
+	CHECK_EQ(linked.simm20(), 8); // two instructions forward, measured from the bl itself
+
+	const Instruction indirect{ words[1] };
+	CHECK_EQ(indirect.opcode() == Opcode::BLR, true);
+	CHECK_EQ(indirect.rd(), u8{ 11 });
+	CHECK_EQ(indirect.rs(), u8{ 5 });
+}

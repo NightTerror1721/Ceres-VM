@@ -188,6 +188,27 @@ Note `ifle` rather than `cmp` + `jle`: the comparison and the branch as one inst
 *signed* form, because a count is a signed quantity (see
 [Instruction set](05-Instruction-Set.md#comparison-jumps--0x680x77)).
 
+## Leaves can skip all of this
+
+A function that calls nothing has no reason to touch the stack, and
+[`bl`](05-Instruction-Set.md#branch-and-link--0x780x79) lets it not:
+
+```casm
+    bl r11, print_char      // the return address goes in r11, not on the stack
+
+print_char:
+    outb TERM_OUT, arg0
+    jp r11
+```
+
+The link register is an operand, so this convention does not have to reserve one: pick any
+caller-saved register the call site can spare. What it does have to say is that **the callee may
+clobber it**, exactly like any other caller-saved register — so the register you link through must
+not hold anything else across the call.
+
+This only works for leaves. The moment `print_char` calls something itself, its own link is gone
+unless it saves it, and saving it is the bookkeeping `call`/`ret` already does for free.
+
 ## What still is not enforced
 
 - **Nothing checks any of this.** There is no way to write a macro that verifies you preserved `r8`,

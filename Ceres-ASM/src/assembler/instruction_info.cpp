@@ -339,6 +339,10 @@ namespace ceres::casm
 		inst(Opcode::CALL, Mnemonic::CALL, OpcodeParameterType::SIMM24),
 		inst(Opcode::CALLR, Mnemonic::CALL, OpcodeParameterType::RS),
 		inst(Opcode::RET, Mnemonic::RET),
+		// The link register is an operand, so `bl` competes with nothing: pick whichever register
+		// the function can spare, and return with the `jp` that already exists.
+		inst(Opcode::BL, Mnemonic::BL, OpcodeParameterType::RD, OpcodeParameterType::REL_ADDR20),
+		inst(Opcode::BLR, Mnemonic::BL, OpcodeParameterType::RD, OpcodeParameterType::RS),
 
 		inst(Opcode::JP, Mnemonic::JMP, OpcodeParameterType::REL_ADDR),
 		inst(Opcode::JP, Mnemonic::JMP, OpcodeParameterType::SIMM24),

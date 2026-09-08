@@ -1136,6 +1136,22 @@ namespace ceres::vm
 				return;
 			_pc = Address(getReg(inst.rs())); // Jump to target address
 		}
+		// The return address is written before the jump, so `bl r1, self` is a call to itself that
+		// still comes back. Nothing is pushed, so nothing can overflow.
+		forceinline void BL(const Instruction inst) noexcept
+		{
+			const u32 returnAddress = (_pc + Instruction::SizeInBytes).value();
+			const i32 displacement = inst.simm20();
+			setReg(inst.rd(), returnAddress);
+			_pc += displacement;
+		}
+		forceinline void BLR(const Instruction inst) noexcept
+		{
+			const u32 returnAddress = (_pc + Instruction::SizeInBytes).value();
+			const u32 target = getReg(inst.rs()); // read first: rd and rs may be the same register
+			setReg(inst.rd(), returnAddress);
+			_pc = Address(target);
+		}
 		forceinline void RET(const Instruction inst) noexcept
 		{
 			if (const auto target = pop<u32>())
@@ -1448,6 +1464,8 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::JNSR)] = &ExecutionEngine::JNSR;
 				handlers[static_cast<u8>(Opcode::CALL)] = &ExecutionEngine::CALL;
 				handlers[static_cast<u8>(Opcode::CALLR)] = &ExecutionEngine::CALLR;
+				handlers[static_cast<u8>(Opcode::BL)] = &ExecutionEngine::BL;
+				handlers[static_cast<u8>(Opcode::BLR)] = &ExecutionEngine::BLR;
 				handlers[static_cast<u8>(Opcode::RET)] = &ExecutionEngine::RET;
 				handlers[static_cast<u8>(Opcode::JO)] = &ExecutionEngine::JO;
 				handlers[static_cast<u8>(Opcode::JOR)] = &ExecutionEngine::JOR;

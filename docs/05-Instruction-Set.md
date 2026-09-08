@@ -262,6 +262,41 @@ The store form keeps the base in `Rd` and the value in `Rs`, like the displaceme
 `Rt` is now spoken for. Alignment is checked on the **sum**: two registers that are each aligned
 can still add up to an address that is not.
 
+## Branch and link · `0x78`–`0x79`
+
+| Assembly | Opcode | Semantics |
+| --- | --- | --- |
+| `bl rd, label` | `BL` `0x78` | `rd = pc + 4; pc += simm20` |
+| `bl rd, rs` | `BLR` `0x79` | `rd = pc + 4; pc = rs` |
+
+`call` pushes the return address and `ret` pops it. That costs two memory accesses per call, which
+a leaf function pays for nothing: it has no reason to touch the stack at all.
+
+```casm
+    bl r11, print_char      // r11 = the instruction after this one
+    ...
+print_char:
+    outb 0x01, r0
+    jp r11                  // the return: JPR, which already existed
+```
+
+The link register is an **operand**. That is the whole design: `bl` reserves nothing, so it does
+not compete with `at` or with anything a convention wants, and `call`/`ret` keep working exactly
+as they did for every function that wants the stack discipline. Adding a branch-and-link by
+redefining `call` would have invalidated every existing `.cres` and forced a frame layout change;
+adding one as a new opcode costs nothing anybody was already relying on.
+
+**Reach.** `Rd` occupies bits 23:20, which a `simm24` displacement would otherwise use, so the
+labelled form has twenty bits left: ±512 KiB, against `call`'s ±8 MiB. Further away is a link
+error naming `call` as the way out. The register form has no such limit.
+
+**Nothing saves the link for you.** A function that calls anything else overwrites its own return
+address unless it puts it somewhere first — which is the bookkeeping `call`/`ret` does
+automatically. `bl` is for leaves, and for tail calls, where a jump is the whole of the epilogue.
+
+`bl rd, rs` reads its target before writing the link, so `bl r5, r5` is a well-defined call
+through a pointer that keeps working.
+
 ## The rest of the arithmetic · `0x29`–`0x2F`, `0xCE`–`0xD1`
 
 | Assembly | Opcode | Semantics |

@@ -379,6 +379,7 @@ namespace ceres::casm
 				case OpcodeParameterType::IMM24:
 				case OpcodeParameterType::SIMM24:
 				case OpcodeParameterType::REL_ADDR: return 24;
+				case OpcodeParameterType::REL_ADDR20: return 20;
 				default: return 32;
 			}
 		}
@@ -671,6 +672,28 @@ namespace ceres::casm
 							}
 
 							encodedInstruction.setSImm16(static_cast<i16>(relativeOffset));
+							break;
+						}
+
+						case OpcodeParameterType::REL_ADDR20:
+						{
+							const Address currentAddress = lastSectionAddress(SectionType::Text);
+							const Address targetAddress = operandInfo.isLabel()
+								? operandInfo.asLabel().address
+								: Address(operandInfo.asImmediate().value);
+							const i32 relativeOffset = static_cast<i32>(targetAddress.value()) - static_cast<i32>(currentAddress.value());
+
+							// Rd took four bits off the displacement, so this reaches a quarter of what
+							// CALL does. The way out is CALL, which needs no register and reaches 8 MiB.
+							if (relativeOffset < -524288 || relativeOffset > 524287)
+							{
+								reportError(statement.line(),
+									"Branch-and-link target is {} bytes away, out of range for a 20-bit displacement; use call instead",
+									relativeOffset);
+								return;
+							}
+
+							encodedInstruction.setSImm20(relativeOffset);
 							break;
 						}
 

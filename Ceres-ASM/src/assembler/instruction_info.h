@@ -57,6 +57,7 @@ namespace ceres::casm
 		REL_ADDR,		// Relative address (for branch instructions) (similar to SIMM24)
 		REL_SIMM16,		// A variable's address as a displacement from the instruction itself, for the
 						// PC-relative loads and stores. Out of reach is an error, not a truncation.
+		REL_ADDR20,		// A branch target as a 20-bit displacement, for BL - the four bits Rd took
 	};
 
 
@@ -187,6 +188,7 @@ namespace ceres::casm
 					return OperandType::RegisterPlusRegister;
 
 				case OpcodeParameterType::REL_ADDR:
+				case OpcodeParameterType::REL_ADDR20:
 					return OperandType::Label;
 
 				default:

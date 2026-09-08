@@ -311,7 +311,7 @@ TEST(vm, the_disassembler_names_every_mapped_opcode)
 		Opcode::JZ, Opcode::CALL, Opcode::RET, Opcode::PUSH, Opcode::POP, Opcode::ITOF,
 		Opcode::FTOI, Opcode::MTF, Opcode::MFF, Opcode::IN, Opcode::OUT, Opcode::OUTM,
 		Opcode::OUTR, Opcode::INRM, Opcode::OUTRM, Opcode::PUSHM, Opcode::POPM,
-		Opcode::ENTER, Opcode::LEAVE,
+		Opcode::ENTER, Opcode::LEAVE, Opcode::BL, Opcode::BLR,
 		Opcode::MULH, Opcode::IMULH, Opcode::ABS, Opcode::MIN, Opcode::IMIN, Opcode::MAX,
 		Opcode::IMAX, Opcode::MINI, Opcode::IMINI, Opcode::MAXI, Opcode::IMAXI, Opcode::CLZ,
 		Opcode::POPCNT, Opcode::BSWAP, Opcode::ROL, Opcode::ROLI, Opcode::ROR, Opcode::RORI,
@@ -759,4 +759,56 @@ TEST(vm, the_float_bank_gets_a_square_root_and_an_absolute_value)
 	m.step(2);
 	CHECK_EQ(m.freg(1), 4.0f);
 	CHECK_EQ(m.freg(2), 2.5f);
+}
+
+// --- Branch and link ---------------------------------------------------------------------------
+
+TEST(vm, bl_puts_the_return_address_in_the_register_it_was_given)
+{
+	Machine m{ Instruction::BL(11, 8) };
+	const Address entry = Memory::UnrestrictedSegmentStart;
+
+	const u32 spBefore = m.reg(15);
+	m.step();
+
+	CHECK_EQ(m.reg(11), entry.value() + Instruction::Size); // the instruction after the bl
+	CHECK_EQ(m.pc().value(), entry.value() + 8u);
+	CHECK_EQ(m.reg(15), spBefore); // and nothing went to memory at all
+}
+
+TEST(vm, bl_takes_a_negative_displacement)
+{
+	Machine m{ Instruction::NOP(), Instruction::NOP(), Instruction::BL(1, -8) };
+	const Address entry = Memory::UnrestrictedSegmentStart;
+
+	m.step(3);
+	CHECK_EQ(m.pc().value(), entry.value()); // back to the first NOP
+	CHECK_EQ(m.reg(1), entry.value() + 3 * Instruction::Size);
+}
+
+TEST(vm, blr_reads_its_target_before_writing_the_link)
+{
+	// `bl r5, r5` is a legal thing to write, and the target has to survive being overwritten.
+	Machine m{ Instruction::BLR(5, 5) };
+	const Address entry = Memory::UnrestrictedSegmentStart;
+	const Address target = entry + Address(0x40);
+
+	m.engine().setRegister(5, target.value());
+	m.step();
+
+	CHECK_EQ(m.pc().value(), target.value());
+	CHECK_EQ(m.reg(5), entry.value() + Instruction::Size);
+}
+
+TEST(vm, call_and_ret_are_unchanged_by_bl)
+{
+	// The point of bl being an addition rather than a redefinition: a function that wants the
+	// stack discipline still has it.
+	Machine m{ Instruction::CALL(i24{ 8 }), Instruction::NOP(), Instruction::RET() };
+	const u32 spBefore = m.reg(15);
+
+	m.step();
+	CHECK_EQ(m.reg(15), spBefore - 4); // the return address is on the stack, as it always was
+	m.step();
+	CHECK_EQ(m.reg(15), spBefore);
 }

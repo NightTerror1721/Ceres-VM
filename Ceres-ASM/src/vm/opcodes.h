@@ -136,6 +136,13 @@ namespace ceres::vm
 		JBE = 0x76, // [simm24] - Jump if below or equal (unsigned): Carry || Zero.
 		JBER = 0x77, // [rs] - Register form of JBE.
 
+		// Branch and link: the return address goes into a register instead of onto the stack, so a
+		// leaf costs no memory traffic and a tail call is a jump. The link register is an operand
+		// rather than a fixed one, which is why nothing here is reserved and CALL/RET are unchanged
+		// - a function that wants the stack discipline keeps it.
+		BL = 0x78, // [rd, simm20] - rd = pc + 4; pc += simm20. Rd costs the displacement four bits.
+		BLR = 0x79, // [rd, rs] - rd = pc + 4; pc = rs
+
 		// Stack Operations //
 		PUSH = 0x80, // [rs] - Push the value of the given register onto the stack.
 		POP = 0x81, // [rd] - Pop the value from the stack into the given register.
@@ -229,7 +236,7 @@ namespace ceres::vm
 		MAXI = 0xD0, // [rd, rs, imm16] - rd = max(rs, imm16) (unsigned)
 		IMAXI = 0xD1, // [rd, rs, simm16] - rd = max(rs, simm16) (signed)
 
-		// Free: 0x08-0x0F, 0x4F, 0x78-0x7F, 0x8A-0x8F, 0x98-0x9F, 0xD2-0xFF.
+		// Free: 0x08-0x0F, 0x4F, 0x7A-0x7F, 0x8A-0x8F, 0x98-0x9F, 0xD2-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

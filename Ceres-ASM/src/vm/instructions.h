@@ -18,6 +18,9 @@ namespace ceres::vm
 	private:
 		static inline constexpr RawType OpcodeMask = 0xFF000000;
 		static inline constexpr RawType Imm24Mask = 0x00FFFFFF;
+		// Twenty bits, which is what is left of a displacement once Rd has taken 23:20. BL needs a
+		// register operand and a target in the same word, so it trades reach for the register.
+		static inline constexpr RawType Imm20Mask = 0x000FFFFF;
 		static inline constexpr RawType Imm16Mask = 0x0000FFFF;
 		static inline constexpr RawType Imm8Mask = 0x000000FF;
 		static inline constexpr RawType RdMask = 0x00F00000;
@@ -55,6 +58,12 @@ namespace ceres::vm
 		forceinline constexpr Opcode opcode() const noexcept { return static_cast<Opcode>((_raw & OpcodeMask) >> OpcodeShift); }
 		forceinline constexpr u24 imm24() const noexcept { return static_cast<u24>(_raw & Imm24Mask); }
         forceinline constexpr i24 simm24() const noexcept { return static_cast<i24>(_raw & Imm24Mask); }
+		// Sign-extended by hand: there is no i20 type, and the field is a displacement.
+		forceinline constexpr i32 simm20() const noexcept
+		{
+			const u32 value = _raw & Imm20Mask;
+			return static_cast<i32>(value & 0x00080000u ? value | ~Imm20Mask : value);
+		}
 		forceinline constexpr u16 imm16() const noexcept { return _raw & Imm16Mask; }
 		forceinline constexpr i16 simm16() const noexcept { return static_cast<i16>(_raw & Imm16Mask); }
 		forceinline constexpr u8 imm8() const noexcept { return _raw & Imm8Mask; }
@@ -68,6 +77,7 @@ namespace ceres::vm
 		forceinline constexpr void setOpcode(Opcode opcode) noexcept { _raw = (_raw & ~OpcodeMask) | (static_cast<RawType>(opcode) << OpcodeShift); }
 		forceinline constexpr void setImm24(u24 imm24) noexcept { _raw = (_raw & ~Imm24Mask) | (static_cast<RawType>(imm24) & Imm24Mask); }
 		forceinline constexpr void setSImm24(i24 simm24) noexcept { _raw = (_raw & ~Imm24Mask) | (static_cast<RawType>(simm24) & Imm24Mask); }
+		forceinline constexpr void setSImm20(i32 simm20) noexcept { _raw = (_raw & ~Imm20Mask) | (static_cast<RawType>(simm20) & Imm20Mask); }
 		forceinline constexpr void setImm16(u16 imm16) noexcept { _raw = (_raw & ~Imm16Mask) | (imm16 & Imm16Mask); }
 		forceinline constexpr void setSImm16(i16 simm16) noexcept { _raw = (_raw & ~Imm16Mask) | (static_cast<u16>(simm16) & Imm16Mask); }
 		forceinline constexpr void setImm8(u8 imm8) noexcept { _raw = (_raw & ~Imm8Mask) | (imm8 & Imm8Mask); }
@@ -286,6 +296,15 @@ namespace ceres::vm
 		static constexpr Instruction SXTH(u8 rd, u8 rs) noexcept { return make(Opcode::SXTH, rd, rs); }
 		static constexpr Instruction FSQRT(u8 fd, u8 fs) noexcept { return make(Opcode::FSQRT, fd, fs); }
 		static constexpr Instruction FABS(u8 fd, u8 fs) noexcept { return make(Opcode::FABS, fd, fs); }
+		static constexpr Instruction BL(u8 rd, i32 simm20) noexcept
+		{
+			// Spelled out: make(Opcode, rd) alone would pick the u24 overload and encode the
+			// register number as a displacement.
+			Instruction instruction = make(Opcode::BL, rd, u8{ 0 }, u16{ 0 });
+			instruction.setSImm20(simm20);
+			return instruction;
+		}
+		static constexpr Instruction BLR(u8 rd, u8 rs) noexcept { return make(Opcode::BLR, rd, rs); }
 		static constexpr Instruction ENTER(u16 frameSize) noexcept { return make(Opcode::ENTER, 0, 0, frameSize); }
 		static constexpr Instruction LEAVE() noexcept { return make(Opcode::LEAVE); }
 		static constexpr Instruction PUSHM(u16 mask) noexcept { return make(Opcode::PUSHM, 0, 0, mask); }

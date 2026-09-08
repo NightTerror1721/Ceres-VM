@@ -127,6 +127,7 @@ namespace ceres::casm
 
 		{ "PUSH", Mnemonic::PUSH },
 		{ "POP", Mnemonic::POP },
+		{ "BL", Mnemonic::BL },
 		{ "PUSHM", Mnemonic::PUSHM },
 		{ "POPM", Mnemonic::POPM },
 		{ "PUSHF", Mnemonic::PUSHF },
@@ -261,6 +262,7 @@ namespace ceres::casm
 
 		{ Mnemonic::PUSH, "PUSH" },
 		{ Mnemonic::POP, "POP" },
+		{ Mnemonic::BL, "BL" },
 		{ Mnemonic::PUSHM, "PUSHM" },
 		{ Mnemonic::POPM, "POPM" },
 		{ Mnemonic::PUSHF, "PUSHF" },

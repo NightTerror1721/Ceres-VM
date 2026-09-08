@@ -182,7 +182,7 @@ strb r6, [r5 + r3]    // STRBX
 An index cannot be subtracted — there is no opcode that subtracts one — and it cannot be a float
 register. A displacement and an index cannot appear together: `[r1 + r3 + 4]` does not parse.
 
-### Control flow · `0x50`–`0x77`
+### Control flow · `0x50`–`0x79`
 
 `jp` `jz` `jnz` `jc` `jnc` `js` `jns` `jo` `jno` `call` `ret` `cmp`
 
@@ -201,6 +201,32 @@ more branches read two flags each:
 | `jle` | `jbe` | less than or equal |
 
 `jeq` and `jne` are aliases of `jz` and `jnz`, and `jmp` is an alias of `jp`.
+
+#### `bl` — calling without the stack
+
+`call` pushes a return address and `ret` pops it; that is unchanged and always available. `bl`
+puts the return address in a **register you name** instead, and the return is the `jp` that
+already exists:
+
+```casm
+    li r0, 79
+    bl r11, print_char      // r11 = the instruction after this one
+    ...
+print_char:
+    outb 0x01, r0
+    jp r11
+```
+
+A leaf costs no memory traffic at all, and a tail call is a jump. The second operand may be a
+register (`bl r11, r5`), which is how you call through a pointer.
+
+The link register is an **operand, not a fixed one**, so `bl` reserves nothing and competes with
+nothing — which is why `r13` could become the assembler's temporary. The cost is reach: `rd` takes
+four bits off the displacement, so a labelled `bl` reaches ±512 KiB where `call` reaches ±8 MiB.
+Further than that is an error naming `call` as the way out.
+
+Nothing saves the register for you. A function that calls anything else has to keep its own link
+somewhere, which is exactly the discipline `call`/`ret` does for you — so `bl` is for leaves.
 
 ### Stack · `0x80`–`0x89`
 

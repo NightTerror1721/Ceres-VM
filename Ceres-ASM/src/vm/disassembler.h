@@ -42,6 +42,7 @@ namespace ceres::vm
 			FStore,         // FSTR [r1 + 4], f2
 			Lea,            // LEA r1, [r2 + 4]
 			Simm24,         // JP +8
+			RdSimm20,       // BL r11, +64
 			Imm16,          // ENTER 24
 			Mask16,         // PUSHM 0x0f00
 			IndexedLoad,    // LDRX r1, [r2 + r3]
@@ -225,6 +226,8 @@ namespace ceres::vm
 				case Opcode::SXTH:    return { "SXTH",    Shape::RdRs };
 				case Opcode::FSQRT:   return { "FSQRT",   Shape::FdFs };
 				case Opcode::FABS:    return { "FABS",    Shape::FdFs };
+				case Opcode::BL:     return { "BL",    Shape::RdSimm20 };
+				case Opcode::BLR:    return { "BLR",   Shape::RdRs };
 				case Opcode::ENTER:  return { "ENTER", Shape::Imm16 };
 				case Opcode::LEAVE:  return { "LEAVE", Shape::None };
 				case Opcode::PUSHM:  return { "PUSHM", Shape::Mask16 };
@@ -305,6 +308,7 @@ namespace ceres::vm
 				case Shape::FStore:     return std::format("{} [r{} {} {}], f{}", entry.name, rd, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)), rs);
 				case Shape::Lea:        return std::format("{} r{}, [r{} {} {}]", entry.name, rd, rs, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)));
 				case Shape::Simm24:     return std::format("{} {}{}", entry.name, simm24 < 0 ? "" : "+", simm24);
+				case Shape::RdSimm20:   return std::format("{} r{}, {}{}", entry.name, rd, instruction.simm20() < 0 ? "" : "+", instruction.simm20());
 				case Shape::Imm16:      return std::format("{} {}", entry.name, imm16);
 				case Shape::Mask16:     return std::format("{} {:#06x}", entry.name, imm16);
 				case Shape::IndexedLoad:   return std::format("{} r{}, [r{} + r{}]", entry.name, rd, rs, rt);

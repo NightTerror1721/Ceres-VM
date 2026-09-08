@@ -503,3 +503,22 @@ TEST(pipeline, a_pc_relative_load_and_store_actually_reach_the_variable)
 	if (!r.assembled) { Registry::instance().recordFailure(r.errors); return; }
 	CHECK_EQ(r.output, std::string{ "B" }); // 65 read, 66 written and read back
 }
+
+TEST(pipeline, a_leaf_called_with_bl_returns_without_touching_the_stack)
+{
+	RunResult r = assembleAndRun(std::format(
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r0, 79\r\n"
+		"    bl r11, print_char\r\n"
+		"    li r0, 75\r\n"
+		"    bl r11, print_char\r\n"
+		"{}"
+		"print_char:\r\n"
+		"    outb 0x01, r0\r\n"
+		"    jp r11\r\n", shutdown));
+
+	CHECK(r.assembled);
+	if (!r.assembled) { Registry::instance().recordFailure(r.errors); return; }
+	CHECK_EQ(r.output, std::string{ "OK" });
+}

@@ -106,6 +106,7 @@ namespace ceres::casm
 
 		PUSH, // PUSH, FPUSH
 		POP, // POP, FPOP
+		BL, // BL, BLR
 		PUSHM, // PUSHM
 		POPM, // POPM
 		PUSHF, // PUSHF
