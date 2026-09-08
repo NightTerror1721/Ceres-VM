@@ -39,6 +39,14 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	},
 	mod: { operands: 'rd, rs, rt|imm16', summary: 'Unsigned remainder.' },
 	imod: { operands: 'rd, rs, rt|s16', summary: 'Signed remainder.' },
+	mulh: { operands: 'rd, rs, rt', summary: 'The high 32 bits of an unsigned product. `mul` keeps the low half and drops this one.' },
+	imulh: { operands: 'rd, rs, rt', summary: 'The high 32 bits of a signed product.' },
+	abs: { operands: 'rd, rs', summary: 'Absolute value of a signed integer. A float-register pair selects `fabs`. |INT_MIN| does not fit, so it answers with INT_MIN and sets Overflow.' },
+	min: { operands: 'rd, rs, rt|imm16', summary: 'Unsigned minimum.' },
+	imin: { operands: 'rd, rs, rt|s16', summary: 'Signed minimum.' },
+	max: { operands: 'rd, rs, rt|imm16', summary: 'Unsigned maximum.' },
+	imax: { operands: 'rd, rs, rt|s16', summary: 'Signed maximum.' },
+	sqrt: { operands: 'fd, fs', summary: 'Square root. Float registers only; there is no integer form.' },
 	neg: {
 		operands: 'rd, rs',
 		pseudo: true,
@@ -53,6 +61,13 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	shl: { operands: 'rd, rs, rt|imm16', summary: 'Logical shift left. The shift amount uses the low five bits of the operand.' },
 	shr: { operands: 'rd, rs, rt|imm16', summary: 'Logical (zero-filling) shift right.' },
 	sar: { operands: 'rd, rs, rt|imm16', summary: 'Arithmetic (sign-extending) shift right.' },
+	rol: { operands: 'rd, rs, rt|imm16', summary: 'Rotate left. The amount uses the low five bits, so a rotation by 32 is a rotation by none.' },
+	ror: { operands: 'rd, rs, rt|imm16', summary: 'Rotate right.' },
+	clz: { operands: 'rd, rs', summary: 'Counts leading zero bits. Zero has thirty-two of them.' },
+	popcnt: { operands: 'rd, rs', summary: 'Counts set bits.' },
+	bswap: { operands: 'rd, rs', summary: 'Reverses the four bytes of a word.' },
+	sxtb: { operands: 'rd, rs', summary: 'Sign-extends the low byte of a register, the way `ldrsb` does for memory.' },
+	sxth: { operands: 'rd, rs', summary: 'Sign-extends the low half-word of a register.' },
 
 	// Memory - 0x40-0x4E
 	mov: { operands: 'rd, rs', summary: 'Register-to-register copy. A float-register operand selects `fmov`.' },
@@ -61,17 +76,17 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 		operands: 'rd, imm16',
 		summary: 'Loads a 16-bit immediate shifted left 16 bits. Paired with `ori` by the assembler to build 32-bit addresses (`la`, `ldv`, `stv`).'
 	},
-	ldr: { operands: 'rd, [rs + imm16]', summary: 'Loads a 32-bit word. A float destination selects `fldr`.' },
-	ldrb: { operands: 'rd, [rs + imm16]', summary: 'Loads a byte, zero-extended.' },
-	ldrh: { operands: 'rd, [rs + imm16]', summary: 'Loads a half-word, zero-extended.' },
-	ldrsb: { operands: 'rd, [rs + imm16]', summary: 'Loads a byte, sign-extended.' },
-	ldrsh: { operands: 'rd, [rs + imm16]', summary: 'Loads a half-word, sign-extended.' },
+	ldr: { operands: 'rd, [rs + imm16|rt]', summary: 'Loads a 32-bit word. A float destination selects `fldr`; a register offset is an index and selects `ldrx`.' },
+	ldrb: { operands: 'rd, [rs + imm16|rt]', summary: 'Loads a byte, zero-extended. A register offset selects `ldrbx`.' },
+	ldrh: { operands: 'rd, [rs + imm16|rt]', summary: 'Loads a half-word, zero-extended. A register offset selects `ldrhx`.' },
+	ldrsb: { operands: 'rd, [rs + imm16|rt]', summary: 'Loads a byte, sign-extended.' },
+	ldrsh: { operands: 'rd, [rs + imm16|rt]', summary: 'Loads a half-word, sign-extended.' },
 	str: {
-		operands: '[rd + imm16], rs',
-		summary: 'Stores a 32-bit word. Base address in rd, value in rs: imm16 occupies the field rt would otherwise use. A float source selects `fstr`.'
+		operands: 'rs, [rd + imm16|rt]',
+		summary: 'Stores a 32-bit word. Value first, then the destination. A float source selects `fstr`; a register offset is an index and selects `strx`.'
 	},
-	strb: { operands: '[rd + imm16], rs', summary: 'Stores a byte, same operand order as `str`.' },
-	strh: { operands: '[rd + imm16], rs', summary: 'Stores a half-word, same operand order as `str`.' },
+	strb: { operands: 'rs, [rd + imm16|rt]', summary: 'Stores a byte, same operand order as `str`.' },
+	strh: { operands: 'rs, [rd + imm16|rt]', summary: 'Stores a half-word, same operand order as `str`.' },
 	lea: { operands: 'rd, [rs + imm16]', summary: 'Loads the effective address rs + imm16 into rd, without accessing memory.' },
 
 	// Control flow - 0x50-0x67
@@ -111,9 +126,17 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	clr: { operands: 'rd', summary: 'Set to zero. Expands to li rd, 0.' },
 	tst: { operands: 'rs', summary: 'Compare against zero. Expands to cmpi rs, 0.' },
 	swap: { operands: 'rd, rs', summary: 'Exchange two registers, using no temporary.' },
-	enter: { operands: '', summary: 'Open a stack frame: push fp, then mov fp, sp.' },
-	leave: { operands: '', summary: 'Close a stack frame: mov sp, fp, then pop fp.' },
-	call: { operands: 'label|rs', summary: 'Pushes the return address, then jumps.' },
+	enter: {
+		operands: 'imm16?',
+		summary: 'Opens a stack frame in one instruction: pushes fp, points it at the saved word, and reserves imm16 bytes. A struct name works directly, since a struct name is its size. Bare `enter` reserves nothing and still saves fp. All or nothing: if the frame does not fit, nothing is pushed.'
+	},
+	leave: { operands: '', summary: 'Closes the frame: sp = fp, then pops fp. One instruction.' },
+	call: { operands: 'label|rs', summary: 'Pushes the return address, then jumps. Reaches +/-8 MiB.' },
+	bl: {
+		operands: 'rd, label|rs',
+		summary:
+			'Branch and link: puts the return address in `rd` instead of on the stack, and the return is the `jp rd` that already exists. No memory traffic, so it is what a leaf wants - but nothing saves `rd` for you, so a function that calls anything else must. The labelled form reaches +/-512 KiB, because `rd` costs the displacement four bits.'
+	},
 	ret: { summary: 'Pops the return address into PC.' },
 	cmp: { operands: 'ra, rb|imm16', summary: 'Compares and sets flags without writing a result. A float-register operand selects `fcmp`.' },
 
@@ -122,6 +145,11 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	pop: { operands: 'rd', summary: 'Pops into a register. A float register selects `fpop`.' },
 	pushf: { summary: 'Pushes the flags register.' },
 	popf: { summary: 'Pops the flags register.' },
+	pushm: {
+		operands: 'imm16',
+		summary: 'Pushes every register whose bit is set in the mask - bit n means register n, so 0x0F00 is r8-r11. Stores from the highest set bit down, so `popm` with the same mask restores exactly what it saved. All or nothing: if the whole mask does not fit, nothing is pushed.'
+	},
+	popm: { operands: 'imm16', summary: 'Pops into every register whose bit is set, r0 first. The mirror of `pushm`.' },
 
 	// Conversions - 0x80-0x85
 	itof: { operands: 'fd, rs', summary: 'Converts an unsigned 32-bit integer to a float.' },
@@ -147,17 +175,30 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	la: {
 		operands: 'rd, symbol',
 		pseudo: true,
-		summary: 'Loads the 32-bit address of `symbol`. Expands to `lui` + `ori` (8 B); clobbers r12.'
+		summary: 'Loads the 32-bit address of `symbol`. Expands to `lui` + `ori` (8 B), both targeting `rd`, so it needs no scratch register and clobbers nothing.'
 	},
 	ldv: {
 		operands: 'rd, variable',
 		pseudo: true,
-		summary: "Loads a global variable's value, picking the load form from its declared type. Expands to `lui` + `ori` + a load (12 B); clobbers r12."
+		summary:
+			"Loads a global variable's value, picking the load form from its declared type. **Two sizes:** within +/-32 KiB the linker relaxes it to one PC-relative word, touching no scratch register; further away it is `lui` + `ori` + a load (12 B), and only then does it clobber `at` (r13) - and only when the destination is a float register."
 	},
 	stv: {
 		operands: 'rs, variable',
 		pseudo: true,
-		summary: "Stores a register into a global variable, picking the store form from its declared type. Expands to `lui` + `ori` + a store (12 B); clobbers r12."
+		summary:
+			"Stores a register into a global variable, picking the store form from its declared type. **Two sizes:** within +/-32 KiB the linker relaxes it to one PC-relative word; further away it is `lui` + `ori` + a store (12 B) and clobbers `at` (r13)."
+	},
+	ldvp: {
+		operands: 'rd, variable',
+		pseudo: true,
+		summary:
+			'The PC-relative load asked for by name: always one word, and a variable out of reach is an error instead of a longer instruction. `ldv` already relaxes to this on its own - write `ldvp` where four bytes is a requirement rather than a preference.'
+	},
+	stvp: {
+		operands: 'rs, variable',
+		pseudo: true,
+		summary: 'The PC-relative store asked for by name. See `ldvp`.'
 	}
 };
 
@@ -189,6 +230,21 @@ export const TYPES: Record<string, string> = {
 	word: 'Alias for `u32`.'
 };
 
+// Addresses the linker inserts once the layout is fixed. They are ordinary global labels to
+// everything downstream, but nothing declares them, so the symbol index would never find them.
+export const LINKER_SYMBOLS: Record<string, string> = {
+	__text_start: 'Where `.text` begins. Always `0x400` today.',
+	__text_end: 'One past the last byte of `.text`.',
+	__rodata_start: 'Where `.rodata` begins.',
+	__rodata_end: 'One past the last byte of `.rodata`.',
+	__data_start: 'Where `.data` begins.',
+	__data_end: 'One past the last byte of `.data`.',
+	__bss_start: 'Where `.bss` begins.',
+	__bss_end: 'One past the last byte of `.bss`, and the end of the loaded image.',
+	__heap_start:
+		'The first free byte above the program - the same address as `__bss_end`, under the name that says what it is for. Everything from here up is free ground, with the stack growing down to meet it. There is deliberately no `__stack_top`: the stack starts at the size of memory, which `--memory` picks at run time. Read `sp` on entry instead.'
+};
+
 export const SECTIONS: Record<string, string> = {
 	text: 'Code section.',
 	rodata: 'Immutable, initialised data.',
@@ -196,8 +252,23 @@ export const SECTIONS: Record<string, string> = {
 	bss: 'Mutable, zero-filled at load time. Occupies no space in the file.'
 };
 
+// The three registers that have a role answer to it as well as to their number - the assembler
+// accepts `sp`, `fp` and `at` anywhere a register can be written. `lr` is the deprecated spelling
+// of `at`, kept so that sources written against the old name still parse.
+const NAMED_REGISTERS: Record<string, number> = { sp: 15, fp: 14, at: 13, lr: 13 };
+
 // r0-r15 use the low nibble as index; anything outside 0-15 is not a valid register operand.
 export function describeRegister(name: string): string | null {
+	const named = NAMED_REGISTERS[name.toLowerCase()];
+	if (named !== undefined) {
+		const description = describeIntegerRegister(named);
+		return name.toLowerCase() === 'lr'
+			? `${description}
+
+\`lr\` is the deprecated spelling of \`at\`; nothing in the machine links through r13.`
+			: description;
+	}
+
 	const match = /^([rRfF])(\d{1,2})$/.exec(name);
 	if (!match) {
 		return null;
@@ -210,15 +281,17 @@ export function describeRegister(name: string): string | null {
 	if (isFloat) {
 		return `32-bit IEEE-754 float register (bank ${index}/15).`;
 	}
+	return describeIntegerRegister(index);
+}
+
+function describeIntegerRegister(index: number): string {
 	switch (index) {
-		case 12:
-			return 'General purpose. Used as scratch by the assembler when materialising a 32-bit address for `la`, `ldv` and `stv` - do not expect it to survive those.';
 		case 13:
-			return 'General purpose. Named Link Register (LR) in the README, but nothing in the machine or assembler treats it specially.';
+			return 'Assembler temporary (`at`). The assembler clobbers it when it has to materialise a 32-bit address - a far `stv`, or a far `ldv` into a float register. Nothing links through it: `call` pushes the return address on the stack.';
 		case 14:
-			return 'General purpose. Named Frame Pointer (FP) in the README; defined, but no instruction touches it automatically.';
+			return 'Frame pointer (`fp`). `enter` and `leave` are the only instructions that touch it.';
 		case 15:
-			return 'Stack pointer (SP). Initialised to the top of memory on reset; the stack grows down.';
+			return 'Stack pointer (`sp`). Initialised to the top of memory on reset; the stack grows down, and faults at the end of the loaded image.';
 		default:
 			return `General purpose integer register (bank ${index}/15).`;
 	}
@@ -231,5 +304,11 @@ export const MNEMONIC_NAMES = Object.keys(MNEMONICS);
 // first - it also means these are never re-classified by semantic tokens, only by the TextMate
 // grammar, which already colours them correctly and unambiguously.
 export function isReservedWord(text: string): boolean {
-	return describeRegister(text) !== null || Boolean(MNEMONICS[text.toLowerCase()]) || text in KEYWORDS || text in TYPES;
+	return (
+		describeRegister(text) !== null ||
+		Boolean(MNEMONICS[text.toLowerCase()]) ||
+		text in KEYWORDS ||
+		text in TYPES ||
+		text in LINKER_SYMBOLS
+	);
 }

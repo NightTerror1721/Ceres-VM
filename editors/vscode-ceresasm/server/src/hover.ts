@@ -1,6 +1,6 @@
 import { Hover, MarkupKind, Position, Range } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { describeRegister, KEYWORDS, MNEMONICS, SECTIONS, TYPES } from './languageData';
+import { describeRegister, KEYWORDS, LINKER_SYMBOLS, MNEMONICS, SECTIONS, TYPES } from './languageData';
 import { resolveUserSymbol } from './resolution';
 import { findEnclosingMacro, getCleanedLines, getTokenAtCharacter, SymbolIndexer } from './symbolIndex';
 
@@ -43,6 +43,10 @@ export function provideHover(document: TextDocument, position: Position, indexer
 	if (mnemonic) {
 		const code = mnemonic.operands ? `${token.text.toLowerCase()} ${mnemonic.operands}` : token.text.toLowerCase();
 		return hover(code, mnemonic.pseudo ? 'pseudo-instruction' : 'instruction', mnemonic.summary, range);
+	}
+
+	if (token.text in LINKER_SYMBOLS) {
+		return hover(token.text, 'defined by the linker', LINKER_SYMBOLS[token.text], range);
 	}
 
 	if (token.text in KEYWORDS) {

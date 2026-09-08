@@ -1,6 +1,6 @@
 import { CompletionItem, CompletionItemKind, Position } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { KEYWORDS, MNEMONICS, SECTIONS, TYPES } from './languageData';
+import { KEYWORDS, LINKER_SYMBOLS, MNEMONICS, SECTIONS, TYPES } from './languageData';
 import { findEnclosingMacro, findEnclosingNonLocalLabel, getAllTokens, getCleanedLines, SymbolIndexer } from './symbolIndex';
 
 export function provideCompletion(document: TextDocument, position: Position, indexer: SymbolIndexer): CompletionItem[] {
@@ -27,9 +27,22 @@ export function provideCompletion(document: TextDocument, position: Position, in
 		items.push({ label: `@${name}`, kind: CompletionItemKind.Module, documentation: doc });
 	}
 
+	for (const [name, doc] of Object.entries(LINKER_SYMBOLS)) {
+		items.push({ label: name, kind: CompletionItemKind.Constant, detail: 'defined by the linker', documentation: doc });
+	}
+
 	for (let i = 0; i <= 15; i++) {
 		items.push({ label: `r${i}`, kind: CompletionItemKind.Variable, detail: 'integer register' });
 		items.push({ label: `f${i}`, kind: CompletionItemKind.Variable, detail: 'float register' });
+	}
+
+	// The three registers that answer to a role as well as to a number.
+	for (const [name, detail] of [
+		['sp', 'stack pointer (r15)'],
+		['fp', 'frame pointer (r14)'],
+		['at', 'assembler temporary (r13)']
+	] as const) {
+		items.push({ label: name, kind: CompletionItemKind.Variable, detail });
 	}
 
 	const { file, consts, macrosByName } = indexer.collectVisibleSymbols(document.uri);

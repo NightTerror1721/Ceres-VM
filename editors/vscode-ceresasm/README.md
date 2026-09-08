@@ -11,14 +11,17 @@ Language support for **CASM**, the assembler of the [Ceres](../../README.md) vir
 - Live diagnostics: every time you edit or save a `.casm` file, the extension runs the real
   `ceres` compiler in the background (`ceres asm <file> --json`) and shows its errors as
   in-editor squiggles, at the exact line and column the compiler reports.
-- Hover: mnemonics, pseudo-instructions, registers, keywords, types and section directives show
-  static documentation drawn from the top-level README. User symbols (`const`, `let`, labels,
-  macros) show their declared value/type/visibility and, for macros, every arity in scope.
+- Hover: mnemonics, pseudo-instructions, registers, keywords, types, section directives and the
+  nine symbols the linker defines (`__heap_start`, `__text_end`, ...) show static documentation
+  drawn from the top-level README. User symbols (`const`, `let`, labels, macros) show their
+  declared value/type/visibility and, for macros, every arity in scope. Registers answer to their
+  role as well as their number: `sp`, `fp` and `at` (and `lr`, the deprecated spelling of `at`).
 - Go to definition: labels (including scope-correct resolution of repeated local `.name` labels
   across different subroutines), constants, variables and macros — the last two resolved
   transitively through `import`, the same way the real assembler makes them visible.
-- Completion: mnemonics, pseudo-instructions, keywords, types, section directives, registers,
-  and every constant/variable/label/macro currently in scope.
+- Completion: mnemonics, pseudo-instructions, keywords, types, section directives, registers by
+  number and by role, the linker-defined symbols, and every constant/variable/label/macro
+  currently in scope.
 - Find references and rename: labels (scope-correct for repeated local `.name` labels), constants,
   variables, macro parameters and hygienic macro labels, all within the files the language itself
   makes them visible in. Renaming a `.name` local label or a `$param`/`%%label` edits just the bare
