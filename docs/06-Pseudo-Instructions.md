@@ -38,8 +38,6 @@ expands it into a short, fixed sequence of real instructions. From
 
 | Written | Expands to | Size |
 | --- | --- | --- |
-| `enter` | `push fp` + `mov fp, sp` | 8 bytes |
-| `leave` | `mov sp, fp` + `pop fp` | 8 bytes |
 
 ## Why `la`/`ldv`/`stv` need two instructions
 
@@ -273,21 +271,23 @@ the *unsigned* branch is the correct one after it — `ifXX` picks it so you do 
 Both words are emitted at consecutive addresses, and the branch's displacement is measured from its
 own address, so an `ifXX` behaves exactly like the `cmp`/jump pair written out.
 
-## `enter` and `leave` — stack frames
+## `enter` and `leave` — not pseudo-instructions any more
+
+They were `push fp` + `mov fp, sp` and its inverse. They are now real opcodes that also open and
+close the frame, so a whole prologue is one word — see
+[Instruction set → `enter` and `leave`](05-Instruction-Set.md#enter-and-leave).
 
 ```casm
 some_function:
-    enter                   // push fp; mov fp, sp
+    enter Frame             // push fp; fp = sp; sp -= Frame
     ...
-    leave                   // mov sp, fp; pop fp
+    leave                   // sp = fp; pop fp
     ret
 ```
 
-These are the only instructions in the project that touch `fp` (`r14`), which is otherwise defined
-and unused (see [Registers and flags](03-Registers-and-Flags.md)). They do not make a calling
-convention on their own — nothing saves argument registers, and `ret` still pops the address `call`
-pushed — but they make the frame-pointer half of one something the assembler writes identically
-every time.
+They are still the only two things in the project that touch `fp` (`r14`), and they still do not
+make a calling convention on their own — nothing saves argument registers, and `ret` still pops the
+address `call` pushed. What they do is make the frame-pointer half of one identical every time.
 
 ## `swap` — exchange without a temporary
 

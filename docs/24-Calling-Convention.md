@@ -203,7 +203,7 @@ Note `ifle` rather than `cmp` + `jle`: the comparison and the branch as one inst
 ## Related pages
 
 - [Registers and flags](03-Registers-and-Flags.md) — what each register is, and the `at` clobber.
-- [Pseudo-instructions](06-Pseudo-Instructions.md#enter-and-leave--stack-frames) — what `enter` and `leave` expand to.
+- [Instruction set](05-Instruction-Set.md#enter-and-leave) — what `enter` and `leave` do.
 - [Structs](23-Structs.md) — the offset constants a frame is described with.
 - [Language syntax](10-Language-Syntax.md#register-aliases) — `alias`, and why it does not cross a file.
 - [Macros](14-Macros.md) — how `proc_enter`/`proc_leave` are defined and exported.
