@@ -363,6 +363,23 @@ helper:           // visible within the file
 
 A local label is stored as `parent.name`, so each subroutine can have its own `.loop`.
 
+### Symbols the linker defines
+
+Nine labels come from the layout rather than from any file, so a program can ask where it ends:
+
+```casm
+    la r1, __heap_start       // the first free byte above the program
+    la r2, __text_end
+```
+
+`__text_start` `__text_end` `__rodata_start` `__rodata_end` `__data_start` `__data_end`
+`__bss_start` `__bss_end`, and `__heap_start`, which is `__bss_end` under the name that says what
+it is for. Declaring one of these yourself is an error rather than a redefinition.
+
+There is no `__stack_top`: the stack starts at the top of memory, and how much memory there is is
+chosen with `--memory` long after the link. Read `sp` on entry instead, before anything has
+pushed.
+
 ## Addressing
 
 ```casm

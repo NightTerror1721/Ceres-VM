@@ -55,6 +55,7 @@ namespace ceres::casm
 		}
 
 		void calculateMemoryMap() const;
+		void defineLinkerSymbols();
 		MemoryOffsets calculateMemoryOffsets() const;
 
 	private:

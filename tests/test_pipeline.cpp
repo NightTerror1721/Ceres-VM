@@ -433,3 +433,54 @@ TEST(pipeline, the_loader_lowers_the_stack_limit_to_the_end_of_the_image)
 	vm.engine().reset();
 	CHECK_EQ(vm.engine().stackLimit(), imageEnd);
 }
+
+// --- Addresses only the linker knows --------------------------------------------------------
+
+TEST(pipeline, the_linker_defines_where_each_section_starts_and_ends)
+{
+	AssembleResult a = assembleSource(
+		"@rodata\r\n"
+		"    let msg: u8[4] = \"ab\"\r\n"
+		"@bss\r\n"
+		"    let buf: u32[8]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    la r1, __text_end\r\n"
+		"    la r2, __bss_start\r\n"
+		"    la r3, __heap_start\r\n", "pipeline");
+
+	CHECK(a.ok());
+	if (!a.ok()) { Registry::instance().recordFailure(a.joinedErrors()); return; }
+
+	auto words = a.words();
+	CHECK_EQ(words.size(), 6u); // three la, two instructions each
+
+	// Each `la` is lui+ori, so the address it built is the two immediates put back together.
+	const auto addressFrom = [&](usize luiIndex) {
+		return (static_cast<u32>(Instruction{ words[luiIndex] }.imm16()) << 16) |
+		       static_cast<u32>(Instruction{ words[luiIndex + 1] }.imm16());
+	};
+
+	const auto& h = a.program->header();
+	const u32 base = static_cast<u32>(Memory::UnrestrictedSegmentStartValue);
+
+	CHECK_EQ(addressFrom(0), base + h.textSize);
+	CHECK_EQ(addressFrom(2), base + h.textSize + h.rodataSize + h.dataSize);
+	CHECK_EQ(addressFrom(4), base + h.textSize + h.rodataSize + h.dataSize + h.bssSize);
+
+	// __heap_start is __bss_end under the name that says what it is for.
+	CHECK_EQ(addressFrom(4), base + h.textSize + h.rodataSize + h.dataSize + h.bssSize);
+}
+
+TEST(pipeline, a_program_cannot_declare_a_name_the_linker_defines)
+{
+	AssembleResult a = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    nop\r\n"
+		"global __heap_start:\r\n"
+		"    nop\r\n", "pipeline");
+
+	CHECK(!a.ok());
+	CHECK(a.joinedErrors().find("defined by the linker") != std::string::npos);
+}

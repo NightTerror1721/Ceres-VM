@@ -39,6 +39,8 @@ namespace ceres::casm
 			offsets.bssOffset += alignUp(unit.sectionSizes().bssSize);
 		}
 
+		defineLinkerSymbols();
+
 		// Check for unresolved symbols in each translation unit
 		for (const auto& unit : _state.get().translationUnits())
 		{
@@ -116,6 +118,44 @@ namespace ceres::casm
 		}
 
 		return !_state.get().errorHandler().hasErrors();
+	}
+
+	// Where the layout turned out to put things. A program had no way to ask any of this and no
+	// arithmetic that could work it out: section sizes depend on every unit in the link, so even
+	// `sizeof` over everything a file declares does not add up to the answer. Placing a heap, or
+	// sizing a buffer against whatever memory is left, starts here.
+	//
+	// Not `__stack_top`: the stack starts at the top of memory, and how much memory there is is a
+	// property of the machine the program is run on, chosen with `--memory` long after the link.
+	// A program that wants it reads `sp` on entry, before anything has pushed.
+	void Linker::defineLinkerSymbols()
+	{
+		const MemoryMap& map = _state.get().memoryMap();
+		SymbolTable& globals = _state.get().globalSymbolTable();
+
+		const struct { const char* name; SectionType section; Address address; } defined[] = {
+			{ "__text_start",   SectionType::Text,   map.textStart },
+			{ "__text_end",     SectionType::Text,   map.textStart + map.textSize },
+			{ "__rodata_start", SectionType::Rodata, map.rodataStart },
+			{ "__rodata_end",   SectionType::Rodata, map.rodataStart + map.rodataSize },
+			{ "__data_start",   SectionType::Data,   map.dataStart },
+			{ "__data_end",     SectionType::Data,   map.dataStart + map.dataSize },
+			{ "__bss_start",    SectionType::BSS,    map.bssStart },
+			{ "__bss_end",      SectionType::BSS,    map.bssStart + map.bssSize },
+			// The same address as __bss_end, under the name that says what it is for: everything
+			// from here up is free ground, with the stack coming down to meet it.
+			{ "__heap_start",   SectionType::BSS,    map.bssStart + map.bssSize },
+		};
+
+		for (const auto& entry : defined)
+		{
+			if (globals.get(entry.name).has_value())
+			{
+				reportError(0, "Linker error: '{}' is defined by the linker, so a program cannot declare it.", entry.name);
+				continue;
+			}
+			globals.insertRawSymbol(Symbol::makeLabel(std::string(entry.name), entry.section, entry.address, true));
+		}
 	}
 
 	void Linker::calculateMemoryMap() const

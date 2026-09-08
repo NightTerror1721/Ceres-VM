@@ -153,6 +153,44 @@ Global *constants* are deliberately not merged either, for the reason given abov
 address to link, and publishing them would make two libraries collide over a name neither file
 necessarily uses.
 
+## Symbols the linker defines
+
+Section addresses are not knowable from any one file: they depend on every unit in the link, so no
+amount of `sizeof` over what a file declares adds up to where that file ended up. Nine labels carry
+the answer, inserted into the global symbol table once the layout is fixed:
+
+| Symbol | Address |
+| --- | --- |
+| `__text_start` | Where `.text` begins — always `0x400` today |
+| `__text_end` | One past the last byte of `.text` |
+| `__rodata_start` / `__rodata_end` | The bounds of `.rodata` |
+| `__data_start` / `__data_end` | The bounds of `.data` |
+| `__bss_start` / `__bss_end` | The bounds of `.bss` |
+| `__heap_start` | The first free byte above the program |
+
+`__heap_start` is the same address as `__bss_end`. It exists under its own name because that is the
+question a program actually asks: everything from there up is free ground, with the stack growing
+down to meet it — and the stack now [faults](02-Memory.md#the-stack) rather than growing through the
+image, so the two really do share that space.
+
+```casm
+@text
+global main:
+    la r1, __heap_start         // where a bump allocator starts
+    mov r2, sp                  // and where it must stop
+```
+
+They are ordinary global labels, so `la` reaches them and nothing else about them is special.
+Declaring one yourself is reported as such:
+
+```
+Linker error: '__heap_start' is defined by the linker, so a program cannot declare it.
+```
+
+There is deliberately **no `__stack_top`**. The stack pointer starts at the size of memory, which is
+a property of the machine — `--memory` picks it at run time, long after the link. A program that
+wants it reads `sp` on entry, before anything has pushed.
+
 ## Unused private symbols
 
 Because a private symbol provably cannot be reached from outside its file, one that nothing inside
