@@ -296,7 +296,7 @@ namespace ceres::casm
 				{
 					reportError(std::format("{}: '{}' is {} bytes away, out of reach for {}",
 						members[i]->name,
-						relocation.isExternal() ? relocation.symbol : std::string(nameOfSection(relocation.section)),
+						relocation.symbol.empty() ? std::string(nameOfSection(relocation.section)) : relocation.symbol,
 						value, what));
 				};
 

@@ -45,13 +45,15 @@ namespace ceres::casm
 		// Which section the target lives in. Meaningless for an external, whose section is
 		// whatever the object that defines it says.
 		SectionType section = SectionType::Text;
-		// Empty for a target defined in this object: `section` and `addend` already say where it
-		// is. Otherwise the name to look up across the whole link.
+		// Defined in another unit, so the link has to look the name up. A local target needs no
+		// lookup - `section` and `addend` already say where it is - but keeps its name anyway,
+		// because an error about a distance is nearly useless without one.
+		bool external = false;
 		std::string symbol;
 		// The target's offset within its section, for a local target; an extra displacement added
 		// to the symbol's address, for an external one.
 		i32 addend = 0;
 
-		bool isExternal() const noexcept { return !symbol.empty(); }
+		bool isExternal() const noexcept { return external; }
 	};
 }

@@ -158,6 +158,7 @@ namespace ceres::casm
 			writeU8(out, static_cast<u8>(relocation.field));
 			writeU8(out, relocation.shift);
 			writeU8(out, relocation.pcRelative ? 1 : 0);
+			writeU8(out, relocation.external ? 1 : 0);
 			writeU8(out, static_cast<u8>(relocation.section));
 			writeU32(out, static_cast<u32>(relocation.addend));
 			writeString(out, relocation.symbol);
@@ -220,6 +221,7 @@ namespace ceres::casm
 			relocation.field = static_cast<RelocationField>(field);
 			relocation.shift = reader.readU8();
 			relocation.pcRelative = reader.readU8() != 0;
+			relocation.external = reader.readU8() != 0;
 			const u8 section = reader.readU8();
 			if (!isValidSection(section))
 				return std::unexpected("Object file names an unknown section in a relocation");

@@ -563,10 +563,10 @@ namespace ceres::casm
 		relocation.shift = shift;
 		relocation.pcRelative = pcRelative;
 		relocation.section = section;
+		relocation.external = external;
+		relocation.symbol = std::string(symbol.view());
 
-		if (external)
-			relocation.symbol = std::string(symbol.view());
-		else
+		if (!external)
 			relocation.addend = static_cast<i32>(address.value()); // Its offset within its own section
 
 		_relocations.push_back(std::move(relocation));
