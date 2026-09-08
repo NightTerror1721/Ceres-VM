@@ -687,3 +687,65 @@ TEST(debugger, a_read_watch_catches_a_load)
 	CHECK(plain->addDataBreakpoint(sym2->address, sym2->size, "counter").has_value());
 	CHECK(plain->resume().reason != debug::StopReason::DataBreakpoint);
 }
+
+// --- The stack walked, not inferred --------------------------------------------------------------
+
+TEST(debugger, a_function_with_a_frame_is_unwound_rather_than_inferred)
+{
+	// `enter` is what makes the chain walkable: it pushes the caller's fp on top of the return
+	// address CALL pushed, so [fp + 0] and [fp + 4] are the frame below.
+	constexpr std::string_view Source =
+		"@text\r\n"
+		"global main:\r\n"
+		"    enter 8\r\n"
+		"    call level_one\r\n"
+		"    leave\r\n"
+		"    li r0, 1\r\n"
+		"    out 0xff, r0\r\n"
+		"    ret\r\n"
+		"level_one:\r\n"
+		"    enter 8\r\n"
+		"    nop\r\n"
+		"    leave\r\n"
+		"    ret\r\n";
+
+	TempSource unwindSource{ Source, "unwind" };
+	auto session = launchOrNull(unwindSource);
+	CHECK(session != nullptr);
+	if (!session) return;
+
+	session->start();
+	session->addLineBreakpoint(unwindSource.string(), 11); // the nop inside level_one
+	session->resume();
+
+	const std::vector<debug::Frame> exact = session->unwindCallStack();
+	CHECK_EQ(exact.size(), usize{ 2 });
+	if (exact.size() < 2) return;
+
+	// Innermost first, and neither of them is a guess.
+	CHECK(!exact[0].reconstructed);
+	CHECK(!exact[1].reconstructed);
+	CHECK_EQ(exact[0].name, std::string{ "level_one" });
+	CHECK_EQ(exact[1].name, std::string{ "main" });
+}
+
+TEST(debugger, a_function_with_no_frame_has_nothing_to_unwind)
+{
+	// Without an `enter` there is no chain, and saying so is better than walking whatever the
+	// frame pointer happens to hold.
+	constexpr std::string_view Source =
+		"@text\r\n"
+		"global main:\r\n"
+		"    nop\r\n"
+		"    li r0, 1\r\n"
+		"    out 0xff, r0\r\n"
+		"    ret\r\n";
+
+	TempSource plainSource{ Source, "noframe" };
+	auto session = launchOrNull(plainSource);
+	CHECK(session != nullptr);
+	if (!session) return;
+
+	session->start();
+	CHECK(session->unwindCallStack().empty());
+}

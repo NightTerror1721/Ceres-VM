@@ -320,6 +320,12 @@ namespace ceres::debug
 	public:
 		RegisterView registers() const;
 		std::span<const Frame> callStack() const noexcept { return _callStack; }
+
+		// The stack walked through the frame pointers, when the assembler recorded that the
+		// function the machine is in opens one. Every frame it returns is exact rather than
+		// reconstructed. Empty when the innermost function has no frame, which is when there is
+		// nothing to walk and the reconstruction is all there is.
+		std::vector<Frame> unwindCallStack() const;
 		std::optional<SourceLocation> currentLocation() const;
 		u32 programCounter() const;
 

@@ -137,6 +137,7 @@ namespace ceres::casm
 		if (_emitDebugInfo)
 		{
 			recordDebugSymbols();
+			recordFrames();
 			_debugInfo = _debugBuilder.release();
 			debugSection = _debugInfo.serialize();
 		}
@@ -211,6 +212,66 @@ namespace ceres::casm
 
 				_debugBuilder.addSymbol(entry);
 			}
+		}
+	}
+
+	// Where each function begins and ends, and whether it opens a frame pointer. The call stack is
+	// otherwise reconstructed by watching CALL and RET go past, which a program that unwinds by
+	// hand can desynchronise; a function with a frame can be walked instead of guessed at.
+	//
+	// A function here is a non-local label in .text, and it runs until the next one. What the
+	// assembler knows that the machine does not is that the first thing it does is an ENTER - and
+	// that instruction has already been emitted by the time this runs, so its operand is read back
+	// out of the text rather than inferred.
+	void BinaryEmitter::recordFrames()
+	{
+		struct Boundary { u32 address; };
+		std::vector<Boundary> starts;
+
+		for (const auto& unit : _state.get().translationUnits())
+		{
+			for (const auto& [name, symbol] : unit.symbolTable().getAllSymbols())
+			{
+				if (!symbol.isLabel() || symbol.section() != SectionType::Text || !symbol.hasAddress())
+					continue;
+				// A local label is a place inside a function, not a function.
+				if (name.find('.') != std::string::npos)
+					continue;
+				starts.push_back(Boundary{ symbol.address().value() });
+			}
+		}
+
+		std::ranges::sort(starts, {}, &Boundary::address);
+
+		const u32 textStart = _state.get().memoryMap().textStart.value();
+		const u32 textEnd = textStart + static_cast<u32>(_textBuffer.size());
+
+		for (usize i = 0; i < starts.size(); ++i)
+		{
+			debug::FrameEntry frame;
+			frame.address = starts[i].address;
+			frame.endAddress = i + 1 < starts.size() ? starts[i + 1].address : textEnd;
+
+			// Read the first instruction back out of what was emitted. An ENTER there is what
+			// makes the frame walkable; anything else means this function has no frame pointer.
+			const usize offset = frame.address - textStart;
+			if (offset + vm::Instruction::Size <= _textBuffer.size())
+			{
+				const u32 raw =
+					static_cast<u32>(_textBuffer[offset]) |
+					(static_cast<u32>(_textBuffer[offset + 1]) << 8) |
+					(static_cast<u32>(_textBuffer[offset + 2]) << 16) |
+					(static_cast<u32>(_textBuffer[offset + 3]) << 24);
+
+				const vm::Instruction first{ raw };
+				if (first.opcode() == vm::Opcode::ENTER)
+				{
+					frame.frameSize = first.imm16();
+					frame.flags |= debug::FrameFlag::HasFramePointer;
+				}
+			}
+
+			_debugBuilder.addFrame(frame);
 		}
 	}
 

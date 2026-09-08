@@ -83,6 +83,24 @@ namespace ceres::debug
 		u16 macroDepth = 0;      // 0 for code written by hand
 	};
 
+	// What a function does to the stack on the way in. The call stack is otherwise reconstructed
+	// by watching CALL and RET go past, which a program that unwinds by hand or jumps into the
+	// middle of a subroutine can desynchronise. With this, a frame that has a frame pointer can
+	// be walked exactly instead of guessed at.
+	struct FrameEntry
+	{
+		u32 address = 0;    // Where the function starts
+		u32 endAddress = 0; // One past its last instruction
+		u16 frameSize = 0;  // The operand of its `enter`, or zero if it has none
+		u16 flags = 0;      // bit 0: opens a frame pointer with `enter`
+	};
+
+	namespace FrameFlag
+	{
+		inline constexpr u16 None = 0;
+		inline constexpr u16 HasFramePointer = 1u << 0;
+	}
+
 	struct SymbolEntry
 	{
 		u32 nameOffset = 0;   // Into the string blob
@@ -117,8 +135,10 @@ namespace ceres::debug
 	public:
 		// 'CDBG' in ASCII, by the same convention as ProgramHeader's 'CRES'.
 		static inline constexpr u32 MagicNumber = 0x43444247;
-		static inline constexpr u16 CurrentVersion = 1;
-		// magic, version, reserved, totalSize, fileCount, lineCount, symbolCount, stringsSize, reserved2
+		// 2 added the frame table. A version 1 section still reads: its frame count is simply zero,
+		// because the field it would have lived in was the reserved word.
+		static inline constexpr u16 CurrentVersion = 2;
+		// magic, version, reserved, totalSize, fileCount, lineCount, symbolCount, stringsSize, frameCount
 		static inline constexpr usize HeaderSize = 32;
 
 		// Every instruction word gets its own entry, so an address that is not an exact match can
@@ -133,6 +153,7 @@ namespace ceres::debug
 		std::vector<u32> _fileOffsets;
 		std::vector<LineEntry> _lines;     // Sorted by address
 		std::vector<SymbolEntry> _symbols; // Sorted by address
+		std::vector<FrameEntry> _frames;   // Sorted by address
 		std::string _strings;
 
 	public:
@@ -150,6 +171,10 @@ namespace ceres::debug
 		usize fileCount() const noexcept { return _fileOffsets.size(); }
 		std::span<const LineEntry> lines() const noexcept { return _lines; }
 		std::span<const SymbolEntry> symbols() const noexcept { return _symbols; }
+		std::span<const FrameEntry> frames() const noexcept { return _frames; }
+
+		// The function containing an address, if the assembler recorded one for it.
+		const FrameEntry* frameAt(u32 address) const noexcept;
 
 		std::string_view stringAt(u32 offset) const noexcept;
 		std::string_view fileName(u32 fileId) const noexcept;
@@ -205,6 +230,7 @@ namespace ceres::debug
 
 		void addLine(const LineEntry& entry);
 		void addSymbol(const SymbolEntry& entry);
+		void addFrame(const FrameEntry& entry);
 
 		// Sorts both tables by address and marks the first entry of every source line. Marking has
 		// to happen here rather than at insertion: what counts as "the first word of this line" is

@@ -295,16 +295,25 @@ namespace ceres::debug
 
 	void DebugCLI::printBacktrace() const
 	{
-		const auto frames = _session.callStack();
+		// Walked through the frame pointers when the assembler recorded that this function opens
+		// one; only then is the stack exact rather than inferred from instructions gone past.
+		const std::vector<Frame> exact = _session.unwindCallStack();
+		const std::span<const Frame> reconstructed = _session.callStack();
+		const std::span<const Frame> frames = exact.empty()
+			? reconstructed
+			: std::span<const Frame>(exact);
+
 		if (frames.empty())
 		{
 			std::cout << "  (no frames)\n";
 			return;
 		}
 
-		// Innermost first, the way every debugger prints it.
-		for (usize i = frames.size(); i-- > 0;)
+		// Innermost first, the way every debugger prints it. The reconstruction grows outward,
+		// so it reads backwards; the walk already starts at the innermost frame.
+		for (usize n = 0; n < frames.size(); ++n)
 		{
+			const usize i = exact.empty() ? frames.size() - 1 - n : n;
 			const Frame& frame = frames[i];
 			std::string where = std::format("{:#010x}", frame.address);
 			if (frame.location.has_value())
@@ -314,13 +323,16 @@ namespace ceres::debug
 			}
 
 			std::cout << std::format("  #{} {:<28} {}{}\n",
-				frames.size() - 1 - i,
+				n,
 				frame.name,
 				where,
 				frame.isInterruptHandler ? "  (interrupt)" : "");
 		}
 
-		std::cout << "  (reconstructed: CALL only pushes a return address, so frames are inferred)\n";
+		if (exact.empty())
+			std::cout << "  (reconstructed: CALL only pushes a return address, so frames are inferred)\n";
+		else
+			std::cout << "  (walked through the frame pointers, so these are exact)\n";
 	}
 
 	void DebugCLI::printBreakpoints() const

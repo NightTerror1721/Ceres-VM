@@ -74,6 +74,7 @@ namespace ceres::casm
 		// Called once per machine word actually written to .text, so a pseudo-instruction that
 		// expands to three words contributes three entries and the padding NOPs are marked as
 		// such. `flags` carries everything except FirstOfLine, which only the builder can know.
+		void recordFrames();
 		void recordDebugLine(const RelocatableStatement& statement, Address address, u16 flags);
 
 	private:

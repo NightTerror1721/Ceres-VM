@@ -25,7 +25,10 @@ back:
 └─────────────────────┘
 ```
 
-The debug section is present only when `flags` has bit 0 set, which `ceres asm --debug` does. It is
+The debug section is present only when `flags` has bit 0 set, which `ceres asm --debug` does. Its
+own version is 2, which added a frame table — where each function begins and ends, and whether it
+opens a frame pointer with `enter`. A version 1 section still reads: the field the frame count
+lives in was a reserved zero, which means "no frames". It is
 a little-endian `u32` byte count followed by that many bytes, so a reader with no interest in it can
 skip it without knowing its layout — and a reader that predates it never looks past `.data` at all.
 See [Debug information](21-Debug-Information.md).

@@ -56,10 +56,11 @@ worth having.
 
 Two things it cannot do exactly rather than approximately:
 
-- **The call stack is reconstructed, not unwound.** `CALL` pushes only a return address and nothing
-  in the machine tracks frames, so the debugger builds the stack by watching instructions go past.
-  A program that unwinds by hand, or jumps into the middle of a subroutine, can desynchronise it —
-  which is why `bt` marks its output as reconstructed.
+- **The call stack is only reconstructed for a function with no frame.** `CALL` pushes a return
+  address and `enter` pushes the caller's `fp` on top of it, so a function that opens a frame can
+  be walked exactly — the assembler records which ones do, in the debug section. Without a frame
+  there is no chain, and the debugger falls back to watching instructions go past, which a program
+  that unwinds by hand can desynchronise. `bt` says which of the two it did.
 - **A fault is reported after the handler has been entered.** The faulting address is captured and
   shown, but execution has already been redirected by the time the debugger regains control; there
   is no way to hold the machine at the faulting instruction itself.

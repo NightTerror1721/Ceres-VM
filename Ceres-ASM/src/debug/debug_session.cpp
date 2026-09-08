@@ -548,6 +548,66 @@ namespace ceres::debug
 		return nullptr;
 	}
 
+	// CALL pushes a return address and `enter` pushes the caller's fp on top of it, so a frame that
+	// has a frame pointer knows exactly where the one below it is: the saved fp at [fp + 0] and the
+	// return address at [fp + 4]. That is a chain, and walking it is not a guess.
+	//
+	// It stops at the first thing that does not look like a frame - an fp outside memory, one that
+	// does not move upwards, or a return address outside .text - because a wrong frame is worse
+	// than a short stack.
+	std::vector<Frame> DebugSession::unwindCallStack() const
+	{
+		std::vector<Frame> frames;
+		if (!_vm)
+			return frames;
+
+		const u32 pc = programCounter();
+		const debug::FrameEntry* here = _debugInfo.frameAt(pc);
+		if (here == nullptr || (here->flags & debug::FrameFlag::HasFramePointer) == 0)
+			return frames;
+
+		const auto& registers = _vm->engine().registers();
+		u32 fp = registers.fp().value();
+		u32 address = pc;
+		const u32 memorySize = static_cast<u32>(_vm->memory().size());
+
+		for (usize depth = 0; depth < 128; ++depth)
+		{
+			Frame frame;
+			frame.address = address;
+			frame.entryAddress = here != nullptr ? here->address : address;
+			frame.stackPointer = fp;
+			frame.name = symbolNameAt(frame.entryAddress);
+			frame.location = _debugInfo.locationOf(address);
+			frame.reconstructed = false;
+
+			if (fp == 0 || fp + 8 > memorySize)
+			{
+				frames.push_back(std::move(frame));
+				break;
+			}
+
+			const u32 savedFp = _vm->memory().readUnchecked<u32>(vm::Address(fp));
+			const u32 returnAddress = _vm->memory().readUnchecked<u32>(vm::Address(fp + 4));
+			frame.returnAddress = returnAddress;
+			frames.push_back(std::move(frame));
+
+			// The chain has to go up, and the caller has to be somewhere the assembler knows
+			// about; anything else means the frame pointer is not one.
+			if (savedFp <= fp || savedFp >= memorySize)
+				break;
+
+			here = _debugInfo.frameAt(returnAddress);
+			if (here == nullptr)
+				break;
+
+			address = returnAddress;
+			fp = savedFp;
+		}
+
+		return frames;
+	}
+
 	void DebugSession::setExceptionFilters(std::optional<std::vector<vm::InterruptNumber>> filters)
 	{
 		_exceptionFilters = std::move(filters);

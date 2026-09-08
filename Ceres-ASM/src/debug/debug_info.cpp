@@ -58,6 +58,7 @@ namespace ceres::debug
 
 		constexpr usize LineEntrySize = 28;   // 6 * u32 + 2 * u16
 		constexpr usize SymbolEntrySize = 24; // 5 * u32 + 4 * u8
+		constexpr usize FrameEntrySize = 12;  // 2 * u32 + 2 * u16
 
 		// Minimal escaper for the shapes of text that actually appear here (paths and identifiers);
 		// not a general JSON serialiser. Mirrors the one main.cpp already uses for diagnostics.
@@ -278,17 +279,31 @@ namespace ceres::debug
 
 	// --- DebugInfo: serialisation ---------------------------------------------------------------
 
+	const FrameEntry* DebugInfo::frameAt(u32 address) const noexcept
+	{
+		// Few enough per program that a scan is cheaper than anything cleverer, and they do
+		// not overlap: a function ends where the next one begins.
+		for (const FrameEntry& frame : _frames)
+		{
+			if (address >= frame.address && address < frame.endAddress)
+				return &frame;
+		}
+		return nullptr;
+	}
+
 	std::vector<u8> DebugInfo::serialize() const
 	{
 		const u32 fileCount = static_cast<u32>(_fileOffsets.size());
 		const u32 lineCount = static_cast<u32>(_lines.size());
 		const u32 symbolCount = static_cast<u32>(_symbols.size());
+		const u32 frameCount = static_cast<u32>(_frames.size());
 		const u32 stringsSize = static_cast<u32>(_strings.size());
 		const u32 totalSize = static_cast<u32>(
 			HeaderSize +
 			fileCount * sizeof(u32) +
 			lineCount * LineEntrySize +
 			symbolCount * SymbolEntrySize +
+			frameCount * FrameEntrySize +
 			stringsSize);
 
 		std::vector<u8> out;
@@ -302,7 +317,7 @@ namespace ceres::debug
 		writeU32(out, lineCount);
 		writeU32(out, symbolCount);
 		writeU32(out, stringsSize);
-		writeU32(out, 0); // reserved
+		writeU32(out, frameCount);
 
 		for (u32 offset : _fileOffsets)
 			writeU32(out, offset);
@@ -332,6 +347,14 @@ namespace ceres::debug
 			writeU8(out, symbol.flags);
 		}
 
+		for (const FrameEntry& frame : _frames)
+		{
+			writeU32(out, frame.address);
+			writeU32(out, frame.endAddress);
+			writeU16(out, frame.frameSize);
+			writeU16(out, frame.flags);
+		}
+
 		out.insert(out.end(), _strings.begin(), _strings.end());
 
 		return out;
@@ -358,7 +381,8 @@ namespace ceres::debug
 		const u32 lineCount = reader.readU32();
 		const u32 symbolCount = reader.readU32();
 		const u32 stringsSize = reader.readU32();
-		reader.readU32(); // reserved
+		// Version 1 wrote a reserved zero here, which reads back as "no frames".
+		const u32 frameCount = reader.readU32();
 
 		if (totalSize > bytes.size())
 			return std::unexpected("Debug section declares more bytes than are present");
@@ -368,6 +392,7 @@ namespace ceres::debug
 			static_cast<usize>(fileCount) * sizeof(u32) +
 			static_cast<usize>(lineCount) * LineEntrySize +
 			static_cast<usize>(symbolCount) * SymbolEntrySize +
+			static_cast<usize>(frameCount) * FrameEntrySize +
 			stringsSize;
 
 		if (declared != totalSize)
@@ -418,6 +443,20 @@ namespace ceres::debug
 			symbol.scalarType = reader.readU8();
 			symbol.flags = reader.readU8();
 			info._symbols.push_back(symbol);
+		}
+
+		info._frames.reserve(frameCount);
+		for (u32 i = 0; i < frameCount; ++i)
+		{
+			if (!reader.has(FrameEntrySize))
+				return std::unexpected("Debug section ended inside the frame table");
+
+			FrameEntry frame;
+			frame.address = reader.readU32();
+			frame.endAddress = reader.readU32();
+			frame.frameSize = reader.readU16();
+			frame.flags = reader.readU16();
+			info._frames.push_back(frame);
 		}
 
 		if (!reader.has(stringsSize))
@@ -545,6 +584,11 @@ namespace ceres::debug
 	void DebugInfoBuilder::addSymbol(const SymbolEntry& entry)
 	{
 		_info._symbols.push_back(entry);
+	}
+
+	void DebugInfoBuilder::addFrame(const FrameEntry& entry)
+	{
+		_info._frames.push_back(entry);
 	}
 
 	DebugInfo DebugInfoBuilder::release()
