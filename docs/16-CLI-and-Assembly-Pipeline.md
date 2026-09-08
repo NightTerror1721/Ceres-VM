@@ -106,6 +106,18 @@ the linker computes the shared memory map (summing every unit's aligned section 
 every unit's addresses into that shared image, merges `global` symbols, and does a final resolution
 pass over every instruction's operands.
 
+### 3a. Relaxation
+
+The linker then asks, of every `ldv` and `stv`, whether the variable it names is close enough for
+the one-word PC-relative form. Those that are get their mnemonic rewritten, and the whole of stage
+3 runs again on the shorter layout — which is the only reason an instruction's size can depend on
+an address at all. See
+[Pseudo-instructions → `ldv` and `stv` have two sizes](06-Pseudo-Instructions.md#ldv-and-stv-have-two-sizes)
+for why one extra pass is enough and never two.
+
+Nothing else relaxes today. The machinery is general, though: a `call` within reach of a `bl`, or a
+short branch, would use the same pass.
+
 ### 3b. Unused private declarations
 
 Between linking and emitting, the assembler walks every unit's symbols and macros once more, looking

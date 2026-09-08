@@ -176,8 +176,11 @@ TEST(encoding, la_splits_the_address_into_lui_and_ori)
 
 TEST(encoding, stv_does_not_mix_the_data_register_into_the_address)
 {
+	// 40 KiB of .data in front of it puts `counter` past the reach of a PC-relative store, so
+	// this is the long form: the one that has to materialise the address somewhere.
 	AssembleResult r = assembleSource(
 		"@data\r\n"
+		"    let padding: u8[40960] = [1]\r\n"
 		"    let counter: u32 = 0\r\n"
 		"@text\r\n"
 		"global main:\r\n"

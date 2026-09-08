@@ -76,6 +76,17 @@ namespace
 		"    add r0, r1, r1\r\n"
 		"    ret\r\n";
 
+	constexpr std::string_view LaSource =
+		"@data\r\n"
+		"    let total: u32 = 0\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, 5\r\n"
+		"    la r1, total\r\n"
+		"    li r0, 1\r\n"
+		"    out 0xff, r0\r\n"
+		"    ret\r\n";
+
 	std::unique_ptr<debug::DebugSession> launchOrNull(const TempSource& source, bool stopOnEntry = true)
 	{
 		auto session = debug::DebugSession::launch(debug::LaunchConfig{
@@ -274,15 +285,18 @@ TEST(debugger, stepping_into_a_call_enters_it_and_stepping_out_returns)
 		CHECK_EQ(back->expansionLine, 7u);
 }
 
-TEST(debugger, a_pseudo_instruction_is_one_step_even_though_it_is_three_words)
+TEST(debugger, a_pseudo_instruction_is_one_step_even_though_it_is_several_words)
 {
-	TempSource source{ CallSource, "steppseudo" };
+	// `stv` used to be the example here, at three words. It relaxes to one now that the
+	// variable is close enough to reach, so the multi-word case has to be something that
+	// still is one: `la` is always lui + ori.
+	TempSource source{ LaSource, "steppseudo" };
 	auto session = launchOrNull(source);
 	CHECK(session != nullptr);
 	if (!session) return;
 
 	session->start();
-	session->addLineBreakpoint(source.string(), 7); // stv r0, total - lui + ori + str
+	session->addLineBreakpoint(source.string(), 6); // la r1, total - lui + ori
 	session->resume();
 
 	const u64 before = session->registers().executedInstructions;
@@ -290,13 +304,13 @@ TEST(debugger, a_pseudo_instruction_is_one_step_even_though_it_is_three_words)
 	const u64 after = session->registers().executedInstructions;
 
 	CHECK(event.reason == debug::StopReason::Step);
-	// Three instructions retired, but the user saw one step and landed on the next line.
-	CHECK_EQ(after - before, u64{ 3 });
+	// Two instructions retired, but the user saw one step and landed on the next line.
+	CHECK_EQ(after - before, u64{ 2 });
 
 	const auto location = session->currentLocation();
 	CHECK(location.has_value());
 	if (location.has_value())
-		CHECK_EQ(location->expansionLine, 8u);
+		CHECK_EQ(location->expansionLine, 7u);
 }
 
 TEST(debugger, running_to_the_end_reports_the_program_exiting)

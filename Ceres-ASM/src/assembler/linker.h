@@ -56,6 +56,28 @@ namespace ceres::casm
 
 		void calculateMemoryMap() const;
 		void defineLinkerSymbols();
+
+		// One whole pass: lay the units out, relocate their symbols, and resolve every operand
+		// against the result. Run twice at most - once to find out where everything is, and again
+		// if relaxation shortened anything.
+		bool linkOnce();
+
+		// Rewrites every LDV/STV whose variable the one-word form can reach. Returns true when it
+		// changed something, which means the layout it was measured against is no longer true.
+		bool relaxInstructions();
+
+		// What a second pass has to start over from. Symbol addresses are section-relative until
+		// relocation adds the section base, and relocating twice would add it twice. Operands are
+		// worse: resolution replaces the name with the address it found, so a resolved operand has
+		// forgotten what it was resolving and cannot be asked again - and after a relayout every
+		// one of those addresses is wrong, not just the ones that moved.
+		struct LinkSnapshot
+		{
+			std::vector<std::vector<std::pair<std::string, Address>>> symbolAddresses;
+			std::vector<std::vector<std::vector<Operand>>> operands; // per unit, per instruction, in AST order
+		};
+		LinkSnapshot capture() const;
+		void restore(const LinkSnapshot& snapshot);
 		MemoryOffsets calculateMemoryOffsets() const;
 
 	private:

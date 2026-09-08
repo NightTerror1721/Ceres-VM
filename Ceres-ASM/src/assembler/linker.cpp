@@ -3,7 +3,137 @@
 
 namespace ceres::casm
 {
+	// An instruction's size is fixed before anything knows where the variable it names will end
+	// up: the build pass adds section sizes as it walks, and needs each size to do it. So LDV and
+	// STV reserve three words whether or not the one-word LDVP/STVP would reach.
+	//
+	// Relaxation is the usual answer, and it usually needs a fixpoint: shorten, lay out again,
+	// find something that no longer reaches, grow it back. Here it needs exactly one pass, because
+	// the layout puts all of .text before all of .rodata, .data and .bss - so every reference from
+	// an instruction to a variable points forward.
+	//
+	// Take an instruction at A naming a variable at D > A. Shortening instructions *before* A
+	// lowers A and D by the same amount and the distance is unchanged; shortening instructions
+	// *after* A lowers only D and the distance shrinks. Shortening never moves anything further
+	// away. So whatever reaches on the pessimistic layout still reaches once everything has been
+	// shortened, and measuring once is enough.
 	bool Linker::link()
+	{
+		// Captured before the first relocation makes these absolute, so the second pass can start
+		// from the same place the first one did.
+		const LinkSnapshot snapshot = capture();
+
+		if (!linkOnce())
+			return false;
+
+		if (!relaxInstructions())
+			return true;
+
+		restore(snapshot);
+		for (auto& unit : _state.get().translationUnits())
+			unit.relayoutText();
+
+		// linkOnce fills this from the units, and defineLinkerSymbols refuses to write a name that
+		// is already there.
+		_state.get().globalSymbolTable().clear();
+
+		return linkOnce();
+	}
+
+	Linker::LinkSnapshot Linker::capture() const
+	{
+		LinkSnapshot snapshot;
+		for (const auto& unit : _state.get().translationUnits())
+		{
+			auto& addresses = snapshot.symbolAddresses.emplace_back();
+			for (const auto& [name, symbol] : unit.symbolTable().getAllSymbols())
+			{
+				if (symbol.hasAddress())
+					addresses.emplace_back(name, symbol.address());
+			}
+
+			auto& operands = snapshot.operands.emplace_back();
+			for (const auto& statement : unit.ast())
+			{
+				if (statement.isInstruction())
+					operands.push_back(statement.asInstruction().operands);
+			}
+		}
+		return snapshot;
+	}
+
+	void Linker::restore(const LinkSnapshot& snapshot)
+	{
+		usize unitIndex = 0;
+		for (auto& unit : _state.get().translationUnits())
+		{
+			if (unitIndex >= snapshot.symbolAddresses.size())
+				break;
+
+			for (const auto& [name, address] : snapshot.symbolAddresses[unitIndex])
+				unit.symbolTable().updateAddress(name, address);
+
+			const auto& operands = snapshot.operands[unitIndex];
+			usize statementIndex = 0;
+			for (auto& statement : unit.ast())
+			{
+				if (!statement.isInstruction())
+					continue;
+				if (statementIndex >= operands.size())
+					break;
+
+				// The mnemonic is deliberately left alone: rewriting it is what relaxation did, and
+				// it is the one thing the second pass has to keep.
+				statement.asInstruction().operands = operands[statementIndex];
+				++statementIndex;
+			}
+
+			++unitIndex;
+		}
+	}
+
+	bool Linker::relaxInstructions()
+	{
+		const MemoryMap& memoryMap = _state.get().memoryMap();
+		Address textBase = memoryMap.textStart;
+		bool changed = false;
+
+		for (auto& unit : _state.get().translationUnits())
+		{
+			for (auto& statement : unit.ast())
+			{
+				if (!statement.isInstruction() || !statement.hasAddress())
+					continue;
+
+				InstructionStatement& instruction = statement.asInstruction();
+				const auto shortForm = InstructionInfo::shortFormOf(instruction.mnemonic);
+				if (!shortForm.has_value())
+					continue;
+
+				// Both forms take the register and then the variable. An operand that is not a
+				// resolved variable is one the emitter is about to complain about anyway.
+				if (instruction.operands.size() != 2 || !instruction.operands[1].isVariable())
+					continue;
+
+				const i64 target = static_cast<i64>(instruction.operands[1].asVariable().address.value());
+				const i64 here = static_cast<i64>((textBase + statement.address()).value());
+				const i64 displacement = target - here;
+
+				// The same signed 16-bit field the emitter will encode it into.
+				if (displacement < -32768 || displacement > 32767)
+					continue;
+
+				instruction.mnemonic = shortForm.value();
+				changed = true;
+			}
+
+			textBase += alignUp(unit.sectionSizes().textSize);
+		}
+
+		return changed;
+	}
+
+	bool Linker::linkOnce()
 	{
 		calculateMemoryMap();
 		MemoryOffsets offsets = calculateMemoryOffsets();

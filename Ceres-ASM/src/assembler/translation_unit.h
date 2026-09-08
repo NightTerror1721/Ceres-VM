@@ -71,6 +71,14 @@ namespace ceres::casm
 		inline MacroTable& macroTable() noexcept { return _macroTable; }
 		inline SectionSizes& sectionSizes() noexcept { return _sectionSizes; }
 		inline std::vector<RelocatableStatement>& ast() noexcept { return _ast; }
+
+		// Walks .text again and writes down where everything ended up. Relaxation is the only
+		// caller: rewriting a three-word LDV into a one-word LDVP moves every instruction and every
+		// label after it, and the sizes the linker laid the program out with are no longer true.
+		//
+		// Only .text moves. Each section counts its own offsets, and nothing outside .text changes
+		// size, so a variable keeps the offset it was given when it was declared.
+		void relayoutText();
 		inline std::span<const DirectImport> directImports() const noexcept { return _directImports; }
 
 		inline void setAST(std::vector<RelocatableStatement>&& ast) noexcept { _ast = std::move(ast); }

@@ -166,15 +166,17 @@ now — but it puts the hazard on the one register that has a name to warn you w
 `r0`–`r12` contiguous and all yours. `lr` is still accepted as a spelling of `r13` so that older
 sources keep assembling; `at` is what it should be called.
 
-## `ldvp` and `stvp` — the near forms
+## `ldv` and `stv` have two sizes
 
-`ldv` and `stv` always work and always cost twelve bytes: `lui`, `ori`, and the load or store, with
-`at` borrowed to hold the address while the value goes somewhere else. Most variables do not need
-any of that. `.rodata`, `.data` and `.bss` sit immediately after `.text`, so in a program of any
-ordinary size a static is a few hundred bytes from the instruction that reads it.
+`ldv` and `stv` always work: `lui`, `ori`, and the load or store, with `at` borrowed to hold the
+address while the value goes somewhere else. Twelve bytes, and a register the programmer did not
+name gone. Most variables never needed any of that. `.rodata`, `.data` and `.bss` sit immediately
+after `.text`, so in a program of any ordinary size a static is a few hundred bytes from the
+instruction that reads it.
 
-`ldvp` and `stvp` take the address as a **displacement from the instruction itself**, the way a
-branch does:
+When the variable is within **±32 KiB** of the instruction, the linker rewrites the pseudo-
+instruction into a single PC-relative word, with the address as a displacement measured from the
+instruction itself the way a branch's is:
 
 ```casm
 @data
@@ -182,40 +184,61 @@ branch does:
 
 @text
 global main:
-    ldvp r1, counter        // one word, LDRP r1, [pc + 36]
-    inc  r1
-    stvp r1, counter        // one word, and `at` is untouched
+    ldv r1, counter         // LDRP r1, [pc + 24] - one word
+    inc r1
+    stv r1, counter         // STRP [pc + 16], r1 - and `at` is untouched
 ```
 
-The scalar type picks the width exactly as it does for `ldv`/`stv`, so `ldvp` into a float register
-assembles to `FLDRP` and an `i8` variable to `LDRSBP`.
+Out of that range it stays the three-word form, and only then does it clobber `at`.
 
-**Reach is ±32 KiB.** Further than that is a link error naming the distance:
+### How the linker gets to choose
+
+An instruction's size is fixed before anything knows where the variable will be: the translation-unit
+pass adds up section sizes as it walks the statements, and needs each instruction's size to do it.
+The address that decides whether the short form reaches is not known until every unit has been laid
+out. So the linker lays the program out **twice** — once to find out where everything is, then again
+once it knows which instructions can shrink.
+
+Once, not repeatedly, and that is the part worth knowing. Relaxation normally needs a fixpoint:
+shorten, lay out again, discover something that no longer reaches, grow it back. Here it does not,
+because the layout puts all of `.text` before all of `.rodata`, `.data` and `.bss`, so **every
+reference from an instruction to a variable points forward**.
+
+Take an instruction at `A` naming a variable at `D > A`. Shortening instructions *before* `A` lowers
+`A` and `D` by the same amount, and the distance does not change. Shortening instructions *after*
+`A` lowers only `D`, and the distance shrinks. Shortening never moves anything further away — so
+whatever reaches on the first, pessimistic layout still reaches on the second, and measuring once is
+enough.
+
+The second pass has to start over from the same place the first one did, which is why the linker
+snapshots symbol addresses **and operands** before it begins. A resolved operand has forgotten the
+name it resolved and cannot be asked again, and after a relayout every address it holds is wrong —
+not only the ones that moved.
+
+### Asking for the short form by name
+
+`ldvp` and `stvp` are the same encoding, demanded rather than hoped for: a variable out of reach is
+an error instead of a longer instruction.
 
 ```
 'LDVP Reg VarU32' is 40968 bytes away, out of reach for a PC-relative access; use ldv/stv instead
 ```
 
-### Why not just make `ldv` do this
+Write them where four bytes is a requirement — a hot loop, an interrupt handler with a budget —
+rather than a preference. Everywhere else `ldv` and `stv` already do the right thing.
 
-Because an instruction's size is fixed before anything knows where the variable will be. The
-translation-unit pass adds up section sizes as it walks the statements, and it needs each
-instruction's size to do it; the address that would decide whether the near form reaches is not
-known until the linker has laid out every unit. Choosing per instruction would need a relaxation
-pass — lay out optimistically, grow whatever does not reach, lay out again until nothing changes.
-That is a real and well-understood technique, and it is a change to the assembler's central
-invariant rather than a detail of these instructions. Separate mnemonics keep the choice explicit
-and the sizes knowable.
+## Fixed instruction size, and the one exception
 
-## Fixed instruction size, even when the variant is shorter
+Every other pseudo-instruction has exactly one size, decided from its mnemonic during the
+translation-unit pass, before linking — see
+[CLI and assembly pipeline](16-CLI-and-Assembly-Pipeline.md). Where a mnemonic has overloads that
+compile to different numbers of words, the assembler reserves the largest and pads the rest with
+`nop`.
 
-`ldv`/`stv` pick their trailing load/store instruction based on the variable's *scalar type*, but the
-assembler has to decide **how many bytes the whole pseudo-instruction occupies** before it knows
-final addresses (this happens during the translation-unit pass, before linking — see
-[CLI and assembly pipeline](16-CLI-and-Assembly-Pipeline.md)). Since every variant of `ldv`/`stv`
-compiles to exactly 3 real instructions (`lui`+`ori`+ load-or-store) regardless of the scalar type,
-this isn't actually a problem in practice — every `ldv`/`stv` is always 12 bytes. The size is
-reserved up front and never needs padding.
+`ldv` and `stv` are the exception, and the only one: their size is decided by the *linker*, which
+is the first thing that knows how far away the variable is. That is what relaxation buys, and it
+is the mechanism any future short form would use — a `bl` chosen over a `call` within reach, say,
+or a short branch.
 
 ## `neg` — Negate
 

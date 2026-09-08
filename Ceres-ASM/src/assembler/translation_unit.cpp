@@ -286,6 +286,59 @@ namespace ceres::casm
 		}
 	}
 
+	void TranslationUnit::relayoutText()
+	{
+		Address offset = 0;
+		bool inText = false;
+		// Local labels are keyed as `parent.name`, so walking the AST has to keep the same running
+		// parent the builder had when it defined them.
+		std::string lastParentLabel;
+
+		for (auto& statement : _ast)
+		{
+			if (statement.isSection())
+			{
+				inText = statement.asSection().section == SectionType::Text;
+				continue;
+			}
+
+			if (statement.isLabel())
+			{
+				const LabelStatement& label = statement.asLabel();
+				const bool isLocal = label.level == LabelLevel::Local;
+
+				if (!isLocal)
+					lastParentLabel = std::string(label.name.view());
+
+				if (!inText)
+					continue;
+
+				statement.setAddress(offset);
+				const std::string key = isLocal
+					? string_utils::concat(lastParentLabel, ".", label.name.view())
+					: std::string(label.name.view());
+				_symbolTable.updateAddress(key, offset);
+				continue;
+			}
+
+			if (!inText || !statement.isInstruction())
+				continue;
+
+			statement.setAddress(offset);
+
+			// The build pass already refused anything whose size it could not work out, so a
+			// mnemonic that has none here would be one relaxation invented.
+			const auto size = InstructionInfo::findMaxSizeInBytes(statement.asInstruction().mnemonic);
+			if (!size.has_value() || size.value() == 0)
+				throw AssemblerError(statement.file(), statement.line(), 1,
+					"Failed to determine size of instruction statement during relayout");
+
+			offset += size.value();
+		}
+
+		_sectionSizes.textSize = offset.value();
+	}
+
 	std::vector<Statement> TranslationUnitBuilder::expandMacroCall(const Statement& callStatement, u32 expansionDepth)
 	{
 		const u32 line = callStatement.line();

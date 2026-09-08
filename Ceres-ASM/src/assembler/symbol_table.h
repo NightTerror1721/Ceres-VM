@@ -142,6 +142,20 @@ namespace ceres::casm
 
 	public:
 		void defineLabel(u32 line, std::string_view name, SectionType section, Address address, LabelLevel level);
+
+		// Moves a symbol that is already defined. Only relaxation uses this: laying .text out again
+		// with shorter instructions moves every label after the first one that shrank.
+		bool updateAddress(const std::string& name, Address address) noexcept
+		{
+			const auto it = _symbols.find(name);
+			if (it == _symbols.end())
+				return false;
+			it->second.setAddress(address);
+			return true;
+		}
+
+		// Empties the table so the linker can build it again from scratch after a relayout.
+		void clear() noexcept { _symbols.clear(); }
 		void defineConstant(u32 line, std::string_view name, bool isGlobal, const LiteralValue& value);
 
 		std::optional<std::reference_wrapper<const Symbol>> get(std::string_view name) const noexcept;

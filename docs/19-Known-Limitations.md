@@ -22,9 +22,14 @@ contract — only you can. What the macros buy is that the disciplined thing is 
 to write.
 
 One hazard is worth repeating because it is invisible: **`at` (`r13`) is clobbered by `stv`, and by
-`ldv` into a float register**, so it can never hold anything that has to survive one of them,
-whatever the convention says. Nothing else clobbers it — `la` never needs a scratch register, and
+`ldv` into a float register** — but only when the variable is more than ±32 KiB from the
+instruction, which in a program of ordinary size is never. Inside that range the linker relaxes
+them into one PC-relative word and no scratch register is needed at all. `la` never needed one, and
 neither does `ldv` into an integer register.
+
+That it depends on the distance is the part to keep in mind: a program that grows past 32 KiB of
+statics starts clobbering `at` in code that did not before, without a word. Nothing has changed at
+the source level, so nothing warns.
 
 ## Most I/O devices are stubs
 
@@ -89,7 +94,7 @@ because a reader coming from a more conventional ISA might otherwise assume they
 | --- | --- | --- |
 | Division/modulo by zero doesn't fault | Sets the Trap flag and continues, leaving the destination unchanged | [Instruction set → Arithmetic](05-Instruction-Set.md#arithmetic-0x10-0x28) |
 | `str [rd + imm16], rs` puts the base *before* the value | `imm16` occupies the same bits as `rt`, so there's no room for a third register | [Instruction format](04-Instruction-Format.md#the-critical-overlap-imm16-and-rt) |
-| `stv` silently clobbers `at` (`r13`) | It needs a base register for the address that is not the one holding the value | [Pseudo-instructions](06-Pseudo-Instructions.md#the-at-clobber) |
+| A far `stv` silently clobbers `at` (`r13`) | Out of PC-relative reach it needs a base register for the address that is not the one holding the value | [Pseudo-instructions](06-Pseudo-Instructions.md#the-at-clobber) |
 | `iret` never restores the Halting flag | `halt` means "wait for an interrupt"; restoring it would put the machine straight back to sleep with no way to wake it | [Registers and flags](03-Registers-and-Flags.md#flags-register) |
 | A stack overflow does not protect the heap | The limit is the end of the image, and everything above it is free ground the stack is entitled to | [Memory → The stack](02-Memory.md#the-stack) |
 | `[r5+0]` fails to parse | Lexes as the register followed by the signed literal `+0`, not as `+` then `0` | [Language syntax](10-Language-Syntax.md#addressing-memory-operands) |

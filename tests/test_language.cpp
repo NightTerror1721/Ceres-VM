@@ -551,9 +551,10 @@ TEST(language, ptr_is_a_u32_that_reads_as_an_address)
 	CHECK(r.ok());
 	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
 
-	// A ptr loads as a full word, exactly as a u32 does.
-	CHECK_EQ(Instruction(r.words()[2]).opcode() == Opcode::LDR, true);
-	CHECK_EQ(Instruction(r.words()[3]).imm16(), u16{ 16 });
+	// A ptr loads as a full word, exactly as a u32 does. One word, because the variable is close
+	// enough for the linker to relax the ldv into its PC-relative form.
+	CHECK_EQ(Instruction(r.words()[0]).opcode() == Opcode::LDRP, true);
+	CHECK_EQ(Instruction(r.words()[1]).imm16(), u16{ 16 });
 }
 
 TEST(language, the_machine_vocabulary_aliases_are_accepted)

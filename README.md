@@ -463,10 +463,9 @@ Write the spaces: `[r5+0]` lexes the `+0` as a signed literal and fails to parse
 | Written | Expands to | Size |
 | --- | --- | --- |
 | `la rd, symbol` | `lui` + `ori` | 8 B |
-| `ldv rd, variable` | `lui` + `ori` + a load chosen by the variable's type | 12 B |
-| `stv rs, variable` | `lui` + `ori` + a store chosen by the variable's type | 12 B |
-| `ldvp rd, variable` | one PC-relative load chosen by the variable's type | 4 B |
-| `stvp rs, variable` | one PC-relative store chosen by the variable's type | 4 B |
+| `ldv rd, variable` | one PC-relative load, or `lui` + `ori` + a load | 4 B or 12 B |
+| `stv rs, variable` | one PC-relative store, or `lui` + `ori` + a store | 4 B or 12 B |
+| `ldvp` / `stvp` | the PC-relative form, demanded rather than hoped for | 4 B |
 | `neg rd, rs` | `imul rd, rs, -1`, or `fneg` for float registers | 4 B |
 | `lc rd, imm32` | `lui` + `ori` | 8 B |
 | `ifXX rs, rt, label` | `cmp` (or `cmpi`, or `fcmp`) + the matching branch | 8 B |
@@ -489,14 +488,18 @@ operand may be a register or an immediate, and a pair of float registers picks `
     ifgr f0, f1, .bigger        // fcmp, without remembering which flag it sets
 ```
 
-`ldvp` and `stvp` are the same thing for a variable that is **near**: the displacement is measured
-from the instruction itself, exactly as a branch's is, so there is no address to build — one word
-instead of three, and no scratch register touched. Reach is ±32 KiB; further away is a link error
-naming the distance, and `ldv`/`stv` are the way out. They are separate mnemonics rather than an
-optimisation because an instruction's size is fixed before the layout that would decide it.
+**`ldv` and `stv` have two sizes.** When the variable is within ±32 KiB of the instruction — which
+in a program of ordinary size is all of them — the linker rewrites them into a single PC-relative
+word, measured from the instruction itself the way a branch is. Otherwise they stay as `lui` +
+`ori` + the access, and only then do they clobber `at` (`r13`).
 
-`stv`, and `ldv` into a float register, clobber `at` (`r13`). Because an instruction's size has to be known before its overload
-is chosen, the assembler reserves the largest form and pads the rest with `nop`.
+The linker can choose because it lays the program out twice: once to find out where everything is,
+and again after shortening. One pass is enough because all of `.text` comes before all of the data,
+so every reference points forward and shortening can only ever bring things closer.
+
+`ldvp` and `stvp` are the short form asked for by name: same encoding, but a variable out of reach
+is an error instead of a longer instruction. Write them when four bytes is a requirement rather
+than a preference.
 
 ## Macros
 

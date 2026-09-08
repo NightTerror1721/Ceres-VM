@@ -462,6 +462,18 @@ namespace ceres::casm
 	public:
 		static std::optional<InstructionInfo> find(InstructionSignature signature) noexcept;
 		static std::optional<u32> findMaxSizeInBytes(Mnemonic mnemonic) noexcept;
+
+		// The one-word form of a mnemonic that also has a long one, for a target the short form can
+		// reach. Relaxation is the only caller; see Linker::relaxInstructions.
+		static constexpr std::optional<Mnemonic> shortFormOf(Mnemonic mnemonic) noexcept
+		{
+			switch (mnemonic)
+			{
+				case Mnemonic::LDV: return Mnemonic::LDVP;
+				case Mnemonic::STV: return Mnemonic::STVP;
+				default: return std::nullopt;
+			}
+		}
 	};
 }
 
