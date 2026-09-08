@@ -35,6 +35,11 @@ namespace ceres::casm
 		bool dereferenced = false;
 	};
 
+	struct MacroParameterOperand
+	{
+		Identifier name; // Macro parameter name (e.g., "$param1", "$param2", etc.)
+	};
+
 	struct MemoryOperand
 	{
 		// Absent when the base is a symbol rather than a register: `[counter]`. The symbol's own
@@ -45,8 +50,19 @@ namespace ceres::casm
 		// same either way - this only picks which opcode the signature resolves to.
 		std::optional<DataTypeScalarCode> accessType;
 		// An immediate, an identifier (a symbolic address), or a second register - `[r1 + r2]`,
-		// which is an index rather than a displacement and picks a different opcode.
-		std::variant<std::monostate, ImmediateOperand, IdentifierOperand, RegisterOperand> offset;
+		// which is an index rather than a displacement and picks a different opcode. Inside a macro
+		// body it can also be a parameter, and then which of those three it is depends on the
+		// argument.
+		std::variant<std::monostate, ImmediateOperand, IdentifierOperand, RegisterOperand, MacroParameterOperand> offset;
+
+		// `[$base + 4]` inside a macro body. Which register the base is has not been decided yet:
+		// the argument decides it, at expansion. Null everywhere else, which is everywhere the
+		// base is already a register.
+		NullableIdentifier baseParameter{};
+
+		constexpr bool hasParameterBase() const noexcept { return !baseParameter.isNull(); }
+		constexpr bool isParameterOffset() const noexcept { return std::holds_alternative<MacroParameterOperand>(offset); }
+		constexpr const MacroParameterOperand& parameterOffset() const noexcept { return std::get<MacroParameterOperand>(offset); }
 
 		constexpr bool hasOffset() const noexcept { return !std::holds_alternative<std::monostate>(offset); }
 		constexpr bool isImmediateOffset() const noexcept { return std::holds_alternative<ImmediateOperand>(offset); }
@@ -84,11 +100,6 @@ namespace ceres::casm
 		SectionType section = SectionType::Text;
 		// Defined somewhere other than the unit being assembled: only a link knows where.
 		bool external = false;
-	};
-
-	struct MacroParameterOperand
-	{
-		Identifier name; // Macro parameter name (e.g., "$param1", "$param2", etc.)
 	};
 
 	struct MacroLabelOperand
@@ -237,6 +248,9 @@ namespace ceres::casm
 		{
 			return Operand{ MemoryOperand{ baseRegIndex, std::nullopt, RegisterOperand{ indexRegIndex } } };
 		}
+		// For the two callers that build one piece by piece: the parser, which meets the parts in
+		// the order they are written, and macro expansion, which replaces a parameter inside one.
+		static Operand makeMemoryOperand(MemoryOperand&& memory) noexcept { return Operand{ std::move(memory) }; }
 
 		// Stamps the access type onto a memory operand that has already been parsed, which is the
 		// order the parser meets them in: the type comes first but the operand is built after.

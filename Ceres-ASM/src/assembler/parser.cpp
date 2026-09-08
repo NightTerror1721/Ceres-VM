@@ -846,13 +846,27 @@ namespace ceres::casm
 		if (_cursor.match(TokenType::BracketOpen))
 		{
 			_cursor.next(); // Consume '['
-			Token baseRegToken = _cursor.consume(TokenType::Identifier, "Expected register or symbol after '[' for memory operand");
+
+			// `[$base + 4]`: inside a macro body the base can be a parameter, and which register
+			// it is is decided by the argument at expansion. Everything else about the operand -
+			// the displacement, the index, the access type - is written here and parses now.
+			NullableIdentifier baseParameter = nullptr;
+			if (_cursor.match(TokenType::DollarIdentifier))
+			{
+				baseParameter = _cursor.current().identifierValue();
+				_cursor.next();
+			}
+
+			Token baseRegToken = baseParameter.isNull()
+				? _cursor.consume(TokenType::Identifier, "Expected register, symbol or macro parameter after '[' for memory operand")
+				: Token{};
 
 			// `[counter]`: a symbol inside brackets means its contents, the way brackets mean the
 			// contents of an address everywhere else. The address of it is the name on its own.
 			// There is nothing to add to it, so a displacement or an index would be a second
 			// thing the one instruction cannot do.
-			if (!RegisterInfo::get(baseRegToken.identifierValue()).has_value() &&
+			if (baseParameter.isNull() &&
+				!RegisterInfo::get(baseRegToken.identifierValue()).has_value() &&
 				!_registerAliases.contains(std::string(baseRegToken.lexeme())))
 			{
 				if (!_cursor.match(TokenType::BracketClose))
@@ -867,7 +881,11 @@ namespace ceres::casm
 
 			u8 baseRegIndex = 0;
 			bool baseIsFloat = false;
-			if (const auto baseReg = RegisterInfo::get(baseRegToken.identifierValue()); baseReg.has_value())
+			if (!baseParameter.isNull())
+			{
+				// Nothing to look up yet; the argument answers it.
+			}
+			else if (const auto baseReg = RegisterInfo::get(baseRegToken.identifierValue()); baseReg.has_value())
 			{
 				baseRegIndex = baseReg->index;
 				baseIsFloat = baseReg->isFloatingPoint;
@@ -884,11 +902,16 @@ namespace ceres::casm
 			if (baseIsFloat)
 				error("Base register for memory operand must be a general-purpose register, not a floating-point register");
 
+			// Everything below fills this in: the parts arrive in the order they are written.
+			MemoryOperand memory;
+			memory.baseRegIndex = baseRegIndex;
+			memory.baseParameter = baseParameter;
+
 			if (_cursor.match(TokenType::BracketClose))
 			{
 				_cursor.next(); // Consume ']'
-				Operand memory = Operand::makeMemory(baseRegIndex);
-				return accessType.has_value() ? Operand::withAccessType(std::move(memory), accessType.value()) : memory;
+				Operand operand = Operand::makeMemoryOperand(std::move(memory));
+				return accessType.has_value() ? Operand::withAccessType(std::move(operand), accessType.value()) : operand;
 			}
 
 			bool isMinus = _cursor.match(TokenType::Minus);
@@ -896,19 +919,27 @@ namespace ceres::casm
 				error("Expected '+' or '-' after base register in memory operand");
 			_cursor.next(); // Consume '+' or '-'
 
-			Operand memOp;
 			if (_cursor.match(TokenType::LiteralInteger))
 			{
 				u32 offset = _cursor.current().integerValue();
 				if (isMinus)
 					offset = static_cast<u32>(-static_cast<i32>(offset));
-				memOp = Operand::makeMemory(baseRegIndex, offset);
+				memory.offset = ImmediateOperand{ offset };
 				_cursor.next(); // Consume the integer literal
+			}
+			else if (_cursor.match(TokenType::DollarIdentifier))
+			{
+				// `[r1 + $offset]`: a displacement, an index or a symbol, decided by the argument.
+				if (isMinus)
+					error("A macro parameter cannot be subtracted here; pass the negative value instead");
+
+				memory.offset = MacroParameterOperand{ _cursor.current().identifierValue() };
+				_cursor.next();
 			}
 			else if (atQualifiedName())
 			{
 				// `[r1 + Entity.y]`: a struct field offset is a constant like any other.
-				memOp = Operand::makeMemory(baseRegIndex, parseQualifiedName());
+				memory.offset = IdentifierOperand{ parseQualifiedName() };
 			}
 			else if (_cursor.match(TokenType::Identifier) && indexRegisterOf(_cursor.current()).has_value())
 			{
@@ -917,18 +948,19 @@ namespace ceres::casm
 				if (isMinus)
 					error("A register index cannot be subtracted; write '[base + index]' and negate the index instead");
 
-				memOp = Operand::makeMemoryIndexed(baseRegIndex, indexRegisterOf(_cursor.current()).value());
+				memory.offset = RegisterOperand{ indexRegisterOf(_cursor.current()).value() };
 				_cursor.next(); // Consume the register identifier
 			}
 			else if (_cursor.match(TokenType::Identifier))
 			{
-				memOp = Operand::makeMemory(baseRegIndex, _cursor.current().identifierValue());
+				memory.offset = IdentifierOperand{ _cursor.current().identifierValue() };
 				_cursor.next(); // Consume the identifier
 			}
 			else
-				error("Expected integer literal or identifier after '+' or '-' in memory operand");
+				error("Expected integer literal, identifier or macro parameter after '+' or '-' in memory operand");
 
 			_cursor.consume(TokenType::BracketClose, "Expected ']' to close memory operand");
+			Operand memOp = Operand::makeMemoryOperand(std::move(memory));
 			return accessType.has_value() ? Operand::withAccessType(std::move(memOp), accessType.value()) : memOp;
 		}
 

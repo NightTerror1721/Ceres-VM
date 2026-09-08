@@ -619,6 +619,20 @@ Macros are keyed by name **and** argument count, so one name can carry several a
 does not redefine its internal labels. Macros may call other macros; runaway recursion is reported
 rather than hanging.
 
+### A parameter inside brackets
+
+```casm
+macro load_at $dst, $base, $off
+    ldr $dst, [$base + $off]
+endmacro
+```
+
+A parameter can be the base of a memory operand, its offset, or both. The body is parsed where it
+is written, so `[$base + 4]` parses with the base still unknown and the hole is filled at
+expansion. What the offset means follows the argument: a number is a displacement, a register is an
+index (a different opcode), a name is a symbolic displacement. The base has to be handed a
+general-purpose register, and a parameter cannot be subtracted — pass the negative value.
+
 ## The timer
 
 ```casm

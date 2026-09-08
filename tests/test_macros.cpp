@@ -331,3 +331,112 @@ TEST(macros, a_hygienic_loop_inside_a_macro_runs_twice_independently)
 	if (!r.assembled) { Registry::instance().recordFailure(r.errors); return; }
 	CHECK_EQ(r.output, std::string{ "AABBB" });
 }
+
+// --- A parameter inside the brackets ------------------------------------------------------------
+//
+// The body of a macro is parsed once, where it is written, so `[$base + 4]` has to parse before
+// anyone knows which register `$base` is. What the argument decides is filled in at expansion, and
+// only that: the brackets, the displacement and the access type were all decided by the source.
+
+TEST(macros, a_parameter_can_be_the_base_of_a_memory_operand)
+{
+	AssembleResult r = assembleSource(
+		"macro load_at $dst, $base\r\n"
+		"    ldr $dst, [$base + 4]\r\n"
+		"endmacro\r\n"
+		"macro store_at $base, $src\r\n"
+		"    str [$base + 8], $src\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    load_at r1, r2\r\n"
+		"    store_at r2, r1\r\n"
+		"    ret\r\n",
+		"macroparam");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const Instruction load{ r.words()[0] };
+	CHECK(load.opcode() == Opcode::LDR);
+	CHECK_EQ(load.rd(), u8{ 1 });
+	CHECK_EQ(load.rs(), u8{ 2 });
+	CHECK_EQ(load.simm16(), i16{ 4 });
+
+	const Instruction store{ r.words()[1] };
+	CHECK(store.opcode() == Opcode::STR);
+	CHECK_EQ(store.rd(), u8{ 2 });
+	CHECK_EQ(store.simm16(), i16{ 8 });
+}
+
+TEST(macros, what_a_parameter_offset_means_is_decided_by_the_argument)
+{
+	// The same line of the same macro is a displacement, an index or a symbolic offset depending
+	// on what it is handed - exactly as if the three had been written out by hand.
+	AssembleResult r = assembleSource(
+		"const SLOT = 12\r\n"
+		"macro load_at $base, $off\r\n"
+		"    ldr r1, [$base + $off]\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    load_at r2, 8\r\n"
+		"    load_at r2, r3\r\n"
+		"    load_at r2, SLOT\r\n"
+		"    ret\r\n",
+		"macroparamoffset");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const Instruction displacement{ r.words()[0] };
+	CHECK(displacement.opcode() == Opcode::LDR);
+	CHECK_EQ(displacement.simm16(), i16{ 8 });
+
+	// A register turns it into an index, which is a different opcode.
+	const Instruction indexed{ r.words()[1] };
+	CHECK(indexed.opcode() == Opcode::LDRX);
+	CHECK_EQ(indexed.rs(), u8{ 2 });
+	CHECK_EQ(indexed.rt(), u8{ 3 });
+
+	const Instruction symbolic{ r.words()[2] };
+	CHECK(symbolic.opcode() == Opcode::LDR);
+	CHECK_EQ(symbolic.simm16(), i16{ 12 });
+}
+
+TEST(macros, an_access_type_still_picks_the_width_around_a_parameter)
+{
+	AssembleResult r = assembleSource(
+		"macro load_byte $base\r\n"
+		"    ldr r1, u8[$base + 4]\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    load_byte r2\r\n"
+		"    ret\r\n",
+		"macroparamtyped");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK(Instruction(r.words()[0]).opcode() == Opcode::LDRB);
+}
+
+TEST(macros, a_base_that_is_not_a_register_is_reported_against_the_macro)
+{
+	// The message has to name the parameter and the macro: the line that fails is inside the
+	// macro body, and the mistake is at the call site.
+	AssembleResult r = assembleSource(
+		"macro load_at $base\r\n"
+		"    ldr r1, [$base + 4]\r\n"
+		"endmacro\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    load_at 42\r\n"
+		"    ret\r\n",
+		"macroparambad");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("$base") != std::string::npos);
+	CHECK(r.joinedErrors().find("load_at") != std::string::npos);
+}

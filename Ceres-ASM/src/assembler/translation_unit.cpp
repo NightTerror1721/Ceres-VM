@@ -517,19 +517,63 @@ namespace ceres::casm
 		return statement;
 	}
 
+	// The argument a parameter stands for at this call site. Shared by the two places a parameter
+	// can appear: as a whole operand, and inside a memory operand.
+	const Operand& TranslationUnitBuilder::macroArgumentFor(u32 line, Identifier name, const Macro& macro, const MacroCallStatement& call) const
+	{
+		const auto index = macro.parameterIndex(std::string(name.view()));
+
+		if (!index.has_value())
+			error(line, "'{}' is not a parameter of macro '{}'", name, macro.name());
+		if (index.value() >= call.arguments.size())
+			error(line, "Macro '{}' expects {} argument(s) but was given {}", macro.name(), macro.parameterCount(), call.arguments.size());
+
+		return call.arguments[index.value()];
+	}
+
 	Operand TranslationUnitBuilder::substituteMacroOperand(u32 line, const Operand& operand, const Macro& macro, const MacroCallStatement& call, u32 instanceId)
 	{
 		if (operand.isMacroParameter())
+			return macroArgumentFor(line, operand.asMacroParameter().name, macro, call);
+
+		// `[$base + 4]`, `[r1 + $offset]`: the operand around the parameter was parsed where it was
+		// written; only the parts that were a parameter are filled in here. What the offset *is* -
+		// a displacement, an index, or a symbol - is decided by the argument, exactly as it would
+		// be if the same thing had been written out by hand.
+		if (operand.isMemory() && (operand.asMemory().hasParameterBase() || operand.asMemory().isParameterOffset()))
 		{
-			const Identifier name = operand.asMacroParameter().name;
-			const auto index = macro.parameterIndex(std::string(name.view()));
+			MemoryOperand memory = operand.asMemory();
 
-			if (!index.has_value())
-				error(line, "'${}' is not a parameter of macro '{}'", name, macro.name());
-			if (index.value() >= call.arguments.size())
-				error(line, "Macro '{}' expects {} argument(s) but was given {}", macro.name(), macro.parameterCount(), call.arguments.size());
+			if (memory.hasParameterBase())
+			{
+				const Identifier name = Identifier(memory.baseParameter);
+				const Operand& argument = macroArgumentFor(line, name, macro, call);
 
-			return call.arguments[index.value()];
+				if (!argument.isRegister())
+					error(line, "'{}' is the base of a memory operand in macro '{}', so it has to be given a general-purpose register",
+						name, macro.name());
+
+				memory.baseRegIndex = argument.asRegister().regIndex;
+				memory.baseParameter = nullptr;
+			}
+
+			if (memory.isParameterOffset())
+			{
+				const Identifier name = memory.parameterOffset().name;
+				const Operand& argument = macroArgumentFor(line, name, macro, call);
+
+				if (argument.isImmediate())
+					memory.offset = ImmediateOperand{ argument.asImmediate().value };
+				else if (argument.isRegister())
+					memory.offset = RegisterOperand{ argument.asRegister().regIndex };
+				else if (argument.isIdentifier())
+					memory.offset = IdentifierOperand{ argument.asIdentifier().name, argument.asIdentifier().isLocal };
+				else
+					error(line, "'{}' is the offset of a memory operand in macro '{}', so it has to be given a number, a register or a name",
+						name, macro.name());
+			}
+
+			return Operand::makeMemoryOperand(std::move(memory));
 		}
 
 		if (operand.isMacroLabel())

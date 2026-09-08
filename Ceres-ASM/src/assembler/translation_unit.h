@@ -269,6 +269,9 @@ namespace ceres::casm
 
 		std::vector<Statement> expandMacroCall(const Statement& callStatement, u32 expansionDepth);
 		Statement substituteMacroStatement(const Statement& statement, const Macro& macro, const MacroCallStatement& call, u32 instanceId);
+		// The argument a macro parameter stands for at a call site.
+		const Operand& macroArgumentFor(u32 line, Identifier name, const Macro& macro, const MacroCallStatement& call) const;
+
 		Operand substituteMacroOperand(u32 line, const Operand& operand, const Macro& macro, const MacroCallStatement& call, u32 instanceId);
 		Identifier makeHygienicLabel(Identifier macroLabel, u32 instanceId);
 

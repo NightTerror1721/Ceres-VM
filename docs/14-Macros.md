@@ -110,8 +110,45 @@ matching call-site operand doesn't fit the instruction it appears in fails exact
 that operand directly to that instruction would.
 
 Referencing a `$name` that isn't one of the macro's declared parameters is a compile error
-(`'${}' is not a parameter of macro '{}'`), caught during expansion, not silently treated as a normal
-identifier.
+(`'$name' is not a parameter of macro 'foo'`), caught during expansion, not silently treated as a
+normal identifier.
+
+### A parameter inside a memory operand
+
+A parameter can be the base of a memory operand, its offset, or both:
+
+```casm
+macro load_at $dst, $base, $off
+    ldr $dst, [$base + $off]
+endmacro
+
+macro save_byte $base, $src
+    str u8[$base + 4], $src
+endmacro
+```
+
+This is worth spelling out because the body is parsed **once, where it is written** — long before
+anyone knows which register `$base` is. `[$base + 4]` has to parse with the base still unknown, so
+the operand is built with a hole in it and the hole is filled at expansion. Everything else about it
+was decided by the source: the brackets, the access type, whether there is a displacement at all.
+
+What the offset *means* is decided by the argument, exactly as if the three calls had been written
+out by hand:
+
+| Argument | What `[$base + $off]` becomes |
+| --- | --- |
+| a number | a displacement — `ldr r1, [r2 + 8]` |
+| a register | an **index**, which is a different opcode — `ldrx r1, [r2 + r3]` |
+| a name | a symbolic displacement, resolved like any constant |
+
+Two rules follow from the base having to end up as a register:
+
+- **The base must be given a general-purpose register.** An immediate or a float register is an
+  error naming the parameter and the macro, since the mistake is at the call site and the line that
+  fails is inside the body.
+- **A parameter cannot be subtracted**: write `[$base + $off]` and pass the negative value. `-$off`
+  would have to mean "negate whatever this turns out to be", and for a register index there is
+  nothing to negate.
 
 ## Worked example: the calling convention
 
