@@ -250,6 +250,7 @@ namespace ceres::casm
 						fieldLayout.name = std::string(field.name.view());
 						fieldLayout.type = fieldType;
 						fieldLayout.offset = offset;
+						fieldLayout.structName = std::string(structNameOf(field.dataType));
 						layout.fields.push_back(std::move(fieldLayout));
 
 						offset += fieldSize.value();
@@ -589,10 +590,47 @@ namespace ceres::casm
 		out.insert(out.end(), static_cast<usize>(expected - elements.size()) * innerCount, zero);
 	}
 
+	std::string_view TranslationUnitBuilder::structNameOf(const DataTypeReference& dataType) const
+	{
+		if (!dataType.isArray() || dataType.scalarCode() != DataTypeScalarCode::U8 || dataType.rank() == 0)
+			return {};
+
+		const auto& innermost = dataType.dimension(dataType.rank() - 1);
+		if (!innermost.has_value() || !innermost->isIdentifier())
+			return {};
+
+		const Identifier name = innermost->name();
+		return _translationUnit.resolveStruct(name.view()).has_value() ? name.view() : std::string_view{};
+	}
+
+	void TranslationUnitBuilder::checkStructNamedType(u32 line, const DataTypeReference& dataType) const
+	{
+		if (!dataType.isFromStructName())
+			return;
+
+		// The struct is the innermost dimension; whatever came before it are instance counts.
+		const auto& structDimension = dataType.dimension(dataType.rank() - 1);
+		if (!structDimension.has_value() || !structDimension->isIdentifier())
+			return;
+
+		const Identifier name = structDimension->name();
+		if (_translationUnit.resolveStruct(name.view()).has_value())
+			return;
+
+		// A name that resolves to something else entirely is the mistake worth naming: a constant
+		// would otherwise have been read as a byte count and nothing would have complained.
+		if (_translationUnit.resolveSymbol(name.view()).has_value())
+			error(line, "'{}' is not a struct, so it cannot be written as a type. For a byte array of that size, write u8[{}]", name, name);
+
+		error(line, "Unknown type '{}'. A type is a scalar (u8, i32, f32, ...) or the name of a struct", name);
+	}
+
 	DataType TranslationUnitBuilder::resolveDataType(u32 line, const DataTypeReference& dataType, bool allowUnsizedArrays) const
 	{
 		if (!dataType.isValid())
 			error(line, "Invalid data type");
+
+		checkStructNamedType(line, dataType);
 
 		if (dataType.isScalar())
 			return DataType::makeScalar(dataType.scalarCode()).withAlias(dataType.alias());
@@ -866,6 +904,40 @@ namespace ceres::casm
 		const StructFieldLayout& field, const LiteralValueReferenceElement& element,
 		std::vector<LiteralScalar>& outBytes) const
 	{
+		// A field that is itself a struct, or an array of them. Its type resolved to plain u8 bytes
+		// like any other, so without this the group would be read as those bytes.
+		if (!field.structName.empty())
+		{
+			const auto nestedRef = _translationUnit.resolveStruct(field.structName);
+			if (!nestedRef.has_value())
+				error(line, "Field '{}.{}' names struct '{}', which is not visible here", layout.name, field.name, field.structName);
+			const StructLayout& nested = nestedRef->get();
+
+			if (!element.isGroup())
+				error(line, "Field '{}.{}' is a '{}' and expects a nested initialiser [...]", layout.name, field.name, nested.name);
+
+			const u32 fieldBytes = field.type.sizeInBytes().value_or(0);
+			const u32 instances = nested.totalSize > 0 ? fieldBytes / nested.totalSize : 0;
+
+			if (instances <= 1)
+			{
+				resolveStructInstance(line, nested, element.group(), outBytes);
+				return;
+			}
+
+			if (element.group().size() != instances)
+				error(line, "Field '{}.{}' is {} '{}' instance(s) but {} were given",
+					layout.name, field.name, instances, nested.name, element.group().size());
+
+			for (const auto& instance : element.group())
+			{
+				if (!instance.isGroup())
+					error(line, "Expected a nested initialiser [...] for each '{}' in '{}.{}'", nested.name, layout.name, field.name);
+				resolveStructInstance(line, nested, instance.group(), outBytes);
+			}
+			return;
+		}
+
 		if (field.type.isScalar())
 		{
 			if (element.isGroup())

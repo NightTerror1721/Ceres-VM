@@ -587,6 +587,9 @@ endstruct
     ldr r2, [r1 + Entity.y]
 ```
 
+A struct's name is also a type: `let player: Entity` is `let player: u8[Entity]`, and
+`Entity[4]` is `u8[4][Entity]`. A field may be a struct too, and its initialiser nests to match.
+
 A `struct` reserves no storage. It declares one constant per field, holding that field's byte
 offset, plus the struct's own name holding the total size — rounded up to the widest field, so an
 array of them stays aligned. `Entity.y` is therefore an ordinary constant displacement and

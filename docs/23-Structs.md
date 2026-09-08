@@ -42,6 +42,58 @@ bytes and address them through the offsets.
 `u8[32][Entity]` is a two-dimensional one — 32 rows of 12 (see
 [Data types and literals](11-Data-Types-and-Literals.md#multidimensional-arrays)).
 
+## A struct name is a type
+
+`Entity` in the place a type goes means `u8[Entity]`, and `Entity[4]` means `u8[4][Entity]` — the
+struct is always the innermost dimension, and whatever brackets follow it are instance counts:
+
+```casm
+@bss
+    let player: Entity              // 12 bytes, one Entity
+    let squad:  Entity[4]           // four of them
+
+@data
+    let spawn:  Entity   = [10, 20, 100, 1]
+    let mobs:   Entity[2] = [[1, 2, 3, 4], [5, 6, 7, 8]]
+```
+
+It is a spelling, not a type system. A struct still reserves no storage of its own, `Entity.y` is
+still an ordinary constant, and nothing checks that the `r2` in `ldr r1, [r2 + Entity.y]` points at
+an Entity. `u8[Entity]` keeps working and means the same thing.
+
+Only a struct can be written this way. A constant cannot, because `let p: MAX_PLAYERS` would
+otherwise quietly be four bytes of nothing in particular:
+
+```
+'MAX_PLAYERS' is not a struct, so it cannot be written as a type. For a byte array of that size,
+write u8[MAX_PLAYERS]
+```
+
+## Fields that are structs
+
+A field may be a struct, or an array of them, and its initialiser nests to match:
+
+```casm
+struct Point
+    x: i32
+    y: i32
+endstruct
+
+struct Poly
+    corners: Point[3]
+    tags:    u16[2]
+    id:      u8
+endstruct
+
+@data
+    let p: Poly = [[[1, 2], [3, 4], [5, 6]], [7, 8], 9]
+    //             └─ corners ──────────────┘  └ tags ┘  └ id
+```
+
+Each nested group is read as **that struct's fields**, not as the bytes its type resolved to. This
+is the one thing worth checking when a struct contains another: `[1, 2]` for a `Point` field is the
+two `i32`s, and writing `[1, 2]` where a nested group was expected is an error rather than two bytes.
+
 ## Initializing one
 
 A byte array dimensioned by a struct accepts a **positional** initializer: values map to fields

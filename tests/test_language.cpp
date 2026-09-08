@@ -981,3 +981,77 @@ TEST(language, a_struct_initialiser_takes_at_most_one_instance_count)
 	CHECK(!r.ok());
 	CHECK(r.joinedErrors().find("at most one instance count") != std::string::npos);
 }
+
+TEST(language, a_struct_name_is_a_type)
+{
+	AssembleResult r = assembleSource(
+		"struct Entity\r\n"
+		"    x: i32\r\n"
+		"    y: i32\r\n"
+		"    health: u16\r\n"
+		"    flags: u8\r\n"
+		"endstruct\r\n"
+		"@data\r\n"
+		"    global let player: Entity    = [10, 20, 100, 1]\r\n"
+		"    global let mobs:   Entity[2] = [[1,2,3,4],[5,6,7,8]]\r\n"
+		"    global let old:    u8[Entity] = [10, 20, 100, 1]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	// Entity is exactly u8[Entity]: twelve bytes, and the long spelling produces the same ones.
+	const auto& data = r.program->data();
+	CHECK_EQ(data.size(), usize{ 12 + 24 + 12 });
+	if (data.size() < 48) return;
+	for (usize i = 0; i < 12; ++i)
+		CHECK_EQ(data[i], data[36 + i]);
+}
+
+TEST(language, a_struct_typed_field_is_initialised_as_a_struct)
+{
+	// The field's type resolves to plain u8 bytes like any other, so without knowing which struct
+	// it came from `[1, 2]` would write the bytes 1 and 2 instead of two i32s.
+	AssembleResult r = assembleSource(
+		"struct Point\r\n"
+		"    x: i32\r\n"
+		"    y: i32\r\n"
+		"endstruct\r\n"
+		"struct Line\r\n"
+		"    a: Point\r\n"
+		"    b: Point\r\n"
+		"endstruct\r\n"
+		"@data\r\n"
+		"    global let l: Line = [[1, 2], [3, 4]]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto& data = r.program->data();
+	CHECK_EQ(data.size(), usize{ 16 });
+	if (data.size() < 16) return;
+	CHECK_EQ(data[0], u8{ 1 });
+	CHECK_EQ(data[1], u8{ 0 });  // an i32, not a byte
+	CHECK_EQ(data[4], u8{ 2 });
+	CHECK_EQ(data[8], u8{ 3 });
+	CHECK_EQ(data[12], u8{ 4 });
+}
+
+TEST(language, only_a_struct_can_be_written_as_a_type)
+{
+	AssembleResult r = assembleSource(
+		"const MAX_PLAYERS = 4\r\n"
+		"@bss\r\n"
+		"    global let p: MAX_PLAYERS\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("is not a struct") != std::string::npos);
+}

@@ -387,6 +387,39 @@ namespace ceres::casm
 	}
 	DataTypeReference Parser::parseDataType()
 	{
+		// A struct's name in the place a type goes. A struct reserves no storage of its own - what
+		// it declares is one offset constant per field plus its own name holding the total size -
+		// so `Entity` is exactly `u8[Entity]`, which is what it expands to. Whether the name really
+		// is a struct is the builder's to say; the parser has no tables yet.
+		if (_cursor.match(TokenType::Identifier))
+		{
+			Token structNameToken = _cursor.current();
+			_cursor.next();
+
+			std::vector<DataTypeReference::Dimension> outerCounts;
+			while (_cursor.match(TokenType::BracketOpen))
+			{
+				_cursor.next(); // Consume '['
+				if (_cursor.match(TokenType::BracketClose))
+				{
+					_cursor.next(); // Consume ']'
+					outerCounts.emplace_back(std::nullopt);
+				}
+				else
+				{
+					ConstExpr size = parseConstExpr();
+					_cursor.consume(TokenType::BracketClose, "Expected ']' after array size in data declaration");
+					outerCounts.emplace_back(std::move(size));
+				}
+
+				// The struct itself takes the innermost one, so the counts get one fewer.
+				if (outerCounts.size() + 1 > DataType::MaxRank)
+					error("An array may have at most {} dimensions", DataType::MaxRank);
+			}
+
+			return DataTypeReference::makeStructNamed(std::move(outerCounts), structNameToken.identifierValue());
+		}
+
 		Token dataTypeToken = _cursor.consume(TokenType::DataType, "Expected data type after ':' in data declaration");
 		DataType dataType = dataTypeToken.dataTypeValue();
 		if (!dataType.isValid())

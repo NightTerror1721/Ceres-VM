@@ -72,12 +72,16 @@ instructions, 1.28 million by default. Older than that and the debugger says so 
 somewhere else. Recording also costs one copy of the machine's memory, which is why `--no-history`
 exists for a session started with a very large `--memory`.
 
-## No indexing, and no struct types
+## No indexing
 
 Multidimensional arrays and `struct` give the *layout*; walking it is arithmetic you write yourself.
-`grid[1][2]` is not an operand, and `let player: Entity` is not a declaration — a struct is a
-generator of offset constants rather than a type (see [Structs](23-Structs.md)). `dimof` and `sizeof`
-exist so that at least the numbers do not have to be repeated by hand.
+`grid[1][2]` is not an operand. `dimof` and `sizeof` exist so that at least the numbers do not have
+to be repeated by hand.
+
+`let player: Entity` **is** a declaration now, and its fields can be initialised positionally — but
+that is a spelling of `u8[Entity]` and nothing more (see [Structs](23-Structs.md)). A struct is
+still a generator of offset constants: nothing checks that the `r2` in `ldr r1, [r2 + Entity.y]`
+points at an Entity, and there is no way to say that it should.
 
 ## A register alias cannot be exported
 

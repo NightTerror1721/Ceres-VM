@@ -34,6 +34,11 @@ namespace ceres::casm
 		std::string name;
 		DataType type = DataType::Invalid;
 		u32 offset = 0;
+		// The struct this field is one or more of, when it is one. Resolving the field's type
+		// leaves plain u8 bytes behind, so without the name a nested struct would be initialised as
+		// the byte array it turned into: `[1, 2]` for a Point field would write the bytes 1 and 2
+		// rather than the two i32s the fields actually are.
+		std::string structName;
 	};
 
 	struct StructLayout
@@ -275,6 +280,12 @@ namespace ceres::casm
 		// `u8[N][Struct]` for N instances). Returns nullopt when the declaration is not a
 		// struct-sized byte array, so the caller falls back to the ordinary array path.
 		std::optional<std::pair<DataType, LiteralValue>> tryResolveStructLiteral(u32 line, const DataTypeReference& dataType, const LiteralValueReference& value) const;
+		// `let p: Entity` is `u8[Entity]`, but only when Entity is a struct. Without this,
+		// `let p: MAX_PLAYERS` would quietly be four bytes of nothing in particular.
+		void checkStructNamedType(u32 line, const DataTypeReference& dataType) const;
+		// The struct a type reference is made of, if any: the innermost dimension of `u8[Entity]`,
+		// `Entity` or `Entity[4]`. Empty for everything else.
+		std::string_view structNameOf(const DataTypeReference& dataType) const;
 		void resolveStructInstance(u32 line, const StructLayout& layout, std::span<const LiteralValueReferenceElement> elements, std::vector<LiteralScalar>& outBytes) const;
 		void appendStructFieldBytes(u32 line, const StructLayout& layout, const StructFieldLayout& field, const LiteralValueReferenceElement& element, std::vector<LiteralScalar>& outBytes) const;
 		static void appendScalarBytes(LiteralScalar scalar, std::vector<LiteralScalar>& outBytes);

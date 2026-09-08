@@ -23,6 +23,10 @@ namespace ceres::casm
 		DataTypeAlias _alias = DataTypeAlias::None;
 		std::vector<Dimension> _dimensions;
 		bool _isArray = false; // A scalar has no brackets at all; u8[] has one, empty
+		// Written as a bare struct name - `let p: Entity` rather than `let p: u8[Entity]`. The two
+		// mean the same thing, but only the first has to be checked to actually name a struct:
+		// otherwise `let p: MAX_PLAYERS` would quietly be four bytes.
+		bool _fromStructName = false;
 
 	public:
 		DataTypeReference() noexcept = default;
@@ -60,6 +64,7 @@ namespace ceres::casm
 
 		bool isValid() const noexcept { return _scalarCode != DataTypeScalarCode::Invalid; }
 		bool isScalar() const noexcept { return isValid() && !_isArray; }
+		bool isFromStructName() const noexcept { return _fromStructName; }
 		bool isArray() const noexcept { return isValid() && _isArray; }
 		u8 rank() const noexcept { return static_cast<u8>(_dimensions.size()); }
 
@@ -139,6 +144,19 @@ namespace ceres::casm
 			DataTypeReference reference;
 			reference._scalarCode = scalarCode;
 			reference._alias = alias;
+			return reference;
+		}
+
+		// `Entity` and `Entity[32]`, which are `u8[Entity]` and `u8[32][Entity]` written the short
+		// way: the struct is always the innermost dimension, and whatever brackets follow it are
+		// instance counts outside it.
+		static DataTypeReference makeStructNamed(std::vector<Dimension>&& outerCounts, Identifier structName) noexcept
+		{
+			std::vector<Dimension> dimensions = std::move(outerCounts);
+			dimensions.emplace_back(ConstExpr::makeIdentifier(structName));
+
+			DataTypeReference reference = makeArray(DataTypeScalarCode::U8, std::move(dimensions));
+			reference._fromStructName = true;
 			return reference;
 		}
 
