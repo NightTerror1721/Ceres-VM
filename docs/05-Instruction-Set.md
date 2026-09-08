@@ -262,6 +262,47 @@ The store form keeps the base in `Rd` and the value in `Rs`, like the displaceme
 `Rt` is now spoken for. Alignment is checked on the **sum**: two registers that are each aligned
 can still add up to an address that is not.
 
+## The rest of the arithmetic · `0x29`–`0x2F`, `0xCE`–`0xD1`
+
+| Assembly | Opcode | Semantics |
+| --- | --- | --- |
+| `mulh rd, rs, rt` | `MULH` `0x29` | The high 32 bits of `rs * rt`, unsigned |
+| `imulh rd, rs, rt` | `IMULH` `0x2A` | The high 32 bits, signed |
+| `abs rd, rs` | `ABS` `0x2B` | `\|rs\|` as a signed value |
+| `min` / `max` | `0x2C`, `0x2E` | Unsigned, register or `imm16` (`MINI` `0xCE`, `MAXI` `0xD0`) |
+| `imin` / `imax` | `0x2D`, `0x2F` | Signed, register or `simm16` (`IMINI` `0xCF`, `IMAXI` `0xD1`) |
+| `sqrt fd, fs` | `FSQRT` `0x96` | Square root; no integer form |
+| `abs fd, fs` | `FABS` `0x97` | Absolute value, chosen by the register bank like `neg` |
+
+`mul` keeps the low 32 bits of a 32×32 product and drops the rest, which means an overflow left no
+trace at all. `mulh` is that missing half: the two together are the full 64-bit product.
+
+`abs` has one value it cannot answer for. `|INT_MIN|` is 2147483648, which is not an `i32`, so the
+result is `INT_MIN` again and **Overflow** is set — the machine says it could not rather than
+returning a negative absolute value in silence.
+
+All of these set Zero and Sign from the result and clear Carry and Overflow, the way the bitwise
+operations do. `abs` is the exception, and sets its own Overflow.
+
+## Bits · `0x3D`–`0x3F`, `0xC8`–`0xCD`
+
+| Assembly | Opcode | Semantics |
+| --- | --- | --- |
+| `clz rd, rs` | `CLZ` `0x3D` | Leading zero bits; 32 when `rs` is zero |
+| `popcnt rd, rs` | `POPCNT` `0x3E` | Set bits |
+| `bswap rd, rs` | `BSWAP` `0x3F` | The four bytes reversed |
+| `rol rd, rs, rt` | `ROL` `0xC8` | Rotate left (`ROLI` `0xC9` for an immediate) |
+| `ror rd, rs, rt` | `ROR` `0xCA` | Rotate right (`RORI` `0xCB`) |
+| `sxtb rd, rs` | `SXTB` `0xCC` | The low byte, sign-extended |
+| `sxth rd, rs` | `SXTH` `0xCD` | The low halfword, sign-extended |
+
+Rotate amounts use the low five bits, like the shifts, so a rotation by 32 is a rotation by none.
+
+`sxtb` and `sxth` do for a register what `ldrsb` and `ldrsh` do for memory. A value that arrived in
+a register some other way — from a port, from an unpacked field — had to be widened with a pair of
+shifts, which is two instructions and a magic number for something the machine already knows how
+to do.
+
 ## Stack operations · `0x80`–`0x89`
 
 | Assembly | Opcode | Semantics |

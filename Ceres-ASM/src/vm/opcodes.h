@@ -42,6 +42,15 @@ namespace ceres::vm
 		IMOD = 0x26, // [rd, rs, rt] - rd = rs % rt (signed)
 		IMODI = 0x27, // [rd, rs, imm16] - rd = rs % imm16 (signed)
 		FNEG = 0x28, // [fd, fs] - fd = -fs (floating-point negate)
+		// MUL keeps the low 32 bits and drops the rest, so an overflow was simply lost. These are
+		// the half that went missing.
+		MULH = 0x29, // [rd, rs, rt] - rd = high 32 bits of rs * rt (unsigned)
+		IMULH = 0x2A, // [rd, rs, rt] - rd = high 32 bits of rs * rt (signed)
+		ABS = 0x2B, // [rd, rs] - rd = |rs| as a signed value; |INT_MIN| does not fit and sets Overflow
+		MIN = 0x2C, // [rd, rs, rt] - rd = min(rs, rt) (unsigned)
+		IMIN = 0x2D, // [rd, rs, rt] - rd = min(rs, rt) (signed)
+		MAX = 0x2E, // [rd, rs, rt] - rd = max(rs, rt) (unsigned)
+		IMAX = 0x2F, // [rd, rs, rt] - rd = max(rs, rt) (signed)
 
 		// Bitwise Logic //
 		AND = 0x30, // [rd, rs, rt] - rd = rs & rt
@@ -57,6 +66,9 @@ namespace ceres::vm
 		SHRI = 0x3A, // [rd, rs, imm16] - rd = rs >> imm16 (logical)
 		SAR = 0x3B, // [rd, rs, rt] - rd = rs >> rt (arithmetic)
 		SARI = 0x3C, // [rd, rs, imm16] - rd = rs >> imm16 (arithmetic)
+		CLZ = 0x3D, // [rd, rs] - rd = leading zero bits in rs; 32 when rs is zero
+		POPCNT = 0x3E, // [rd, rs] - rd = set bits in rs
+		BSWAP = 0x3F, // [rd, rs] - rd = rs with its four bytes reversed
 
 		// Memory Access //
 		MOV = 0x40, // [rd, rs] - rd = rs
@@ -149,6 +161,8 @@ namespace ceres::vm
 		FTOII = 0x93, // [rd, fs] - Convert the floating-point value in fs to a signed integer value and store it in rd.
 		MTF = 0x94, // [fd, rs] - Move the bit pattern of the integer value in rs to the floating-point register fd without conversion.
 		MFF = 0x95, // [rd, fs] - Move the bit pattern of the floating-point value in fs to the integer register rd without conversion.
+		FSQRT = 0x96, // [fd, fs] - fd = sqrt(fs)
+		FABS = 0x97, // [fd, fs] - fd = |fs|
 
 		// I/O Operations //
 		IN = 0xA0, // [rd, imm8] - Read a word from the I/O port specified by imm8 into rd.
@@ -202,7 +216,20 @@ namespace ceres::vm
 		STRHP = 0xC6, // [rs, simm16] - *(u16*)(pc + simm16) = rs
 		FSTRP = 0xC7, // [fs, simm16] - *(float*)(pc + simm16) = fs
 
-		// Free: 0x08-0x0F, 0x29-0x2F, 0x3D-0x3F, 0x4F, 0x78-0x7F, 0x8A-0x8F, 0x96-0x9F, 0xC8-0xFF.
+		// Rotations, and the two widenings a load from memory does for free but a register move
+		// could not do at all. Shift amounts use the low five bits, like SHL and friends.
+		ROL = 0xC8, // [rd, rs, rt] - rd = rs rotated left by rt
+		ROLI = 0xC9, // [rd, rs, imm16] - rd = rs rotated left by imm16
+		ROR = 0xCA, // [rd, rs, rt] - rd = rs rotated right by rt
+		RORI = 0xCB, // [rd, rs, imm16] - rd = rs rotated right by imm16
+		SXTB = 0xCC, // [rd, rs] - rd = the low byte of rs, sign-extended
+		SXTH = 0xCD, // [rd, rs] - rd = the low halfword of rs, sign-extended
+		MINI = 0xCE, // [rd, rs, imm16] - rd = min(rs, imm16) (unsigned)
+		IMINI = 0xCF, // [rd, rs, simm16] - rd = min(rs, simm16) (signed)
+		MAXI = 0xD0, // [rd, rs, imm16] - rd = max(rs, imm16) (unsigned)
+		IMAXI = 0xD1, // [rd, rs, simm16] - rd = max(rs, simm16) (signed)
+
+		// Free: 0x08-0x0F, 0x4F, 0x78-0x7F, 0x8A-0x8F, 0x98-0x9F, 0xD2-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

@@ -7,6 +7,7 @@
 #include "interrupts.h"
 #include "io_ports.h"
 #include "interrupt_controller.h"
+#include <algorithm>
 #include <bit>
 #include <limits>
 #include <cmath>
@@ -282,6 +283,43 @@ namespace ceres::vm
 				sp(sp() + sizeof(T));
 				return value;
 			}
+		}
+
+		// The same flag rule the bitwise operations use: Zero and Sign from the result, Carry and
+		// Overflow cleared, because none of these can carry or overflow. ABS is the exception and
+		// sets its own Overflow.
+		forceinline void executeResult(const u8 regDest, const u32 result) noexcept
+		{
+			zero(result == 0);
+			sign((result & 0x80000000) != 0);
+			carry(false);
+			overflow(false);
+
+			setReg(regDest, result);
+			advancePC();
+		}
+
+		forceinline void executeAbs(const u8 regDest, const u32 value) noexcept
+		{
+			const i32 signedValue = static_cast<i32>(value);
+			// |INT_MIN| is not representable: the result is INT_MIN again, and Overflow says so
+			// rather than the machine pretending it answered the question.
+			const bool overflowed = value == 0x80000000u;
+			const u32 result = overflowed ? value : static_cast<u32>(signedValue < 0 ? -signedValue : signedValue);
+
+			zero(result == 0);
+			sign((result & 0x80000000) != 0);
+			carry(false);
+			overflow(overflowed);
+
+			setReg(regDest, result);
+			advancePC();
+		}
+
+		static forceinline constexpr u32 rotateLeft(u32 value, u32 amount) noexcept
+		{
+			amount &= 31u;
+			return amount == 0 ? value : ((value << amount) | (value >> (32u - amount)));
 		}
 
 		forceinline void executeAdd(const u8 regDest, const u32 a, const u32 b) noexcept
@@ -741,6 +779,38 @@ namespace ceres::vm
 		forceinline void IMOD(const Instruction inst) noexcept { executeSignedMod(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void IMODI(const Instruction inst) noexcept { executeSignedMod(inst.rd(), getReg(inst.rs()), inst.simm16()); }
 		forceinline void FNEG(const Instruction inst) noexcept { executeFloatNeg(inst.fd(), getFloatReg(inst.fs())); }
+
+		forceinline void MULH(const Instruction inst) noexcept
+		{
+			const u64 product = static_cast<u64>(getReg(inst.rs())) * static_cast<u64>(getReg(inst.rt()));
+			executeResult(inst.rd(), static_cast<u32>(product >> 32));
+		}
+		forceinline void IMULH(const Instruction inst) noexcept
+		{
+			const i64 product = static_cast<i64>(static_cast<i32>(getReg(inst.rs()))) *
+				static_cast<i64>(static_cast<i32>(getReg(inst.rt())));
+			executeResult(inst.rd(), static_cast<u32>(static_cast<u64>(product) >> 32));
+		}
+		forceinline void ABS(const Instruction inst) noexcept { executeAbs(inst.rd(), getReg(inst.rs())); }
+		forceinline void MIN(const Instruction inst) noexcept { executeResult(inst.rd(), std::min(getReg(inst.rs()), getReg(inst.rt()))); }
+		forceinline void MINI(const Instruction inst) noexcept { executeResult(inst.rd(), std::min(getReg(inst.rs()), static_cast<u32>(inst.imm16()))); }
+		forceinline void IMIN(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(std::min(static_cast<i32>(getReg(inst.rs())), static_cast<i32>(getReg(inst.rt()))))); }
+		forceinline void IMINI(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(std::min(static_cast<i32>(getReg(inst.rs())), static_cast<i32>(inst.simm16())))); }
+		forceinline void MAX(const Instruction inst) noexcept { executeResult(inst.rd(), std::max(getReg(inst.rs()), getReg(inst.rt()))); }
+		forceinline void MAXI(const Instruction inst) noexcept { executeResult(inst.rd(), std::max(getReg(inst.rs()), static_cast<u32>(inst.imm16()))); }
+		forceinline void IMAX(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(std::max(static_cast<i32>(getReg(inst.rs())), static_cast<i32>(getReg(inst.rt()))))); }
+		forceinline void IMAXI(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(std::max(static_cast<i32>(getReg(inst.rs())), static_cast<i32>(inst.simm16())))); }
+		forceinline void CLZ(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(std::countl_zero(getReg(inst.rs())))); }
+		forceinline void POPCNT(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(std::popcount(getReg(inst.rs())))); }
+		forceinline void BSWAP(const Instruction inst) noexcept { executeResult(inst.rd(), std::byteswap(getReg(inst.rs()))); }
+		forceinline void ROL(const Instruction inst) noexcept { executeResult(inst.rd(), rotateLeft(getReg(inst.rs()), getReg(inst.rt()))); }
+		forceinline void ROLI(const Instruction inst) noexcept { executeResult(inst.rd(), rotateLeft(getReg(inst.rs()), inst.imm16())); }
+		forceinline void ROR(const Instruction inst) noexcept { executeResult(inst.rd(), rotateLeft(getReg(inst.rs()), 32u - (getReg(inst.rt()) & 31u))); }
+		forceinline void RORI(const Instruction inst) noexcept { executeResult(inst.rd(), rotateLeft(getReg(inst.rs()), 32u - (static_cast<u32>(inst.imm16()) & 31u))); }
+		forceinline void SXTB(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(static_cast<i32>(static_cast<i8>(getReg(inst.rs()) & 0xFFu)))); }
+		forceinline void SXTH(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(static_cast<i32>(static_cast<i16>(getReg(inst.rs()) & 0xFFFFu)))); }
+		forceinline void FSQRT(const Instruction inst) noexcept { setFloatReg(inst.fd(), std::sqrt(getFloatReg(inst.fs()))); advancePC(); }
+		forceinline void FABS(const Instruction inst) noexcept { setFloatReg(inst.fd(), std::fabs(getFloatReg(inst.fs()))); advancePC(); }
 
 		forceinline void AND(const Instruction inst) noexcept { executeAnd(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void ANDI(const Instruction inst) noexcept { executeAnd(inst.rd(), getReg(inst.rs()), inst.imm16()); }
@@ -1425,6 +1495,28 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::STRBP)] = &ExecutionEngine::STRBP;
 				handlers[static_cast<u8>(Opcode::STRHP)] = &ExecutionEngine::STRHP;
 				handlers[static_cast<u8>(Opcode::FSTRP)] = &ExecutionEngine::FSTRP;
+				handlers[static_cast<u8>(Opcode::MULH)] = &ExecutionEngine::MULH;
+				handlers[static_cast<u8>(Opcode::IMULH)] = &ExecutionEngine::IMULH;
+				handlers[static_cast<u8>(Opcode::ABS)] = &ExecutionEngine::ABS;
+				handlers[static_cast<u8>(Opcode::MIN)] = &ExecutionEngine::MIN;
+				handlers[static_cast<u8>(Opcode::MINI)] = &ExecutionEngine::MINI;
+				handlers[static_cast<u8>(Opcode::IMIN)] = &ExecutionEngine::IMIN;
+				handlers[static_cast<u8>(Opcode::IMINI)] = &ExecutionEngine::IMINI;
+				handlers[static_cast<u8>(Opcode::MAX)] = &ExecutionEngine::MAX;
+				handlers[static_cast<u8>(Opcode::MAXI)] = &ExecutionEngine::MAXI;
+				handlers[static_cast<u8>(Opcode::IMAX)] = &ExecutionEngine::IMAX;
+				handlers[static_cast<u8>(Opcode::IMAXI)] = &ExecutionEngine::IMAXI;
+				handlers[static_cast<u8>(Opcode::CLZ)] = &ExecutionEngine::CLZ;
+				handlers[static_cast<u8>(Opcode::POPCNT)] = &ExecutionEngine::POPCNT;
+				handlers[static_cast<u8>(Opcode::BSWAP)] = &ExecutionEngine::BSWAP;
+				handlers[static_cast<u8>(Opcode::ROL)] = &ExecutionEngine::ROL;
+				handlers[static_cast<u8>(Opcode::ROLI)] = &ExecutionEngine::ROLI;
+				handlers[static_cast<u8>(Opcode::ROR)] = &ExecutionEngine::ROR;
+				handlers[static_cast<u8>(Opcode::RORI)] = &ExecutionEngine::RORI;
+				handlers[static_cast<u8>(Opcode::SXTB)] = &ExecutionEngine::SXTB;
+				handlers[static_cast<u8>(Opcode::SXTH)] = &ExecutionEngine::SXTH;
+				handlers[static_cast<u8>(Opcode::FSQRT)] = &ExecutionEngine::FSQRT;
+				handlers[static_cast<u8>(Opcode::FABS)] = &ExecutionEngine::FABS;
 				handlers[static_cast<u8>(Opcode::ENTER)] = &ExecutionEngine::ENTER;
 				handlers[static_cast<u8>(Opcode::LEAVE)] = &ExecutionEngine::LEAVE;
 				handlers[static_cast<u8>(Opcode::PUSHM)] = &ExecutionEngine::PUSHM;

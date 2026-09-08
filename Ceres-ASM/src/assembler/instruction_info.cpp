@@ -111,6 +111,31 @@ namespace ceres::casm
 			op(Opcode::IMUL, param(OpcodeParameterType::RD, 0), paramSFixed(OpcodeParameterType::RS, -1))
 		}),
 
+		// The high half of a multiply, the orderings, the bit counts and the two widenings. `abs`
+		// picks FABS for a pair of float registers, the way `neg` picks FNEG.
+		inst(Opcode::MULH, Mnemonic::MULH, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
+		inst(Opcode::IMULH, Mnemonic::IMULH, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
+		inst(Opcode::MIN, Mnemonic::MIN, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
+		inst(Opcode::IMIN, Mnemonic::IMIN, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
+		inst(Opcode::MAX, Mnemonic::MAX, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
+		inst(Opcode::IMAX, Mnemonic::IMAX, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
+		inst(Opcode::ROL, Mnemonic::ROL, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
+		inst(Opcode::ROR, Mnemonic::ROR, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
+		inst(Opcode::MINI, Mnemonic::MIN, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::IMM16),
+		inst(Opcode::IMINI, Mnemonic::IMIN, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::SIMM16),
+		inst(Opcode::MAXI, Mnemonic::MAX, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::IMM16),
+		inst(Opcode::IMAXI, Mnemonic::IMAX, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::SIMM16),
+		inst(Opcode::ROLI, Mnemonic::ROL, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::IMM16),
+		inst(Opcode::RORI, Mnemonic::ROR, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::IMM16),
+		inst(Opcode::ABS, Mnemonic::ABS, OpcodeParameterType::RD, OpcodeParameterType::RS),
+		inst(Opcode::CLZ, Mnemonic::CLZ, OpcodeParameterType::RD, OpcodeParameterType::RS),
+		inst(Opcode::POPCNT, Mnemonic::POPCNT, OpcodeParameterType::RD, OpcodeParameterType::RS),
+		inst(Opcode::BSWAP, Mnemonic::BSWAP, OpcodeParameterType::RD, OpcodeParameterType::RS),
+		inst(Opcode::SXTB, Mnemonic::SXTB, OpcodeParameterType::RD, OpcodeParameterType::RS),
+		inst(Opcode::SXTH, Mnemonic::SXTH, OpcodeParameterType::RD, OpcodeParameterType::RS),
+		inst(Opcode::FSQRT, Mnemonic::SQRT, OpcodeParameterType::FD, OpcodeParameterType::FS),
+		inst(Opcode::FABS, Mnemonic::ABS, OpcodeParameterType::FD, OpcodeParameterType::FS),
+
 		inst(Opcode::AND, Mnemonic::AND, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
 		inst(Opcode::ANDI, Mnemonic::AND, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::IMM16),
 		inst(Opcode::OR, Mnemonic::OR, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),

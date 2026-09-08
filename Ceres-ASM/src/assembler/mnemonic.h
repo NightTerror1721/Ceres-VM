@@ -54,6 +54,21 @@ namespace ceres::casm
 		LC, // Pseudo-instruction // Load a full 32-bit constant: LUI + ORI
 		CLR, // Pseudo-instruction // LI rd, 0
 		SWAP, // Pseudo-instruction // three XORs, no temporary
+		MULH,
+		IMULH,
+		ABS,
+		MIN,
+		IMIN,
+		MAX,
+		IMAX,
+		CLZ,
+		POPCNT,
+		BSWAP,
+		ROL,
+		ROR,
+		SXTB,
+		SXTH,
+		SQRT,
 		LEA, // LEA
 		LDVP, // PC-relative load of a variable within reach
 		STVP, // PC-relative store of a variable within reach

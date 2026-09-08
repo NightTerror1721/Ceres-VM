@@ -137,9 +137,15 @@ A program terminates by writing `0x01` to the system control port, not with an i
 suspends the machine until an interrupt arrives; arm the timer and enable interrupts with `sti`
 first, or nothing will wake it.
 
-### Arithmetic · `0x10`–`0x28`
+### Arithmetic · `0x10`–`0x2F`, `0xCE`–`0xD1`
 
-`add` `adc` `sub` `sbc` `mul` `imul` `div` `idiv` `mod` `imod` `neg`
+`add` `adc` `sub` `sbc` `mul` `imul` `div` `idiv` `mod` `imod` `neg` `mulh` `imulh` `abs` `min`
+`imin` `max` `imax` `sqrt`
+
+`mul` keeps the low 32 bits and drops the rest, so an overflow was simply lost; `mulh` and `imulh`
+are the half that went missing. `abs` of the smallest `i32` cannot fit, so it answers with that
+same value and sets Overflow. `abs` on a pair of float registers picks `FABS`, and `sqrt` only has
+a float form.
 
 Each takes three registers or two registers and a 16-bit immediate; the assembler picks the
 encoding. The `i`-prefixed forms are signed. Floating-point variants are selected by using float
@@ -147,11 +153,13 @@ registers: `add f1, f2, f3` assembles to `FADD`.
 
 Division by zero sets the Trap flag and continues, leaving the destination unchanged.
 
-### Logic and shifts · `0x30`–`0x3C`
+### Logic and shifts · `0x30`–`0x3F`, `0xC8`–`0xCD`
 
-`and` `or` `xor` `not` `shl` `shr` `sar`
+`and` `or` `xor` `not` `shl` `shr` `sar` `rol` `ror` `clz` `popcnt` `bswap` `sxtb` `sxth`
 
-Shift amounts use the low five bits of the operand.
+Shift and rotate amounts use the low five bits of the operand. `clz` of zero is 32. `sxtb` and
+`sxth` widen a register the way `ldrsb` and `ldrsh` widen memory, which nothing could do before
+without a pair of shifts.
 
 ### Memory · `0x40`–`0x4E`, `0xB4`–`0xBD`
 

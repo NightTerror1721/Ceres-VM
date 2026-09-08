@@ -312,6 +312,10 @@ TEST(vm, the_disassembler_names_every_mapped_opcode)
 		Opcode::FTOI, Opcode::MTF, Opcode::MFF, Opcode::IN, Opcode::OUT, Opcode::OUTM,
 		Opcode::OUTR, Opcode::INRM, Opcode::OUTRM, Opcode::PUSHM, Opcode::POPM,
 		Opcode::ENTER, Opcode::LEAVE,
+		Opcode::MULH, Opcode::IMULH, Opcode::ABS, Opcode::MIN, Opcode::IMIN, Opcode::MAX,
+		Opcode::IMAX, Opcode::MINI, Opcode::IMINI, Opcode::MAXI, Opcode::IMAXI, Opcode::CLZ,
+		Opcode::POPCNT, Opcode::BSWAP, Opcode::ROL, Opcode::ROLI, Opcode::ROR, Opcode::RORI,
+		Opcode::SXTB, Opcode::SXTH, Opcode::FSQRT, Opcode::FABS,
 		Opcode::LDRX, Opcode::LDRBX, Opcode::LDRHX, Opcode::LDRSBX, Opcode::LDRSHX, Opcode::FLDRX,
 		Opcode::STRX, Opcode::STRBX, Opcode::STRHX, Opcode::FSTRX,
 		Opcode::LDRP, Opcode::LDRBP, Opcode::LDRHP, Opcode::LDRSBP, Opcode::LDRSHP,
@@ -641,4 +645,118 @@ TEST(vm, enter_saves_nothing_when_the_frame_does_not_fit)
 
 	m.step();
 	CHECK_EQ(m.reg(14), 0xF00DF00Du); // fp was never moved
+}
+
+// --- The arithmetic that was missing ----------------------------------------------------------
+
+TEST(vm, mulh_keeps_the_half_that_mul_throws_away)
+{
+	Machine m{ Instruction::MULH(3, 1, 2), Instruction::MUL(4, 1, 2) };
+
+	m.engine().setRegister(1, 0x10000u);
+	m.engine().setRegister(2, 0x10000u); // 2^32 exactly: every bit of it is in the high half
+
+	m.step(2);
+	CHECK_EQ(m.reg(3), 1u);
+	CHECK_EQ(m.reg(4), 0u); // which is all MUL ever reported
+}
+
+TEST(vm, imulh_is_signed_where_mulh_is_not)
+{
+	Machine m{ Instruction::IMULH(3, 1, 2), Instruction::MULH(4, 1, 2) };
+
+	m.engine().setRegister(1, static_cast<u32>(-1)); // -1 * 1 is -1: high half all ones
+	m.engine().setRegister(2, 1u);
+
+	m.step(2);
+	CHECK_EQ(m.reg(3), 0xFFFFFFFFu);
+	CHECK_EQ(m.reg(4), 0u); // unsigned, 0xFFFFFFFF * 1 has nothing above 32 bits
+}
+
+TEST(vm, min_and_max_disagree_between_signed_and_unsigned)
+{
+	Machine m{
+		Instruction::MIN(3, 1, 2), Instruction::IMIN(4, 1, 2),
+		Instruction::MAX(5, 1, 2), Instruction::IMAX(6, 1, 2),
+	};
+
+	m.engine().setRegister(1, static_cast<u32>(-1)); // the largest u32, and the smallest useful i32
+	m.engine().setRegister(2, 1u);
+
+	m.step(4);
+	CHECK_EQ(m.reg(3), 1u);                 // unsigned: 1 is the smaller
+	CHECK_EQ(m.reg(4), 0xFFFFFFFFu);        // signed: -1 is
+	CHECK_EQ(m.reg(5), 0xFFFFFFFFu);
+	CHECK_EQ(m.reg(6), 1u);
+}
+
+TEST(vm, abs_says_so_when_the_answer_does_not_fit)
+{
+	Machine m{ Instruction::ABS(2, 1), Instruction::ABS(3, 1) };
+
+	m.engine().setRegister(1, static_cast<u32>(-42));
+	m.step();
+	CHECK_EQ(m.reg(2), 42u);
+	CHECK(!m.flags().overflow());
+
+	m.engine().setRegister(1, 0x80000000u); // |INT_MIN| is not an i32
+	m.step();
+	CHECK_EQ(m.reg(3), 0x80000000u);
+	CHECK(m.flags().overflow());
+}
+
+TEST(vm, the_bit_counting_instructions_count_what_they_say)
+{
+	Machine m{
+		Instruction::CLZ(2, 1), Instruction::POPCNT(3, 1), Instruction::BSWAP(4, 1),
+		Instruction::CLZ(5, 6),
+	};
+
+	m.engine().setRegister(1, 0x00FF00F0u);
+	m.engine().setRegister(6, 0u);
+
+	m.step(4);
+	CHECK_EQ(m.reg(2), 8u);           // eight leading zeroes
+	CHECK_EQ(m.reg(3), 12u);          // eight bits plus four
+	CHECK_EQ(m.reg(4), 0xF000FF00u);  // bytes reversed
+	CHECK_EQ(m.reg(5), 32u);          // and zero has thirty-two of them
+}
+
+TEST(vm, rotations_keep_the_bits_that_a_shift_drops)
+{
+	Machine m{
+		Instruction::ROL(2, 1, 3), Instruction::ROR(4, 1, 3),
+		Instruction::ROLI(5, 1, 4), Instruction::RORI(6, 1, 0),
+	};
+
+	m.engine().setRegister(1, 0x12345678u);
+	m.engine().setRegister(3, 8u);
+
+	m.step(4);
+	CHECK_EQ(m.reg(2), 0x34567812u);
+	CHECK_EQ(m.reg(4), 0x78123456u);
+	CHECK_EQ(m.reg(5), 0x23456781u);
+	CHECK_EQ(m.reg(6), 0x12345678u); // rotating by nothing is not a rotation by 32
+}
+
+TEST(vm, sxtb_and_sxth_widen_a_register_the_way_a_load_would)
+{
+	Machine m{ Instruction::SXTB(2, 1), Instruction::SXTH(3, 1) };
+
+	m.engine().setRegister(1, 0x0000FF80u);
+	m.step(2);
+	CHECK_EQ(m.reg(2), 0xFFFFFF80u); // the low byte, sign-extended
+	CHECK_EQ(m.reg(3), 0xFFFFFF80u); // the low halfword, likewise
+}
+
+TEST(vm, the_float_bank_gets_a_square_root_and_an_absolute_value)
+{
+	Machine m{ Instruction::FSQRT(1, 0), Instruction::FABS(2, 3) };
+
+	m.engine().setFloatRegister(0, 16.0f);
+	m.engine().setFloatRegister(3, -2.5f);
+
+	m.step(2);
+	CHECK_EQ(m.freg(1), 4.0f);
+	CHECK_EQ(m.freg(2), 2.5f);
 }
