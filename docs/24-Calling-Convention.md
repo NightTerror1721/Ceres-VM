@@ -18,8 +18,8 @@ The complete working example is
 | `r0`–`r3` | Arguments one to four. `r0` is also the return value. | No |
 | `r4`–`r7` | Scratch | No |
 | `r8`–`r11` | General purpose | **Yes** — the callee saves them |
-| `r12` | **Never use it.** `ldv`, `stv` and the float form of `la` clobber it. | — |
-| `r13` / `lr` | Scratch. The name is vestigial: nothing in the machine uses it, because `call` puts the return address on the stack. | No |
+| `r12` | Scratch — it was unusable until the assembler's temporary moved off it | No |
+| `r13` / `at` | **Never use it.** `stv`, and `ldv` into a float register, clobber it. | — |
 | `r14` / `fp` | Frame pointer, managed by `enter`/`leave` | Yes |
 | `r15` / `sp` | Stack pointer | Yes |
 | `f0`–`f3` | Float arguments. `f0` is also the float return value. | No |
@@ -29,9 +29,9 @@ The complete working example is
 
 Three of these are worth saying out loud:
 
-- **`r12` is not yours.** An `ldv` anywhere in your function destroys it, even if the instruction
-  mentions neither `r12` nor anything near it.
-- **`lr` is not a link register here** despite the name. Treat it as one more scratch register.
+- **`at` is not yours.** An `stv` anywhere in your function destroys it, even if the instruction
+  mentions neither `at` nor anything near it. It answers to `lr` too, but that spelling is
+  deprecated and the name it suggests is wrong: nothing in the machine links through `r13`.
 - **Flags are caller-saved**, which in practice means "not saved at all". Compare after the call, not
   before.
 
@@ -202,7 +202,7 @@ Note `ifle` rather than `cmp` + `jle`: the comparison and the branch as one inst
 
 ## Related pages
 
-- [Registers and flags](03-Registers-and-Flags.md) — what each register is, and the `r12` clobber.
+- [Registers and flags](03-Registers-and-Flags.md) — what each register is, and the `at` clobber.
 - [Pseudo-instructions](06-Pseudo-Instructions.md#enter-and-leave--stack-frames) — what `enter` and `leave` expand to.
 - [Structs](23-Structs.md) — the offset constants a frame is described with.
 - [Language syntax](10-Language-Syntax.md#register-aliases) — `alias`, and why it does not cross a file.

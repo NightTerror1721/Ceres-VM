@@ -10,15 +10,15 @@ role beyond "general purpose" — though the VM only actually special-cases one 
 | Register | Alias | Role |
 | --- | --- | --- |
 | `r0`–`r11` | — | General purpose. |
-| `r12` | — | General purpose, but **the assembler uses it as scratch space** when materializing a full 32-bit address for `la`, `ldv` and `stv` (see [Pseudo-instructions](06-Pseudo-Instructions.md)). Do not expect its value to survive one of those pseudo-instructions. |
-| `r13` | `lr` (Link Register) | Nothing in the VM itself touches it. `call`/`CALL` push the return address on the stack, and `ret`/`RET` pop it — the link register is defined by convention only, not wired into the hardware. |
+| `r12` | — | General purpose, with nothing special about it. |
+| `r13` | `at` (Assembler Temporary) | **The assembler uses it as scratch space** when materializing a full 32-bit address for `stv`, and for `ldv` into a float register (see [Pseudo-instructions](06-Pseudo-Instructions.md)). Do not expect its value to survive one of those. Nothing in the VM itself touches it: `call`/`CALL` push the return address on the stack and `ret`/`RET` pop it, so there is no link register here. `lr` is still accepted as a name for `r13`, but it is the deprecated spelling. |
 | `r14` | `fp` (Frame Pointer) | No *real* opcode reads or writes it specially, but the `enter` and `leave` [pseudo-instructions](06-Pseudo-Instructions.md#enter-and-leave--stack-frames) do — they are the only things in the project that name it by role. Beyond those, it behaves exactly like `r0`–`r11`. |
 | `r15` | `sp` (Stack Pointer) | Initialized to the top of memory (`memory.size()`) on reset. `PUSH`/`POP`/`CALL`/`RET`/`PUSHF`/`POPF`/interrupt dispatch all read and write it directly. |
 
 The aliases come from `RIndex` in [`registers.h`](../Ceres-ASM/src/vm/registers.h):
 
 ```cpp
-enum class RIndex : u8 { R0=0, ..., R12=12, R13=13, R14=14, R15=15, LR=R13, FP=R14, SP=R15 };
+enum class RIndex : u8 { R0=0, ..., R12=12, R13=13, R14=14, R15=15, AT=R13, FP=R14, SP=R15 };
 ```
 
 `GeneralPurposeRegisterPool` stores all 16 as a `std::array<Register, 16>`; `Register` itself is a
@@ -44,7 +44,7 @@ numeric conversion (i.e., they reinterpret the bits, they don't call `(float)` o
 
 ## Writing a register
 
-`r0`–`r15` and `f0`–`f15`, and the three that have a role also answer to it: `sp`, `fp` and `lr`
+`r0`–`r15` and `f0`–`f15`, and the three that have a role also answer to it: `sp`, `fp` and `at`
 (`r15`, `r14`, `r13`). Names are case-insensitive.
 
 ```casm
@@ -139,4 +139,4 @@ jumps read two flags each, and which pair depends on signedness:
 
 - [Instruction format](04-Instruction-Format.md) — where `rd`/`rs`/`rt`/`fd`/`fs`/`ft` sit in the 32-bit word.
 - [Instruction set](05-Instruction-Set.md) — the full per-instruction reference.
-- [Pseudo-instructions](06-Pseudo-Instructions.md) — why `r12` gets clobbered.
+- [Pseudo-instructions](06-Pseudo-Instructions.md) — why `at` gets clobbered.

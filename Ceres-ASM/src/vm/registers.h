@@ -123,11 +123,11 @@ namespace ceres::vm
 		R10 = 10,
 		R11 = 11,
 		R12 = 12,
-		R13 = 13, // Link Register
+		R13 = 13, // Assembler Temporary
 		R14 = 14, // Frame Pointer
 		R15 = 15, // Stack Pointer
 
-		LR = R13, // Link Register
+		AT = R13, // Assembler Temporary
 		FP = R14, // Frame Pointer
 		SP = R15  // Stack Pointer
 	};
@@ -142,7 +142,7 @@ namespace ceres::vm
 
 		static inline constexpr usize StackPointerIndex = Count - 1; // R15 is the stack pointer (SP)
 		static inline constexpr usize FramePointerIndex = Count - 2; // R14 is the frame pointer (FP)
-		static inline constexpr usize LinkRegisterIndex = Count - 3; // R13 is the link register (LR)
+		static inline constexpr usize AssemblerTempIndex = Count - 3; // R13 is the assembler temporary (AT)
 		static inline constexpr usize GeneralPurposeStartIndex = 0; // R0-R12 are general-purpose registers
 		static inline constexpr usize GeneralPurposeEndIndex = Count - 4; // R0-R12 are general-purpose registers
 
@@ -222,13 +222,13 @@ namespace ceres::vm
 		forceinline constexpr Register& r10() noexcept { return _registers[10]; }
 		forceinline constexpr Register& r11() noexcept { return _registers[11]; }
 		forceinline constexpr Register& r12() noexcept { return _registers[12]; }
-		forceinline constexpr Register& r13() noexcept { return _registers[13]; } // Link Register (LR)
+		forceinline constexpr Register& r13() noexcept { return _registers[13]; } // Assembler Temporary (AT)
 		forceinline constexpr Register& r14() noexcept { return _registers[14]; } // Frame Pointer (FP)
 		forceinline constexpr Register& r15() noexcept { return _registers[15]; } // Stack Pointer (SP)
 
 		forceinline constexpr Register& sp() noexcept { return _registers[StackPointerIndex]; }
 		forceinline constexpr Register& fp() noexcept { return _registers[FramePointerIndex]; }
-		forceinline constexpr Register& lr() noexcept { return _registers[LinkRegisterIndex]; }
+		forceinline constexpr Register& at() noexcept { return _registers[AssemblerTempIndex]; }
 
 		forceinline constexpr Register r0() const noexcept { return _registers[0]; }
 		forceinline constexpr Register r1() const noexcept { return _registers[1]; }
@@ -243,13 +243,13 @@ namespace ceres::vm
 		forceinline constexpr Register r10() const noexcept { return _registers[10]; }
 		forceinline constexpr Register r11() const noexcept { return _registers[11]; }
 		forceinline constexpr Register r12() const noexcept { return _registers[12]; }
-		forceinline constexpr Register r13() const noexcept { return _registers[13]; } // Link Register (LR)
+		forceinline constexpr Register r13() const noexcept { return _registers[13]; } // Assembler Temporary (AT)
 		forceinline constexpr Register r14() const noexcept { return _registers[14]; } // Frame Pointer (FP)
 		forceinline constexpr Register r15() const noexcept { return _registers[15]; } // Stack Pointer (SP)
 
 		forceinline constexpr Register sp() const noexcept { return _registers[StackPointerIndex]; }
 		forceinline constexpr Register fp() const noexcept { return _registers[FramePointerIndex]; }
-		forceinline constexpr Register lr() const noexcept { return _registers[LinkRegisterIndex]; }
+		forceinline constexpr Register at() const noexcept { return _registers[AssemblerTempIndex]; }
 
 	public:
 		forceinline constexpr Register& operator[](usize index) noexcept { return _registers[index]; }

@@ -592,7 +592,9 @@ namespace ceres::debug
 				if (name == "ticks") return makeInteger(static_cast<i64>(registers.executedInstructions), "u64");
 				if (name == "sp")    return makeInteger(registers.general[vm::GeneralPurposeRegisterPool::StackPointerIndex], "u32");
 				if (name == "fp")    return makeInteger(registers.general[vm::GeneralPurposeRegisterPool::FramePointerIndex], "u32");
-				if (name == "lr")    return makeInteger(registers.general[vm::GeneralPurposeRegisterPool::LinkRegisterIndex], "u32");
+				// `lr` is the deprecated spelling of `at`, the assembler temporary.
+				if (name == "at" ||
+				    name == "lr")    return makeInteger(registers.general[vm::GeneralPurposeRegisterPool::AssemblerTempIndex], "u32");
 
 				if (name == "zero")      return makeInteger(registers.zero ? 1 : 0, "bool");
 				if (name == "sign")      return makeInteger(registers.sign ? 1 : 0, "bool");

@@ -1384,8 +1384,8 @@ namespace ceres::debug
 			return engine.setRegister(vm::GeneralPurposeRegisterPool::StackPointerIndex, value);
 		if (name == "fp")
 			return engine.setRegister(vm::GeneralPurposeRegisterPool::FramePointerIndex, value);
-		if (name == "lr")
-			return engine.setRegister(vm::GeneralPurposeRegisterPool::LinkRegisterIndex, value);
+		if (name == "at" || name == "lr") // `lr` is the deprecated spelling of `at`.
+			return engine.setRegister(vm::GeneralPurposeRegisterPool::AssemblerTempIndex, value);
 
 		if (name.size() >= 2 && (name[0] == 'r' || name[0] == 'f'))
 		{

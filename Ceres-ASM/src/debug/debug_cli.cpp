@@ -143,7 +143,7 @@ namespace ceres::debug
 			"    p <expr>     evaluate: r3, sp < 0x1000, total, scores[2], [r1 + 4], u8[r2]\n"
 			"\n"
 			"  Changing things\n"
-			"    set <reg> <value>   write a register (r0-r15, f0-f15, sp, fp, lr, pc)\n"
+			"    set <reg> <value>   write a register (r0-r15, f0-f15, sp, fp, at, pc)\n"
 			"    input <text>        feed a line to the program's terminal input\n"
 			"\n"
 			"    q            quit\n";
@@ -267,10 +267,10 @@ namespace ceres::debug
 			std::cout << '\n';
 		}
 
-		std::cout << std::format("  sp  ={:#010x}  fp  ={:#010x}  lr  ={:#010x}  pc  ={:#010x}\n",
+		std::cout << std::format("  sp  ={:#010x}  fp  ={:#010x}  at  ={:#010x}  pc  ={:#010x}\n",
 			view.general[vm::GeneralPurposeRegisterPool::StackPointerIndex],
 			view.general[vm::GeneralPurposeRegisterPool::FramePointerIndex],
-			view.general[vm::GeneralPurposeRegisterPool::LinkRegisterIndex],
+			view.general[vm::GeneralPurposeRegisterPool::AssemblerTempIndex],
 			view.programCounter);
 
 		std::cout << std::format("  flags: Z={} S={} C={} O={} I={} H={} T={}   ticks: {}\n",

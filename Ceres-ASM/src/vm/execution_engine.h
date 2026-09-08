@@ -128,8 +128,8 @@ namespace ceres::vm
 		forceinline u32 fp() const noexcept { return _registers.getValue<GeneralPurposeRegisterPool::FramePointerIndex>(); }
 		forceinline void fp(u32 value) noexcept { _registers.setValue<GeneralPurposeRegisterPool::FramePointerIndex>(value); }
 
-		forceinline u32 lr() const noexcept { return _registers.getValue<GeneralPurposeRegisterPool::LinkRegisterIndex>(); }
-		forceinline void lr(u32 value) noexcept { _registers.setValue<GeneralPurposeRegisterPool::LinkRegisterIndex>(value); }
+		forceinline u32 at() const noexcept { return _registers.getValue<GeneralPurposeRegisterPool::AssemblerTempIndex>(); }
+		forceinline void at(u32 value) noexcept { _registers.setValue<GeneralPurposeRegisterPool::AssemblerTempIndex>(value); }
 
 		// A halfword or word access has to sit on a boundary of its own size. Byte accesses never
 		// fault. Returns false when the access is misaligned, having already raised the fault.

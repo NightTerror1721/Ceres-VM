@@ -639,12 +639,12 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 			case Scope.Registers: {
 				const registers = await this.ensureRegisters();
 				const names = ['r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'r11',
-					'r12', 'lr', 'fp', 'sp'];
+					'r12', 'at', 'fp', 'sp'];
 				const variables = registers.general.map((value, index) => ({
 					name: names[index] ?? `r${index}`,
 					value: this.hex(value),
 					variablesReference: 0,
-					evaluateName: index === 13 ? 'lr' : index === 14 ? 'fp' : index === 15 ? 'sp' : `r${index}`,
+					evaluateName: index === 13 ? 'at' : index === 14 ? 'fp' : index === 15 ? 'sp' : `r${index}`,
 					memoryReference: this.toReference(value)
 				}));
 				variables.push({

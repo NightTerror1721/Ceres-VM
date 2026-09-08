@@ -9,8 +9,8 @@
 //   Arguments   r0-r3, then the caller's outgoing area at [sp + 0], [sp + 4], ...
 //   Return      r0 (f0 for a float)
 //   Callee-saved  r8-r11, f8-f15, fp
-//   Caller-saved  r0-r7, r13, f0-f7, and the flags
-//   Never touch   r12 - ldv, stv and the float form of la clobber it
+//   Caller-saved  r0-r7, r12, f0-f7, and the flags
+//   Never touch   at (r13) - stv, and ldv into a float register, clobber it
 //
 // The frame, after `proc_enter`:
 //

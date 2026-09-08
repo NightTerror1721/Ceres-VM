@@ -117,7 +117,7 @@ identifier.
 
 [Known limitations](19-Known-Limitations.md) points out that the VM enforces **no** calling
 convention at all — no register is hardwired as caller-saved or callee-saved, `fp` is just a name
-with no special behaviour, and only `r12` is ever clobbered automatically (by `ldv`/`stv`, see
+with no special behaviour, and only `at` (`r13`) is ever clobbered automatically (by `stv`, see
 [Pseudo-instructions](06-Pseudo-Instructions.md)). Macros are exactly the tool this project expects
 you to reach for to fill that gap: they let you write the convention once and apply it everywhere by
 name, instead of repeating the same `push`/`pop` boilerplate — and forgetting it — in every

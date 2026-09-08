@@ -91,6 +91,6 @@ subroutines.
 
 ## Related pages
 
-- [Registers and flags](03-Registers-and-Flags.md) — `sp`, `fp`, `lr` and their roles.
+- [Registers and flags](03-Registers-and-Flags.md) — `sp`, `fp`, `at` and their roles.
 - [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — `AlignmentFault`, `StackOverflow` and when they fire.
 - [The `.cres` binary format](09-CRES-Binary-Format.md) — how `.text`/`.rodata`/`.data`/`.bss` get placed inside this map once a program is loaded.

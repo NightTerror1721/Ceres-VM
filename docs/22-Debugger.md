@@ -107,7 +107,7 @@ for it: constant folding runs at assembly time and cannot even reference an iden
 
 | | |
 | --- | --- |
-| `r3` `f1` `sp` `fp` `lr` `pc` `ticks` | Registers and machine state |
+| `r3` `f1` `sp` `fp` `at` `pc` `ticks` | Registers and machine state |
 | `zero` `sign` `carry` `overflow` `interrupt` `halting` `trap` | Flags, as 0 or 1 |
 | `1024` `0x400` `0b1010` `3.5` | Literals |
 | `LIMIT` | A constant, with the value the assembler recorded |

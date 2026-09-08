@@ -127,29 +127,46 @@ global main:
     stv r1, counter     // counter = counter + 1
 ```
 
-## The `r12` clobber
+## The `at` clobber
 
-`ldv` and `stv` both need a scratch register to hold the address they compute internally (the `lui`+
-`ori` pair), separate from the register you asked to load into or store from. That scratch register
-is **always `r12`** — see the comment in
+Materialising a 32-bit address takes a `lui`+`ori` pair, and that pair has to land somewhere. Most of
+the time it lands in a register the instruction was already given, and nothing else is disturbed:
+
+| Pseudo-instruction | Forms | Needs a scratch? | Why |
+| --- | --- | --- | --- |
+| `la rd, ...` | 7 | **No** | Both halves target `rd`. No form of `la` touches a scratch register, including the one for an `f32` variable. |
+| `ldv rd, var` | 6 | **No** | Builds the address in `rd`, then overwrites `rd` with the value loaded through it. |
+| `ldv fd, var` | 1 | **Yes** | The destination is in the float bank, so it cannot hold the integer address on the way. |
+| `stv rs, var` | 7 | **Yes** | The register holding the value cannot also be the base to store through. |
+
+So the hazard is exactly **`stv`, and `ldv` into a float register** — eight expansions out of
+twenty-one. Those borrow `r13`, the assembler temporary, spelled **`at`** — see the comment in
 [`instruction_info.cpp`](../Ceres-ASM/src/assembler/instruction_info.cpp):
 
-> Register the assembler is allowed to clobber while materializing a 32-bit address for the
-> `LDV`/`STV` pseudo-instructions. `R13` is the Link Register, so using it made any `STV` inside a
-> subroutine destroy its own return address; `R12` is the last general-purpose register.
+> Register the assembler is allowed to clobber while materialising a 32-bit address. Only `STV` and
+> the float form of `LDV` need one: every other expansion builds the address in the operand register
+> it was handed.
 
-Practical consequence: **never rely on `r12` surviving an `ldv` or `stv`**, even when neither its
-source nor destination register is `r12` itself.
+Practical consequence: **never rely on `at` surviving an `stv`**, even when neither its source nor
+its destination register is `at` itself.
 
 ```casm
-li r12, 42
-ldv r1, some_variable   // r12 is now overwritten with an address, NOT 42 anymore
+li  at, 42
+stv r1, counter     // at is now an address, NOT 42 anymore
 ```
 
-`la` does **not** clobber `r12` when its destination is a different register — its two instructions
-(`lui`+`ori`) both target `rd` directly, no scratch register is needed. The clobber only applies to
-`ldv`/`stv`, which need somewhere to hold the address *while also* loading/storing through a
-possibly-different register.
+### Why `r13` and not `r12`
+
+It was `r12` until it wasn't, on the grounds that `r13` was the Link Register and using it would make
+an `stv` inside a subroutine destroy its own return address. That describes a machine Ceres has never
+been: `CALL` pushes the return address on the stack and `RET` pops it, and nothing anywhere reads
+`r13`. The register was a general-purpose one with a name that promised something the hardware did
+not do.
+
+Moving the clobber onto it costs no registers — thirteen were usable before and thirteen are usable
+now — but it puts the hazard on the one register that has a name to warn you with, and it leaves
+`r0`–`r12` contiguous and all yours. `lr` is still accepted as a spelling of `r13` so that older
+sources keep assembling; `at` is what it should be called.
 
 ## Fixed instruction size, even when the variant is shorter
 
@@ -184,7 +201,7 @@ single instruction, not two.
 ```
 
 `li` only reaches 16 bits and `la` only takes symbols, so before `lc` a full-width constant had to
-be written as the `lui`/`ori` pair by hand. Unlike `ldv`/`stv` it needs no scratch register: both
+be written as the `lui`/`ori` pair by hand. Unlike `stv` it needs no scratch register: both
 halves target `rd` directly.
 
 ## Comparison and branch in one: `ifXX`
@@ -265,5 +282,5 @@ plainly than `cmp r1, 0` does, and costs the same single instruction.
 
 - [Instruction format](04-Instruction-Format.md) — why no single instruction can hold a 32-bit immediate.
 - [Instruction set](05-Instruction-Set.md) — the real opcodes these expand into.
-- [Registers and flags](03-Registers-and-Flags.md) — the role of `r12`/`r13`/`r14`/`r15`.
+- [Registers and flags](03-Registers-and-Flags.md) — the role of `at`/`fp`/`sp`.
 - [Constants and expressions](13-Constants-and-Expressions.md) — what can be written as the immediate of an `lc` or an `ifXX`.

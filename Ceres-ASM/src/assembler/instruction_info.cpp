@@ -57,10 +57,14 @@ namespace ceres::casm
 		return OpcodeParameter::makeUFixed(type, fixedValue, valueShift);
 	}
 
-	// Register the assembler is allowed to clobber while materialising a 32-bit address for the
-	// LDV/STV pseudo-instructions. R13 is the Link Register, so using it made any STV inside a
-	// subroutine destroy its own return address; R12 is the last general-purpose register.
-	static inline constexpr u32 ScratchRegister = 12;
+	// Register the assembler is allowed to clobber while materialising a 32-bit address. Only STV
+	// and the float form of LDV need one: every other expansion builds the address in the operand
+	// register it was handed. This used to be R12, on the grounds that R13 was the Link Register
+	// and an STV would destroy its own return address - which describes a machine this one never
+	// was, because CALL pushes the return address on the stack and RET pops it. R13 is the one
+	// register with a name of its own to spend on this, so it carries the hazard and the name that
+	// warns about it (`at`, the assembler temporary), and R0-R12 are contiguous and all usable.
+	static inline constexpr u32 ScratchRegister = 13;
 
 	// ENTER/LEAVE are the only things in the project that name these two by role.
 	static inline constexpr u32 FramePointerRegister = 14;

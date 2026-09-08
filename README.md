@@ -71,9 +71,8 @@ Two banks of sixteen 32-bit registers.
 
 | Register | Role |
 | --- | --- |
-| `r0`–`r11` | General purpose. |
-| `r12` | General purpose, but **the assembler uses it as scratch** when materialising a 32-bit address for `la`, `ldv` and `stv`. Do not expect it to survive those. |
-| `r13` / `lr` | Named Link Register. Nothing in the machine uses it: `call` pushes the return address on the stack and `ret` pops it. |
+| `r0`–`r12` | General purpose. |
+| `r13` / `at` | General purpose, but **the assembler uses it as scratch** when materialising a 32-bit address for `stv` and for `ldv` into a float register. Do not expect it to survive those. `lr` is still accepted as a name for it, but nothing in the machine links through it: `call` pushes the return address on the stack and `ret` pops it. |
 | `r14` / `fp` | Named Frame Pointer. Defined, but no instruction touches it. |
 | `r15` / `sp` | Stack pointer. Initialised to the top of memory on reset. |
 | `f0`–`f15` | 32-bit IEEE-754 floats. They share the instruction's register fields with the integer bank. |
@@ -406,7 +405,7 @@ operand may be a register or an immediate, and a pair of float registers picks `
 `enter` and `leave` are the only instructions that touch `fp` (`r14`), which is otherwise defined
 and unused.
 
-`ldv` and `stv` clobber `r12`. Because an instruction's size has to be known before its overload
+`stv`, and `ldv` into a float register, clobber `at` (`r13`). Because an instruction's size has to be known before its overload
 is chosen, the assembler reserves the largest form and pads the rest with `nop`.
 
 ## Macros
@@ -525,9 +524,9 @@ ordinary identifier, so it stays usable as a name everywhere else.
 
 The assembler and the VM work end to end. What is not done:
 
-- **Calling convention.** `fp` is defined and unused, and no register is documented as
-  caller- or callee-saved. `r12` is clobbered by three pseudo-instructions, which is the closest
-  thing to a convention the project has.
+- **Nothing enforces the calling convention.** It is written down — register roles, a frame shape
+  and the two macros that open and close it, in `lib/call.casm` — but no macro can verify that you
+  preserved `r8` or left `sp` where you found it.
 - **Devices.** Twenty-six ports are reserved and seven are implemented. Disk, GPU, input, audio
   and network are all still stubs.
 - **`parseOperand` gaps.** Float, character and string literals are not accepted as operands, and

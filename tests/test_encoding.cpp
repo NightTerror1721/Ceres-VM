@@ -202,8 +202,10 @@ TEST(encoding, stv_does_not_mix_the_data_register_into_the_address)
 	CHECK_EQ(lower.rd(), lower.rs());
 	CHECK(lower.rd() != 1);
 
-	// And it must not be R13, which is declared as the Link Register.
-	CHECK(lower.rd() != 13);
+	// And it must be `at` (R13), the assembler temporary. This was R12 while R13 was still
+	// called the Link Register - a name for something the machine never did, since CALL pushes
+	// the return address on the stack and nothing reads R13.
+	CHECK_EQ(lower.rd(), u8{ 13 });
 
 	// The store reads its base from the scratch register and its value from the user's.
 	CHECK_EQ(store.rd(), upper.rd());

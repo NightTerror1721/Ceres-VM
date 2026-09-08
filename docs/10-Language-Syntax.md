@@ -211,7 +211,7 @@ is also how a misspelled instruction name gets caught: it fails later, during ma
 
 | Syntax | Parsed as |
 | --- | --- |
-| `r0`–`r15`, and `sp`/`fp`/`lr` for `r15`/`r14`/`r13` | Integer register |
+| `r0`–`r15`, and `sp`/`fp`/`at` for `r15`/`r14`/`r13` | Integer register |
 | `f0`–`f15` | Floating-point register |
 | `42`, `0x2A`, `'A'`, `2 + N * 4`, `sizeof(buf)` | Immediate value or constant expression — see [Constants and expressions](13-Constants-and-Expressions.md) |
 | `[reg]`, `[reg + N]`, `[reg + ident]`, `[reg + Mod.name]` | Memory operand |

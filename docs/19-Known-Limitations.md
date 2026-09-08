@@ -21,9 +21,10 @@ or that you left `sp` where you found it, so the assembler cannot catch a functi
 contract — only you can. What the macros buy is that the disciplined thing is also the shortest thing
 to write.
 
-One hazard is worth repeating because it is invisible: **`r12` is clobbered by `ldv`, `stv` and the
-float form of `la`**, so it can never hold anything that has to survive one of them, whatever the
-convention says.
+One hazard is worth repeating because it is invisible: **`at` (`r13`) is clobbered by `stv`, and by
+`ldv` into a float register**, so it can never hold anything that has to survive one of them,
+whatever the convention says. Nothing else clobbers it — `la` never needs a scratch register, and
+neither does `ldv` into an integer register.
 
 ## Most I/O devices are stubs
 
@@ -88,7 +89,7 @@ because a reader coming from a more conventional ISA might otherwise assume they
 | --- | --- | --- |
 | Division/modulo by zero doesn't fault | Sets the Trap flag and continues, leaving the destination unchanged | [Instruction set → Arithmetic](05-Instruction-Set.md#arithmetic-0x10-0x28) |
 | `str [rd + imm16], rs` puts the base *before* the value | `imm16` occupies the same bits as `rt`, so there's no room for a third register | [Instruction format](04-Instruction-Format.md#the-critical-overlap-imm16-and-rt) |
-| `ldv`/`stv` silently clobber `r12` | Need a scratch register for the address; `r13` is the link register, so using it there would break subroutines | [Pseudo-instructions](06-Pseudo-Instructions.md#the-r12-clobber) |
+| `stv` silently clobbers `at` (`r13`) | It needs a base register for the address that is not the one holding the value | [Pseudo-instructions](06-Pseudo-Instructions.md#the-at-clobber) |
 | `iret` never restores the Halting flag | `halt` means "wait for an interrupt"; restoring it would put the machine straight back to sleep with no way to wake it | [Registers and flags](03-Registers-and-Flags.md#flags-register) |
 | A stack overflow only protects the vector table/BIOS, not the program itself | Nothing tracks where the loaded program's image ends | [Memory → The stack](02-Memory.md#the-stack) |
 | `[r5+0]` fails to parse | Lexes as the register followed by the signed literal `+0`, not as `+` then `0` | [Language syntax](10-Language-Syntax.md#addressing-memory-operands) |

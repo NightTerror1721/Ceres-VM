@@ -50,6 +50,10 @@ namespace ceres::casm
 		// the wiki from the start, but only ever as documentation: the assembler knew r0-r15 and
 		// f0-f15 and nothing else, so `[sp + 8]` did not parse and a calling convention had to
 		// spell its own frame pointer r14.
+		//
+		// `lr` still answers for r13 so that sources written against the old name keep assembling,
+		// but the register is the assembler's temporary now and `at` is what it should be called:
+		// nothing links through it, and an `stv` anywhere in a function destroys whatever it holds.
 		if (name.size() == 2)
 		{
 			const char first = static_cast<char>(std::tolower(static_cast<unsigned char>(name[0])));
@@ -58,8 +62,10 @@ namespace ceres::casm
 				return RegisterInfo{ static_cast<u8>(vm::GeneralPurposeRegisterPool::StackPointerIndex), false };
 			if (first == 'f' && second == 'p')
 				return RegisterInfo{ static_cast<u8>(vm::GeneralPurposeRegisterPool::FramePointerIndex), false };
-			if (first == 'l' && second == 'r')
-				return RegisterInfo{ static_cast<u8>(vm::GeneralPurposeRegisterPool::LinkRegisterIndex), false };
+			if (first == 'a' && second == 't')
+				return RegisterInfo{ static_cast<u8>(vm::GeneralPurposeRegisterPool::AssemblerTempIndex), false };
+			if (first == 'l' && second == 'r') // Deprecated spelling of `at`.
+				return RegisterInfo{ static_cast<u8>(vm::GeneralPurposeRegisterPool::AssemblerTempIndex), false };
 		}
 
 		bool isFloatingPoint = false;
