@@ -85,7 +85,7 @@ global main:
     cmp r8, 0
     jnz .occupied
 
-    strb r4, [r7 + 0]      // marcamos la casilla con el jugador actual
+    strb [r7 + 0], r4      // marcamos la casilla con el jugador actual
 
     call check_winner       // r0 = 0 (nadie), 1 (X) o 2 (O)
     cmp r0, 0
@@ -105,7 +105,7 @@ global main:
 .to_o:
     li r4, 2
 .save_turn:
-    stv r4, turn
+    stv turn, r4
     jp .turn_loop
 
 .bad_range:
@@ -276,15 +276,15 @@ print_bar:
 // read_command() -> r0 = primer byte de la siguiente linea escrita.
 read_command:
 .wait_first:
-    inb TERM_STATUS, r1
+    inb r1, TERM_STATUS
     and r1, r1, 1
     jz .wait_first
-    inb TERM_IN, r0
+    inb r0, TERM_IN
 .flush:
-    inb TERM_STATUS, r1
+    inb r1, TERM_STATUS
     and r1, r1, 1
     jz .flush
-    inb TERM_IN, r2
+    inb r2, TERM_IN
     cmp r2, NEWLINE
     jnz .flush
     ret

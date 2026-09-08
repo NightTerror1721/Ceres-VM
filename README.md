@@ -126,6 +126,11 @@ high half followed by `ori` for the low half, which is what `la`, `ldv` and `stv
 
 ## Instruction set
 
+**If an instruction has a destination, the destination is written first.** A load, a store, a
+move, an arithmetic result, a port read — all of them. There is no exception, which is what lets
+one mnemonic tell a load from a store: `mov r1, [r2]` reads and `mov [r2], r1` writes, and the
+difference is which side the memory is on.
+
 Relative branches take a signed 24-bit displacement, measured **from the branch itself**, giving a
 range of ±8 MiB.
 
@@ -166,8 +171,8 @@ without a pair of shifts.
 `mov` `li` `lui` `ldr` `ldrb` `ldrh` `ldrsb` `ldrsh` `str` `strb` `strh` `la`
 
 ```casm
-ldrb r2, [r1 + 4]     // load, base then displacement
-strb r6, [r5 + 1]     // store, value first then destination
+ldrb r2, [r1 + 4]     // load
+strb [r5 + 1], r6     // store
 ```
 
 The access may carry its **width** instead of the mnemonic. `u8[r2 + 4]` is a byte access,
@@ -184,13 +189,40 @@ This is the same thing `ldv` and `stv` already do with a variable's declared typ
 `[r2 + 4]` had no type to read it from. Any scalar works, aliases included — `byte[r2]` is
 `u8[r2]`. The width-suffixed mnemonics keep working unchanged.
 
+A **symbol in brackets** is its contents, the way brackets mean contents everywhere else; the bare
+name is its address:
+
+```casm
+mov r1, counter       // the address of counter
+mov r1, [counter]     // what counter holds
+mov [counter], r1     // write it back
+```
+
+This is the convention of NASM, the 68000 and the Z80. It also means `ldv`/`stv` are now spellings
+of `ldr`/`str` with a bracketed name — and they relax to one PC-relative word just the same.
+
+### `mov` moves anything anywhere
+
+Every form below is an existing instruction chosen by the shape of its operands, so `mov` is one
+name for the whole of moving:
+
+```casm
+mov r1, r2            mov r1, 42            mov f1, f2
+mov r1, counter       mov r1, [counter]     mov [counter], r1
+mov r1, [r2 + 4]      mov [r2 + 4], r1      mov r1, u8[r2 + r3]
+mov u16[r2 + 4], r1   mov f1, f32[r2 + 4]   mov f32[r2 + 4], f1
+```
+
+What `mov` deliberately will not do is choose between `mtf` and `itof` — copying a bit pattern and
+converting a number have the same shape and opposite meanings, so they keep their own names.
+
 The offset may be a **register** instead, which is an index rather than a displacement and picks
 an opcode of its own — the same mnemonic either way, exactly as `add` chooses between a register
 and an immediate:
 
 ```casm
 ldrb r2, [r1 + r3]    // LDRBX: no `add r4, r1, r3` before every element
-strb r6, [r5 + r3]    // STRBX
+strb [r5 + r3], r6    // STRBX
 ```
 
 An index cannot be subtracted — there is no opcode that subtracts one — and it cannot be a float
@@ -281,8 +313,8 @@ The port is either an 8-bit immediate or a register; the assembler picks the enc
 operand. Block forms take the port, an address and a size:
 
 ```casm
-outm 0x01, r3, r2     // port, address, size
-inm  0x02, r3, r2     // port, address, size
+outm 0x01, r3, r2     // destination first: the port, then the address and the size
+inm  r3, 0x02, r2     // destination first: the memory, then the port and the size
 ```
 
 ## Ports

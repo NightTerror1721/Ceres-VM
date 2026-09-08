@@ -34,8 +34,8 @@ const NEWLINE     = 10
 
 @text
 global main:
-    in CLOCK_PORT, r1     // r1 = segundos desde 1970 (semilla inicial)
-    stv r1, seed
+    in r1, CLOCK_PORT     // r1 = segundos desde 1970 (semilla inicial)
+    stv seed, r1
 
     li r4, 0              // contador de vueltas
 .loop:
@@ -63,7 +63,7 @@ next_random:
     mul r1, r1, r2         // r1 = seed * A (se trunca a 32 bits solo)
     ldv r2, LCG_C
     add r1, r1, r2         // r1 = seed * A + C
-    stv r1, seed
+    stv seed, r1
     mov r0, r1
     ret
 

@@ -171,7 +171,7 @@ TEST(pipeline, a_global_variable_survives_a_store_and_a_load)
 		"@text\r\n"
 		"global main:\r\n"
 		"    li r1, 67\r\n"
-		"    stv r1, counter\r\n"
+		"    stv counter, r1\r\n"
 		"    ldv r2, counter\r\n"
 		"    outb 0x01, r2\r\n"
 		"{}", shutdown));
@@ -328,9 +328,9 @@ TEST(pipeline, the_calling_convention_holds_together)
 		"    li  r2, 3\r\n"
 		"    li  r3, 4\r\n"
 		"    li  r4, 5\r\n"
-		"    str r4, [sp + 0]\r\n"
+		"    str [sp + 0], r4\r\n"
 		"    li  r4, 6\r\n"
-		"    str r4, [sp + 4]\r\n"
+		"    str [sp + 4], r4\r\n"
 		"    call sum6\r\n"
 		"    call print_u32\r\n"
 		"    li  r0, 1\r\n"
@@ -342,8 +342,8 @@ TEST(pipeline, the_calling_convention_holds_together)
 		"print_u32:\r\n"
 		"    enter\r\n"
 		"    sub sp, sp, 20\r\n"
-		"    str r8, [sp + 0]\r\n"       // r8 and r9 must survive the calls below
-		"    str r9, [sp + 4]\r\n"
+		"    str [sp + 0], r8\r\n"       // r8 and r9 must survive the calls below
+		"    str [sp + 4], r9\r\n"
 		"    lea r8, [sp + 8]\r\n"
 		"    clr r9\r\n"
 		"    mov r1, r0\r\n"
@@ -355,7 +355,7 @@ TEST(pipeline, the_calling_convention_holds_together)
 		"    mod  r2, r1, 10\r\n"
 		"    add  r2, r2, 48\r\n"
 		"    add  r3, r8, r9\r\n"
-		"    strb r2, [r3 + 0]\r\n"
+		"    strb [r3 + 0], r2\r\n"
 		"    inc  r9\r\n"
 		"    div  r1, r1, 10\r\n"
 		"    ifne r1, 0, .collect\r\n"
@@ -373,7 +373,7 @@ TEST(pipeline, the_calling_convention_holds_together)
 		"factorial:\r\n"                 // recursion: n has to outlive the recursive call
 		"    enter\r\n"
 		"    sub sp, sp, 4\r\n"
-		"    str r8, [sp + 0]\r\n"
+		"    str [sp + 0], r8\r\n"
 		"    mov  r8, r0\r\n"
 		"    ifle r8, 1, .base\r\n"
 		"    sub  r0, r8, 1\r\n"
@@ -494,7 +494,7 @@ TEST(pipeline, a_pc_relative_load_and_store_actually_reach_the_variable)
 		"global main:\r\n"
 		"    ldvp r1, counter\r\n"
 		"    inc  r1\r\n"
-		"    stvp r1, counter\r\n"
+		"    stvp counter, r1\r\n"
 		"    ldvp r2, counter\r\n"
 		"    outb 0x01, r2\r\n"
 		"{}", shutdown));

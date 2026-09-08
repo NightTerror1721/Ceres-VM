@@ -24,6 +24,9 @@ namespace ceres::casm
 		// way a variable's declared type already does for LDV and STV.
 		MemoryU8, MemoryS8, MemoryU16, MemoryS16, MemoryU32, MemoryS32, MemoryF32,
 		IndexedU8, IndexedS8, IndexedU16, IndexedS16, IndexedU32, IndexedS32, IndexedF32,
+		// A variable written inside brackets: `[counter]`, the contents rather than the address.
+		// Same widths again, because the variable's declared type is where the width comes from.
+		AtVariableU8, AtVariableS8, AtVariableU16, AtVariableS16, AtVariableU32, AtVariableS32, AtVariableF32,
 		VariableU8,					// 8-bit variable (for pseudo-instructions)
 		VariableS8,					// 8-bit signed variable (for pseudo-instructions)
 		VariableU16,				// 16-bit variable (for pseudo-instructions)
@@ -224,6 +227,13 @@ namespace ceres::casm
 				case OperandType::IndexedU32: return "u32[Reg+Reg]";
 				case OperandType::IndexedS32: return "i32[Reg+Reg]";
 				case OperandType::IndexedF32: return "f32[Reg+Reg]";
+				case OperandType::AtVariableU8: return "[VarU8]";
+				case OperandType::AtVariableS8: return "[VarS8]";
+				case OperandType::AtVariableU16: return "[VarU16]";
+				case OperandType::AtVariableS16: return "[VarS16]";
+				case OperandType::AtVariableU32: return "[VarU32]";
+				case OperandType::AtVariableS32: return "[VarS32]";
+				case OperandType::AtVariableF32: return "[VarF32]";
 				case OperandType::VariableU8: return "VarU8";
 				case OperandType::VariableS8: return "VarS8";
 				case OperandType::VariableU16: return "VarU16";
@@ -494,12 +504,25 @@ namespace ceres::casm
 
 		// The one-word form of a mnemonic that also has a long one, for a target the short form can
 		// reach. Relaxation is the only caller; see Linker::relaxInstructions.
-		static constexpr std::optional<Mnemonic> shortFormOf(Mnemonic mnemonic) noexcept
+		//
+		// It depends on more than the mnemonic now: `mov` is a load or a store according to which
+		// side the variable is on, and the destination goes first, so the variable being operand 0
+		// is what makes it a store.
+		static constexpr std::optional<Mnemonic> shortFormOf(Mnemonic mnemonic, bool variableIsFirst, bool dereferenced) noexcept
 		{
 			switch (mnemonic)
 			{
+				// These take the bare name and mean its contents; there is no address form to confuse.
 				case Mnemonic::LDV: return Mnemonic::LDVP;
 				case Mnemonic::STV: return Mnemonic::STVP;
+				// These have both: `mov r1, counter` is the address and has nothing to relax, while
+				// `mov r1, [counter]` is the contents and does. The bracket is the difference.
+				case Mnemonic::LDR: return dereferenced ? std::optional{ Mnemonic::LDVP } : std::nullopt;
+				case Mnemonic::STR: return dereferenced ? std::optional{ Mnemonic::STVP } : std::nullopt;
+				case Mnemonic::MOV:
+					if (!dereferenced)
+						return std::nullopt;
+					return variableIsFirst ? Mnemonic::STVP : Mnemonic::LDVP;
 				default: return std::nullopt;
 			}
 		}

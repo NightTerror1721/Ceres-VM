@@ -86,7 +86,7 @@ TEST(encoding, load_without_displacement_encodes_zero)
 TEST(encoding, store_puts_base_in_rd_and_value_in_rs)
 {
 	AssembleResult r;
-	auto words = assembleText("    strb r6, [r5 + 1]", r);
+	auto words = assembleText("    strb [r5 + 1], r6", r);
 
 	CHECK(r.ok());
 
@@ -104,7 +104,7 @@ TEST(encoding, store_displacement_does_not_collide_with_the_value_register)
 	// register index under the old encoding. 0x70F0 rather than 0xF0F0 because the field is signed
 	// now - this is a decoding test, and a negative displacement would make it a sign test.
 	AssembleResult r;
-	auto words = assembleText("    str r2, [r1 + 28912]", r);
+	auto words = assembleText("    str [r1 + 28912], r2", r);
 
 	CHECK(r.ok());
 	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
@@ -185,7 +185,7 @@ TEST(encoding, stv_does_not_mix_the_data_register_into_the_address)
 		"@text\r\n"
 		"global main:\r\n"
 		"    li r1, 5\r\n"
-		"    stv r1, counter\r\n");
+		"    stv counter, r1\r\n");
 	auto words = r.words();
 
 	CHECK(r.ok());
@@ -327,7 +327,7 @@ TEST(encoding, outm_takes_port_address_size_like_inm)
 TEST(encoding, inm_operand_order_is_unchanged)
 {
 	AssembleResult r;
-	auto words = assembleText("    inm 0x02, r3, r2", r);
+	auto words = assembleText("    inm r3, 0x02, r2", r);
 
 	CHECK(r.ok());
 	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
@@ -552,7 +552,7 @@ TEST(encoding, a_negative_displacement_encodes_as_a_negative_field)
 		"@text\r\n"
 		"global main:\r\n"
 		"    ldr r1, [r2 - 8]\r\n"
-		"    str r3, [r4 - 12]\r\n"
+		"    str [r4 - 12], r3\r\n"
 		"    lea r5, [r6 - 16]\r\n"
 		"    ret\r\n");
 
@@ -596,7 +596,7 @@ TEST(encoding, an_index_register_picks_the_indexed_opcode)
 		"global main:\r\n"
 		"    ldr  r1, [r2 + r3]\r\n"
 		"    ldr  r1, [r2 + 4]\r\n"
-		"    str  r1, [r2 + r3]\r\n"
+		"    str  [r2 + r3], r1\r\n"
 		"    ldrb r1, [r2 + r3]\r\n");
 	auto words = r.words();
 
@@ -657,7 +657,7 @@ TEST(encoding, ldvp_reaches_a_variable_in_one_word)
 		"@text\r\n"
 		"global main:\r\n"
 		"    ldvp r1, counter\r\n"
-		"    stvp r1, counter\r\n");
+		"    stvp counter, r1\r\n");
 	auto words = r.words();
 
 	CHECK(r.ok());
@@ -812,8 +812,8 @@ TEST(encoding, an_access_type_picks_the_width_instead_of_the_mnemonic)
 		"    ldr f1, f32[r2 + 4]\r\n"
 		"    ldr r1, byte[r2 + 4]\r\n"
 		"    ldr r1, u8[r2 + r3]\r\n"
-		"    str r1, u16[r2 + 4]\r\n"
-		"    str f1, f32[r2 + r3]\r\n"
+		"    str u16[r2 + 4], r1\r\n"
+		"    str f32[r2 + r3], f1\r\n"
 		"    ldr r1, [r2 + 4]\r\n");
 	auto words = r.words();
 
@@ -845,4 +845,76 @@ TEST(encoding, an_access_type_needs_an_access_to_go_with_it)
 
 	CHECK(!r.ok());
 	CHECK(r.joinedErrors().find("must be followed by a memory operand") != std::string::npos);
+}
+
+TEST(encoding, the_destination_is_always_the_first_operand)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let counter: u32 = 0\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    str [r2 + 4], r1\r\n"
+		"    str u8[r2 + r3], r1\r\n"
+		"    stv counter, r1\r\n"
+		"    in  r1, 0x10\r\n"
+		"    out 0x01, r1\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::STR, true);
+	CHECK_EQ(Instruction{ words[1] }.opcode() == Opcode::STRBX, true);
+	CHECK_EQ(Instruction{ words[2] }.opcode() == Opcode::STRP, true);
+	CHECK_EQ(Instruction{ words[3] }.opcode() == Opcode::IN, true);
+	// `out` already had it right: the port is the destination.
+	CHECK_EQ(Instruction{ words[4] }.opcode() == Opcode::OUT, true);
+}
+
+TEST(encoding, the_old_operand_order_says_what_to_swap)
+{
+	AssembleResult r = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    str r1, [r2 + 4]\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("takes its destination first") != std::string::npos);
+}
+
+TEST(encoding, mov_moves_anything_anywhere)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let counter: u32 = 0\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    mov r1, r2\r\n"
+		"    mov f1, f2\r\n"
+		"    mov r1, 42\r\n"
+		"    mov r1, counter\r\n"
+		"    mov r1, [counter]\r\n"
+		"    mov [counter], r1\r\n"
+		"    mov r1, [r2 + 4]\r\n"
+		"    mov [r2 + 4], r1\r\n"
+		"    mov r1, u8[r2 + r3]\r\n"
+		"    mov f32[r2 + 4], f1\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::MOV, true);
+	CHECK_EQ(Instruction{ words[1] }.opcode() == Opcode::FMOV, true);
+	CHECK_EQ(Instruction{ words[2] }.opcode() == Opcode::LI, true);
+	// The bare name is the address; the bracket is the contents.
+	CHECK_EQ(Instruction{ words[3] }.opcode() == Opcode::LUI, true);
+	CHECK_EQ(Instruction{ words[4] }.opcode() == Opcode::ORI, true);
+	CHECK_EQ(Instruction{ words[5] }.opcode() == Opcode::LDRP, true);
+	CHECK_EQ(Instruction{ words[6] }.opcode() == Opcode::STRP, true);
+	CHECK_EQ(Instruction{ words[7] }.opcode() == Opcode::LDR, true);
+	CHECK_EQ(Instruction{ words[8] }.opcode() == Opcode::STR, true);
+	CHECK_EQ(Instruction{ words[9] }.opcode() == Opcode::LDRBX, true);
+	CHECK_EQ(Instruction{ words[10] }.opcode() == Opcode::FSTR, true);
 }

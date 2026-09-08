@@ -737,7 +737,24 @@ namespace ceres::casm
 		if (_cursor.match(TokenType::BracketOpen))
 		{
 			_cursor.next(); // Consume '['
-			Token baseRegToken = _cursor.consume(TokenType::Identifier, "Expected register identifier after '[' for memory operand");
+			Token baseRegToken = _cursor.consume(TokenType::Identifier, "Expected register or symbol after '[' for memory operand");
+
+			// `[counter]`: a symbol inside brackets means its contents, the way brackets mean the
+			// contents of an address everywhere else. The address of it is the name on its own.
+			// There is nothing to add to it, so a displacement or an index would be a second
+			// thing the one instruction cannot do.
+			if (!RegisterInfo::get(baseRegToken.identifierValue()).has_value() &&
+				!_registerAliases.contains(std::string(baseRegToken.lexeme())))
+			{
+				if (!_cursor.match(TokenType::BracketClose))
+					error("'[{}]' is a whole variable; it takes no displacement or index", baseRegToken.lexeme());
+				_cursor.next(); // Consume ']'
+
+				if (accessType.has_value())
+					error("'[{}]' already knows its width from the variable's declared type", baseRegToken.lexeme());
+
+				return Operand::makeDereferencedIdentifier(baseRegToken.identifierValue(), false);
+			}
 
 			u8 baseRegIndex = 0;
 			bool baseIsFloat = false;

@@ -68,16 +68,16 @@ global main:
 // usuario. Consume toda la linea, incluido el '\n' final.
 read_command:
 .wait_first:
-    inb TERM_STATUS, r1
+    inb r1, TERM_STATUS
     and r1, r1, 1
     jz .wait_first
-    inb TERM_IN, r0     // guardamos el primer byte en r0 (valor de retorno)
+    inb r0, TERM_IN     // guardamos el primer byte en r0 (valor de retorno)
 
 .flush:
-    inb TERM_STATUS, r1
+    inb r1, TERM_STATUS
     and r1, r1, 1
     jz .flush
-    inb TERM_IN, r2
+    inb r2, TERM_IN
     cmp r2, NEWLINE
     jnz .flush
     ret

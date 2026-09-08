@@ -47,8 +47,8 @@ endstruct
 
 print_u32:
     proc_enter PrintFrame
-    str r8, [sp + PrintFrame.saved_r8]
-    str r9, [sp + PrintFrame.saved_r9]
+    str [sp + PrintFrame.saved_r8], r8
+    str [sp + PrintFrame.saved_r9], r9
 
     lea r8, [sp + PrintFrame.digits]    // where the digits go
     clr r9                              // how many so far
@@ -64,7 +64,7 @@ print_u32:
     mod  r2, r1, 10
     add  r2, r2, DIGIT_0
     add  r3, r8, r9
-    strb r2, [r3 + 0]
+    strb [r3 + 0], r2
     inc  r9
     div  r1, r1, 10
     ifne r1, 0, .collect
@@ -91,7 +91,7 @@ endstruct
 
 factorial:
     proc_enter FactFrame
-    str r8, [sp + FactFrame.saved_r8]
+    str [sp + FactFrame.saved_r8], r8
 
     mov  r8, arg0
     ifle r8, 1, .base
@@ -154,9 +154,9 @@ global main:
     li   arg2, 3
     li   arg3, 4
     li   r4, 5
-    str  r4, [sp + MainFrame.outgoing0]
+    str  [sp + MainFrame.outgoing0], r4
     li   r4, 6
-    str  r4, [sp + MainFrame.outgoing1]
+    str  [sp + MainFrame.outgoing1], r4
     call sum6
 
     call print_u32

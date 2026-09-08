@@ -67,7 +67,7 @@ namespace
 		"global main:\r\n"
 		"    li r1, 5\r\n"
 		"    call double_it\r\n"
-		"    stv r0, total\r\n"
+		"    stv total, r0\r\n"
 		"    li r0, 1\r\n"
 		"    out 0xff, r0\r\n"
 		"    ret\r\n"

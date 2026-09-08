@@ -29,10 +29,16 @@ namespace ceres::casm
 	{
 		Identifier name; // Identifier name (e.g., variable name, label name, etc.)
 		bool isLocal; // Whether the identifier is a local label (e.g., .label) or a global label, variable, constant (e.g., label, variable, constant)
+		// Written inside brackets: `[counter]`. The bracket means what it means everywhere else in
+		// the language - the contents of that address, not the address itself - so this is what
+		// keeps `mov r1, counter` and `mov r1, [counter]` from being the same operand.
+		bool dereferenced = false;
 	};
 
 	struct MemoryOperand
 	{
+		// Absent when the base is a symbol rather than a register: `[counter]`. The symbol's own
+		// address is the base then, and the assembler builds the access out of it.
 		u8 baseRegIndex; // Base register index (0-15)
 		// The width and signedness of the access, when it was written down: `u8[r2 + 4]`. Absent
 		// for a plain `[r2 + 4]`, where the mnemonic carries the width instead. The encoding is the
@@ -56,6 +62,7 @@ namespace ceres::casm
 	{
 		DataTypeScalarCode scalarCode; // Scalar code for the variable (e.g., U8, S8, U16, S16, U32, S32, F32)
 		vm::Address address; // Address of the variable in memory
+		bool dereferenced = false; // Written as `[name]`: the contents, not the address
 	};
 
 	struct LabelOperand
@@ -175,15 +182,16 @@ namespace ceres::casm
 			else if (isVariable())
 			{
 				const auto& var = asVariable();
+				const bool deref = var.dereferenced;
 				switch (var.scalarCode)
 				{
-					case DataTypeScalarCode::U8: return OperandType::VariableU8;
-					case DataTypeScalarCode::I8: return OperandType::VariableS8;
-					case DataTypeScalarCode::U16: return OperandType::VariableU16;
-					case DataTypeScalarCode::I16: return OperandType::VariableS16;
-					case DataTypeScalarCode::U32: return OperandType::VariableU32;
-					case DataTypeScalarCode::I32: return OperandType::VariableS32;
-					case DataTypeScalarCode::F32: return OperandType::VariableF32;
+					case DataTypeScalarCode::U8: return deref ? OperandType::AtVariableU8 : OperandType::VariableU8;
+					case DataTypeScalarCode::I8: return deref ? OperandType::AtVariableS8 : OperandType::VariableS8;
+					case DataTypeScalarCode::U16: return deref ? OperandType::AtVariableU16 : OperandType::VariableU16;
+					case DataTypeScalarCode::I16: return deref ? OperandType::AtVariableS16 : OperandType::VariableS16;
+					case DataTypeScalarCode::U32: return deref ? OperandType::AtVariableU32 : OperandType::VariableU32;
+					case DataTypeScalarCode::I32: return deref ? OperandType::AtVariableS32 : OperandType::VariableS32;
+					case DataTypeScalarCode::F32: return deref ? OperandType::AtVariableF32 : OperandType::VariableF32;
 					default: return OperandType::Invalid;
 				}
 			}
@@ -206,6 +214,7 @@ namespace ceres::casm
 		static Operand makeFloatingPointRegister(u8 regIndex) noexcept { return Operand{ FloatingPointRegisterOperand{ regIndex } }; }
 		static Operand makeImmediate(u32 value) noexcept { return Operand{ ImmediateOperand{ value } }; }
 		static Operand makeIdentifier(Identifier name, bool isLocal) noexcept { return Operand{ IdentifierOperand{ name, isLocal } }; }
+		static Operand makeDereferencedIdentifier(Identifier name, bool isLocal) noexcept { return Operand{ IdentifierOperand{ name, isLocal, true } }; }
 		static Operand makeMemory(u8 baseRegIndex) noexcept { return Operand{ MemoryOperand{ baseRegIndex, std::nullopt, std::monostate{} } }; }
 		static Operand makeMemory(u8 baseRegIndex, u32 immediateOffset) noexcept { return Operand{ MemoryOperand{ baseRegIndex, std::nullopt, ImmediateOperand{ immediateOffset } } }; }
 		static Operand makeMemoryIndexed(u8 baseRegIndex, u8 indexRegIndex) noexcept
@@ -225,9 +234,9 @@ namespace ceres::casm
 		{
 			return Operand{ MemoryOperand{ baseRegIndex, std::nullopt, IdentifierOperand{ identifierOffset } } };
 		}
-		static Operand makeVariable(DataTypeScalarCode scalarCode, vm::Address address) noexcept
+		static Operand makeVariable(DataTypeScalarCode scalarCode, vm::Address address, bool dereferenced = false) noexcept
 		{
-			return Operand{ VariableOperand{ scalarCode, address } };
+			return Operand{ VariableOperand{ scalarCode, address, dereferenced } };
 		}
 		static Operand makeLabel(vm::Address address) noexcept
 		{

@@ -70,23 +70,27 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	sxth: { operands: 'rd, rs', summary: 'Sign-extends the low half-word of a register.' },
 
 	// Memory - 0x40-0x4E
-	mov: { operands: 'rd, rs', summary: 'Register-to-register copy. A float-register operand selects `fmov`.' },
+	mov: {
+		operands: 'destino, origen',
+		summary:
+			'Mueve cualquier cosa a cualquier sitio - one name for the whole of moving, with the opcode chosen by the shape of the operands: `mov r1, r2`, `mov f1, f2`, `mov r1, 42`, `mov r1, counter` (the address), `mov r1, [counter]` (the contents), `mov [counter], r1`, `mov r1, [r2 + 4]`, `mov [r2 + 4], r1`, `mov r1, u8[r2 + r3]`, `mov f32[r2 + 4], f1`. **The destination is always first**, which is what tells a load from a store. It deliberately does not cover `mtf` vs `itof`: same shape, opposite meanings.'
+	},
 	li: { operands: 'rd, imm16', summary: 'Loads a 16-bit immediate, zero-extended.' },
 	lui: {
 		operands: 'rd, imm16',
 		summary: 'Loads a 16-bit immediate shifted left 16 bits. Paired with `ori` by the assembler to build 32-bit addresses (`la`, `ldv`, `stv`).'
 	},
-	ldr: { operands: 'rd, [rs + imm16|rt]', summary: 'Loads a 32-bit word. A float destination selects `fldr`; a register offset is an index and selects `ldrx`.' },
+	ldr: { operands: 'rd, [rs + imm16|rt]', summary: 'Loads a 32-bit word. A float destination selects `fldr`; a register offset is an index and selects `ldrx`; an access type picks the width (`ldr r1, u8[r2]`); and a bracketed symbol loads a variable (`ldr r1, [counter]`).' },
 	ldrb: { operands: 'rd, [rs + imm16|rt]', summary: 'Loads a byte, zero-extended. A register offset selects `ldrbx`.' },
 	ldrh: { operands: 'rd, [rs + imm16|rt]', summary: 'Loads a half-word, zero-extended. A register offset selects `ldrhx`.' },
 	ldrsb: { operands: 'rd, [rs + imm16|rt]', summary: 'Loads a byte, sign-extended.' },
 	ldrsh: { operands: 'rd, [rs + imm16|rt]', summary: 'Loads a half-word, sign-extended.' },
 	str: {
-		operands: 'rs, [rd + imm16|rt]',
-		summary: 'Stores a 32-bit word. Value first, then the destination. A float source selects `fstr`; a register offset is an index and selects `strx`.'
+		operands: '[rd + imm16|rt], rs',
+		summary: 'Stores a 32-bit word. **The destination comes first**, like every other instruction. A float source selects `fstr`; a register offset is an index and selects `strx`; an access type picks the width (`str u8[r2], r1`); and a bracketed symbol stores into a variable (`str [counter], r1`).'
 	},
-	strb: { operands: 'rs, [rd + imm16|rt]', summary: 'Stores a byte, same operand order as `str`.' },
-	strh: { operands: 'rs, [rd + imm16|rt]', summary: 'Stores a half-word, same operand order as `str`.' },
+	strb: { operands: '[rd + imm16|rt], rs', summary: 'Stores a byte, same operand order as `str`.' },
+	strh: { operands: '[rd + imm16|rt], rs', summary: 'Stores a half-word, same operand order as `str`.' },
 	lea: { operands: 'rd, [rs + imm16]', summary: 'The old spelling of `la rd, [rs + imm16]`. Still parses; computes rs + imm16 into rd without accessing memory.' },
 
 	// Control flow - 0x50-0x67
@@ -160,12 +164,12 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	mff: { operands: 'rd, fs', summary: 'Moves the bit pattern from a float register into an integer register, without converting.' },
 
 	// I/O - 0x90-0xA3
-	in: { operands: 'rd, imm8|rs', summary: 'Reads a 32-bit word from an I/O port.' },
-	inb: { operands: 'rd, imm8|rs', summary: 'Reads a byte from a port, zero-extended.' },
-	inh: { operands: 'rd, imm8|rs', summary: 'Reads a half-word from a port, zero-extended.' },
-	insb: { operands: 'rd, imm8|rs', summary: 'Reads a byte from a port, sign-extended.' },
-	insh: { operands: 'rd, imm8|rs', summary: 'Reads a half-word from a port, sign-extended.' },
-	inm: { operands: 'imm8|rs, addr, size', summary: 'Reads a block of `size` bytes from the port into memory at `addr` (DMA-style).' },
+	in: { operands: 'rd, imm8|rs', summary: 'Reads a 32-bit word from an I/O port into `rd`. **Destination first**: `in r1, 0x10`.' },
+	inb: { operands: 'rd, imm8|rs', summary: 'Reads a byte from a port into `rd`, zero-extended.' },
+	inh: { operands: 'rd, imm8|rs', summary: 'Reads a half-word from a port into `rd`, zero-extended.' },
+	insb: { operands: 'rd, imm8|rs', summary: 'Reads a byte from a port into `rd`, sign-extended.' },
+	insh: { operands: 'rd, imm8|rs', summary: 'Reads a half-word from a port into `rd`, sign-extended.' },
+	inm: { operands: 'addr, imm8|rs, size', summary: 'Reads a block of `size` bytes from the port into memory at `addr` (DMA-style). The memory is the destination, so it goes first.' },
 	out: { operands: 'imm8|rs, rs', summary: 'Writes a 32-bit word to an I/O port.' },
 	outb: { operands: 'imm8|rs, rs', summary: 'Writes a byte to a port.' },
 	outh: { operands: 'imm8|rs, rs', summary: 'Writes a half-word to a port.' },

@@ -56,8 +56,8 @@ const NEWLINE      = 10
 
 @text
 global main:
-    in CLOCK_PORT, r1
-    stv r1, seed
+    in r1, CLOCK_PORT
+    stv seed, r1
 
 .round:
     la r1, MENU
@@ -108,7 +108,7 @@ global main:
     call print
     ldv r7, score_cpu
     add r7, r7, 1
-    stv r7, score_cpu
+    stv score_cpu, r7
     jp .show_score
 
 .win:
@@ -116,7 +116,7 @@ global main:
     call print
     ldv r7, score_player
     add r7, r7, 1
-    stv r7, score_player
+    stv score_player, r7
     jp .show_score
 
 .draw:
@@ -195,22 +195,22 @@ next_random:
     mul r1, r1, r2
     ldv r2, LCG_C
     add r1, r1, r2
-    stv r1, seed
+    stv seed, r1
     mov r0, r1
     ret
 
 // read_command() -> r0 = primer byte de la siguiente linea escrita
 read_command:
 .wait_first:
-    inb TERM_STATUS, r1
+    inb r1, TERM_STATUS
     and r1, r1, 1
     jz .wait_first
-    inb TERM_IN, r0
+    inb r0, TERM_IN
 .flush:
-    inb TERM_STATUS, r1
+    inb r1, TERM_STATUS
     and r1, r1, 1
     jz .flush
-    inb TERM_IN, r2
+    inb r2, TERM_IN
     cmp r2, NEWLINE
     jnz .flush
     ret

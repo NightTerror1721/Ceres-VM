@@ -71,7 +71,7 @@ namespace
 		"    li r3, 0\r\n"
 		".loop:\r\n"
 		"    add r3, r3, 1\r\n"
-		"    stv r3, counter\r\n"
+		"    stv counter, r3\r\n"
 		"    cmp r3, LIMIT\r\n"
 		"    jnz .loop\r\n"
 		"    li r0, 1\r\n"

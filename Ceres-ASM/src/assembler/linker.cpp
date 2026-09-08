@@ -1,4 +1,5 @@
 #include "linker.h"
+#include <algorithm>
 #include "vm/memory.h"
 
 namespace ceres::casm
@@ -106,16 +107,21 @@ namespace ceres::casm
 					continue;
 
 				InstructionStatement& instruction = statement.asInstruction();
-				const auto shortForm = InstructionInfo::shortFormOf(instruction.mnemonic);
+				// The variable is the second operand in a load and the first in a store, because
+				// the destination comes first. Either way there is exactly one of them, and an
+				// operand that is not a resolved variable is one the emitter will complain about.
+				const auto variable = std::ranges::find_if(instruction.operands,
+					[](const Operand& operand) { return operand.isVariable(); });
+				if (variable == instruction.operands.end())
+					continue;
+
+				const bool variableIsFirst = variable == instruction.operands.begin();
+				const auto shortForm = InstructionInfo::shortFormOf(
+					instruction.mnemonic, variableIsFirst, variable->asVariable().dereferenced);
 				if (!shortForm.has_value())
 					continue;
 
-				// Both forms take the register and then the variable. An operand that is not a
-				// resolved variable is one the emitter is about to complain about anyway.
-				if (instruction.operands.size() != 2 || !instruction.operands[1].isVariable())
-					continue;
-
-				const i64 target = static_cast<i64>(instruction.operands[1].asVariable().address.value());
+				const i64 target = static_cast<i64>(variable->asVariable().address.value());
 				const i64 here = static_cast<i64>((textBase + statement.address()).value());
 				const i64 displacement = target - here;
 
@@ -128,6 +134,29 @@ namespace ceres::casm
 			}
 
 			textBase += alignUp(unit.sectionSizes().textSize);
+		}
+
+		// Sizes are stamped here, while the operands are still resolved. Everything is by now, so
+		// each statement's own signature says exactly how much it needs - where at build time an
+		// operand that was still a name had to reserve the largest overload of its mnemonic.
+		// `mov r1, some_label` reserved three words that way and emits two.
+		//
+		// Relayout reads these back rather than recomputing them, because by then the operands have
+		// been put back the way the first pass found them and the signatures no longer resolve.
+		for (auto& unit : _state.get().translationUnits())
+		{
+			for (auto& statement : unit.ast())
+			{
+				if (!statement.isInstruction())
+					continue;
+
+				const auto exact = InstructionInfo::reservedSizeOf(statement.asInstruction().signature());
+				if (!exact.has_value() || exact.value() == 0 || exact.value() == statement.size())
+					continue;
+
+				statement.setSize(exact.value());
+				changed = true;
+			}
 		}
 
 		return changed;
@@ -237,7 +266,22 @@ namespace ceres::casm
 
 						auto info = InstructionInfo::find(instructionStatement.signature());
 						if (!info.has_value())
+						{
+							// The destination goes first, always. Somebody writing the old order gets
+							// the right operands in the wrong places, which is a recognisable shape and
+							// deserves better than being told the syntax is invalid.
+							InstructionSignature swapped = instructionStatement.signature();
+							if (instructionStatement.operands.size() >= 2)
+							{
+								std::swap(swapped.operands[0], swapped.operands[1]);
+								if (InstructionInfo::find(swapped).has_value())
+									error(statement.line(),
+										"'{}' takes its destination first: write the last two operands the other way round",
+										mnemonicToString(instructionStatement.mnemonic));
+							}
+
 							error(statement.line(), "Invalid instruction syntax: {}", instructionStatement.signature().toString());
+						}
 					}
 				}
 				catch (const AssemblerError& ex)

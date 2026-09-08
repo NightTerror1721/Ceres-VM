@@ -353,16 +353,10 @@ namespace ceres::casm
 
 			statement.setAddress(offset);
 
-			// The build pass already refused anything whose size it could not work out, so a
-			// signature that has none here would be one relaxation invented. Operands are all
-			// resolved by now, so this is the exact size rather than a reservation.
-			const auto size = InstructionInfo::reservedSizeOf(statement.asInstruction().signature());
-			if (!size.has_value() || size.value() == 0)
-				throw AssemblerError(statement.file(), statement.line(), 1,
-					"Failed to determine size of instruction statement during relayout");
-
-			statement.setSize(size.value());
-			offset += size.value();
+			// The size each statement settled on, stamped by relaxation while the operands were
+			// still resolved. Recomputing it here would fall back to the mnemonic's maximum, because
+			// the operands have been put back the way the first pass found them.
+			offset += statement.size();
 		}
 
 		_sectionSizes.textSize = offset.value();

@@ -183,7 +183,7 @@ namespace ceres::casm
 					DataType dataType = symbol.dataType();
 					if (!dataType.isValid())
 						error(line, "Variable symbol '{}' has an invalid data type", symbol.name());
-					operand = Operand::makeVariable(dataType.scalarCode(), symbol.address());
+					operand = Operand::makeVariable(dataType.scalarCode(), symbol.address(), identifierOperand.dereferenced);
 				}
 				else if (symbol.isLabel() && !resolveConstantsOnly)
 				{

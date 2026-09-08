@@ -39,7 +39,7 @@ global main:
     
     // 8. Aritmética de enteros y registros
     ADD R2, R2, R3          // Aritmética básica
-    STV R2, global_score    // Guarda el valor absoluto (Store Value)
+    STV global_score, R2    // Guarda el valor absoluto (Store Value)
 
     // 9. Instrucciones y registros de coma flotante (FPU)
     LDV F0, pi_value
@@ -58,7 +58,7 @@ global main:
 
     // 12. Direccionamiento Relativo a Base (Memoria)
     LI R7, 1
-    STRB R7, [R5 + 0]       // player_active[i] = 1
+    STRB [R5 + 0], R7       // player_active[i] = 1
     LDRB R8, [R5 + 0]       // Leer de vuelta para testear LDRB
 
     ADD R4, R4, 1           // i++
