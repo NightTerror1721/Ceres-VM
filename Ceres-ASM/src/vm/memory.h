@@ -20,6 +20,12 @@ namespace ceres::vm
 		static inline constexpr usize MaxSize = 1024 * 1024 * 1024; // 1 GiB
 		static inline constexpr usize MinSize = 1024; // 1 KiB
 
+		// The top of memory belongs to interrupt handlers, not to the program. A handler used to
+		// run on whatever stack it interrupted, which meant a program that had nearly exhausted
+		// its own stack could not take an interrupt at all: the push of the saved PC was the thing
+		// that overflowed, and the overflow was itself an interrupt.
+		static inline constexpr usize SystemStackSize = 1024;
+
 		static inline constexpr usize NullPageSegmentSize = 0x100; // 256 bytes, used for null page (address 0x00000000 - 0x000000FF)
 		static inline constexpr usize BiosSegmentSize = 0x300; // 768 bytes, used for BIOS (address 0x00000100 - 0x000003FF)
 		// The rest of the memory (address 0x00000400 - 0xFFFFFFFF) is available for unrestricted use by programs.

@@ -411,13 +411,13 @@ TEST(vm, a_push_below_the_stack_limit_faults_instead_of_writing)
 	CHECK_EQ(m.memory().readUnchecked<u32>(Address(limit)), 0xABCDEF01u);
 
 	m.step(); // the second one has nowhere left to go
-	CHECK_EQ(m.reg(15), limit); // sp did not move
-	CHECK_EQ(m.memory().readUnchecked<u32>(below), 0xDEADBEEFu); // and nothing below it was touched
+	CHECK_EQ(m.memory().readUnchecked<u32>(below), 0xDEADBEEFu); // nothing below the limit was touched
 
-	// Nowhere to push the fault's own two words either, so the machine stops rather than
-	// re-entering the dispatch forever.
-	CHECK(m.flags().trap());
-	CHECK(m.flags().halting());
+	// The fault was taken, and its own saved state went on the system stack rather than on
+	// the program's - which is what makes it possible to take at all when the program's is
+	// full.
+	CHECK_EQ(m.engine().interruptDepth(), 1u);
+	CHECK(m.reg(15) >= m.engine().systemStackFloor());
 }
 
 TEST(vm, the_stack_limit_defaults_to_the_top_of_the_bios)
@@ -548,11 +548,10 @@ TEST(vm, pushm_saves_nothing_when_the_whole_mask_does_not_fit)
 
 	m.step();
 
-	// Nothing of the mask was stored - the only two words that went down are the fault's own
-	// saved PC and flags, so the top of the stack is the address of the instruction that
-	// faulted rather than r1.
+	// Nothing of the mask was stored. The fault's own saved PC went on the system stack, so
+	// the top of that is the address of the instruction that faulted rather than r1.
 	CHECK_EQ(m.memory().readUnchecked<u32>(Address(m.reg(15))), Memory::UnrestrictedSegmentStart.value());
-	CHECK_EQ(m.reg(15), limit); // eight bytes, which is the dispatch and not three registers
+	CHECK(m.reg(15) >= m.engine().systemStackFloor());
 }
 
 // --- Indexed addressing ----------------------------------------------------------------------

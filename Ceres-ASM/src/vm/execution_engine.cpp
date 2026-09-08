@@ -9,7 +9,10 @@ namespace ceres::vm
 		_registers = GeneralPurposeRegisterPool();
 		_flags = FlagRegister();
 		_pc = _memory.readUnchecked<Address::ValueType>(0_addr); // Initialize PC to the value at address 0 (reset vector)
-		_registers.sp() = static_cast<Register::ValueType>(_memory.size()); // Initialize stack pointer to the end of memory
+		// Below the system stack, which the top of memory is reserved for.
+		_registers.sp() = static_cast<Register::ValueType>(_memory.size() - Memory::SystemStackSize);
+		_interruptDepth = 0;
+		_savedStackPointer = 0;
 		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
 	}
 
@@ -50,6 +53,17 @@ namespace ceres::vm
 			return; // Ignore if no handler is defined
 		}
 
+		// The handler runs on the system stack, not on whatever the program had left. Only the
+		// outermost interrupt switches: a nested one is already there. The program's own stack
+		// pointer is put back by the matching IRET, which also means a handler that leaves the
+		// stack unbalanced cannot corrupt the program it interrupted.
+		if (_interruptDepth == 0)
+		{
+			_savedStackPointer = sp();
+			sp(static_cast<u32>(_memory.size()));
+		}
+		++_interruptDepth;
+
 		// Saving state needs two words. If they do not fit, this dispatch would push, overflow, and
 		// re-enter here forever. Stop the machine instead: there is nowhere left to record what
 		// happened, so continuing can only make it worse.
@@ -57,6 +71,7 @@ namespace ceres::vm
 		{
 			_flags.set<ExecutionFlag::Trap>();
 			_flags.set<ExecutionFlag::Halting>();
+			leaveInterrupt();
 			notify(false);
 			return;
 		}

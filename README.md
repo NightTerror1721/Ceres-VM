@@ -64,7 +64,14 @@ whatever the host's byte order is.
 Sections are laid out on 4-byte boundaries and variables are padded to their type's natural
 alignment, so a misaligned 16- or 32-bit access raises `AlignmentFault`. Byte accesses never do.
 
-The stack starts at the top of memory and grows down. Pushing below the **stack limit** raises
+The top 1 KiB of memory is the **system stack**, which interrupt handlers run on. A handler used
+to run on whatever stack it interrupted, so a program that had nearly exhausted its own could not
+take an interrupt at all — the push of the saved PC was the thing that overflowed, and the
+overflow was itself an interrupt. Only the outermost interrupt switches; a nested one is already
+there, and `iret` puts the program's own stack pointer back, so a handler that leaves the stack
+unbalanced cannot corrupt what it interrupted.
+
+The program's stack starts just below that and grows down. Pushing below the **stack limit** raises
 `StackOverflow`. The loader sets that limit to the end of the loaded image — past `.text`,
 `.rodata`, `.data` and `.bss` — so a runaway stack faults instead of eating the program it is
 running. With no program loaded the limit is `0x400`, which is all there is to guard.

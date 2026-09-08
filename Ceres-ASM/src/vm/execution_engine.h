@@ -43,6 +43,12 @@ namespace ceres::vm
 		// reach 0x400, and only then said so. loadProgram lowers it to the end of the loaded image.
 		u32 _stackLimit = static_cast<u32>(Memory::UnrestrictedSegmentStartValue);
 
+		// How many interrupts are being serviced, and what the program's own stack pointer was when
+		// the first one arrived. Nested interrupts stay on the system stack; only the outermost one
+		// switches, and only it switches back.
+		u32 _interruptDepth = 0;
+		u32 _savedStackPointer = 0;
+
 		// The loaded program's own text, which nothing a correct program does ever writes to. An
 		// empty range means no program is loaded and there is nothing to protect. A store into it
 		// used to simply take effect, so a lost pointer rewrote an instruction that had not run
@@ -90,6 +96,9 @@ namespace ceres::vm
 		constexpr bool isHalted() const noexcept { return _flags.halting(); }
 		constexpr u64 executedInstructions() const noexcept { return _executedInstructions; }
 		constexpr u32 stackLimit() const noexcept { return _stackLimit; }
+		constexpr u32 interruptDepth() const noexcept { return _interruptDepth; }
+		// Where the program's own stack ends and the system stack begins.
+		u32 systemStackFloor() const noexcept { return static_cast<u32>(_memory.size() - Memory::SystemStackSize); }
 		constexpr u32 textStart() const noexcept { return _textStart; }
 		constexpr u32 textEnd() const noexcept { return _textEnd; }
 		std::span<const u64> executionCounts() const noexcept { return _executionCounts; }
@@ -269,12 +278,19 @@ namespace ceres::vm
 		// so without this the overflow was silent and execution carried on with garbage.
 		forceinline bool hasStackRoom(u32 bytes) const noexcept
 		{
-			return sp() >= _stackLimit + bytes;
+			// A handler runs on the system stack, whose floor is the top of the program's own.
+			const u32 floor = _interruptDepth > 0 ? systemStackFloor() : _stackLimit;
+			return sp() >= floor + bytes;
 		}
 
 		forceinline bool hasStackData(u32 bytes) const noexcept
 		{
-			return static_cast<u64>(sp()) + bytes <= static_cast<u64>(_memory.size());
+			// The ceiling is where the stack started: the top of memory for a handler, and the
+			// floor of the system stack for the program, which is where its own stack begins.
+			const u64 ceiling = _interruptDepth > 0
+				? static_cast<u64>(_memory.size())
+				: static_cast<u64>(systemStackFloor());
+			return static_cast<u64>(sp()) + bytes <= ceiling;
 		}
 
 		// Returns false when the push faulted. The caller must abort the instruction: the fault
@@ -772,6 +788,17 @@ namespace ceres::vm
 		forceinline void CLI(const Instruction inst) noexcept { _flags.clear<ExecutionFlag::Interrupt>(); advancePC(); }
 		forceinline void STI(const Instruction inst) noexcept { _flags.set<ExecutionFlag::Interrupt>(); advancePC(); }
 
+		// Puts the program's own stack pointer back once the outermost handler is done with it.
+		forceinline void leaveInterrupt() noexcept
+		{
+			if (_interruptDepth == 0)
+				return;
+
+			--_interruptDepth;
+			if (_interruptDepth == 0)
+				sp(_savedStackPointer);
+		}
+
 		forceinline void IRET(const Instruction inst) noexcept
 		{
 			// triggerInterrupt pushes flags and then the PC, so the PC is on top and has to come off
@@ -789,6 +816,11 @@ namespace ceres::vm
 			// for a software interrupt (INT advances before trapping) and wrong for everything else.
 			_pc = Address(*newPC);
 			_flags = FlagRegister(*newFlags);
+
+			// After the pops, so the handler's own two words come off the system stack first. A
+			// handler that pushed more than it popped is forgiven by this rather than corrupting
+			// the stack of the program it interrupted.
+			leaveInterrupt();
 		}
 
 		forceinline void ADD(const Instruction inst) noexcept { executeAdd(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }

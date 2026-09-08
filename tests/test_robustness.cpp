@@ -117,7 +117,11 @@ TEST(robustness, pushing_past_the_restricted_segment_faults_instead_of_writing_i
 
 	m.step(4);
 
-	CHECK(m.flags().halting() || m.flags().trap());
+	// The fault is taken rather than the push happening. It dispatches now instead of stopping
+	// the machine: the handler has a stack of its own to save state on, which is the whole point
+	// of reserving one.
+	CHECK(m.pc().value() >= Memory::BiosSegmentStart.value());
+	CHECK(m.pc().value() < Memory::UnrestrictedSegmentStart.value());
 
 	// Nothing was written through the null page: the reset vector still holds the entry point.
 	CHECK_EQ(m.memory().readUnchecked<u32>(0_addr), Memory::UnrestrictedSegmentStart.value());
