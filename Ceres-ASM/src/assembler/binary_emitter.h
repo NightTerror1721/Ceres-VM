@@ -1,6 +1,7 @@
 #pragma once
 
 #include "linker.h"
+#include "relocation.h"
 #include "debug/debug_info.h"
 #include "vm/program.h"
 #include "vm/instructions.h"
@@ -24,6 +25,13 @@ namespace ceres::casm
 		// Cleared when the caller only wants the file checked, not a runnable program built. See
 		// AssemblerOptions::requireEntryPoint.
 		bool _requireEntryPoint = true;
+		// Set to the file being written out when the output is an object rather than a program.
+		// Two things follow: every field that would have held a final address becomes a
+		// relocation and is left at zero, because neither this object's sections nor the symbols
+		// it takes from elsewhere have an address yet; and only this one unit is emitted, so what
+		// it imported stays a declaration instead of becoming a second copy of that file's code.
+		std::string_view _objectRootFile;
+		std::vector<Relocation> _relocations;
 		debug::DebugInfoBuilder _debugBuilder;
 		debug::DebugInfo _debugInfo; // Released from the builder at the end of emit()
 
@@ -37,10 +45,12 @@ namespace ceres::casm
 		BinaryEmitter& operator=(BinaryEmitter&&) noexcept = default;
 
 	public:
-		explicit BinaryEmitter(AssemblyState& state, bool emitDebugInfo = false, bool requireEntryPoint = true) noexcept :
+		explicit BinaryEmitter(AssemblyState& state, bool emitDebugInfo = false, bool requireEntryPoint = true,
+			std::string_view objectRootFile = {}) noexcept :
 			_state(state),
 			_emitDebugInfo(emitDebugInfo),
-			_requireEntryPoint(requireEntryPoint)
+			_requireEntryPoint(requireEntryPoint),
+			_objectRootFile(objectRootFile)
 		{}
 
 		inline const std::span<const u8> textBuffer() const noexcept { return _textBuffer; }
@@ -56,6 +66,10 @@ namespace ceres::casm
 		// Moved out rather than copied: the tables are the largest thing the emitter builds.
 		debug::DebugInfo takeDebugInfo() noexcept { return std::move(_debugInfo); }
 
+		// Empty unless the emitter was put in object mode: a program has its addresses written
+		// into it and nothing left to relocate.
+		std::vector<Relocation> takeRelocations() noexcept { return std::move(_relocations); }
+
 	private:
 		void emitData(const RelocatableStatement& statement, bool isRodata);
 		void recordDebugSymbols();
@@ -64,6 +78,12 @@ namespace ceres::casm
 		void padToAlignment(std::vector<u8>& buffer, u32 alignment);
 		void padSectionToAlignment(std::vector<u8>& buffer, usize unitStart);
 		void emitInstruction(const RelocatableStatement& statement);
+
+		// Turns the address a field was about to receive into a note for the linker. Returns
+		// true when it did, and then the field is left at zero: the linker computes the whole
+		// value, because a half-built address cannot be finished by adding a base to it - the
+		// high half of a two-instruction address depends on a carry out of the low one.
+		bool recordRelocation(const Operand& operand, RelocationField field, u8 shift, bool pcRelative);
 
 		// A memory displacement is a signed 16-bit field. It used to be written with a plain
 		// truncation, so `[r1 + 70000]` quietly became `[r1 + 4464]` and `[r1 - 8]` became

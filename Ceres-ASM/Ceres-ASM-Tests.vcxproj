@@ -146,6 +146,8 @@
     <ClCompile Include="src\assembler\instruction_info.cpp" />
     <ClCompile Include="src\assembler\lexer.cpp" />
     <ClCompile Include="src\assembler\linker.cpp" />
+    <ClCompile Include="src\assembler\object_file.cpp" />
+    <ClCompile Include="src\assembler\object_linker.cpp" />
     <ClCompile Include="src\assembler\macro_table.cpp" />
     <ClCompile Include="src\assembler\mnemonic.cpp" />
     <ClCompile Include="src\assembler\operand.cpp" />
@@ -172,6 +174,7 @@
     <ClCompile Include="..\tests\test_language.cpp" />
     <ClCompile Include="..\tests\test_program_file.cpp" />
     <ClCompile Include="..\tests\test_devices.cpp" />
+    <ClCompile Include="..\tests\test_objects.cpp" />
     <ClCompile Include="..\tests\test_debug_info.cpp" />
     <ClCompile Include="..\tests\test_debugger.cpp" />
     <ClCompile Include="..\tests\test_json.cpp" />
@@ -192,6 +195,9 @@
     <ClInclude Include="src\assembler\instruction_info.h" />
     <ClInclude Include="src\assembler\lexer.h" />
     <ClInclude Include="src\assembler\linker.h" />
+    <ClInclude Include="src\assembler\relocation.h" />
+    <ClInclude Include="src\assembler\object_file.h" />
+    <ClInclude Include="src\assembler\object_linker.h" />
     <ClInclude Include="src\assembler\literal_scalar.h" />
     <ClInclude Include="src\assembler\literal_value.h" />
     <ClInclude Include="src\assembler\macro_table.h" />

@@ -162,6 +162,60 @@ namespace ceres::casm
 		return changed;
 	}
 
+	// An object is laid out from zero and never relaxed. Relaxation asks whether a variable is
+	// close enough to reach in one word, and here nothing is close to anything yet: the .text of
+	// every other object in the eventual program goes between this unit's code and its data. So
+	// LDV/STV keep the three words they reserved, and an object is a little larger than the same
+	// source assembled whole. Writing ldvp by hand still works - it just becomes a relocation the
+	// link has to find in range.
+	bool Linker::linkObject(std::string_view rootFile)
+	{
+		MemoryMap& memoryMap = _state.get().memoryMap();
+		memoryMap.textStart = Address::Null;
+		memoryMap.rodataStart = Address::Null;
+		memoryMap.dataStart = Address::Null;
+		memoryMap.bssStart = Address::Null;
+		memoryMap.textSize = 0;
+		memoryMap.rodataSize = 0;
+		memoryMap.dataSize = 0;
+		memoryMap.bssSize = 0;
+
+		for (auto& unit : _state.get().translationUnits())
+		{
+			_currentFile = unit.file();
+
+			// Every unit is relocated by nothing at all. For the root that makes its symbols
+			// section-relative, which is what an object records. For an import it makes them
+			// meaningless, which is correct: the address is not this object's to know, and every
+			// use of one becomes a relocation carrying the name instead of the number.
+			unit.symbolTable().relocateSymbols(Address::Null, Address::Null, Address::Null, Address::Null);
+
+			const bool isRoot = unit.file() == rootFile;
+			if (isRoot)
+			{
+				const SectionSizes& sizes = unit.sectionSizes();
+				memoryMap.textSize = alignUp(sizes.textSize);
+				memoryMap.rodataSize = alignUp(sizes.rodataSize);
+				memoryMap.dataSize = alignUp(sizes.dataSize);
+				memoryMap.bssSize = alignUp(sizes.bssSize);
+			}
+
+			SymbolTable& globalSymbolTable = _state.get().globalSymbolTable();
+			for (const auto& [name, symbol] : unit.symbolTable().getAllSymbols())
+			{
+				if (symbol.isGlobal() && !symbol.isConstant() && !globalSymbolTable.get(name).has_value())
+					globalSymbolTable.insertRawSymbol(symbol);
+			}
+		}
+
+		// Defined here at zero and used only for their names: a reference to __heap_start from an
+		// object is a relocation like any other, and the link that knows how big the program is
+		// puts the real address in.
+		defineLinkerSymbols();
+
+		return resolveEverything();
+	}
+
 	bool Linker::linkOnce()
 	{
 		calculateMemoryMap();
@@ -199,6 +253,13 @@ namespace ceres::casm
 		}
 
 		defineLinkerSymbols();
+
+		return resolveEverything();
+	}
+
+	bool Linker::resolveEverything()
+	{
+		SymbolTable& globalSymbolTable = _state.get().globalSymbolTable();
 
 		// Check for unresolved symbols in each translation unit
 		for (const auto& unit : _state.get().translationUnits())

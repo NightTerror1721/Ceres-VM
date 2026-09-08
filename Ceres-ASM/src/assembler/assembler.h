@@ -4,6 +4,7 @@
 #include "translation_unit.h"
 #include "linker.h"
 #include "binary_emitter.h"
+#include "object_file.h"
 #include "assembly_state.h"
 #include "debug/debug_info.h"
 #include <filesystem>
@@ -49,6 +50,12 @@ namespace ceres::casm
 
 		std::optional<vm::Program> assemble(std::span<const std::filesystem::path> sourceFiles);
 
+		// One file, assembled on its own into something a later link finishes. What it imports is
+		// read for what it declares and contributes no bytes, the way a header does - so the same
+		// library can be imported by every object in a program without any of them carrying a
+		// copy of it.
+		std::optional<ObjectFile> assembleObject(const std::filesystem::path& sourceFile);
+
 	public:
 		std::optional<vm::Program> assemble(const std::vector<std::filesystem::path>& sourceFiles)
 		{
@@ -70,6 +77,7 @@ namespace ceres::casm
 		std::vector<Statement> parseSource(const std::string& source, const std::filesystem::path& filePath);
 		std::optional<TranslationUnit> translateStatementsToUnit(const std::string& source, std::vector<Statement>&& statements, const std::filesystem::path& filePath);
 		bool linkTranslationUnits();
+		bool linkTranslationUnitsForObject(std::string_view rootFile);
 		void warnAboutUnusedPrivateDeclarations();
 		std::optional<vm::Program> emitBinary();
 

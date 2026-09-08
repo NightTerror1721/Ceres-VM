@@ -66,6 +66,12 @@
     <ClCompile Include="src\assembler\linker.cpp">
       <Filter>Archivos de origen\assembler</Filter>
     </ClCompile>
+    <ClCompile Include="src\assembler\object_file.cpp">
+      <Filter>Archivos de origen\assembler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\assembler\object_linker.cpp">
+      <Filter>Archivos de origen\assembler</Filter>
+    </ClCompile>
     <ClCompile Include="src\assembler\binary_emitter.cpp">
       <Filter>Archivos de origen\assembler</Filter>
     </ClCompile>
@@ -183,6 +189,15 @@
       <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>
     <ClInclude Include="src\assembler\linker.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\relocation.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\object_file.h">
+      <Filter>Archivos de encabezado\assembler</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assembler\object_linker.h">
       <Filter>Archivos de encabezado\assembler</Filter>
     </ClInclude>
     <ClInclude Include="src\assembler\binary_emitter.h">

@@ -12,6 +12,7 @@
 #include "vm/storage_devices.h"
 #include "vm/disassembler.h"
 #include "assembler/assembler.h"
+#include "assembler/object_linker.h"
 #include "debug/debug_info.h"
 #include "debug/debug_cli.h"
 #include "debug/debug_server.h"
@@ -34,6 +35,16 @@ namespace
 		"      --debug records the line and symbol tables; with -o they are appended\n"
 		"      to the .cres file. --emit-debug-json prints them on stdout as JSON and\n"
 		"      implies --debug.\n"
+		"      -c assembles one file on its own into a .cobj object instead, to be\n"
+		"      finished later by 'ceres link'.\n"
+		"\n"
+		"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug]\n"
+		"      Place, resolve and finish separately assembled objects. Objects named\n"
+		"      here are always part of the program; archive members are pulled in only\n"
+		"      when they answer a name nothing else does.\n"
+		"\n"
+		"  ceres ar <output.car> <file.cobj> [...]\n"
+		"      Collect objects into an archive - a library that ships compiled.\n"
 		"\n"
 		"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>]\n"
 		"      Run a program, assembling it first if given a source file.\n"
@@ -369,6 +380,8 @@ namespace
 		// A host file behind the disk ports. Without one the disk is still there, but it forgets
 		// everything when the machine stops.
 		std::filesystem::path disk;
+		// `ceres asm -c`: stop at an object file instead of linking a whole program.
+		bool compileOnly = false;
 	};
 
 	// Returns nullopt when the arguments do not describe a runnable command; the caller prints
@@ -390,6 +403,10 @@ namespace
 					return std::nullopt;
 				}
 				options.output = argv[i];
+			}
+			else if (argument == "-c")
+			{
+				options.compileOnly = true;
 			}
 			else if (argument == "--listing")
 			{
@@ -459,7 +476,8 @@ namespace
 
 		// A bare path means 'run', so the common case stays short.
 		if (positional[0] == "asm" || positional[0] == "run" || positional[0] == "disasm" ||
-				positional[0] == "debug" || positional[0] == "profile")
+				positional[0] == "debug" || positional[0] == "profile" ||
+				positional[0] == "link" || positional[0] == "ar")
 		{
 			options.command = positional[0];
 			if (positional.size() < 2)
@@ -471,8 +489,9 @@ namespace
 			for (usize i = 1; i < positional.size(); ++i)
 				options.inputs.emplace_back(positional[i]);
 
-			// 'asm' and 'debug' link several sources into one program; 'run'/'disasm' need one.
-			if (options.command != "asm" && options.command != "debug" && options.inputs.size() > 1)
+			// 'asm', 'debug', 'link' and 'ar' take several inputs; 'run'/'disasm' need one.
+			if (options.command != "asm" && options.command != "debug" &&
+				options.command != "link" && options.command != "ar" && options.inputs.size() > 1)
 			{
 				std::cerr << "'" << options.command << "' takes a single input file\n";
 				return std::nullopt;
@@ -502,13 +521,145 @@ int main(int argc, char** argv)
 
 	const Options& options = optionsOpt.value();
 
-	for (const auto& input : options.inputs)
+	for (usize i = 0; i < options.inputs.size(); ++i)
 	{
+		// 'ar' names the archive it is about to write first, and that one is not expected to be
+		// there already.
+		if (options.command == "ar" && i == 0)
+			continue;
+
+		const auto& input = options.inputs[i];
 		if (!std::filesystem::exists(input))
 		{
 			std::cerr << "No such file: " << input.string() << '\n';
 			return 1;
 		}
+	}
+
+	if (options.command == "ar")
+	{
+		// The first input is the archive being written; the rest go into it. Deliberately not
+		// -o: an archive has no other output, and naming it first reads the way `ar` always has.
+		if (options.inputs.size() < 2)
+		{
+			std::cerr << "Usage: ceres ar <output.car> <file.cobj> [...]\n";
+			return 2;
+		}
+
+		casm::ObjectArchive archive;
+		for (usize i = 1; i < options.inputs.size(); ++i)
+		{
+			auto members = casm::readObjectsFrom(options.inputs[i]);
+			if (!members)
+			{
+				std::cerr << members.error() << '\n';
+				return 1;
+			}
+
+			for (auto& member : members.value())
+			{
+				member.fromArchive = false; // Where it came from stops mattering once it is in here
+				archive.members.push_back(std::move(member));
+			}
+		}
+
+		if (auto written = archive.write(options.inputs.front()); !written)
+		{
+			std::cerr << written.error() << '\n';
+			return 1;
+		}
+
+		std::cerr << "Wrote " << options.inputs.front().string()
+			<< " (" << archive.members.size() << " objects)" << '\n';
+		return 0;
+	}
+
+	if (options.command == "link")
+	{
+		if (options.output.empty())
+		{
+			std::cerr << "'ceres link' needs -o <output.cres>\n";
+			return 2;
+		}
+
+		std::vector<casm::ObjectArchive::Member> inputs;
+		for (const auto& input : options.inputs)
+		{
+			auto members = casm::readObjectsFrom(input);
+			if (!members)
+			{
+				std::cerr << members.error() << '\n';
+				return 1;
+			}
+
+			for (auto& member : members.value())
+				inputs.push_back(std::move(member));
+		}
+
+		casm::ObjectLinker linker;
+		auto program = linker.link(std::move(inputs), casm::ObjectLinkOptions{
+			.requireEntryPoint = true,
+			.emitDebugInfo = options.debugInfo
+		});
+
+		if (!program.has_value())
+		{
+			for (const std::string& error : linker.errors())
+				std::cerr << "Link error: " << error << '\n';
+			return 1;
+		}
+
+		if (auto saved = program->saveToFile(options.output); !saved)
+		{
+			std::cerr << "Failed to write " << options.output.string() << ": " << saved.error()
+				<< '\n';
+			return 1;
+		}
+
+		std::cerr << "Wrote " << options.output.string() << '\n';
+
+		if (options.debugJson)
+			std::cout << linker.takeDebugInfo().toJson() << '\n';
+
+		return 0;
+	}
+
+	if (options.command == "asm" && options.compileOnly)
+	{
+		if (options.inputs.size() != 1)
+		{
+			std::cerr << "'ceres asm -c' takes a single source file: an object is one unit"
+				<< '\n';
+			return 2;
+		}
+
+		casm::Assembler assembler{ casm::AssemblerOptions{
+			.emitDebugInfo = options.debugInfo,
+			.requireEntryPoint = false
+		} };
+		auto object = assembler.assembleObject(options.inputs.front());
+		const bool failed = !object.has_value() || assembler.hasErrors();
+
+		if (options.json)
+			printJsonDiagnostics(assembler);
+		else if (failed || !assembler.errors().empty())
+			reportAssemblyErrors(assembler, std::span<const std::filesystem::path>(options.inputs));
+
+		if (failed)
+			return 1;
+
+		// Without -o the file is only checked, which is the same thing plain `asm` does.
+		if (options.output.empty())
+			return 0;
+
+		if (auto written = object->write(options.output); !written)
+		{
+			std::cerr << written.error() << '\n';
+			return 1;
+		}
+
+		std::cerr << "Wrote " << options.output.string() << '\n';
+		return 0;
 	}
 
 	if (options.command == "asm")

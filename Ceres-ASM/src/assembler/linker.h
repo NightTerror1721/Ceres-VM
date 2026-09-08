@@ -39,6 +39,13 @@ namespace ceres::casm
 
 		bool link();
 
+		// The same work, for a unit that is being assembled on its own. Only `rootFile` is laid
+		// out, and it is laid out from zero: an object says where things are relative to its own
+		// sections, and a later link says where those sections went. Everything the unit imported
+		// is kept for what it declares - types, sizes, macros - and contributes no bytes, which is
+		// what keeps two objects that import the same file from each carrying a copy of it.
+		bool linkObject(std::string_view rootFile);
+
 	public:
 		bool isLinked() const noexcept { return _linked; }
 
@@ -61,6 +68,9 @@ namespace ceres::casm
 		// against the result. Run twice at most - once to find out where everything is, and again
 		// if relaxation shortened anything.
 		bool linkOnce();
+
+		// Shared by both: the checks and the operand resolution that follow a layout.
+		bool resolveEverything();
 
 		// Rewrites every LDV/STV whose variable the one-word form can reach. Returns true when it
 		// changed something, which means the layout it was measured against is no longer true.

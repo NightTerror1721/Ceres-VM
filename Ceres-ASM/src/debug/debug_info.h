@@ -199,6 +199,12 @@ namespace ceres::debug
 		std::optional<u32> resolveFileId(std::string_view path) const;
 
 	public:
+		// Folds another unit's tables into these, moving every address by the base its section
+		// was placed at. What a separately assembled unit records is where things are within its
+		// own sections; only the link knows where those sections went, so only the link can turn
+		// one unit's line table into part of a program's.
+		void merge(const DebugInfo& other, u32 textBase, u32 rodataBase, u32 dataBase, u32 bssBase);
+
 		std::vector<u8> serialize() const;
 		static std::expected<DebugInfo, std::string> deserialize(std::span<const u8> bytes);
 

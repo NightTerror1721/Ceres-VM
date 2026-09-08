@@ -63,11 +63,27 @@ namespace ceres::casm
 		DataTypeScalarCode scalarCode; // Scalar code for the variable (e.g., U8, S8, U16, S16, U32, S32, F32)
 		vm::Address address; // Address of the variable in memory
 		bool dereferenced = false; // Written as `[name]`: the contents, not the address
+		// Which symbol the address came from, kept past the point where it was resolved. A build
+		// that links everything at once has no use for it - the address is the whole answer - but a
+		// unit assembled on its own has to say what the address was *of*, because its sections have
+		// not been placed and the symbol may not even be defined here.
+		NullableIdentifier symbol{};
+		SectionType section = SectionType::Text;
+		// Defined somewhere other than the unit being assembled: only a link knows where.
+		bool external = false;
 	};
 
 	struct LabelOperand
 	{
 		vm::Address address; // Address of the label in memory
+		// Which symbol the address came from, kept past the point where it was resolved. A build
+		// that links everything at once has no use for it - the address is the whole answer - but a
+		// unit assembled on its own has to say what the address was *of*, because its sections have
+		// not been placed and the symbol may not even be defined here.
+		NullableIdentifier symbol{};
+		SectionType section = SectionType::Text;
+		// Defined somewhere other than the unit being assembled: only a link knows where.
+		bool external = false;
 	};
 
 	struct MacroParameterOperand
@@ -234,13 +250,15 @@ namespace ceres::casm
 		{
 			return Operand{ MemoryOperand{ baseRegIndex, std::nullopt, IdentifierOperand{ identifierOffset } } };
 		}
-		static Operand makeVariable(DataTypeScalarCode scalarCode, vm::Address address, bool dereferenced = false) noexcept
+		static Operand makeVariable(DataTypeScalarCode scalarCode, vm::Address address, bool dereferenced = false,
+			NullableIdentifier symbol = {}, SectionType section = SectionType::Data, bool external = false) noexcept
 		{
-			return Operand{ VariableOperand{ scalarCode, address, dereferenced } };
+			return Operand{ VariableOperand{ scalarCode, address, dereferenced, symbol, section, external } };
 		}
-		static Operand makeLabel(vm::Address address) noexcept
+		static Operand makeLabel(vm::Address address,
+			NullableIdentifier symbol = {}, SectionType section = SectionType::Text, bool external = false) noexcept
 		{
-			return Operand{ LabelOperand{ address } };
+			return Operand{ LabelOperand{ address, symbol, section, external } };
 		}
 		static Operand makeMacroParameter(Identifier name) noexcept { return Operand{ MacroParameterOperand{ name } }; }
 		static Operand makeMacroLabel(Identifier name) noexcept { return Operand{ MacroLabelOperand{ name } }; }

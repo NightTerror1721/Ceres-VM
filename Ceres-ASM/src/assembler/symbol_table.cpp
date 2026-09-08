@@ -148,8 +148,15 @@ namespace ceres::casm
 				? getLocal(identifierOperand.name, parentName)
 				: get(identifierOperand.name);
 
+			// Whether the definition is in this unit or somewhere else is not interesting to a
+			// build that links everything at once, and is the whole question for one that does
+			// not: an address from another unit is a name until the link resolves it.
+			bool definedElsewhere = false;
 			if (!value.has_value() && !identifierOperand.isLocal)
+			{
 				value = lookupBeyond(line, identifierOperand.name, unit, globalSymbolTable);
+				definedElsewhere = value.has_value();
+			}
 
 			if (!value.has_value())
 			{
@@ -183,13 +190,15 @@ namespace ceres::casm
 					DataType dataType = symbol.dataType();
 					if (!dataType.isValid())
 						error(line, "Variable symbol '{}' has an invalid data type", symbol.name());
-					operand = Operand::makeVariable(dataType.scalarCode(), symbol.address(), identifierOperand.dereferenced);
+					operand = Operand::makeVariable(dataType.scalarCode(), symbol.address(), identifierOperand.dereferenced,
+						identifierOperand.name, symbol.section(), definedElsewhere);
 				}
 				else if (symbol.isLabel() && !resolveConstantsOnly)
 				{
 					if (!symbol.hasAddress())
 						error(line, "Label symbol '{}' does not have a valid address", symbol.name());
-					operand = Operand::makeLabel(symbol.address());
+					operand = Operand::makeLabel(symbol.address(),
+						identifierOperand.name, symbol.section(), definedElsewhere);
 				}
 			}
 

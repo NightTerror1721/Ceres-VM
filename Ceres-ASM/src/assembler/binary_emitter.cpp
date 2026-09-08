@@ -45,6 +45,12 @@ namespace ceres::casm
 
 		for (const auto& unit : _state.get().translationUnits())
 		{
+			// An object is one unit's worth of bytes. Its imports were read for what they declare,
+			// the way a header is: emitting them here would put the same code in every object that
+			// imported the file, and the link would find each of those definitions twice over.
+			if (!_objectRootFile.empty() && unit.file() != _objectRootFile)
+				continue;
+
 			std::optional<SectionType> currentSection = std::nullopt;
 			const usize textStart = _textBuffer.size();
 			const usize rodataStart = _rodataBuffer.size();
@@ -157,6 +163,9 @@ namespace ceres::casm
 	{
 		for (const auto& unit : _state.get().translationUnits())
 		{
+			if (!_objectRootFile.empty() && unit.file() != _objectRootFile)
+				continue;
+
 			for (const auto& [name, symbol] : unit.symbolTable().getAllSymbols())
 			{
 				debug::SymbolEntry entry;
@@ -230,6 +239,9 @@ namespace ceres::casm
 
 		for (const auto& unit : _state.get().translationUnits())
 		{
+			if (!_objectRootFile.empty() && unit.file() != _objectRootFile)
+				continue;
+
 			for (const auto& [name, symbol] : unit.symbolTable().getAllSymbols())
 			{
 				if (!symbol.isLabel() || symbol.section() != SectionType::Text || !symbol.hasAddress())
@@ -488,6 +500,79 @@ namespace ceres::casm
 		return false;
 	}
 
+	namespace
+	{
+		// The encoding field a parameter writes into, in the linker's own vocabulary. Only the
+		// types that can ever carry an address appear here; anything else never becomes a
+		// relocation, because its value was written in the source.
+		RelocationField relocationFieldOf(OpcodeParameterType type) noexcept
+		{
+			switch (type)
+			{
+				case OpcodeParameterType::IMM8:   return RelocationField::Imm8;
+				case OpcodeParameterType::SIMM16: return RelocationField::SImm16;
+				case OpcodeParameterType::IMM24:  return RelocationField::Imm24;
+				case OpcodeParameterType::SIMM24: return RelocationField::SImm24;
+				default:                          return RelocationField::Imm16;
+			}
+		}
+	}
+
+	bool BinaryEmitter::recordRelocation(const Operand& operand, RelocationField field, u8 shift, bool pcRelative)
+	{
+		if (_objectRootFile.empty())
+			return false;
+
+		NullableIdentifier symbol{};
+		SectionType section = SectionType::Text;
+		bool external = false;
+		Address address = Address::Null;
+
+		if (operand.isLabel())
+		{
+			const LabelOperand& label = operand.asLabel();
+			symbol = label.symbol;
+			section = label.section;
+			external = label.external;
+			address = label.address;
+		}
+		else if (operand.isVariable())
+		{
+			const VariableOperand& variable = operand.asVariable();
+			symbol = variable.symbol;
+			section = variable.section;
+			external = variable.external;
+			address = variable.address;
+		}
+		else
+		{
+			return false; // A number written in the source is already the final value
+		}
+
+		if (symbol.isNull())
+			return false;
+
+		// A branch to a label in this same object is already correct: the two ends move together
+		// wherever the object's .text is placed, so the distance between them never changes.
+		if (pcRelative && !external && section == SectionType::Text)
+			return false;
+
+		Relocation relocation;
+		relocation.offset = static_cast<u32>(_textBuffer.size());
+		relocation.field = field;
+		relocation.shift = shift;
+		relocation.pcRelative = pcRelative;
+		relocation.section = section;
+
+		if (external)
+			relocation.symbol = std::string(symbol.view());
+		else
+			relocation.addend = static_cast<i32>(address.value()); // Its offset within its own section
+
+		_relocations.push_back(std::move(relocation));
+		return true;
+	}
+
 	void BinaryEmitter::emitInstruction(const RelocatableStatement& statement)
 	{
 		const InstructionStatement& instruction = statement.asInstruction();
@@ -607,6 +692,12 @@ namespace ceres::casm
 
 						case OpcodeParameterType::IMM16_LOW:
 						{
+							if (recordRelocation(operandInfo, RelocationField::Imm16Low, 0, false))
+							{
+								encodedInstruction.setImm16(0);
+								break;
+							}
+
 							const auto sourceValue = immediateSourceValue(operandInfo);
 							if (!sourceValue.has_value())
 							{
@@ -624,6 +715,12 @@ namespace ceres::casm
 						case OpcodeParameterType::IMM24:
 						case OpcodeParameterType::SIMM24:
 						{
+							if (recordRelocation(operandInfo, relocationFieldOf(param.type()),
+								static_cast<u8>(param.fixedValueShift()), false))
+							{
+								break; // Zero is what an unset field already holds
+							}
+
 							const auto sourceValue = immediateSourceValue(operandInfo);
 							if (!sourceValue.has_value())
 							{
@@ -732,6 +829,9 @@ namespace ceres::casm
 
 						case OpcodeParameterType::REL_SIMM16:
 						{
+							if (recordRelocation(operandInfo, RelocationField::SImm16, 0, true))
+								break;
+
 							const Address currentAddress = lastSectionAddress(SectionType::Text);
 							const Address targetAddress = operandInfo.isVariable()
 								? operandInfo.asVariable().address
@@ -757,6 +857,9 @@ namespace ceres::casm
 
 						case OpcodeParameterType::REL_ADDR20:
 						{
+							if (recordRelocation(operandInfo, RelocationField::SImm20, 0, true))
+								break;
+
 							const Address currentAddress = lastSectionAddress(SectionType::Text);
 							const Address targetAddress = operandInfo.isLabel()
 								? operandInfo.asLabel().address
@@ -778,6 +881,9 @@ namespace ceres::casm
 						}
 
 						case OpcodeParameterType::REL_ADDR:
+							if (recordRelocation(operandInfo, RelocationField::SImm24, 0, true))
+								break;
+
 							if (operandInfo.isLabel())
 							{
 								Address currentAddress = lastSectionAddress(SectionType::Text);

@@ -133,6 +133,89 @@ namespace ceres::casm
 		}
 	}
 
+	std::optional<ObjectFile> Assembler::assembleObject(const std::filesystem::path& sourceFile)
+	{
+		_state.reset();
+		_debugInfo = debug::DebugInfo{};
+		_state = std::make_unique<AssemblyState>(
+			[&](const std::string& filePath) -> OptionalRef<TranslationUnit>
+			{
+				return loadTranslationUnit(filePath);
+			}
+		);
+
+		loadTranslationUnit(sourceFile.string());
+		if (hasErrors())
+			return std::nullopt;
+
+		// Only valid once the file has been read: the view points into the source cache own key.
+		const std::string_view rootFile = _state->internedPath(sourceFile.string());
+
+		if (!linkTranslationUnitsForObject(rootFile))
+		{
+			reportError("Assembling '{}' failed due to unresolved symbols or other errors", sourceFile.string());
+			return std::nullopt;
+		}
+
+		warnAboutUnusedPrivateDeclarations();
+
+		const TranslationUnit* root = nullptr;
+		for (const auto& unit : _state->translationUnits())
+		{
+			if (unit.file() == rootFile)
+				root = &unit;
+		}
+
+		if (root == nullptr)
+		{
+			reportError("Could not assemble '{}'", sourceFile.string());
+			return std::nullopt;
+		}
+
+		try
+		{
+			// No entry point is required: an object is a piece of a program, and which piece holds
+			// `main` is the link's business.
+			BinaryEmitter emitter{ *_state, _options.emitDebugInfo, false, rootFile };
+			const auto emitted = emitter.emit();
+			if (!emitted.has_value() || hasErrors())
+				return std::nullopt;
+
+			ObjectFile object;
+			object.sourceFile = sourceFile.string();
+			object.text.assign(emitter.textBuffer().begin(), emitter.textBuffer().end());
+			object.rodata.assign(emitter.rodataBuffer().begin(), emitter.rodataBuffer().end());
+			object.data.assign(emitter.dataBuffer().begin(), emitter.dataBuffer().end());
+			object.bssSize = _state->memoryMap().bssSize;
+			object.relocations = emitter.takeRelocations();
+
+			// Only what another object could name. A private label is at a known place inside this
+			// object and the relocations that reach it already say so; publishing it would only
+			// give two files a chance to collide over a name neither meant to share.
+			for (const auto& [name, symbol] : root->symbolTable().getAllSymbols())
+			{
+				if (!symbol.isGlobal() || symbol.isConstant() || !symbol.hasAddress())
+					continue;
+
+				object.symbols.push_back(ObjectSymbol{
+					std::string(name), symbol.section(), symbol.address().value() });
+			}
+
+			if (_options.emitDebugInfo)
+			{
+				_debugInfo = emitter.takeDebugInfo();
+				object.debugSection = _debugInfo.serialize();
+			}
+
+			return object;
+		}
+		catch (const std::exception& e)
+		{
+			reportError("Error emitting object file: {}", e.what());
+			return std::nullopt;
+		}
+	}
+
 	bool Assembler::linkTranslationUnits()
 	{
 		try
@@ -143,6 +226,20 @@ namespace ceres::casm
 		catch (const std::exception& e)
 		{
 			reportError("Error linking translation units: {}", e.what());
+			return false;
+		}
+	}
+
+	bool Assembler::linkTranslationUnitsForObject(std::string_view rootFile)
+	{
+		try
+		{
+			Linker linker{ *_state };
+			return linker.linkObject(rootFile);
+		}
+		catch (const std::exception& e)
+		{
+			reportError("Error laying out translation units: {}", e.what());
 			return false;
 		}
 	}

@@ -291,6 +291,57 @@ namespace ceres::debug
 		return nullptr;
 	}
 
+	void DebugInfo::merge(const DebugInfo& other, u32 textBase, u32 rodataBase, u32 dataBase, u32 bssBase)
+	{
+		if (other._lines.empty() && other._symbols.empty() && other._frames.empty())
+			return;
+
+		// Strings are appended whole rather than de-duplicated against the ones already here: two
+		// objects rarely share a name, and a table with a repeat in it is still correct, where a
+		// half-finished remapping is not.
+		const u32 stringBase = static_cast<u32>(_strings.size());
+		_strings.append(other._strings);
+
+		const u32 fileBase = static_cast<u32>(_fileOffsets.size());
+		for (u32 offset : other._fileOffsets)
+			_fileOffsets.push_back(offset + stringBase);
+
+		for (LineEntry entry : other._lines)
+		{
+			entry.address += textBase;
+			entry.fileId += fileBase;
+			entry.expansionFileId += fileBase;
+			_lines.push_back(entry);
+		}
+
+		for (FrameEntry entry : other._frames)
+		{
+			entry.address += textBase;
+			entry.endAddress += textBase;
+			_frames.push_back(entry);
+		}
+
+		for (SymbolEntry entry : other._symbols)
+		{
+			entry.nameOffset += stringBase;
+			switch (static_cast<SymbolSection>(entry.section))
+			{
+				case SymbolSection::Text:   entry.address += textBase; break;
+				case SymbolSection::Rodata: entry.address += rodataBase; break;
+				case SymbolSection::Data:   entry.address += dataBase; break;
+				case SymbolSection::BSS:    entry.address += bssBase; break;
+				default: break; // A constant has no address to move
+			}
+			_symbols.push_back(entry);
+		}
+
+		// Every lookup here binary-searches by address, so the order the tables promise has to
+		// hold again once two of them have been interleaved.
+		std::ranges::stable_sort(_lines, {}, &LineEntry::address);
+		std::ranges::stable_sort(_symbols, {}, &SymbolEntry::address);
+		std::ranges::stable_sort(_frames, {}, &FrameEntry::address);
+	}
+
 	std::vector<u8> DebugInfo::serialize() const
 	{
 		const u32 fileCount = static_cast<u32>(_fileOffsets.size());
