@@ -128,6 +128,16 @@ namespace ceres::casm
 
 		std::string toString() const noexcept
 		{
+			// Written back the way it was written down. `Entity[2]` is stored as `u8[2][Entity]`,
+			// and a diagnostic that says so is talking about a spelling nobody used.
+			if (_fromStructName && !_dimensions.empty() && _dimensions.back().has_value())
+			{
+				std::string result = _dimensions.back()->toString();
+				for (usize i = 0; i + 1 < _dimensions.size(); ++i)
+					result += _dimensions[i].has_value() ? "[" + _dimensions[i]->toString() + "]" : "[]";
+				return result;
+			}
+
 			std::string result{ _alias == DataTypeAlias::None || _alias == DataTypeAlias::String
 				? DataType::scalarCodeToString(_scalarCode)
 				: DataType::aliasToString(_alias) };

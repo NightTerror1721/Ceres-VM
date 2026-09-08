@@ -69,6 +69,26 @@ otherwise quietly be four bytes of nothing in particular:
 write u8[MAX_PLAYERS]
 ```
 
+### `countof` counts bytes, not instances
+
+This follows from `Entity` being `u8[Entity]` and is the one place the spelling shows through:
+
+```casm
+@bss
+    let p:  Point           // Point is 8 bytes
+    let ps: Point[3]
+
+@text
+    li r1, sizeof(p)        // 8   - bytes, as always
+    li r2, countof(p)       // 8   - elements of a u8[8], not 1
+    li r3, countof(ps)      // 24  - likewise
+    li r4, dimof(ps, 0)     // 3   - this is the instance count
+    li r5, Point            // 8   - the struct name is its size
+```
+
+Use `dimof(v, 0)` for how many, `Point` for how big, and `sizeof(v) / Point` if you would
+rather compute it.
+
 ## Fields that are structs
 
 A field may be a struct, or an array of them, and its initialiser nests to match:
