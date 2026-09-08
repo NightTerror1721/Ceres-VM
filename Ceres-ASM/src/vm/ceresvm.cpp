@@ -24,11 +24,15 @@ namespace ceres::vm
 
 		Address offset = Memory::UnrestrictedSegmentStart;
 
+		// Where .text lands, so the engine can refuse to let the program write over it.
+		const Address textStart = offset;
+
 		if (header.textSize > 0)
 		{
 			_memory.writeBytesUnchecked(offset, program.text());
 			offset += header.textSize;
 		}
+		_engine.setTextRange(textStart.value(), textStart.value() + header.textSize);
 
 		if (header.rodataSize > 0)
 		{

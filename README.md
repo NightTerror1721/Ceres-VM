@@ -54,8 +54,11 @@ A flat byte array, 16 MiB by default. There is no MMU and no paging.
 | `0x00000400`– | rest | `.text`, `.rodata`, `.data` and `.bss` in that order, then heap and stack. |
 
 Accesses below `0x400` are rejected for program code, so a program cannot overwrite the vector
-table or the BIOS. Integers are assembled and disassembled byte by byte in little-endian, so the
-machine behaves the same whatever the host's byte order is.
+table or the BIOS. **`.text` is read-only** as well: a store or a block read that lands anywhere
+in the loaded code raises `MemoryFault` and the instruction does not happen, so a pointer that
+has gone astray is reported where it goes wrong instead of somewhere else later. Integers are
+assembled and disassembled byte by byte in little-endian, so the machine behaves the same
+whatever the host's byte order is.
 
 Sections are laid out on 4-byte boundaries and variables are padded to their type's natural
 alignment, so a misaligned 16- or 32-bit access raises `AlignmentFault`. Byte accesses never do.

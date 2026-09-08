@@ -35,8 +35,9 @@ enum class InterruptNumber : u8
   only thing that currently raises one is the timer device, which always uses `UserInterrupt0` (16)
   — see [I/O devices and ports](07-IO-Devices-and-Ports.md#timerdevice-ports-0x10-0x12).
 
-Of the reserved numbers, `MemoryFault` (3) and `Syscall` (15) are defined but nothing in the current
-codebase raises them yet — they're reserved for future use.
+`MemoryFault` (3) is raised by a store, or a block read, whose target overlaps the loaded program's
+`.text` — see [Memory → `.text` is read-only](02-Memory.md#text-is-read-only). Of the reserved
+numbers, `Syscall` (15) is defined but nothing raises it yet.
 
 ## The vector table
 

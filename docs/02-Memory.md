@@ -47,6 +47,21 @@ static inline constexpr Address UnrestrictedSegmentStart   = NullPageSegmentStar
   reads through `readUnchecked`), the BIOS initializer, and the interrupt dispatcher, which needs to
   read vector table entries.
 
+### `.text` is read-only
+
+`CeresVM::loadProgram` tells the engine where the code it just placed begins and ends, and every
+instruction that writes memory — `str`, `strb`, `strh`, the float `str`, and the block reads `inm`
+and `inrm` — checks the target against that range first. A write that overlaps it raises
+`MemoryFault` and the instruction is abandoned before it takes effect.
+
+This is the fault a lost pointer actually deserves. Overwriting an instruction that has not run
+yet used to succeed silently, and the machine then went wrong at whatever address that
+instruction lived at — arbitrarily far from the store that caused it.
+
+The range is empty until a program is loaded, and survives a `reset` like the stack limit does.
+A debugger still writes through the unchecked accessors, so patching an instruction from the
+editor keeps working.
+
 Both checked and unchecked reads are "null-page safe" in one more sense: reading past the *end* of
 memory, or below the allowed floor, returns zero bytes instead of throwing — the slow path in
 `readRaw`/`writeRaw` treats out-of-range bytes as absent rather than raising a C++ exception. Explicit

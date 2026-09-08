@@ -417,3 +417,52 @@ TEST(vm, the_stack_limit_defaults_to_the_top_of_the_bios)
 	Machine m{ Instruction::PUSH(1) };
 	CHECK_EQ(m.engine().stackLimit(), static_cast<u32>(Memory::UnrestrictedSegmentStartValue));
 }
+
+// --- The program cannot write over its own text ---------------------------------------------
+
+TEST(vm, a_store_into_the_text_range_faults_and_leaves_the_instruction_alone)
+{
+	Machine m{ Instruction::STR(1, 2, 0), Instruction::STRB(1, 2, 0) };
+
+	const u32 textStart = static_cast<u32>(Memory::UnrestrictedSegmentStartValue);
+	const u32 textEnd = textStart + 2 * Instruction::Size;
+	const u32 original = m.memory().readUnchecked<u32>(Address(textStart));
+
+	m.engine().setTextRange(textStart, textEnd);
+	m.memory().writeUnchecked<u32>(
+		Address(static_cast<u32>(InterruptNumber::MemoryFault) * Address::Size),
+		Memory::UnrestrictedSegmentStart.value());
+
+	m.engine().setRegister(1, textStart); // a pointer that has gone astray
+	m.engine().setRegister(2, 0u);
+
+	m.step();
+	CHECK_EQ(m.memory().readUnchecked<u32>(Address(textStart)), original);
+
+	// A byte store is just as capable of corrupting an instruction, and is checked too.
+	m.engine().setTextRange(textStart, textEnd);
+	m.engine().setProgramCounter(Address(textStart + Instruction::Size));
+	m.step();
+	CHECK_EQ(m.memory().readUnchecked<u32>(Address(textStart)), original);
+}
+
+TEST(vm, a_store_outside_the_text_range_still_works)
+{
+	Machine m{ Instruction::STR(1, 2, 0) };
+
+	const u32 textStart = static_cast<u32>(Memory::UnrestrictedSegmentStartValue);
+	const Address target = Address(textStart + 0x400);
+
+	m.engine().setTextRange(textStart, textStart + Instruction::Size);
+	m.engine().setRegister(1, target.value());
+	m.engine().setRegister(2, 0x12345678u);
+
+	m.step();
+	CHECK_EQ(m.memory().readUnchecked<u32>(target), 0x12345678u);
+}
+
+TEST(vm, the_text_range_is_empty_until_a_program_is_loaded)
+{
+	Machine m{ Instruction::NOP() };
+	CHECK_EQ(m.engine().textStart(), m.engine().textEnd());
+}

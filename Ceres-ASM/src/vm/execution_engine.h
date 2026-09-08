@@ -36,6 +36,13 @@ namespace ceres::vm
 		// reach 0x400, and only then said so. loadProgram lowers it to the end of the loaded image.
 		u32 _stackLimit = static_cast<u32>(Memory::UnrestrictedSegmentStartValue);
 
+		// The loaded program's own text, which nothing a correct program does ever writes to. An
+		// empty range means no program is loaded and there is nothing to protect. A store into it
+		// used to simply take effect, so a lost pointer rewrote an instruction that had not run
+		// yet and the machine went wrong somewhere else entirely.
+		u32 _textStart = 0;
+		u32 _textEnd = 0;
+
 		// Empty unless a debugger is attached; see setInterruptObserver.
 		std::function<void(InterruptNumber, Address, bool)> _interruptObserver;
 
@@ -65,6 +72,8 @@ namespace ceres::vm
 		constexpr bool isHalted() const noexcept { return _flags.halting(); }
 		constexpr u64 executedInstructions() const noexcept { return _executedInstructions; }
 		constexpr u32 stackLimit() const noexcept { return _stackLimit; }
+		constexpr u32 textStart() const noexcept { return _textStart; }
+		constexpr u32 textEnd() const noexcept { return _textEnd; }
 
 	public:
 		// Write access, for a debugger: setting a register from the editor's variables view,
@@ -91,6 +100,10 @@ namespace ceres::vm
 		// Set by the loader once it knows where the image ends. A reset deliberately leaves it
 		// alone: the same program is still in memory, so the same ground is still worth guarding.
 		void setStackLimit(u32 lowestAddress) noexcept { _stackLimit = lowestAddress; }
+
+		// Also the loader's to set, and also kept across a reset. Pass an empty range to lift the
+		// protection, which is what a machine with no program loaded has.
+		void setTextRange(u32 start, u32 end) noexcept { _textStart = start; _textEnd = end; }
 
 		void setFlags(FlagRegister flags) noexcept { _flags = flags; }
 		void setProgramCounter(Address address) noexcept { _pc = address; }
@@ -168,6 +181,19 @@ namespace ceres::vm
 				return _memory.readFloat(address);
 			else
 				return _memory.read<T>(address);
+		}
+
+		// Returns false when the write would land in the program's own text, having already raised
+		// MemoryFault. The caller must abort the instruction, exactly as for a misaligned access.
+		forceinline bool checkWritable(Address address, u32 size) noexcept
+		{
+			const u64 base = address.value();
+			if (_textEnd > _textStart && base < _textEnd && base + size > _textStart)
+			{
+				triggerInterrupt(InterruptNumber::MemoryFault);
+				return false;
+			}
+			return true;
 		}
 
 		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
@@ -778,16 +804,23 @@ namespace ceres::vm
 		forceinline void STR(const Instruction inst) noexcept
 		{
 			const Address address = getReg(inst.rd()) + displacement(inst);
-			if (!checkAlignment<u32>(address))
+			if (!checkAlignment<u32>(address) || !checkWritable(address, sizeof(u32)))
 				return;
 			write<u32>(address, getReg(inst.rs()));
 			advancePC();
 		}
-		forceinline void STRB(const Instruction inst) noexcept { write<u8>(getReg(inst.rd()) + displacement(inst), static_cast<u8>(getReg(inst.rs()))); advancePC(); }
+		forceinline void STRB(const Instruction inst) noexcept
+		{
+			const Address address = getReg(inst.rd()) + displacement(inst);
+			if (!checkWritable(address, sizeof(u8)))
+				return;
+			write<u8>(address, static_cast<u8>(getReg(inst.rs())));
+			advancePC();
+		}
 		forceinline void STRH(const Instruction inst) noexcept
 		{
 			const Address address = getReg(inst.rd()) + displacement(inst);
-			if (!checkAlignment<u16>(address))
+			if (!checkAlignment<u16>(address) || !checkWritable(address, sizeof(u16)))
 				return;
 			write<u16>(address, static_cast<u16>(getReg(inst.rs())));
 			advancePC();
@@ -795,7 +828,7 @@ namespace ceres::vm
 		forceinline void FSTR(const Instruction inst) noexcept
 		{
 			const Address address = getReg(inst.rd()) + displacement(inst);
-			if (!checkAlignment<f32>(address))
+			if (!checkAlignment<f32>(address) || !checkWritable(address, sizeof(f32)))
 				return;
 			write<f32>(address, getFloatReg(inst.fs()));
 			advancePC();
@@ -935,6 +968,8 @@ namespace ceres::vm
 		}
 		forceinline void INM(const Instruction inst) noexcept
 		{
+			if (!checkWritable(Address(getReg(inst.rd())), getReg(inst.rs())))
+				return;
 			_ioPorts.readBytes(inst.imm8(), getReg(inst.rd()), getReg(inst.rs()));
 			advancePC();
 		}
@@ -971,6 +1006,8 @@ namespace ceres::vm
 		forceinline void INRM(const Instruction inst) noexcept
 		{
 			const u8 port = static_cast<u8>(getReg(inst.rs()));
+			if (!checkWritable(Address(getReg(inst.rd())), getReg(inst.rt())))
+				return;
 			_ioPorts.readBytes(port, getReg(inst.rd()), getReg(inst.rt()));
 			advancePC();
 		}
