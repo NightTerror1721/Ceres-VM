@@ -63,7 +63,8 @@ namespace ceres::casm
 						(next.keywordTypeValue() == KeywordType::Let ||
 						 next.keywordTypeValue() == KeywordType::Constant ||
 						 next.keywordTypeValue() == KeywordType::Macro ||
-						 next.keywordTypeValue() == KeywordType::Struct);
+						 next.keywordTypeValue() == KeywordType::Struct ||
+						 next.keywordTypeValue() == KeywordType::Alias);
 
 					if (prefixesDeclaration)
 					{
@@ -73,6 +74,12 @@ namespace ceres::casm
 							statement = parseMacroDeclaration(true);
 						else if (declaration == KeywordType::Struct)
 							statement = parseStructDeclaration(true);
+						else if (declaration == KeywordType::Alias)
+						{
+							parseRegisterAlias(true);
+							_cursor.consumeEndOfLineOrEndOfFile("Expected end of line after a register alias");
+							return std::nullopt;
+						}
 						else
 							statement = parseDataDeclaration(true);
 					}
@@ -91,7 +98,7 @@ namespace ceres::casm
 					return parseDirective();
 				else if (_cursor.match(KeywordType::Alias))
 				{
-					parseRegisterAlias();
+					parseRegisterAlias(false);
 					_cursor.consumeEndOfLineOrEndOfFile("Expected end of line after a register alias");
 					return std::nullopt; // Nothing reaches the AST: the name is substituted at its use.
 				}
@@ -274,7 +281,7 @@ namespace ceres::casm
 		return Statement::makeDirective(_file, line, kind, std::move(value), message);
 	}
 
-	void Parser::parseRegisterAlias()
+	void Parser::parseRegisterAlias(bool isGlobal)
 	{
 		_cursor.consume(KeywordType::Alias, "Expected 'alias' keyword");
 
@@ -293,9 +300,15 @@ namespace ceres::casm
 		if (!registerInfo.has_value())
 			error("'{}' is not a register", registerToken.lexeme());
 
-		_registerAliases.emplace(name, registerInfo->isFloatingPoint
+		Operand operand = registerInfo->isFloatingPoint
 			? Operand::makeFloatingPointRegister(registerInfo->index)
-			: Operand::makeRegister(registerInfo->index));
+			: Operand::makeRegister(registerInfo->index);
+
+		_registerAliases.emplace(name, operand);
+
+		// `global alias` is collected before this file is parsed, not read out of it afterwards -
+		// see Assembler::collectGlobalAliases. Nothing to record here.
+		(void)isGlobal;
 	}
 
 	Statement Parser::parseImportDeclaration()

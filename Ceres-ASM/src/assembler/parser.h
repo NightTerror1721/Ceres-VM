@@ -174,9 +174,16 @@ namespace ceres::casm
 		Parser& operator=(Parser&&) noexcept = delete;
 
 	public:
-		explicit Parser(std::string_view source, StringPool& stringPool, AssemblerErrorHandler& errorHandler, std::string_view file = {}) noexcept :
+		// A register alias is substituted where it is written, so it has to be known before the
+		// line that uses it is parsed - which is why the ones an import publishes arrive here,
+		// already collected, instead of being looked up later like every other symbol.
+		explicit Parser(std::string_view source, StringPool& stringPool, AssemblerErrorHandler& errorHandler, std::string_view file = {},
+			const std::unordered_map<std::string, Operand>* importedAliases = nullptr) noexcept :
 			_file(file), _cursor(source, stringPool, _file), _stringPool(stringPool), _errorHandler(errorHandler)
-		{}
+		{
+			if (importedAliases != nullptr)
+				_registerAliases = *importedAliases;
+		}
 
 		std::vector<Statement> parse();
 
@@ -199,7 +206,7 @@ namespace ceres::casm
 		Operand poolLiteral(LiteralValueReference&& value, DataTypeReference&& type);
 		std::vector<Statement> _literalPool;
 		u32 _nextLiteralIndex = 0;
-		void parseRegisterAlias();
+		void parseRegisterAlias(bool isGlobal);
 		std::optional<u8> indexRegisterOf(const Token& token) const;
 		bool atQualifiedName() const noexcept;
 		Identifier parseQualifiedName();

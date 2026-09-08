@@ -8,8 +8,9 @@
 import "lib/math.casm"
 ```
 
-`import` takes a single string literal naming another `.casm` file. There is no `import`-with-alias,
-no selective import of individual symbols, and no wildcard form — importing a file makes visible
+`import` takes a single string literal naming another `.casm` file, and optionally a name for it
+(`import "lib/math.casm" as math`, described under [Named imports](#named-imports)). There is
+no selective import of individual symbols and no wildcard form — importing a file makes visible
 everything that file declares `global`, and nothing else.
 
 ## Path resolution
@@ -31,7 +32,8 @@ a different depth) doesn't break those internal imports. The resolved path is th
 
 ## What actually gets imported
 
-Only what the module declares `global` crosses the boundary — constants, variables and macros:
+Only what the module declares `global` crosses the boundary — constants, variables, macros,
+structs and register aliases:
 
 ```casm
 // lib/rules.casm

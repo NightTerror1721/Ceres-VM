@@ -413,3 +413,93 @@ TEST(modules, a_qualified_name_says_which_half_is_wrong)
 	CHECK(!privateName.ok());
 	CHECK(privateName.joinedErrors().find("does not export 'HIDDEN'") != std::string::npos);
 }
+
+TEST(modules, a_global_register_alias_travels_with_its_module)
+{
+	// An alias is substituted where it is written, so it has to be known while the importing file
+	// is being parsed rather than looked up afterwards like every other symbol. That it works at
+	// all is the whole point of this test.
+	Workspace ws{ "alias" };
+	ws.write("regs.casm",
+		"global alias cursor = r5\r\n"
+		"alias hidden = r6\r\n");
+	ws.write("main.casm",
+		"import \"regs.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li cursor, 9\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(vm::Instruction(r.words()[0]).rd(), u8{ 5 });
+	CHECK_EQ(vm::Instruction(r.words()[0]).imm16(), u16{ 9 });
+}
+
+TEST(modules, an_alias_without_global_stays_in_its_own_file)
+{
+	Workspace ws{ "aliasprivate" };
+	ws.write("regs.casm",
+		"global alias cursor = r5\r\n"
+		"alias hidden = r6\r\n");
+	ws.write("main.casm",
+		"import \"regs.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li hidden, 1\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	// Not a register, so it reads as a symbol - and there is no such symbol.
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("hidden") != std::string::npos);
+}
+
+TEST(modules, a_global_alias_reaches_through_the_module_that_imported_it)
+{
+	// Globals are transitive here: a module that imports another publishes what it saw, so an
+	// alias arrives through however many files it has to pass.
+	Workspace ws{ "aliasdeep" };
+	ws.write("inner.casm", "global alias tally = r7\r\n");
+	ws.write("middle.casm", "import \"inner.casm\"\r\n");
+	ws.write("main.casm",
+		"import \"middle.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li tally, 3\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(vm::Instruction(r.words()[0]).rd(), u8{ 7 });
+}
+
+TEST(modules, an_imported_alias_works_where_a_register_has_to_be_known_to_parse_at_all)
+{
+	// `[cursor + 4]` is a register base or a symbolic address depending on what `cursor` is, and
+	// the parser decides that before any symbol table exists. This is the case that made the
+	// aliases have to arrive before parsing rather than after it.
+	Workspace ws{ "aliasmemory" };
+	ws.write("regs.casm", "global alias cursor = r5\r\n");
+	ws.write("main.casm",
+		"import \"regs.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldr r1, [cursor + 4]\r\n"
+		"    ret\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CHECK_EQ(vm::Instruction(r.words()[0]).rs(), u8{ 5 });
+	CHECK_EQ(vm::Instruction(r.words()[0]).simm16(), i16{ 4 });
+}

@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <vector>
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace ceres::casm
 {
@@ -34,6 +36,14 @@ namespace ceres::casm
 		// Outlives _state deliberately: the tables own their strings, so the debug information
 		// stays usable after the assembly state that produced it has been thrown away.
 		debug::DebugInfo _debugInfo;
+
+		// Name to register, for the aliases a file publishes with `global alias`.
+		using AliasMap = std::unordered_map<std::string, Operand>;
+
+		// Memoised per resolved path, and guarded against a cycle: two files that import each
+		// other are a diagnostic the builder reports, not a reason for this to recurse forever.
+		std::unordered_map<std::string, AliasMap> _globalAliasCache;
+		std::unordered_set<std::string> _aliasScanInProgress;
 
 	public:
 		Assembler() = default;
@@ -75,6 +85,20 @@ namespace ceres::casm
 	private:
 		std::optional<std::string> readSourceFile(const std::filesystem::path& filePath);
 		std::vector<Statement> parseSource(const std::string& source, const std::filesystem::path& filePath);
+
+		// Every `global alias` a file publishes, plus the ones it inherited from its own imports.
+		//
+		// This is the one declaration that cannot be resolved the way the others are. A register
+		// alias is substituted where it is written, and the parser needs it *while parsing*: what
+		// `[cursor + 4]` even is - a register base or a symbolic address - depends on knowing that
+		// `cursor` is a register. Every other symbol is looked up long after parsing, when there
+		// is a symbol table to look in; this one has to arrive first, so an importing file's
+		// imports are scanned for aliases before a single line of it is parsed.
+		//
+		// The scan lexes rather than parses: it needs four tokens in a row, and parsing an
+		// imported file here would mean parsing it before the aliases *it* imported were known.
+		const AliasMap& collectGlobalAliases(const std::string& resolvedPath);
+		AliasMap collectImportedAliases(const std::string& resolvedPath);
 		std::optional<TranslationUnit> translateStatementsToUnit(const std::string& source, std::vector<Statement>&& statements, const std::filesystem::path& filePath);
 		bool linkTranslationUnits();
 		bool linkTranslationUnitsForObject(std::string_view rootFile);

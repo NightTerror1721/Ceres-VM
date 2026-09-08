@@ -22,7 +22,7 @@ values:
 ## `global` applies to every declaration, not just labels
 
 A label was once the only thing the language could mark. Now the same prefix governs constants,
-variables, macros and structs, and the rule is uniform:
+variables, macros, structs and register aliases, and the rule is uniform:
 
 ```casm
 global const MAX_PLAYERS = 4    // exported
@@ -39,6 +39,8 @@ endmacro
 global struct Entity                // exports every offset constant it generates
     ...
 endstruct
+
+global alias frame_base = r8    // exported; without `global`, file-scoped like the rest
 ```
 
 **Nothing without `global` leaves the file that declares it.** A name a module declares privately is

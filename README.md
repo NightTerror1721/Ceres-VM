@@ -641,6 +641,8 @@ is not deterministic.
 alias cursor = r5
 alias total  = r6
 
+global alias frame_base = r8    // visible to whoever imports this file
+
 @text
 global main:
     clr  total
@@ -648,7 +650,14 @@ global main:
 ```
 
 A name for a register, usable anywhere one can be written, including as a memory base. Resolved by
-the parser, so it is file-scoped and nothing downstream ever sees it.
+the parser, so nothing downstream ever sees it: the AST, the linker, the debugger and the binary
+all stay unaware the name existed.
+
+`global` exports it like any other declaration, but it is the one that cannot wait for the symbol
+table. Whether `[cursor + 4]` is a register base or the address of a symbol has to be decided while
+the line is parsed, so the assembler scans a file's imports for their `global alias` declarations
+before parsing it — lexing them rather than parsing them, since parsing an imported file would
+need *its* imports scanned first. An alias still has to be declared before the line that uses it.
 
 ## Structs
 

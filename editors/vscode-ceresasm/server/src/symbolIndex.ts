@@ -194,7 +194,7 @@ const SECTION_RE = /^(\s*)@(text|rodata|data|bss)\b/;
 const LABEL_RE = /^(\s*)(global\s+)?(\.?[A-Za-z_][A-Za-z0-9_]*)\s*:/;
 const MACRO_RE = /^(\s*)(global\s+)?macro\s+([A-Za-z_][A-Za-z0-9_]*)\b(.*)$/;
 const ENDMACRO_RE = /^\s*endmacro\b/;
-const ALIAS_RE = /^(\s*)alias\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)/;
+const ALIAS_RE = /^(\s*)(global\s+)?alias\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)/;
 const STRUCT_RE = /^(\s*)(global\s+)?struct\s+([A-Za-z_][A-Za-z0-9_]*)\b/;
 const ENDSTRUCT_RE = /^\s*endstruct\b/;
 const MACRO_PARAM_RE = /\$[A-Za-z_][A-Za-z0-9_]*/g;
@@ -278,11 +278,14 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 
 		const aliasMatch = ALIAS_RE.exec(line);
 		if (aliasMatch) {
-			const [, indent, name, register] = aliasMatch;
-			const nameStart = indent.length + 'alias '.length;
+			const [, indent, globalPrefix, name, register] = aliasMatch;
+			const nameStart = indent.length + (globalPrefix ? globalPrefix.length : 0) + 'alias '.length;
 			index.consts.set(name, {
 				kind: 'const',
-				isGlobal: false, // A register alias is resolved in the parser, so it never leaves its file.
+				// A register alias is substituted while the file is parsed rather than resolved
+				// afterwards, so an imported one has to be collected before parsing - but `global`
+				// means here what it means everywhere else: this one leaves its file.
+				isGlobal: Boolean(globalPrefix),
 				name,
 				uri,
 				range: lineRange(lineNumber, nameStart, nameStart + name.length),

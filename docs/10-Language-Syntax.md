@@ -113,6 +113,8 @@ global main:
 alias cursor = r5
 alias total  = r6
 alias acc    = f2
+
+global alias frame_base = r8    // and this one leaves the file
 ```
 
 A name for a register, usable anywhere a register can be written — as an operand, and as the base of
@@ -130,10 +132,21 @@ Resolved by the parser, which has three consequences worth knowing:
 
 - It is purely lexical. By the time anything downstream sees the operand it is an ordinary register,
   so the AST, the linker, the debugger and the binary all stay unaware the name existed.
-- It is **file-scoped**, and there is no `global alias` — a parser has no imports to consult, since
-  those are resolved a stage later.
+- Without `global` it is **file-scoped**. With it, an importing file sees it — and transitively,
+  like every other `global`.
 - A name that is already a register (`alias r5 = r6`) or already an alias is an error, as is aliasing
   something that is not a register.
+
+`global alias` is the one declaration that cannot be resolved the way the rest are, and it is worth
+knowing why. Every other symbol is looked up long after parsing, when there is a symbol table to look
+in. An alias has to be known *while* the line using it is parsed: whether `[cursor + 4]` is a register
+base with a displacement or the address of a symbol depends on knowing what `cursor` is, and that
+decision is made before any table exists. So the assembler scans a file's imports for their
+`global alias` declarations before it parses a single line of it — a scan that lexes rather than
+parses, since parsing the imported file would need *its* imports scanned first.
+
+The practical consequence: an alias must be declared before it is used, in the importing file as in
+its own. Nothing else about it is special.
 
 ## Sections
 
