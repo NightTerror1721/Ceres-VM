@@ -37,6 +37,10 @@ namespace
 		"  ceres run <file.casm|file.cres> [--memory <bytes>]\n"
 		"      Run a program, assembling it first if given a source file.\n"
 		"\n"
+		"  ceres profile <file.casm|file.cres> [--memory <bytes>]\n"
+		"      Run, then report executed instructions per source line. Time is counted in\n"
+		"      instructions, so the same program profiles the same way on every run.\n"
+		"\n"
 		"  ceres disasm <file.casm|file.cres> [--debug]\n"
 		"      Print the text section as address, encoded word and instruction.\n"
 		"      With --debug, annotated with the source file and line each word came from.\n"
@@ -228,7 +232,9 @@ namespace
 				Memory::UnrestrictedSegmentStart.value() + static_cast<u32>(count * Instruction::Size), remainder);
 	}
 
-	int runProgram(const Program& program, usize memorySize)
+	void printProfile(CeresVM& vm, const debug::DebugInfo& info);
+
+	int runProgram(const Program& program, usize memorySize, const debug::DebugInfo* profileInfo = nullptr)
 	{
 		CeresVM vm{ memorySize };
 
@@ -268,13 +274,64 @@ namespace
 			return 1;
 		}
 
+		if (profileInfo != nullptr)
+			vm.engine().enableProfiling();
+
 		if (auto ran = vm.run(); !ran)
 		{
 			std::cerr << "Failed to run program: " << ran.error() << '\n';
 			return 1;
 		}
 
+		if (profileInfo != nullptr)
+			printProfile(vm, *profileInfo);
+
 		return 0;
+	}
+
+	// Executed instructions per source line. Time here is counted in instructions rather than
+	// wall clock, so the same program profiles the same way on every run - which is a thing a
+	// real machine cannot offer.
+	void printProfile(CeresVM& vm, const debug::DebugInfo& info)
+	{
+		const auto counts = vm.engine().executionCounts();
+		const u32 textStart = vm.engine().textStart();
+
+		struct Hot { u32 fileId; u32 line; u64 count; };
+		std::map<std::pair<u32, u32>, u64> byLine;
+		u64 total = 0;
+
+		// Every instruction word has its own line entry, so the two walk together by address, and
+		// a pseudo-instruction's several words all add up to the one line that was written.
+		for (const auto& entry : info.lines())
+		{
+			if (entry.address < textStart)
+				continue;
+			const usize index = (entry.address - textStart) / vm::Instruction::Size;
+			if (index >= counts.size())
+				continue;
+
+			byLine[{ entry.expansionFileId, entry.expansionLine }] += counts[index];
+			total += counts[index];
+		}
+
+		std::vector<Hot> hot;
+		hot.reserve(byLine.size());
+		for (const auto& [key, count] : byLine)
+		{
+			if (count != 0)
+				hot.push_back(Hot{ key.first, key.second, count });
+		}
+		std::ranges::sort(hot, [](const Hot& a, const Hot& b) { return a.count > b.count; });
+
+		std::cerr << std::format("\n{} instructions executed\n\n", total);
+		std::cerr << "     count      share  line\n";
+		for (const Hot& row : hot)
+		{
+			const double share = total > 0 ? 100.0 * static_cast<double>(row.count) / static_cast<double>(total) : 0.0;
+			std::cerr << std::format("{:>10}  {:>8.2f}%  {}:{}\n",
+				row.count, share, info.fileName(row.fileId), row.line);
+		}
 	}
 
 	struct Options
@@ -371,7 +428,8 @@ namespace
 			return std::nullopt;
 
 		// A bare path means 'run', so the common case stays short.
-		if (positional[0] == "asm" || positional[0] == "run" || positional[0] == "disasm" || positional[0] == "debug")
+		if (positional[0] == "asm" || positional[0] == "run" || positional[0] == "disasm" ||
+				positional[0] == "debug" || positional[0] == "profile")
 		{
 			options.command = positional[0];
 			if (positional.size() < 2)
@@ -501,13 +559,23 @@ int main(int argc, char** argv)
 		return 0;
 	}
 
-	// run
-	auto loaded = loadProgram(options.inputs.front(), options.debugInfo);
+	// run, and profile - which is run with the counters on and a report at the end. It needs
+	// the line table to say which line a count belongs to, so it always assembles with debug
+	// information whether or not --debug was given.
+	const bool profiling = options.command == "profile";
+	auto loaded = loadProgram(options.inputs.front(), options.debugInfo || profiling);
 	if (!loaded.has_value())
 		return 1;
 
 	if (options.listing)
 		printListing(loaded->program, options.inputs.front(), loaded->debugInfo);
 
-	return runProgram(loaded->program, options.memorySize);
+	if (profiling && loaded->debugInfo.lines().empty())
+	{
+		std::cerr << "Cannot profile a .cres without debug information: assemble with "
+			"--debug, or profile the source directly." << '\n';
+		return 1;
+	}
+
+	return runProgram(loaded->program, options.memorySize, profiling ? &loaded->debugInfo : nullptr);
 }

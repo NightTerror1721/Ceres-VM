@@ -9,6 +9,8 @@
 #include "interrupt_controller.h"
 #include <algorithm>
 #include <bit>
+#include <span>
+#include <vector>
 #include <limits>
 #include <cmath>
 #include <functional>
@@ -45,6 +47,11 @@ namespace ceres::vm
 		u32 _textStart = 0;
 		u32 _textEnd = 0;
 
+		// One counter per instruction word of .text, and empty unless a profile was asked for.
+		// The machine already counts in executed instructions rather than wall clock, so this is a
+		// profile that comes out the same on every run - which a real machine cannot offer.
+		std::vector<u64> _executionCounts;
+
 		// Empty unless a debugger is attached; see setInterruptObserver.
 		std::function<void(InterruptNumber, Address, bool)> _interruptObserver;
 
@@ -76,6 +83,7 @@ namespace ceres::vm
 		constexpr u32 stackLimit() const noexcept { return _stackLimit; }
 		constexpr u32 textStart() const noexcept { return _textStart; }
 		constexpr u32 textEnd() const noexcept { return _textEnd; }
+		std::span<const u64> executionCounts() const noexcept { return _executionCounts; }
 
 	public:
 		// Write access, for a debugger: setting a register from the editor's variables view,
@@ -106,6 +114,13 @@ namespace ceres::vm
 		// Also the loader's to set, and also kept across a reset. Pass an empty range to lift the
 		// protection, which is what a machine with no program loaded has.
 		void setTextRange(u32 start, u32 end) noexcept { _textStart = start; _textEnd = end; }
+
+		// Starts counting how often each instruction word runs. Call after the text range is set;
+		// the counters are indexed off it.
+		void enableProfiling()
+		{
+			_executionCounts.assign(_textEnd > _textStart ? (_textEnd - _textStart) / Instruction::Size : 0, 0);
+		}
 
 		void setFlags(FlagRegister flags) noexcept { _flags = flags; }
 		void setProgramCounter(Address address) noexcept { _pc = address; }

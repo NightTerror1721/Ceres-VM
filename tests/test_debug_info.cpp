@@ -7,6 +7,7 @@
 #include "assemble_helper.h"
 #include "debug/debug_info.h"
 #include "vm/memory.h"
+#include "vm/ceresvm.h"
 #include "vm/program.h"
 #include <sstream>
 
@@ -342,4 +343,38 @@ TEST(debuginfo, a_file_is_found_by_an_absolute_path_a_relative_one_or_its_name)
 	CHECK(!info.addressesOf(std::filesystem::path(assembled.sourcePath).filename().string(), 6).empty());
 
 	CHECK(info.addressesOf("no_such_file.casm", 6).empty());
+}
+
+// --- Profiling ---------------------------------------------------------------------------------
+
+TEST(debug_info, the_machine_counts_how_often_each_instruction_runs)
+{
+	// The counters are indexed off the text range, so they only mean anything once a program has
+	// been loaded and the range is known.
+	AssembleResult a = assembleSource(
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r1, 3\r\n"
+		".loop:\r\n"
+		"    dec r1\r\n"
+		"    ifne r1, 0, .loop\r\n"
+		"    ret\r\n", "profile");
+
+	CHECK(a.ok());
+	if (!a.ok()) { Registry::instance().recordFailure(a.joinedErrors()); return; }
+
+	vm::CeresVM machine{};
+	CHECK(machine.loadProgram(a.program.value()).has_value());
+	machine.engine().enableProfiling();
+
+	for (int i = 0; i < 12; ++i)
+		machine.engine().step();
+
+	const auto counts = machine.engine().executionCounts();
+	CHECK_EQ(counts.size(), a.program->header().textSize / vm::Instruction::Size);
+	if (counts.empty()) return;
+
+	// The li runs once and the body of the loop more than once.
+	CHECK_EQ(counts[0], u64{ 1 });
+	CHECK(counts[1] > 1);
 }

@@ -35,6 +35,7 @@ sh tests/build.sh
 | `ceres asm <source.casm> [-o <out.cres>] [--listing] [--debug]` | Assemble. Without `-o` the source is only checked. `--debug` records the line and symbol tables and, with `-o`, appends them to the `.cres`. |
 | `ceres run <file.casm\|file.cres>` | Run, assembling first if given source. `--memory <bytes>` sets the machine size. |
 | `ceres disasm <file.casm\|file.cres> [--debug]` | Print the text section as address, encoded word and instruction. With `--debug`, annotated with the source line each word came from. |
+| `ceres profile <file.casm\|file.cres>` | Run, then report executed instructions per source line. Time is counted in instructions, so a profile is the same on every run. |
 | `ceres debug <file.casm\|file.cres>` | Run under an interactive debugger: breakpoints, stepping by source line, registers, memory, call stack. |
 
 A bare path is shorthand for `run`.
