@@ -484,3 +484,22 @@ TEST(pipeline, a_program_cannot_declare_a_name_the_linker_defines)
 	CHECK(!a.ok());
 	CHECK(a.joinedErrors().find("defined by the linker") != std::string::npos);
 }
+
+TEST(pipeline, a_pc_relative_load_and_store_actually_reach_the_variable)
+{
+	RunResult r = assembleAndRun(std::format(
+		"@data\r\n"
+		"    let counter: u32 = 65\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldvp r1, counter\r\n"
+		"    inc  r1\r\n"
+		"    stvp r1, counter\r\n"
+		"    ldvp r2, counter\r\n"
+		"    outb 0x01, r2\r\n"
+		"{}", shutdown));
+
+	CHECK(r.assembled);
+	if (!r.assembled) { Registry::instance().recordFailure(r.errors); return; }
+	CHECK_EQ(r.output, std::string{ "B" }); // 65 read, 66 written and read back
+}

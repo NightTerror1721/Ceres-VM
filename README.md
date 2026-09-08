@@ -426,6 +426,8 @@ Write the spaces: `[r5+0]` lexes the `+0` as a signed literal and fails to parse
 | `la rd, symbol` | `lui` + `ori` | 8 B |
 | `ldv rd, variable` | `lui` + `ori` + a load chosen by the variable's type | 12 B |
 | `stv rs, variable` | `lui` + `ori` + a store chosen by the variable's type | 12 B |
+| `ldvp rd, variable` | one PC-relative load chosen by the variable's type | 4 B |
+| `stvp rs, variable` | one PC-relative store chosen by the variable's type | 4 B |
 | `neg rd, rs` | `imul rd, rs, -1`, or `fneg` for float registers | 4 B |
 | `lc rd, imm32` | `lui` + `ori` | 8 B |
 | `ifXX rs, rt, label` | `cmp` (or `cmpi`, or `fcmp`) + the matching branch | 8 B |
@@ -452,6 +454,12 @@ operand may be a register or an immediate, and a pair of float registers picks `
 
 `enter` and `leave` are the only instructions that touch `fp` (`r14`), which is otherwise defined
 and unused.
+
+`ldvp` and `stvp` are the same thing for a variable that is **near**: the displacement is measured
+from the instruction itself, exactly as a branch's is, so there is no address to build — one word
+instead of three, and no scratch register touched. Reach is ±32 KiB; further away is a link error
+naming the distance, and `ldv`/`stv` are the way out. They are separate mnemonics rather than an
+optimisation because an instruction's size is fixed before the layout that would decide it.
 
 `stv`, and `ldv` into a float register, clobber `at` (`r13`). Because an instruction's size has to be known before its overload
 is chosen, the assembler reserves the largest form and pads the rest with `nop`.

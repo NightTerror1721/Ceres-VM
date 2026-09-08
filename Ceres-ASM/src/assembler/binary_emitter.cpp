@@ -374,7 +374,8 @@ namespace ceres::casm
 				case OpcodeParameterType::SIMM16:
 				case OpcodeParameterType::RD_SIMM16:
 				case OpcodeParameterType::RS_SIMM16:
-				case OpcodeParameterType::RT_SIMM16: return 16;
+				case OpcodeParameterType::RT_SIMM16:
+				case OpcodeParameterType::REL_SIMM16: return 16;
 				case OpcodeParameterType::IMM24:
 				case OpcodeParameterType::SIMM24:
 				case OpcodeParameterType::REL_ADDR: return 24;
@@ -645,6 +646,31 @@ namespace ceres::casm
 							const MemoryOperand& memoryOperand = operandInfo.asMemory();
 							encodedInstruction.setRd(memoryOperand.baseRegIndex);
 							encodedInstruction.setRt(memoryOperand.registerOffset().regIndex);
+							break;
+						}
+
+						case OpcodeParameterType::REL_SIMM16:
+						{
+							const Address currentAddress = lastSectionAddress(SectionType::Text);
+							const Address targetAddress = operandInfo.isVariable()
+								? operandInfo.asVariable().address
+								: operandInfo.asLabel().address;
+							const i32 relativeOffset = static_cast<i32>(targetAddress.value()) - static_cast<i32>(currentAddress.value());
+
+							// simm16 reaches +/- 32 KiB from the instruction. Further than that is an error
+							// rather than a wrap, and the way out is the LDV/STV that builds the whole
+							// address - which is why these are separate mnemonics and not an optimisation.
+							// Signed, so fitsInBits is the wrong test here: it would accept 40960, which
+							// fits in sixteen bits and is -24576 once the field is read back.
+							if (relativeOffset < -32768 || relativeOffset > 32767)
+							{
+								reportError(statement.line(),
+									"'{}' is {} bytes away, out of reach for a PC-relative access; use ldv/stv instead",
+									instruction.signature().toString(), relativeOffset);
+								return;
+							}
+
+							encodedInstruction.setSImm16(static_cast<i16>(relativeOffset));
 							break;
 						}
 

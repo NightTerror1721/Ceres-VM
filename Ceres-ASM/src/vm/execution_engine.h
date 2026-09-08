@@ -905,6 +905,79 @@ namespace ceres::vm
 			write<f32>(address, getFloatReg(inst.fs()));
 			advancePC();
 		}
+		// The displacement is measured from the instruction itself, like a branch's, so the address
+		// is formed without materialising anything and without borrowing a register to hold it.
+		forceinline Address pcRelative(const Instruction inst) const noexcept
+		{
+			return Address(static_cast<u32>(static_cast<i32>(_pc.value()) + inst.simm16()));
+		}
+
+		forceinline void LDRP(const Instruction inst) noexcept
+		{
+			const Address address = pcRelative(inst);
+			if (!checkAlignment<u32>(address))
+				return;
+			setReg(inst.rd(), read<u32>(address));
+			advancePC();
+		}
+		forceinline void LDRBP(const Instruction inst) noexcept { setReg(inst.rd(), read<u8>(pcRelative(inst))); advancePC(); }
+		forceinline void LDRHP(const Instruction inst) noexcept
+		{
+			const Address address = pcRelative(inst);
+			if (!checkAlignment<u16>(address))
+				return;
+			setReg(inst.rd(), read<u16>(address));
+			advancePC();
+		}
+		forceinline void LDRSBP(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(pcRelative(inst)))); advancePC(); }
+		forceinline void LDRSHP(const Instruction inst) noexcept
+		{
+			const Address address = pcRelative(inst);
+			if (!checkAlignment<i16>(address))
+				return;
+			setReg(inst.rd(), static_cast<u32>(read<i16>(address)));
+			advancePC();
+		}
+		forceinline void FLDRP(const Instruction inst) noexcept
+		{
+			const Address address = pcRelative(inst);
+			if (!checkAlignment<f32>(address))
+				return;
+			setFloatReg(inst.fd(), read<f32>(address));
+			advancePC();
+		}
+		forceinline void STRP(const Instruction inst) noexcept
+		{
+			const Address address = pcRelative(inst);
+			if (!checkAlignment<u32>(address) || !checkWritable(address, sizeof(u32)))
+				return;
+			write<u32>(address, getReg(inst.rs()));
+			advancePC();
+		}
+		forceinline void STRBP(const Instruction inst) noexcept
+		{
+			const Address address = pcRelative(inst);
+			if (!checkWritable(address, sizeof(u8)))
+				return;
+			write<u8>(address, static_cast<u8>(getReg(inst.rs())));
+			advancePC();
+		}
+		forceinline void STRHP(const Instruction inst) noexcept
+		{
+			const Address address = pcRelative(inst);
+			if (!checkAlignment<u16>(address) || !checkWritable(address, sizeof(u16)))
+				return;
+			write<u16>(address, static_cast<u16>(getReg(inst.rs())));
+			advancePC();
+		}
+		forceinline void FSTRP(const Instruction inst) noexcept
+		{
+			const Address address = pcRelative(inst);
+			if (!checkAlignment<f32>(address) || !checkWritable(address, sizeof(f32)))
+				return;
+			write<f32>(address, getFloatReg(inst.fs()));
+			advancePC();
+		}
 		forceinline void LEA(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs()) + displacement(inst)); advancePC(); }
 
 		forceinline void JP(const Instruction inst) noexcept { _pc += inst.simm24().signedValue(); }
@@ -1317,6 +1390,16 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::STRBX)] = &ExecutionEngine::STRBX;
 				handlers[static_cast<u8>(Opcode::STRHX)] = &ExecutionEngine::STRHX;
 				handlers[static_cast<u8>(Opcode::FSTRX)] = &ExecutionEngine::FSTRX;
+				handlers[static_cast<u8>(Opcode::LDRP)] = &ExecutionEngine::LDRP;
+				handlers[static_cast<u8>(Opcode::LDRBP)] = &ExecutionEngine::LDRBP;
+				handlers[static_cast<u8>(Opcode::LDRHP)] = &ExecutionEngine::LDRHP;
+				handlers[static_cast<u8>(Opcode::LDRSBP)] = &ExecutionEngine::LDRSBP;
+				handlers[static_cast<u8>(Opcode::LDRSHP)] = &ExecutionEngine::LDRSHP;
+				handlers[static_cast<u8>(Opcode::FLDRP)] = &ExecutionEngine::FLDRP;
+				handlers[static_cast<u8>(Opcode::STRP)] = &ExecutionEngine::STRP;
+				handlers[static_cast<u8>(Opcode::STRBP)] = &ExecutionEngine::STRBP;
+				handlers[static_cast<u8>(Opcode::STRHP)] = &ExecutionEngine::STRHP;
+				handlers[static_cast<u8>(Opcode::FSTRP)] = &ExecutionEngine::FSTRP;
 				handlers[static_cast<u8>(Opcode::PUSHM)] = &ExecutionEngine::PUSHM;
 				handlers[static_cast<u8>(Opcode::POPM)] = &ExecutionEngine::POPM;
 				handlers[static_cast<u8>(Opcode::FPUSH)] = &ExecutionEngine::FPUSH;

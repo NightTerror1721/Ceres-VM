@@ -168,6 +168,47 @@ now — but it puts the hazard on the one register that has a name to warn you w
 `r0`–`r12` contiguous and all yours. `lr` is still accepted as a spelling of `r13` so that older
 sources keep assembling; `at` is what it should be called.
 
+## `ldvp` and `stvp` — the near forms
+
+`ldv` and `stv` always work and always cost twelve bytes: `lui`, `ori`, and the load or store, with
+`at` borrowed to hold the address while the value goes somewhere else. Most variables do not need
+any of that. `.rodata`, `.data` and `.bss` sit immediately after `.text`, so in a program of any
+ordinary size a static is a few hundred bytes from the instruction that reads it.
+
+`ldvp` and `stvp` take the address as a **displacement from the instruction itself**, the way a
+branch does:
+
+```casm
+@data
+    let counter: u32 = 0
+
+@text
+global main:
+    ldvp r1, counter        // one word, LDRP r1, [pc + 36]
+    inc  r1
+    stvp r1, counter        // one word, and `at` is untouched
+```
+
+The scalar type picks the width exactly as it does for `ldv`/`stv`, so `ldvp` into a float register
+assembles to `FLDRP` and an `i8` variable to `LDRSBP`.
+
+**Reach is ±32 KiB.** Further than that is a link error naming the distance:
+
+```
+'LDVP Reg VarU32' is 40968 bytes away, out of reach for a PC-relative access; use ldv/stv instead
+```
+
+### Why not just make `ldv` do this
+
+Because an instruction's size is fixed before anything knows where the variable will be. The
+translation-unit pass adds up section sizes as it walks the statements, and it needs each
+instruction's size to do it; the address that would decide whether the near form reaches is not
+known until the linker has laid out every unit. Choosing per instruction would need a relaxation
+pass — lay out optimistically, grow whatever does not reach, lay out again until nothing changes.
+That is a real and well-understood technique, and it is a change to the assembler's central
+invariant rather than a detail of these instructions. Separate mnemonics keep the choice explicit
+and the sizes knowable.
+
 ## Fixed instruction size, even when the variant is shorter
 
 `ldv`/`stv` pick their trailing load/store instruction based on the variable's *scalar type*, but the

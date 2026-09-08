@@ -648,3 +648,75 @@ TEST(encoding, a_register_alias_can_be_an_index)
 	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::LDRBX, true);
 	CHECK_EQ(Instruction{ words[0] }.rt(), u8{ 5 });
 }
+
+TEST(encoding, ldvp_reaches_a_variable_in_one_word)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let counter: u32 = 7\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldvp r1, counter\r\n"
+		"    stvp r1, counter\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	// One word each, where ldv/stv take three.
+	CHECK_EQ(words.size(), 2u);
+
+	const Instruction load{ words[0] };
+	const Instruction store{ words[1] };
+	CHECK_EQ(load.opcode() == Opcode::LDRP, true);
+	CHECK_EQ(store.opcode() == Opcode::STRP, true);
+	CHECK_EQ(load.rd(), u8{ 1 });
+	CHECK_EQ(store.rs(), u8{ 1 });
+
+	// The displacement is measured from the instruction itself: .data starts right after the two
+	// words of .text, so the first one has to reach exactly that far.
+	const u32 textSize = 2 * Instruction::Size;
+	CHECK_EQ(load.simm16(), static_cast<i16>(textSize));
+	CHECK_EQ(store.simm16(), static_cast<i16>(textSize - Instruction::Size));
+
+	// And nothing was borrowed to hold an address.
+	CHECK(load.rd() != 13);
+	CHECK(store.rs() != 13);
+}
+
+TEST(encoding, the_scalar_type_picks_the_pc_relative_width)
+{
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let small: i8 = -1\r\n"
+		"    let wide: u16 = 2\r\n"
+		"    let real: f32 = 1.5\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldvp r1, small\r\n"
+		"    ldvp r2, wide\r\n"
+		"    ldvp f0, real\r\n");
+	auto words = r.words();
+
+	CHECK(r.ok());
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::LDRSBP, true);
+	CHECK_EQ(Instruction{ words[1] }.opcode() == Opcode::LDRHP, true);
+	CHECK_EQ(Instruction{ words[2] }.opcode() == Opcode::FLDRP, true);
+}
+
+TEST(encoding, a_variable_out_of_pc_relative_reach_is_reported)
+{
+	// 40 KiB of .bss between the instruction and the variable puts it past a signed 16-bit
+	// displacement, which is an error rather than a wrap to somewhere arbitrary.
+	AssembleResult r = assembleSource(
+		"@bss\r\n"
+		"    let padding: u8[40960]\r\n"
+		"    let far: u32\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ldvp r1, far\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("out of reach") != std::string::npos);
+}

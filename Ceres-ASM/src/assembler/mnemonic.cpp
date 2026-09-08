@@ -65,6 +65,8 @@ namespace ceres::casm
 		{ "STV", Mnemonic::STV },
 		{ "LA", Mnemonic::LA },
 		{ "LEA", Mnemonic::LEA },
+		{ "LDVP", Mnemonic::LDVP },
+		{ "STVP", Mnemonic::STVP },
 
 		{ "JP", Mnemonic::JP },
 		{ "CMP", Mnemonic::CMP },
@@ -182,6 +184,8 @@ namespace ceres::casm
 		{ Mnemonic::STV, "STV" },
 		{ Mnemonic::LA, "LA" },
 		{ Mnemonic::LEA, "LEA" },
+		{ Mnemonic::LDVP, "LDVP" },
+		{ Mnemonic::STVP, "STVP" },
 
 		{ Mnemonic::JP, "JP" },
 		{ Mnemonic::CMP, "CMP" },

@@ -55,6 +55,8 @@ namespace ceres::casm
 		CLR, // Pseudo-instruction // LI rd, 0
 		SWAP, // Pseudo-instruction // three XORs, no temporary
 		LEA, // LEA
+		LDVP, // PC-relative load of a variable within reach
+		STVP, // PC-relative store of a variable within reach
 
 		JP, // JP, JPR
 		CMP, // CMP, CMPI, FCMP

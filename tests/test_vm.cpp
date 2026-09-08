@@ -313,6 +313,8 @@ TEST(vm, the_disassembler_names_every_mapped_opcode)
 		Opcode::OUTR, Opcode::INRM, Opcode::OUTRM, Opcode::PUSHM, Opcode::POPM,
 		Opcode::LDRX, Opcode::LDRBX, Opcode::LDRHX, Opcode::LDRSBX, Opcode::LDRSHX, Opcode::FLDRX,
 		Opcode::STRX, Opcode::STRBX, Opcode::STRHX, Opcode::FSTRX,
+		Opcode::LDRP, Opcode::LDRBP, Opcode::LDRHP, Opcode::LDRSBP, Opcode::LDRSHP,
+		Opcode::FLDRP, Opcode::STRP, Opcode::STRBP, Opcode::STRHP, Opcode::FSTRP,
 	};
 
 	for (Opcode opcode : mapped)

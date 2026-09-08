@@ -55,6 +55,8 @@ namespace ceres::casm
 		RD_RT,			// Base register in Rd and index register in Rt - the store form, where Rs
 						// already holds the value being stored
 		REL_ADDR,		// Relative address (for branch instructions) (similar to SIMM24)
+		REL_SIMM16,		// A variable's address as a displacement from the instruction itself, for the
+						// PC-relative loads and stores. Out of reach is an error, not a truncation.
 	};
 
 

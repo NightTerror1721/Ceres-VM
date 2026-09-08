@@ -47,6 +47,10 @@ namespace ceres::vm
 			IndexedFLoad,   // FLDRX f1, [r2 + r3]
 			IndexedStore,   // STRX [r1 + r3], r2
 			IndexedFStore,  // FSTRX [r1 + r3], f2
+			PCLoad,         // LDRP r1, [pc + 128]
+			PCFLoad,        // FLDRP f1, [pc + 128]
+			PCStore,        // STRP [pc + 128], r1
+			PCFStore,       // FSTRP [pc + 128], f1
 			RdImm8,         // IN r1, 0x01
 			RsImm8,         // OUT 0x01, r1
 			RdRsImm8,       // INM 0x01, r1, r2
@@ -188,6 +192,16 @@ namespace ceres::vm
 				case Opcode::STRBX:   return { "STRBX",   Shape::IndexedStore };
 				case Opcode::STRHX:   return { "STRHX",   Shape::IndexedStore };
 				case Opcode::FSTRX:  return { "FSTRX",  Shape::IndexedFStore };
+				case Opcode::LDRP:    return { "LDRP",    Shape::PCLoad };
+				case Opcode::LDRBP:   return { "LDRBP",   Shape::PCLoad };
+				case Opcode::LDRHP:   return { "LDRHP",   Shape::PCLoad };
+				case Opcode::LDRSBP:  return { "LDRSBP",  Shape::PCLoad };
+				case Opcode::LDRSHP:  return { "LDRSHP",  Shape::PCLoad };
+				case Opcode::FLDRP:  return { "FLDRP",  Shape::PCFLoad };
+				case Opcode::STRP:    return { "STRP",    Shape::PCStore };
+				case Opcode::STRBP:   return { "STRBP",   Shape::PCStore };
+				case Opcode::STRHP:   return { "STRHP",   Shape::PCStore };
+				case Opcode::FSTRP:  return { "FSTRP",  Shape::PCFStore };
 				case Opcode::PUSHM:  return { "PUSHM", Shape::Mask16 };
 				case Opcode::POPM:   return { "POPM",  Shape::Mask16 };
 
@@ -271,6 +285,10 @@ namespace ceres::vm
 				case Shape::IndexedFLoad:  return std::format("{} f{}, [r{} + r{}]", entry.name, rd, rs, rt);
 				case Shape::IndexedStore:  return std::format("{} [r{} + r{}], r{}", entry.name, rd, rt, rs);
 				case Shape::IndexedFStore: return std::format("{} [r{} + r{}], f{}", entry.name, rd, rt, rs);
+				case Shape::PCLoad:     return std::format("{} r{}, [pc {} {}]", entry.name, rd, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)));
+				case Shape::PCFLoad:    return std::format("{} f{}, [pc {} {}]", entry.name, rd, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)));
+				case Shape::PCStore:    return std::format("{} [pc {} {}], r{}", entry.name, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)), rs);
+				case Shape::PCFStore:   return std::format("{} [pc {} {}], f{}", entry.name, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)), rs);
 				case Shape::RdImm8:     return std::format("{} r{}, {:#04x}", entry.name, rd, imm8);
 				case Shape::RsImm8:     return std::format("{} {:#04x}, r{}", entry.name, imm8, rs);
 				case Shape::RdRsImm8:   return std::format("{} {:#04x}, r{}, r{}", entry.name, imm8, rd, rs);

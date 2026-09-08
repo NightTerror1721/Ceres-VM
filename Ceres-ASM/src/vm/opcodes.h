@@ -183,7 +183,21 @@ namespace ceres::vm
 		STRHX = 0xBC, // [rd, rs, rt] - *(u16*)(rd + rt) = rs
 		FSTRX = 0xBD, // [rd, fs, rt] - *(float*)(rd + rt) = fs
 
-		// Free: 0x08-0x0F, 0x29-0x2F, 0x3D-0x3F, 0x4F, 0x78-0x7F, 0x88-0x8F, 0x96-0x9F, 0xBE-0xFF.
+		// PC-relative access to a static, in one word. The displacement is measured from the
+		// instruction itself, exactly as a branch's is, so nothing has to materialise a 32-bit
+		// address first and no register is borrowed to hold one. Reach is +/- 32 KiB.
+		LDRP = 0xBE, // [rd, simm16] - rd = *(u32*)(pc + simm16)
+		LDRBP = 0xBF, // [rd, simm16] - rd = *(u8*)(pc + simm16)
+		LDRHP = 0xC0, // [rd, simm16] - rd = *(u16*)(pc + simm16)
+		LDRSBP = 0xC1, // [rd, simm16] - rd = *(i8*)(pc + simm16)
+		LDRSHP = 0xC2, // [rd, simm16] - rd = *(i16*)(pc + simm16)
+		FLDRP = 0xC3, // [fd, simm16] - fd = *(float*)(pc + simm16)
+		STRP = 0xC4, // [rs, simm16] - *(u32*)(pc + simm16) = rs
+		STRBP = 0xC5, // [rs, simm16] - *(u8*)(pc + simm16) = rs
+		STRHP = 0xC6, // [rs, simm16] - *(u16*)(pc + simm16) = rs
+		FSTRP = 0xC7, // [fs, simm16] - *(float*)(pc + simm16) = fs
+
+		// Free: 0x08-0x0F, 0x29-0x2F, 0x3D-0x3F, 0x4F, 0x78-0x7F, 0x88-0x8F, 0x96-0x9F, 0xC8-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }
