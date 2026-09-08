@@ -931,3 +931,53 @@ TEST(language, an_unused_private_macro_is_warned_about)
 	CHECK(r.ok());
 	CHECK(r.joinedWarnings().find("never_called") != std::string::npos);
 }
+
+TEST(language, a_string_initialiser_for_a_struct_sized_array_is_bytes_not_fields)
+{
+	// The struct path reads a flat list as one value per field. A string is flattened to
+	// characters before anything sees it, so without a marker `"abc"` would land as 'a' in the
+	// first i32, 'b' in the second and the terminating zero in whatever came after - silently.
+	AssembleResult r = assembleSource(
+		"struct Entity\r\n"
+		"    x: i32\r\n"
+		"    y: i32\r\n"
+		"    health: u16\r\n"
+		"    flags: u8\r\n"
+		"endstruct\r\n"
+		"@data\r\n"
+		"    global let s: u8[Entity] = \"abc\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto& data = r.program->data();
+	CHECK_EQ(data.size(), usize{ 12 });
+	if (data.size() < 4) return;
+	CHECK_EQ(data[0], u8{ 'a' });
+	CHECK_EQ(data[1], u8{ 'b' });
+	CHECK_EQ(data[2], u8{ 'c' });
+	CHECK_EQ(data[3], u8{ 0 });
+}
+
+TEST(language, a_struct_initialiser_takes_at_most_one_instance_count)
+{
+	// `u8[2][2][Pair]` multiplied the counts and wanted a flat run of four instances, where an
+	// ordinary `i32[2][2]` wants them nested. The same shape meaning two different things is
+	// worse than not accepting it.
+	AssembleResult r = assembleSource(
+		"struct Pair\r\n"
+		"    a: i32\r\n"
+		"    b: i32\r\n"
+		"endstruct\r\n"
+		"@data\r\n"
+		"    global let grid: u8[2][2][Pair] = [[1,2],[3,4],[5,6],[7,8]]\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("at most one instance count") != std::string::npos);
+}

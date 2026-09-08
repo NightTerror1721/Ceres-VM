@@ -242,6 +242,11 @@ namespace ceres::casm
 
 	private:
 		std::vector<ElementType> _elements;
+		// A string is flattened to characters plus the terminating zero, which afterwards is
+		// indistinguishable from the list of numbers somebody could have written by hand. It has
+		// to stay distinguishable for one reason: `u8[Entity] = "abc"` means those bytes, not
+		// the first three fields of an Entity.
+		bool _fromStringLiteral = false;
 
 	public:
 		LiteralValueReference() noexcept = default;
@@ -285,6 +290,10 @@ namespace ceres::casm
 			}
 			return false;
 		}
+
+		// Whether this was written as "..." rather than as a list that happens to look like one.
+		// Only the struct initialiser asks, and only in order to refuse.
+		bool isFromStringLiteral() const noexcept { return _fromStringLiteral; }
 
 		bool hasGroups() const noexcept
 		{
@@ -437,7 +446,10 @@ namespace ceres::casm
 			for (usize i = 0; i < str.size(); ++i)
 				elements.emplace_back(LiteralScalar::makeFromChar(str[i]));
 			elements.emplace_back(LiteralScalar::makeFromChar('\0'));
-			return LiteralValueReference(std::move(elements));
+
+			LiteralValueReference reference(std::move(elements));
+			reference._fromStringLiteral = true;
+			return reference;
 		}
 
 		static LiteralValueReference makeEmpty() noexcept

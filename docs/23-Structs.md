@@ -66,6 +66,13 @@ endstruct
     let pts: u8[2][Point]  = [[1, 2], [3, 4]]
 ```
 
+An initialiser takes **at most one instance count**: `u8[2][Point]` is two Points, and
+`u8[2][2][Point]` is refused rather than guessed at — nesting deeper would have to mean what it
+means for an ordinary array (`[[a, b], [c, d]]`), and that is not what it did.
+
+A **string is bytes**, not fields: `let s: u8[Entity] = "abc"` is the same `u8[N]` string it
+would be without the struct, terminating zero and all.
+
 Too many values is an error, as is a value that does not fit its field's type (`70000` where a
 `u16` field is expected fails even though the storage is `u8` bytes). There is no nominal
 `{field: value}` form — like `MASM`'s `<>` and `NASM`'s `istruc/at`, order is the contract.

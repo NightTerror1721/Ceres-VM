@@ -733,9 +733,21 @@ namespace ceres::casm
 		if (!dataType.isArray() || dataType.scalarCode() != DataTypeScalarCode::U8)
 			return std::nullopt;
 
+		// `u8[Entity] = "abc"` means those bytes. Read as fields it would silently put 'a' in the
+		// first i32, 'b' in the second and the terminating zero in whatever came after.
+		if (value.isFromStringLiteral())
+			return std::nullopt;
+
 		const u8 rank = dataType.rank();
 		if (rank == 0)
 			return std::nullopt;
+
+		// One count and then the struct. Deeper than that, the instances would have to nest the way
+		// an ordinary array's elements do - `[[a, b], [c, d]]` for `u8[2][2][S]` - and they do not:
+		// the counts get multiplied and a flat run of instances is expected instead. Rather than
+		// have the same shape mean two different things, this says so.
+		if (rank > 2 && dataType.dimension(rank - 1).has_value() && dataType.dimension(rank - 1)->isIdentifier())
+			error(line, "A struct initialiser takes at most one instance count: {} has {}", dataType.toString(), rank - 1);
 
 		const auto& lastDim = dataType.dimension(rank - 1);
 		if (!lastDim.has_value() || !lastDim->isIdentifier())
@@ -806,7 +818,7 @@ namespace ceres::casm
 			}
 		}
 
-		std::vector<u32> byteDims = outerCounts;
+		std::vector<u32> byteDims = std::move(outerCounts);
 		byteDims.push_back(layout.totalSize);
 		DataType byteType = DataType::makeArray(DataTypeScalarCode::U8, byteDims).withAlias(dataType.alias());
 		return std::pair{ byteType, LiteralValue::make(std::move(outBytes)) };
@@ -823,12 +835,13 @@ namespace ceres::casm
 		for (usize i = 0; i < layout.fields.size(); ++i)
 		{
 			const StructFieldLayout& field = layout.fields[i];
-			const u32 alignment = field.type.alignment();
-			if (const u32 misaligned = offset % alignment; misaligned != 0)
+			// The offsets were worked out once, when the struct was declared, and are what
+			// `Struct.field` resolves to. Padding up to them rather than re-deriving the alignment
+			// rule here is what keeps the bytes and the constants from ever disagreeing.
+			if (offset < field.offset)
 			{
-				const u32 padding = alignment - misaligned;
-				outBytes.insert(outBytes.end(), padding, LiteralScalar::makeU8(0));
-				offset += padding;
+				outBytes.insert(outBytes.end(), field.offset - offset, LiteralScalar::makeU8(0));
+				offset = field.offset;
 			}
 
 			if (i < elements.size())
@@ -857,9 +870,8 @@ namespace ceres::casm
 		{
 			if (element.isGroup())
 				error(line, "Field '{}.{}' expects a single value, not a nested initialiser", layout.name, field.name);
-			LiteralScalar resolved = evaluateElement(line, element, field.type.scalarCode());
-			const LiteralScalar values[1]{ resolved };
-			checkAliasBounds(line, field.type.alias(), std::span<const LiteralScalar>(values, 1));
+			const LiteralScalar resolved = evaluateElement(line, element, field.type.scalarCode());
+			checkAliasBounds(line, field.type.alias(), std::span<const LiteralScalar>(&resolved, 1));
 			appendScalarBytes(resolved, outBytes);
 			return;
 		}
