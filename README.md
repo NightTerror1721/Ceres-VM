@@ -167,13 +167,37 @@ registers: `add f1, f2, f3` assembles to `FADD`.
 
 Division by zero sets the Trap flag and continues, leaving the destination unchanged.
 
-### Logic and shifts · `0x30`–`0x3F`, `0xC8`–`0xCD`
+### Extended float arithmetic · `0x98`–`0x9F`, `0xD2`–`0xD6`
 
-`and` `or` `xor` `not` `shl` `shr` `sar` `rol` `ror` `clz` `popcnt` `bswap` `sxtb` `sxth`
+`fmod` `fmin` `fmax` `fround` `ffloor` `fceil` `ftrunc` `fcopysign` `fma` `fclass` `frecipe`
+`frsqrte`
 
-Shift and rotate amounts use the low five bits of the operand. `clz` of zero is 32. `sxtb` and
-`sxth` widen a register the way `ldrsb` and `ldrsh` widen memory, which nothing could do before
-without a pair of shifts.
+The primitives a software math library needs to build `sin`/`log`/`exp`/`pow` on top of — range
+reduction (`fmod`), an explicit rounding mode, sign injection, and a fused multiply-accumulate for
+evaluating a polynomial without paying for intermediate rounding twice. `mod`/`min`/`max` pick
+`FMOD`/`FMIN`/`FMAX` for a pair of float registers, the same way `add` picks `FADD`; `fmod`/`fmin`/
+`fmax` are the explicit spellings.
+
+`fma fd, fs, ft` reads `fd` as the accumulator as well as the destination: `fd = fd + fs * ft`,
+`fadd`'s exact flags and rounding applied to `(fd, fs*ft)`. `fclass rd, fs` writes a one-hot
+bitmask classifying `fs` — negative/positive infinity, normal, subnormal, zero, or NaN — so a
+domain error shows up as one bit instead of a chain of sign/zero comparisons.
+
+`fmod`, `frecipe` and `frsqrte` trap on a zero divisor exactly like `fdiv`, rather than following
+IEEE 754's `NaN`. `frecipe`/`frsqrte` give an *exact* reciprocal, not a hardware-style low-precision
+estimate — a software-interpreted VM has no cycle cost to save by answering approximately, so the
+name is only the hardware-precedented spelling of "one instruction instead of `li 1.0` + `fdiv`".
+
+`fround`/`ffloor`/`fceil`/`ftrunc`/`frecipe`/`frsqrte` touch no flags, the same as `fsqrt`/`fabs`.
+`fmin`/`fmax`/`fcopysign` set Zero/Sign and always clear Carry/Overflow, like the bitwise ops.
+
+### Logic and shifts · `0x30`–`0x3F`, `0xC8`–`0xCD`, `0xD6`
+
+`and` `or` `xor` `not` `shl` `shr` `sar` `rol` `ror` `clz` `ctz` `popcnt` `bswap` `sxtb` `sxth`
+
+Shift and rotate amounts use the low five bits of the operand. `clz` of zero is 32, and so is `ctz`
+— trailing rather than leading. `sxtb` and `sxth` widen a register the way `ldrsb` and `ldrsh`
+widen memory, which nothing could do before without a pair of shifts.
 
 ### Memory · `0x40`–`0x4E`, `0xB4`–`0xBD`
 

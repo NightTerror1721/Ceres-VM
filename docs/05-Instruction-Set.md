@@ -319,6 +319,72 @@ returning a negative absolute value in silence.
 All of these set Zero and Sign from the result and clear Carry and Overflow, the way the bitwise
 operations do. `abs` is the exception, and sets its own Overflow.
 
+## Extended float arithmetic · `0x98`–`0x9F`, `0xD2`–`0xD6`
+
+The four basic float operations, `fneg`, `fsqrt`, `fabs` and `fcmp` cover arithmetic but not the
+primitives a software math library needs to build `sin`, `log`, `exp` or `pow` on top of them:
+remainder for range reduction, an explicit rounding mode, sign injection, and a fused
+multiply-accumulate for evaluating a polynomial without paying for intermediate rounding twice.
+Nothing here is a transcendental itself: `sin`/`cos`/`log`/`exp`/`pow` stay software, built on top
+of these — the same line x87 (SSE/AVX and later), ARM, RISC-V and WebAssembly all draw, and for the
+same reason. A future `stdlib/math.casm` is the intended home for them.
+
+| Assembly | Opcode | Operands | Semantics | Flags |
+| --- | --- | --- | --- | --- |
+| `fmod fd, fs, ft` / `mod fd, fs, ft` | `FMOD` `0x98` | 3 float regs | `fd = fmod(fs, ft)`, the IEEE remainder | Zero, Sign; **Trap on `ft == 0`**, like `fdiv` |
+| `fmin fd, fs, ft` / `min fd, fs, ft` | `FMIN` `0x99` | 3 float regs | `fd = min(fs, ft)` | Zero, Sign; Carry/Overflow always cleared |
+| `fmax fd, fs, ft` / `max fd, fs, ft` | `FMAX` `0x9A` | 3 float regs | `fd = max(fs, ft)` | Zero, Sign; Carry/Overflow always cleared |
+| `fround fd, fs` | `FROUND` `0x9B` | 2 float regs | `fd = fs` rounded to the nearest integer, ties to even | — |
+| `ffloor fd, fs` | `FFLOOR` `0x9C` | 2 float regs | `fd = ⌊fs⌋` | — |
+| `fceil fd, fs` | `FCEIL` `0x9D` | 2 float regs | `fd = ⌈fs⌉` | — |
+| `ftrunc fd, fs` | `FTRUNC` `0x9E` | 2 float regs | `fd = fs` truncated toward zero | — |
+| `fcopysign fd, fs, ft` | `FCOPYSIGN` `0x9F` | 3 float regs | `fd = \|fs\|` with the sign of `ft` | — |
+| `fma fd, fs, ft` | `FMA` `0xD2` | 3 float regs | `fd = fd + fs * ft` — `fd` is read as the accumulator as well as written | Same as `fadd`, applied to `(fd, fs*ft)` |
+| `fclass rd, fs` | `FCLASS` `0xD3` | int reg + float reg | `rd` = a one-hot bitmask classifying `fs` (see below) | — |
+| `frecipe fd, fs` | `FRECIPE` `0xD4` | 2 float regs | `fd = 1 / fs` | — (**Trap on `fs == 0`**, like `fdiv`) |
+| `frsqrte fd, fs` | `FRSQRTE` `0xD5` | 2 float regs | `fd = 1 / sqrt(fs)` | — (**Trap on `fs == 0`**, like `fdiv`) |
+
+`mod`/`min`/`max` pick `FMOD`/`FMIN`/`FMAX` for a pair of float registers the same way `add`/`sub`/
+`mul`/`div`/`abs`/`neg` already pick their `F`-prefixed opcode — `fmod`/`fmin`/`fmax` are the
+explicit spellings, `mod`/`min`/`max` the consistent ones. The other eight extended-float opcodes
+have no integer sibling to share a mnemonic with, so each gets one mnemonic of its own.
+
+`fround`/`ffloor`/`fceil`/`ftrunc` and `frecipe`/`frsqrte` touch no flags at all, the same as
+`fsqrt`/`fabs`: each hands back an unambiguous float and there is nothing a flag would add.
+`fmin`/`fmax`/`fcopysign` set Zero/Sign from the result and always clear Carry/Overflow, the same
+way the bitwise operations do — there is no carry or overflow to report from picking or
+reassembling a value that already existed. `fma` reuses `fadd`'s exact flag and rounding behaviour,
+because it *is* an `fadd` once the product `fs * ft` has been computed.
+
+**`frecipe`/`frsqrte` are estimates in name only.** Real hardware reciprocal-estimate instructions
+(ARM's `FRECPE`/`FRSQRTE`, x86's `rcpss`/`rsqrtss`) trade precision for speed, refined afterward
+with a Newton-Raphson step in software — worthwhile because a full division is expensive in
+silicon. Ceres is a software-interpreted VM: a division costs the interpreter one C++ operator,
+exactly like any other float op, so there is no speed to buy by answering approximately. Both give
+an exact result instead, and keep the name only as the hardware-precedented spelling of "you were
+about to write `li 1.0` then `fdiv`; here is one instruction for that."
+
+**`fclass`'s bitmask**, RISC-V `fclass`-inspired but collapsed to a single NaN bit rather than
+separating quiet from signaling (the standard library does not portably distinguish them):
+
+| Bit | Meaning | Bit | Meaning |
+| --- | --- | --- | --- |
+| 0 | `-Infinity` | 5 | `+Subnormal` |
+| 1 | `-Normal` | 6 | `+Normal` |
+| 2 | `-Subnormal` | 7 | `+Infinity` |
+| 3 | `-0` | 8 | `NaN` |
+| 4 | `+0` | | |
+
+Exactly one bit is ever set. `log`/`sqrt` of a negative number, or any other domain error, shows up
+as the NaN bit without a comparison against zero and sign for every caller to repeat.
+
+`fmod`, like `fdiv`, chooses to trap on a zero divisor rather than follow IEEE 754 (which defines
+`fmod(x, 0)` as NaN) — consistency with the rest of the divide family wins over strict IEEE
+conformance, exactly as documented for `fdiv` above. `frecipe`/`frsqrte` extend the same rule to
+their own zero divisor. Negative input to `frsqrte` is *not* specially handled — `sqrt` of a
+negative is already silently NaN via `fsqrt`, and `1 / NaN` stays NaN, so nothing new needed
+guarding.
+
 ## Bits · `0x3D`–`0x3F`, `0xC8`–`0xCD`
 
 | Assembly | Opcode | Semantics |

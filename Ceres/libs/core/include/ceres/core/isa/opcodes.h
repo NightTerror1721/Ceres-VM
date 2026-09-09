@@ -171,6 +171,18 @@ namespace ceres::isa
 		FSQRT = 0x96, // [fd, fs] - fd = sqrt(fs)
 		FABS = 0x97, // [fd, fs] - fd = |fs|
 
+		// Extended float arithmetic: the primitives a software math library needs for range
+		// reduction and polynomial evaluation (sin/cos/log/exp/pow), none of which get an opcode
+		// of their own - see docs/05-Instruction-Set.md for why.
+		FMOD = 0x98, // [fd, fs, ft] - fd = IEEE remainder of fs / ft; traps on ft == 0, like FDIV
+		FMIN = 0x99, // [fd, fs, ft] - fd = min(fs, ft)
+		FMAX = 0x9A, // [fd, fs, ft] - fd = max(fs, ft)
+		FROUND = 0x9B, // [fd, fs] - fd = fs rounded to the nearest integer, ties to even
+		FFLOOR = 0x9C, // [fd, fs] - fd = floor(fs)
+		FCEIL = 0x9D, // [fd, fs] - fd = ceil(fs)
+		FTRUNC = 0x9E, // [fd, fs] - fd = fs truncated toward zero
+		FCOPYSIGN = 0x9F, // [fd, fs, ft] - fd = |fs| with the sign of ft
+
 		// I/O Operations //
 		IN = 0xA0, // [rd, imm8] - Read a word from the I/O port specified by imm8 into rd.
 		INB = 0xA1, // [rd, imm8] - Read a byte from the I/O port specified by imm8 into rd.
@@ -236,7 +248,14 @@ namespace ceres::isa
 		MAXI = 0xD0, // [rd, rs, imm16] - rd = max(rs, imm16) (unsigned)
 		IMAXI = 0xD1, // [rd, rs, simm16] - rd = max(rs, simm16) (signed)
 
-		// Free: 0x08-0x0F, 0x4F, 0x7A-0x7F, 0x8A-0x8F, 0x98-0x9F, 0xD2-0xFF.
+		// More extended float arithmetic, plus the integer complement CLZ was always missing.
+		FMA = 0xD2, // [fd, fs, ft] - fd = fd + fs * ft, rounded once (fd is read as the accumulator)
+		FCLASS = 0xD3, // [rd, fs] - rd = bitmask classifying fs (NaN/infinity/zero/subnormal/normal, see docs)
+		FRECIPE = 0xD4, // [fd, fs] - fd = 1 / fs; traps on fs == 0, like FDIV
+		FRSQRTE = 0xD5, // [fd, fs] - fd = 1 / sqrt(fs); traps on fs == 0
+		CTZ = 0xD6, // [rd, rs] - rd = trailing zero bits in rs; 32 when rs is zero
+
+		// Free: 0x08-0x0F, 0x4F, 0x7A-0x7F, 0x8A-0x8F, 0xD7-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

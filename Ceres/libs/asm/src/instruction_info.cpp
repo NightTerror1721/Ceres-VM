@@ -104,6 +104,10 @@ namespace ceres::casm
 		inst(Opcode::MODI, Mnemonic::MOD, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::IMM16),
 		inst(Opcode::IMOD, Mnemonic::IMOD, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
 		inst(Opcode::IMODI, Mnemonic::IMOD, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::SIMM16),
+		inst(Opcode::FMOD, Mnemonic::FMOD, OpcodeParameterType::FD, OpcodeParameterType::FS, OpcodeParameterType::FT),
+		// `mod` picks FMOD for a pair of float registers, the same way `add`/`sub`/`mul`/`div`
+		// already do - `fmod` above is the explicit spelling, this is the consistent one.
+		inst(Opcode::FMOD, Mnemonic::MOD, OpcodeParameterType::FD, OpcodeParameterType::FS, OpcodeParameterType::FT),
 		inst(Opcode::FNEG, Mnemonic::NEG, OpcodeParameterType::FD, OpcodeParameterType::FS),
 		inst(sig(Mnemonic::NEG, OperandType::IntegralRegister, OperandType::IntegralRegister), {
 			op(Opcode::IMUL, param(OpcodeParameterType::RD, 0), paramSFixed(OpcodeParameterType::RS, -1))
@@ -117,6 +121,11 @@ namespace ceres::casm
 		inst(Opcode::IMIN, Mnemonic::IMIN, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
 		inst(Opcode::MAX, Mnemonic::MAX, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
 		inst(Opcode::IMAX, Mnemonic::IMAX, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
+		inst(Opcode::FMIN, Mnemonic::FMIN, OpcodeParameterType::FD, OpcodeParameterType::FS, OpcodeParameterType::FT),
+		inst(Opcode::FMAX, Mnemonic::FMAX, OpcodeParameterType::FD, OpcodeParameterType::FS, OpcodeParameterType::FT),
+		// Same overload as FMOD/MOD just above: `min`/`max` also pick the float opcode on their own.
+		inst(Opcode::FMIN, Mnemonic::MIN, OpcodeParameterType::FD, OpcodeParameterType::FS, OpcodeParameterType::FT),
+		inst(Opcode::FMAX, Mnemonic::MAX, OpcodeParameterType::FD, OpcodeParameterType::FS, OpcodeParameterType::FT),
 		inst(Opcode::ROL, Mnemonic::ROL, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
 		inst(Opcode::ROR, Mnemonic::ROR, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
 		inst(Opcode::MINI, Mnemonic::MIN, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::IMM16),
@@ -127,12 +136,22 @@ namespace ceres::casm
 		inst(Opcode::RORI, Mnemonic::ROR, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::IMM16),
 		inst(Opcode::ABS, Mnemonic::ABS, OpcodeParameterType::RD, OpcodeParameterType::RS),
 		inst(Opcode::CLZ, Mnemonic::CLZ, OpcodeParameterType::RD, OpcodeParameterType::RS),
+		inst(Opcode::CTZ, Mnemonic::CTZ, OpcodeParameterType::RD, OpcodeParameterType::RS),
 		inst(Opcode::POPCNT, Mnemonic::POPCNT, OpcodeParameterType::RD, OpcodeParameterType::RS),
 		inst(Opcode::BSWAP, Mnemonic::BSWAP, OpcodeParameterType::RD, OpcodeParameterType::RS),
 		inst(Opcode::SXTB, Mnemonic::SXTB, OpcodeParameterType::RD, OpcodeParameterType::RS),
 		inst(Opcode::SXTH, Mnemonic::SXTH, OpcodeParameterType::RD, OpcodeParameterType::RS),
 		inst(Opcode::FSQRT, Mnemonic::SQRT, OpcodeParameterType::FD, OpcodeParameterType::FS),
 		inst(Opcode::FABS, Mnemonic::ABS, OpcodeParameterType::FD, OpcodeParameterType::FS),
+		inst(Opcode::FROUND, Mnemonic::FROUND, OpcodeParameterType::FD, OpcodeParameterType::FS),
+		inst(Opcode::FFLOOR, Mnemonic::FFLOOR, OpcodeParameterType::FD, OpcodeParameterType::FS),
+		inst(Opcode::FCEIL, Mnemonic::FCEIL, OpcodeParameterType::FD, OpcodeParameterType::FS),
+		inst(Opcode::FTRUNC, Mnemonic::FTRUNC, OpcodeParameterType::FD, OpcodeParameterType::FS),
+		inst(Opcode::FCOPYSIGN, Mnemonic::FCOPYSIGN, OpcodeParameterType::FD, OpcodeParameterType::FS, OpcodeParameterType::FT),
+		inst(Opcode::FMA, Mnemonic::FMA, OpcodeParameterType::FD, OpcodeParameterType::FS, OpcodeParameterType::FT),
+		inst(Opcode::FRECIPE, Mnemonic::FRECIPE, OpcodeParameterType::FD, OpcodeParameterType::FS),
+		inst(Opcode::FRSQRTE, Mnemonic::FRSQRTE, OpcodeParameterType::FD, OpcodeParameterType::FS),
+		inst(Opcode::FCLASS, Mnemonic::FCLASS, OpcodeParameterType::RD, OpcodeParameterType::FS),
 
 		inst(Opcode::AND, Mnemonic::AND, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
 		inst(Opcode::ANDI, Mnemonic::AND, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::IMM16),

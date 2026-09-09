@@ -316,6 +316,9 @@ TEST(vm, the_disassembler_names_every_mapped_opcode)
 		Opcode::IMAX, Opcode::MINI, Opcode::IMINI, Opcode::MAXI, Opcode::IMAXI, Opcode::CLZ,
 		Opcode::POPCNT, Opcode::BSWAP, Opcode::ROL, Opcode::ROLI, Opcode::ROR, Opcode::RORI,
 		Opcode::SXTB, Opcode::SXTH, Opcode::FSQRT, Opcode::FABS,
+		Opcode::FMOD, Opcode::FMIN, Opcode::FMAX, Opcode::FROUND, Opcode::FFLOOR, Opcode::FCEIL,
+		Opcode::FTRUNC, Opcode::FCOPYSIGN, Opcode::FMA, Opcode::FCLASS, Opcode::FRECIPE,
+		Opcode::FRSQRTE, Opcode::CTZ,
 		Opcode::LDRX, Opcode::LDRBX, Opcode::LDRHX, Opcode::LDRSBX, Opcode::LDRSHX, Opcode::FLDRX,
 		Opcode::STRX, Opcode::STRBX, Opcode::STRHX, Opcode::FSTRX,
 		Opcode::LDRP, Opcode::LDRBP, Opcode::LDRHP, Opcode::LDRSBP, Opcode::LDRSHP,
@@ -758,6 +761,130 @@ TEST(vm, the_float_bank_gets_a_square_root_and_an_absolute_value)
 	m.step(2);
 	CHECK_EQ(m.freg(1), 4.0f);
 	CHECK_EQ(m.freg(2), 2.5f);
+}
+
+// --- Extended float arithmetic: the math-library primitives ------------------------------------
+
+TEST(vm, fmod_gives_the_ieee_remainder_and_traps_on_a_zero_divisor)
+{
+	Machine m{ Instruction::FMOD(2, 0, 1), Instruction::FMOD(3, 0, 4) };
+
+	m.engine().setFloatRegister(0, 5.5f);
+	m.engine().setFloatRegister(1, 2.0f);
+	m.engine().setFloatRegister(4, 0.0f);
+	m.engine().setFloatRegister(3, 42.0f); // left alone if the trap fires
+
+	m.step();
+	CHECK_EQ(m.freg(2), 1.5f);
+	CHECK(!m.flags().trap());
+
+	m.step();
+	CHECK_EQ(m.freg(3), 42.0f); // unchanged, exactly like DIV/IDIV/MOD/IMOD by zero
+	CHECK(m.flags().trap());
+}
+
+TEST(vm, fmin_and_fmax_pick_between_two_floats)
+{
+	Machine m{ Instruction::FMIN(2, 0, 1), Instruction::FMAX(3, 0, 1) };
+
+	m.engine().setFloatRegister(0, -3.5f);
+	m.engine().setFloatRegister(1, 2.25f);
+
+	m.step(2);
+	CHECK_EQ(m.freg(2), -3.5f);
+	CHECK_EQ(m.freg(3), 2.25f);
+}
+
+TEST(vm, the_rounding_family_covers_every_mode)
+{
+	Machine m{
+		Instruction::FROUND(1, 0), Instruction::FFLOOR(2, 0),
+		Instruction::FCEIL(3, 0), Instruction::FTRUNC(4, 0),
+	};
+
+	m.engine().setFloatRegister(0, -2.5f); // ties to even: rounds to -2.0, not -3.0
+
+	m.step(4);
+	CHECK_EQ(m.freg(1), -2.0f);
+	CHECK_EQ(m.freg(2), -3.0f);
+	CHECK_EQ(m.freg(3), -2.0f);
+	CHECK_EQ(m.freg(4), -2.0f);
+}
+
+TEST(vm, fcopysign_takes_the_magnitude_from_one_operand_and_the_sign_from_the_other)
+{
+	Machine m{ Instruction::FCOPYSIGN(2, 0, 1) };
+
+	m.engine().setFloatRegister(0, 3.0f);
+	m.engine().setFloatRegister(1, -1.0f);
+
+	m.step();
+	CHECK_EQ(m.freg(2), -3.0f);
+}
+
+TEST(vm, fma_accumulates_into_its_own_destination)
+{
+	Machine m{ Instruction::FMA(0, 1, 2) };
+
+	m.engine().setFloatRegister(0, 1.0f);  // the accumulator: read as fs would be for FADD
+	m.engine().setFloatRegister(1, 3.0f);
+	m.engine().setFloatRegister(2, 4.0f);
+
+	m.step();
+	CHECK_EQ(m.freg(0), 13.0f); // 1 + 3*4
+}
+
+TEST(vm, fclass_reports_which_category_a_float_falls_into)
+{
+	Machine m{
+		Instruction::FCLASS(1, 0), Instruction::FCLASS(2, 3),
+		Instruction::FCLASS(4, 5), Instruction::FCLASS(6, 7),
+	};
+
+	m.engine().setFloatRegister(0, 0.0f);
+	m.engine().setFloatRegister(3, -0.0f);
+	m.engine().setFloatRegister(5, std::numeric_limits<f32>::infinity());
+	m.engine().setFloatRegister(7, std::numeric_limits<f32>::quiet_NaN());
+
+	m.step(4);
+	CHECK_EQ(m.reg(1), 1u << 4); // +0
+	CHECK_EQ(m.reg(2), 1u << 3); // -0
+	CHECK_EQ(m.reg(4), 1u << 7); // +Infinity
+	CHECK_EQ(m.reg(6), 1u << 8); // NaN
+}
+
+TEST(vm, frecipe_and_frsqrte_give_an_exact_reciprocal_and_trap_on_zero)
+{
+	Machine m{
+		Instruction::FRECIPE(1, 0), Instruction::FRSQRTE(2, 3),
+		Instruction::FRECIPE(4, 5),
+	};
+
+	m.engine().setFloatRegister(0, 4.0f);
+	m.engine().setFloatRegister(3, 16.0f);
+	m.engine().setFloatRegister(5, 0.0f);
+	m.engine().setFloatRegister(4, 42.0f); // left alone if the trap fires
+
+	m.step();
+	CHECK_EQ(m.freg(1), 0.25f);
+	m.step();
+	CHECK_EQ(m.freg(2), 0.25f);
+
+	m.step();
+	CHECK_EQ(m.freg(4), 42.0f);
+	CHECK(m.flags().trap());
+}
+
+TEST(vm, ctz_complements_clz)
+{
+	Machine m{ Instruction::CTZ(2, 1), Instruction::CTZ(3, 4) };
+
+	m.engine().setRegister(1, 0x00FF0100u);
+	m.engine().setRegister(4, 0u);
+
+	m.step(2);
+	CHECK_EQ(m.reg(2), 8u);  // eight trailing zeroes
+	CHECK_EQ(m.reg(3), 32u); // and zero has thirty-two of them
 }
 
 // --- Branch and link ---------------------------------------------------------------------------

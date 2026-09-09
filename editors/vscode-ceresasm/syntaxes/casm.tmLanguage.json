@@ -80,7 +80,7 @@
     "mnemonics": {
       "comment": "Case-insensitive: the real lexer resolves mnemonics via stringToMnemonic(str, /*caseSensitive=*/false).",
       "name": "keyword.other.mnemonic.casm",
-      "match": "(?i:\\b(nop|halt|trap|reset|int|iret|cli|sti|add|adc|sub|sbc|imulh|mulh|imul|mul|div|idiv|mod|imod|neg|imin|min|imax|max|abs|sqrt|and|or|xor|not|shl|shr|sar|rol|ror|clz|popcnt|bswap|sxtb|sxth|mov|li|lui|ldrsb|ldrsh|ldrb|ldrh|ldr|strb|strh|str|lea|ifeq|ifne|ifgr|ifge|ifls|ifle|ifab|ifae|ifbl|ifbe|jnz|jnc|jns|jno|jeq|jne|jgr|jge|jls|jle|jab|jae|jbl|jbe|jmp|jp|jz|jc|js|jo|call|ret|cmp|tst|enter|leave|swap|inc|dec|clr|lc|pushf|pushm|push|popf|popm|pop|iitof|itof|ftoii|ftoi|mtf|mff|insb|insh|inb|inh|inm|in|outb|outh|outm|out|bl|la|ldvp|stvp|ldv|stv)\\b)"
+      "match": "(?i:\\b(nop|halt|trap|reset|int|iret|cli|sti|add|adc|sub|sbc|imulh|mulh|imul|mul|div|idiv|fmod|mod|imod|neg|imin|min|imax|max|abs|sqrt|fround|ffloor|fceil|ftrunc|fcopysign|fma|fclass|frecipe|frsqrte|fmin|fmax|and|or|xor|not|shl|shr|sar|rol|ror|clz|ctz|popcnt|bswap|sxtb|sxth|mov|li|lui|ldrsb|ldrsh|ldrb|ldrh|ldr|strb|strh|str|lea|ifeq|ifne|ifgr|ifge|ifls|ifle|ifab|ifae|ifbl|ifbe|jnz|jnc|jns|jno|jeq|jne|jgr|jge|jls|jle|jab|jae|jbl|jbe|jmp|jp|jz|jc|js|jo|call|ret|cmp|tst|enter|leave|swap|inc|dec|clr|lc|pushf|pushm|push|popf|popm|pop|iitof|itof|ftoii|ftoi|mtf|mff|insb|insh|inb|inh|inm|in|outb|outh|outm|out|bl|la|ldvp|stvp|ldv|stv)\\b)"
     },
     "registers": {
       "comment": "Case-insensitive: RegisterInfo::get() accepts 'R'/'r' and 'F'/'f', and the three registers with a role also answer to it - sp, fp and at, plus lr as the deprecated spelling of at. pc is not a register operand and is deliberately absent.",

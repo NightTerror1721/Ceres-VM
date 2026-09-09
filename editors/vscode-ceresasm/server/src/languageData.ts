@@ -37,14 +37,14 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 		operands: 'rd, rs, rt|s16',
 		summary: 'Signed division. Division by zero sets the Trap flag and leaves the destination unchanged.'
 	},
-	mod: { operands: 'rd, rs, rt|imm16', summary: 'Unsigned remainder.' },
+	mod: { operands: 'rd, rs, rt|imm16', summary: 'Unsigned remainder. A float-register operand selects `fmod` automatically.' },
 	imod: { operands: 'rd, rs, rt|s16', summary: 'Signed remainder.' },
 	mulh: { operands: 'rd, rs, rt', summary: 'The high 32 bits of an unsigned product. `mul` keeps the low half and drops this one.' },
 	imulh: { operands: 'rd, rs, rt', summary: 'The high 32 bits of a signed product.' },
 	abs: { operands: 'rd, rs', summary: 'Absolute value of a signed integer. A float-register pair selects `fabs`. |INT_MIN| does not fit, so it answers with INT_MIN and sets Overflow.' },
-	min: { operands: 'rd, rs, rt|imm16', summary: 'Unsigned minimum.' },
+	min: { operands: 'rd, rs, rt|imm16', summary: 'Unsigned minimum. A float-register operand selects `fmin` automatically.' },
 	imin: { operands: 'rd, rs, rt|s16', summary: 'Signed minimum.' },
-	max: { operands: 'rd, rs, rt|imm16', summary: 'Unsigned maximum.' },
+	max: { operands: 'rd, rs, rt|imm16', summary: 'Unsigned maximum. A float-register operand selects `fmax` automatically.' },
 	imax: { operands: 'rd, rs, rt|s16', summary: 'Signed maximum.' },
 	sqrt: { operands: 'fd, fs', summary: 'Square root. Float registers only; there is no integer form.' },
 	neg: {
@@ -53,7 +53,35 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 		summary: 'Pseudo-instruction: integer negation. Expands to `imul rd, rs, -1`, or to `fneg` for float registers.'
 	},
 
-	// Logic and shifts - 0x30-0x3C
+	// Extended float arithmetic - 0x98-0x9F, 0xD2-0xD6
+	// The primitives a software math library needs to build sin/log/exp/pow on top of: range
+	// reduction, an explicit rounding mode, sign injection, and a fused multiply-accumulate.
+	fmod: { operands: 'fd, fs, ft', summary: 'IEEE remainder of two floats. Same as `mod` with float registers. Traps on a zero divisor, like `fdiv`.' },
+	fmin: { operands: 'fd, fs, ft', summary: 'Float minimum. Same as `min` with float registers.' },
+	fmax: { operands: 'fd, fs, ft', summary: 'Float maximum. Same as `max` with float registers.' },
+	fround: { operands: 'fd, fs', summary: 'Rounds to the nearest integer, ties to even.' },
+	ffloor: { operands: 'fd, fs', summary: 'Rounds toward negative infinity.' },
+	fceil: { operands: 'fd, fs', summary: 'Rounds toward positive infinity.' },
+	ftrunc: { operands: 'fd, fs', summary: 'Truncates toward zero.' },
+	fcopysign: { operands: 'fd, fs, ft', summary: 'The magnitude of `fs` with the sign of `ft`.' },
+	fma: {
+		operands: 'fd, fs, ft',
+		summary: 'Fused multiply-accumulate: `fd = fd + fs * ft`. `fd` is read as the accumulator as well as written - the same flags and rounding as `fadd`, applied to `(fd, fs*ft)`.'
+	},
+	fclass: {
+		operands: 'rd, fs',
+		summary: 'Writes a one-hot bitmask classifying `fs` into `rd`: negative/positive infinity, normal, subnormal, zero, or NaN. A domain error shows up as one bit instead of a chain of comparisons.'
+	},
+	frecipe: {
+		operands: 'fd, fs',
+		summary: 'Reciprocal: `fd = 1 / fs`. Exact, not a hardware-style low-precision estimate - a software VM has no cycle cost to save by approximating. Traps on `fs == 0`, like `fdiv`.'
+	},
+	frsqrte: {
+		operands: 'fd, fs',
+		summary: 'Reciprocal square root: `fd = 1 / sqrt(fs)`. Exact, for the same reason as `frecipe`. Traps on `fs == 0`.'
+	},
+
+	// Logic and shifts - 0x30-0x3C, 0xD6
 	and: { operands: 'rd, rs, rt|imm16', summary: 'Bitwise AND.' },
 	or: { operands: 'rd, rs, rt|imm16', summary: 'Bitwise OR.' },
 	xor: { operands: 'rd, rs, rt|imm16', summary: 'Bitwise XOR.' },
@@ -64,6 +92,7 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	rol: { operands: 'rd, rs, rt|imm16', summary: 'Rotate left. The amount uses the low five bits, so a rotation by 32 is a rotation by none.' },
 	ror: { operands: 'rd, rs, rt|imm16', summary: 'Rotate right.' },
 	clz: { operands: 'rd, rs', summary: 'Counts leading zero bits. Zero has thirty-two of them.' },
+	ctz: { operands: 'rd, rs', summary: 'Counts trailing zero bits. Zero has thirty-two of them, the same as `clz`.' },
 	popcnt: { operands: 'rd, rs', summary: 'Counts set bits.' },
 	bswap: { operands: 'rd, rs', summary: 'Reverses the four bytes of a word.' },
 	sxtb: { operands: 'rd, rs', summary: 'Sign-extends the low byte of a register, the way `ldrsb` does for memory.' },

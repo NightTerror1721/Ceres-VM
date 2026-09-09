@@ -106,6 +106,7 @@ namespace ceres::isa
 				case Opcode::IMOD:   return { "IMOD",  Shape::RdRsRt };
 				case Opcode::IMODI:  return { "IMODI", Shape::RdRsImm16 };
 				case Opcode::FNEG:   return { "FNEG",  Shape::FdFs };
+				case Opcode::FMOD:   return { "FMOD",  Shape::FdFsFt };
 
 				case Opcode::AND:    return { "AND",   Shape::RdRsRt };
 				case Opcode::ANDI:   return { "ANDI",  Shape::RdRsImm16 };
@@ -216,16 +217,28 @@ namespace ceres::isa
 				case Opcode::IMINI:   return { "IMINI",   Shape::RdRsImm16 };
 				case Opcode::MAXI:    return { "MAXI",    Shape::RdRsImm16 };
 				case Opcode::IMAXI:   return { "IMAXI",   Shape::RdRsImm16 };
+				case Opcode::FMIN:    return { "FMIN",    Shape::FdFsFt };
+				case Opcode::FMAX:    return { "FMAX",    Shape::FdFsFt };
 				case Opcode::ROLI:    return { "ROLI",    Shape::RdRsImm16 };
 				case Opcode::RORI:    return { "RORI",    Shape::RdRsImm16 };
 				case Opcode::ABS:     return { "ABS",     Shape::RdRs };
 				case Opcode::CLZ:     return { "CLZ",     Shape::RdRs };
+				case Opcode::CTZ:     return { "CTZ",     Shape::RdRs };
 				case Opcode::POPCNT:  return { "POPCNT",  Shape::RdRs };
 				case Opcode::BSWAP:   return { "BSWAP",   Shape::RdRs };
 				case Opcode::SXTB:    return { "SXTB",    Shape::RdRs };
 				case Opcode::SXTH:    return { "SXTH",    Shape::RdRs };
 				case Opcode::FSQRT:   return { "FSQRT",   Shape::FdFs };
 				case Opcode::FABS:    return { "FABS",    Shape::FdFs };
+				case Opcode::FROUND:  return { "FROUND",  Shape::FdFs };
+				case Opcode::FFLOOR:  return { "FFLOOR",  Shape::FdFs };
+				case Opcode::FCEIL:   return { "FCEIL",   Shape::FdFs };
+				case Opcode::FTRUNC:  return { "FTRUNC",  Shape::FdFs };
+				case Opcode::FCOPYSIGN: return { "FCOPYSIGN", Shape::FdFsFt };
+				case Opcode::FMA:     return { "FMA",     Shape::FdFsFt };
+				case Opcode::FCLASS:  return { "FCLASS",  Shape::RdFs };
+				case Opcode::FRECIPE: return { "FRECIPE", Shape::FdFs };
+				case Opcode::FRSQRTE: return { "FRSQRTE", Shape::FdFs };
 				case Opcode::BL:     return { "BL",    Shape::RdSimm20 };
 				case Opcode::BLR:    return { "BLR",   Shape::RdRs };
 				case Opcode::ENTER:  return { "ENTER", Shape::Imm16 };

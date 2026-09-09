@@ -290,12 +290,25 @@ namespace ceres::isa
 		static constexpr Instruction RORI(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::RORI, rd, rs, imm16); }
 		static constexpr Instruction ABS(u8 rd, u8 rs) noexcept { return make(Opcode::ABS, rd, rs); }
 		static constexpr Instruction CLZ(u8 rd, u8 rs) noexcept { return make(Opcode::CLZ, rd, rs); }
+		static constexpr Instruction CTZ(u8 rd, u8 rs) noexcept { return make(Opcode::CTZ, rd, rs); }
 		static constexpr Instruction POPCNT(u8 rd, u8 rs) noexcept { return make(Opcode::POPCNT, rd, rs); }
 		static constexpr Instruction BSWAP(u8 rd, u8 rs) noexcept { return make(Opcode::BSWAP, rd, rs); }
 		static constexpr Instruction SXTB(u8 rd, u8 rs) noexcept { return make(Opcode::SXTB, rd, rs); }
 		static constexpr Instruction SXTH(u8 rd, u8 rs) noexcept { return make(Opcode::SXTH, rd, rs); }
 		static constexpr Instruction FSQRT(u8 fd, u8 fs) noexcept { return make(Opcode::FSQRT, fd, fs); }
 		static constexpr Instruction FABS(u8 fd, u8 fs) noexcept { return make(Opcode::FABS, fd, fs); }
+		static constexpr Instruction FMOD(u8 fd, u8 fs, u8 ft) noexcept { return make(Opcode::FMOD, fd, fs, ft); }
+		static constexpr Instruction FMIN(u8 fd, u8 fs, u8 ft) noexcept { return make(Opcode::FMIN, fd, fs, ft); }
+		static constexpr Instruction FMAX(u8 fd, u8 fs, u8 ft) noexcept { return make(Opcode::FMAX, fd, fs, ft); }
+		static constexpr Instruction FROUND(u8 fd, u8 fs) noexcept { return make(Opcode::FROUND, fd, fs); }
+		static constexpr Instruction FFLOOR(u8 fd, u8 fs) noexcept { return make(Opcode::FFLOOR, fd, fs); }
+		static constexpr Instruction FCEIL(u8 fd, u8 fs) noexcept { return make(Opcode::FCEIL, fd, fs); }
+		static constexpr Instruction FTRUNC(u8 fd, u8 fs) noexcept { return make(Opcode::FTRUNC, fd, fs); }
+		static constexpr Instruction FCOPYSIGN(u8 fd, u8 fs, u8 ft) noexcept { return make(Opcode::FCOPYSIGN, fd, fs, ft); }
+		static constexpr Instruction FMA(u8 fd, u8 fs, u8 ft) noexcept { return make(Opcode::FMA, fd, fs, ft); }
+		static constexpr Instruction FRECIPE(u8 fd, u8 fs) noexcept { return make(Opcode::FRECIPE, fd, fs); }
+		static constexpr Instruction FRSQRTE(u8 fd, u8 fs) noexcept { return make(Opcode::FRSQRTE, fd, fs); }
+		static constexpr Instruction FCLASS(u8 rd, u8 fs) noexcept { return make(Opcode::FCLASS, rd, fs); }
 		static constexpr Instruction BL(u8 rd, i32 simm20) noexcept
 		{
 			// Spelled out: make(Opcode, rd) alone would pick the u24 overload and encode the

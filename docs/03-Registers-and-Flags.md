@@ -118,6 +118,17 @@ go straight back to sleep the moment the handler returned, and nothing could eve
 - **Floating-point arithmetic (`FADD`/`FSUB`/`FMUL`/`FDIV`/`FNEG`)**: Zero reflects
   `std::fpclassify(result) == FP_ZERO`; Sign reflects `std::signbit(result)`; Carry is always
   `false`; Overflow is set only when the result becomes `±∞` and neither operand already was.
+- **`FMOD`**: division-shaped, so it traps on a zero divisor exactly like `FDIV` — leaving the
+  destination unchanged — even though IEEE 754 defines `fmod(x, 0)` as `NaN`. When it doesn't trap,
+  Zero/Sign come from the result and Carry/Overflow are always cleared.
+- **`FMIN`/`FMAX`/`FCOPYSIGN`**: Zero/Sign from the result, Carry/Overflow always cleared — the same
+  light touch as the bitwise operations, since picking or reassembling an existing value cannot
+  carry or overflow.
+- **`FMA`**: reuses `FADD`'s exact flag behaviour, applied to `(fd, fs * ft)` — it *is* an `FADD`
+  once the product has been computed.
+- **`FROUND`/`FFLOOR`/`FCEIL`/`FTRUNC`/`FRECIPE`/`FRSQRTE`/`FCLASS`**: touch no flags at all, the
+  same as `FSQRT`/`FABS` — each hands back an unambiguous result and there is nothing a flag would
+  add. `FRECIPE` and `FRSQRTE` still trap on a zero divisor, like `FDIV`/`FMOD`.
 
 ## Reading the flags after a `cmp`
 

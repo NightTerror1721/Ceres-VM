@@ -25,6 +25,7 @@ namespace ceres::casm
 		IDIV, // IDIV, IDIVI
 		MOD, // MOD, MODI
 		IMOD, // IMOD, IMODI
+		FMOD, // FMOD
 		NEG, // Pseudo-instruction // IMUL rd rs -1 | FNEG
 		INC, // Pseudo-instruction // ADDI rd, rd, 1
 		DEC, // Pseudo-instruction // SUBI rd, rd, 1
@@ -63,7 +64,10 @@ namespace ceres::casm
 		IMIN,
 		MAX,
 		IMAX,
+		FMIN,
+		FMAX,
 		CLZ,
+		CTZ,
 		POPCNT,
 		BSWAP,
 		ROL,
@@ -71,6 +75,15 @@ namespace ceres::casm
 		SXTB,
 		SXTH,
 		SQRT,
+		FROUND, // FROUND
+		FFLOOR, // FFLOOR
+		FCEIL, // FCEIL
+		FTRUNC, // FTRUNC
+		FCOPYSIGN, // FCOPYSIGN
+		FMA, // FMA. fd = fd + fs * ft: the accumulator is a source as well as the destination.
+		FRECIPE, // FRECIPE
+		FRSQRTE, // FRSQRTE
+		FCLASS, // FCLASS
 		LDVP, // PC-relative load of a variable within reach
 		STVP, // PC-relative store of a variable within reach
 

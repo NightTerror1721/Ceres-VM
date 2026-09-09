@@ -375,6 +375,23 @@ namespace ceres::vm
 			return amount == 0 ? value : ((value << amount) | (value >> (32u - amount)));
 		}
 
+		// One bit per category, RISC-V fclass-style but collapsed to a single NaN bit rather than
+		// separating quiet from signaling - the standard library does not portably distinguish them.
+		// Bit 0: -Infinity  Bit 1: -Normal  Bit 2: -Subnormal  Bit 3: -Zero
+		// Bit 4: +Zero      Bit 5: +Subnormal  Bit 6: +Normal  Bit 7: +Infinity  Bit 8: NaN
+		static forceinline u32 classifyFloat(f32 value) noexcept
+		{
+			const bool negative = std::signbit(value);
+			switch (std::fpclassify(value))
+			{
+				case FP_NAN:       return 1u << 8;
+				case FP_INFINITE:  return negative ? (1u << 0) : (1u << 7);
+				case FP_ZERO:      return negative ? (1u << 3) : (1u << 4);
+				case FP_SUBNORMAL: return negative ? (1u << 2) : (1u << 5);
+				default:           return negative ? (1u << 1) : (1u << 6); // FP_NORMAL
+			}
+		}
+
 		forceinline void executeAdd(const u8 regDest, const u32 a, const u32 b) noexcept
 		{
 			const u64 result = static_cast<u64>(a) + static_cast<u64>(b);
@@ -535,6 +552,30 @@ namespace ceres::vm
 			sign(std::signbit(result));
 			carry(false);
 			overflow(resultClass == FP_INFINITE && std::fpclassify(a) != FP_INFINITE && std::fpclassify(b) != FP_INFINITE);
+
+			setFloatReg(regDest, result);
+			advancePC();
+		}
+
+		// The float sibling of executeUnsignedMod/executeSignedMod: same trap-on-zero convention as
+		// every other division-shaped instruction (see executeFloatDiv), even though IEEE fmod(x, 0)
+		// is well-defined as NaN - consistency with the rest of the divide family wins here.
+		forceinline void executeFloatMod(const u8 regDest, const f32 a, const f32 b) noexcept
+		{
+			if (b == 0.0f)
+			{
+				trap(true);
+				advancePC();
+				return;
+			}
+
+			const f32 result = std::fmod(a, b);
+			const auto resultClass = std::fpclassify(result);
+
+			zero(resultClass == FP_ZERO);
+			sign(std::signbit(result));
+			carry(false);
+			overflow(false);
 
 			setFloatReg(regDest, result);
 			advancePC();
@@ -847,6 +888,7 @@ namespace ceres::vm
 		forceinline void MODI(const Instruction inst) noexcept { executeUnsignedMod(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 		forceinline void IMOD(const Instruction inst) noexcept { executeSignedMod(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void IMODI(const Instruction inst) noexcept { executeSignedMod(inst.rd(), getReg(inst.rs()), inst.simm16()); }
+		forceinline void FMOD(const Instruction inst) noexcept { executeFloatMod(inst.fd(), getFloatReg(inst.fs()), getFloatReg(inst.ft())); }
 		forceinline void FNEG(const Instruction inst) noexcept { executeFloatNeg(inst.fd(), getFloatReg(inst.fs())); }
 
 		forceinline void MULH(const Instruction inst) noexcept
@@ -869,7 +911,21 @@ namespace ceres::vm
 		forceinline void MAXI(const Instruction inst) noexcept { executeResult(inst.rd(), std::max(getReg(inst.rs()), static_cast<u32>(inst.imm16()))); }
 		forceinline void IMAX(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(std::max(static_cast<i32>(getReg(inst.rs())), static_cast<i32>(getReg(inst.rt()))))); }
 		forceinline void IMAXI(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(std::max(static_cast<i32>(getReg(inst.rs())), static_cast<i32>(inst.simm16())))); }
+		// Light-touch flags, the way AND/OR/XOR set Zero/Sign and always clear Carry/Overflow: there
+		// is no carry or overflow to report from picking one of two values that already existed.
+		forceinline void executeFloatMinMax(const u8 regDest, const f32 result) noexcept
+		{
+			zero(std::fpclassify(result) == FP_ZERO);
+			sign(std::signbit(result));
+			carry(false);
+			overflow(false);
+			setFloatReg(regDest, result);
+			advancePC();
+		}
+		forceinline void FMIN(const Instruction inst) noexcept { executeFloatMinMax(inst.fd(), std::fmin(getFloatReg(inst.fs()), getFloatReg(inst.ft()))); }
+		forceinline void FMAX(const Instruction inst) noexcept { executeFloatMinMax(inst.fd(), std::fmax(getFloatReg(inst.fs()), getFloatReg(inst.ft()))); }
 		forceinline void CLZ(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(std::countl_zero(getReg(inst.rs())))); }
+		forceinline void CTZ(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(std::countr_zero(getReg(inst.rs())))); }
 		forceinline void POPCNT(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(std::popcount(getReg(inst.rs())))); }
 		forceinline void BSWAP(const Instruction inst) noexcept { executeResult(inst.rd(), std::byteswap(getReg(inst.rs()))); }
 		forceinline void ROL(const Instruction inst) noexcept { executeResult(inst.rd(), rotateLeft(getReg(inst.rs()), getReg(inst.rt()))); }
@@ -880,6 +936,46 @@ namespace ceres::vm
 		forceinline void SXTH(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(static_cast<i32>(static_cast<i16>(getReg(inst.rs()) & 0xFFFFu)))); }
 		forceinline void FSQRT(const Instruction inst) noexcept { setFloatReg(inst.fd(), std::sqrt(getFloatReg(inst.fs()))); advancePC(); }
 		forceinline void FABS(const Instruction inst) noexcept { setFloatReg(inst.fd(), std::fabs(getFloatReg(inst.fs()))); advancePC(); }
+		// Rounding, sign injection and the multiply-accumulate a software math library needs for
+		// polynomial evaluation. None of these touch the flags register, the same as FSQRT/FABS
+		// above: they hand back an unambiguous float and there is nothing a flag would add.
+		forceinline void FROUND(const Instruction inst) noexcept { setFloatReg(inst.fd(), std::nearbyint(getFloatReg(inst.fs()))); advancePC(); }
+		forceinline void FFLOOR(const Instruction inst) noexcept { setFloatReg(inst.fd(), std::floor(getFloatReg(inst.fs()))); advancePC(); }
+		forceinline void FCEIL(const Instruction inst) noexcept { setFloatReg(inst.fd(), std::ceil(getFloatReg(inst.fs()))); advancePC(); }
+		forceinline void FTRUNC(const Instruction inst) noexcept { setFloatReg(inst.fd(), std::trunc(getFloatReg(inst.fs()))); advancePC(); }
+		forceinline void FCOPYSIGN(const Instruction inst) noexcept { setFloatReg(inst.fd(), std::copysign(getFloatReg(inst.fs()), getFloatReg(inst.ft()))); advancePC(); }
+		// fd is read as the accumulator as well as written, so this is exactly FADD's flag/rounding
+		// behaviour applied to (fd, fs * ft) - reusing executeFloatAdd instead of duplicating it.
+		forceinline void FMA(const Instruction inst) noexcept { executeFloatAdd(inst.fd(), getFloatReg(inst.fd()), getFloatReg(inst.fs()) * getFloatReg(inst.ft())); }
+		forceinline void FCLASS(const Instruction inst) noexcept { setReg(inst.rd(), classifyFloat(getFloatReg(inst.fs()))); advancePC(); }
+		// Estimates in name only: a software-interpreted VM has no cycle cost to save by answering
+		// approximately, so these give an exact reciprocal rather than faking the low precision a
+		// real FPU's lookup-table hardware would produce. They keep the trap-on-zero convention the
+		// rest of the divide family uses, since 1/0 is exactly the case that family already guards.
+		forceinline void FRECIPE(const Instruction inst) noexcept
+		{
+			const f32 value = getFloatReg(inst.fs());
+			if (value == 0.0f)
+			{
+				trap(true);
+				advancePC();
+				return;
+			}
+			setFloatReg(inst.fd(), 1.0f / value);
+			advancePC();
+		}
+		forceinline void FRSQRTE(const Instruction inst) noexcept
+		{
+			const f32 value = getFloatReg(inst.fs());
+			if (value == 0.0f)
+			{
+				trap(true);
+				advancePC();
+				return;
+			}
+			setFloatReg(inst.fd(), 1.0f / std::sqrt(value));
+			advancePC();
+		}
 
 		forceinline void AND(const Instruction inst) noexcept { executeAnd(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
 		forceinline void ANDI(const Instruction inst) noexcept { executeAnd(inst.rd(), getReg(inst.rs()), inst.imm16()); }
@@ -1477,6 +1573,7 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::MODI)] = &ExecutionEngine::MODI;
 				handlers[static_cast<u8>(Opcode::IMOD)] = &ExecutionEngine::IMOD;
 				handlers[static_cast<u8>(Opcode::IMODI)] = &ExecutionEngine::IMODI;
+				handlers[static_cast<u8>(Opcode::FMOD)] = &ExecutionEngine::FMOD;
 				handlers[static_cast<u8>(Opcode::FNEG)] = &ExecutionEngine::FNEG;
 
 				// Logical
@@ -1593,7 +1690,10 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::MAXI)] = &ExecutionEngine::MAXI;
 				handlers[static_cast<u8>(Opcode::IMAX)] = &ExecutionEngine::IMAX;
 				handlers[static_cast<u8>(Opcode::IMAXI)] = &ExecutionEngine::IMAXI;
+				handlers[static_cast<u8>(Opcode::FMIN)] = &ExecutionEngine::FMIN;
+				handlers[static_cast<u8>(Opcode::FMAX)] = &ExecutionEngine::FMAX;
 				handlers[static_cast<u8>(Opcode::CLZ)] = &ExecutionEngine::CLZ;
+				handlers[static_cast<u8>(Opcode::CTZ)] = &ExecutionEngine::CTZ;
 				handlers[static_cast<u8>(Opcode::POPCNT)] = &ExecutionEngine::POPCNT;
 				handlers[static_cast<u8>(Opcode::BSWAP)] = &ExecutionEngine::BSWAP;
 				handlers[static_cast<u8>(Opcode::ROL)] = &ExecutionEngine::ROL;
@@ -1604,6 +1704,15 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::SXTH)] = &ExecutionEngine::SXTH;
 				handlers[static_cast<u8>(Opcode::FSQRT)] = &ExecutionEngine::FSQRT;
 				handlers[static_cast<u8>(Opcode::FABS)] = &ExecutionEngine::FABS;
+				handlers[static_cast<u8>(Opcode::FROUND)] = &ExecutionEngine::FROUND;
+				handlers[static_cast<u8>(Opcode::FFLOOR)] = &ExecutionEngine::FFLOOR;
+				handlers[static_cast<u8>(Opcode::FCEIL)] = &ExecutionEngine::FCEIL;
+				handlers[static_cast<u8>(Opcode::FTRUNC)] = &ExecutionEngine::FTRUNC;
+				handlers[static_cast<u8>(Opcode::FCOPYSIGN)] = &ExecutionEngine::FCOPYSIGN;
+				handlers[static_cast<u8>(Opcode::FMA)] = &ExecutionEngine::FMA;
+				handlers[static_cast<u8>(Opcode::FCLASS)] = &ExecutionEngine::FCLASS;
+				handlers[static_cast<u8>(Opcode::FRECIPE)] = &ExecutionEngine::FRECIPE;
+				handlers[static_cast<u8>(Opcode::FRSQRTE)] = &ExecutionEngine::FRSQRTE;
 				handlers[static_cast<u8>(Opcode::ENTER)] = &ExecutionEngine::ENTER;
 				handlers[static_cast<u8>(Opcode::LEAVE)] = &ExecutionEngine::LEAVE;
 				handlers[static_cast<u8>(Opcode::PUSHM)] = &ExecutionEngine::PUSHM;

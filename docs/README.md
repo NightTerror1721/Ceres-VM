@@ -50,6 +50,11 @@ the assembler does internally at each stage of the build.
 
 If you already knew this language, these are the parts that moved:
 
+- **Extended float arithmetic**: `fmod`, `fmin`/`fmax`, `fround`/`ffloor`/`fceil`/`ftrunc`,
+  `fcopysign`, `fma`, `fclass`, `frecipe`/`frsqrte`, plus the integer `ctz` — the primitives a
+  software math library needs for `sin`/`log`/`exp`/`pow`, none of which get an opcode of their
+  own. `mod`/`min`/`max` also pick the float opcode for a pair of float registers, the way `add`
+  already does — [Instruction set](05-Instruction-Set.md#extended-float-arithmetic-0x980x9f-0xd20xd6).
 - **Visibility.** `global` now applies to `const`, `let`, `macro` and `struct`, not just labels, and
   nothing without it leaves its file — [Labels and symbols](12-Labels-and-Symbols.md).
 - **Imports** are references rather than copies, so a module is merged once however many routes
