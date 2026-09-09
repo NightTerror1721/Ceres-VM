@@ -42,6 +42,12 @@ export interface LabelSymbol {
 	uri: string;
 	range: Range;
 	doc?: string;
+	// `@param`/`@return` tagged the same way a macro's are (docTags.ts) - but a label has no
+	// header to check them against, since nothing in the language declares what a subroutine
+	// takes. The convention (see docs/24-Calling-Convention.md) is registers, not positional
+	// operands: `@param r0 reg`, not `@param $x reg`.
+	docParams: ParamTag[];
+	docReturn?: ReturnTag;
 }
 
 export interface MacroSymbol {
@@ -419,6 +425,7 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 				currentNonLocalLabel = declaredName;
 			}
 
+			const labelDoc = parseDocTags(collectLeadingDoc(rawLines, lineNumber));
 			const symbol: LabelSymbol = {
 				kind: 'label',
 				declaredName,
@@ -426,7 +433,9 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 				visibility,
 				uri,
 				range: lineRange(lineNumber, nameStart, nameStart + declaredName.length),
-				doc: collectLeadingDoc(rawLines, lineNumber)
+				doc: labelDoc.doc,
+				docParams: labelDoc.params,
+				docReturn: labelDoc.returns
 			};
 			index.labels.set(qualifiedName, symbol);
 			if (!isLocal) {

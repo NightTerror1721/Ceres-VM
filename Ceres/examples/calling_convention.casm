@@ -28,6 +28,8 @@ const DIGIT_0  = 48
 // ---------------------------------------------------------------------------------------------
 /// A leaf. Takes one argument, calls nothing, and touches only a caller-saved register - so it
 /// needs no frame and no prologue.
+/// @param r0 reg - the character to print.
+/// @return void
 print_char:
     outb TERM_OUT, arg0
     ret
@@ -89,6 +91,8 @@ endstruct
 /// Recursive factorial. Recursion is where a callee-saved register earns its keep: `n` has to
 /// survive the call to `factorial` itself, and every caller-saved register is fair game across
 /// one - which is exactly why `r8`, not a caller-saved register, holds it here.
+/// @param r0 reg - n, the input value.
+/// @return reg - n!, or 1 when n <= 1.
 factorial:
     proc_enter FactFrame
     str [sp + FactFrame.saved_r8], r8

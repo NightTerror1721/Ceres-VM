@@ -2,7 +2,7 @@ import { Hover, MarkupKind, Position, Range } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { describeRegister, KEYWORDS, LINKER_SYMBOLS, MNEMONICS, SECTIONS, TYPES } from './languageData';
 import { resolveUserSymbol } from './resolution';
-import { findEnclosingMacro, getCleanedLines, getTokenAtCharacter, MacroSymbol, StructSymbol, SymbolIndexer } from './symbolIndex';
+import { findEnclosingMacro, getCleanedLines, getTokenAtCharacter, LabelSymbol, MacroSymbol, StructSymbol, SymbolIndexer } from './symbolIndex';
 
 // A fenced ```casm block gets the same TextMate-grammar syntax highlighting in the hover popup
 // as the editor itself; a single-backtick inline span never does; a plain paragraph doesn't
@@ -25,11 +25,19 @@ function withDoc(doc: string | undefined, ...rest: string[]): string {
 	return [doc, ...rest].filter((part) => part && part.length > 0).join('\n\n');
 }
 
+// `global ` in front when the declaration itself carried it - shown in the fenced code block, so
+// this has to read as real CASM to the grammar; `#types` in the TextMate grammar is what actually
+// colors `reg`/`imm`/`freg`/`mem`/`label`/`any`/`void` as a type instead of a plain identifier.
+function globalPrefix(isGlobal: boolean): string {
+	return isGlobal ? 'global ' : '';
+}
+
 // `clamp $value, $lo, $hi` untagged, or `clamp(reg value, imm lo, imm hi) -> reg` once its doc
 // comment tags every parameter it has - never a mix of the two, so a partially-tagged macro
 // doesn't look more precise than it actually is.
 function macroSignature(macro: MacroSymbol): string {
-	const plain = `${macro.name} ${macro.params.join(', ')}`.trimEnd();
+	const prefix = globalPrefix(macro.isGlobal);
+	const plain = `${prefix}${macro.name} ${macro.params.join(', ')}`.trimEnd();
 	if (macro.docParams.length !== macro.params.length) {
 		return plain;
 	}
@@ -45,27 +53,65 @@ function macroSignature(macro: MacroSymbol): string {
 	}
 
 	const returns = macro.docReturn ? ` -> ${macro.docReturn.kind}` : '';
-	return `${macro.name}(${typedParams.join(', ')})${returns}`;
+	return `${prefix}${macro.name}(${typedParams.join(', ')})${returns}`;
 }
 
 // The `@param`/`@return` tags as a table plus a return line, in the same style `describeStruct`
-// already uses for fields - empty when the doc comment carries no tags at all.
+// already uses for fields - empty when the doc comment carries no tags at all. The leading `#`
+// column is the parameter's position, left-to-right, exactly as it has to be written at a call
+// site - not repeated from anywhere else already visible in the hover.
 function describeMacroTags(macro: MacroSymbol): string {
 	if (macro.docParams.length === 0 && !macro.docReturn) {
 		return '';
 	}
 
 	const byName = new Map(macro.docParams.map((tag) => [tag.name, tag] as const));
-	const rows = macro.params.map((paramName) => {
+	const rows = macro.params.map((paramName, index) => {
 		const tag = byName.get(paramName);
 		const kind = tag ? `\`${tag.kind}\`` : '?';
 		const description = tag ? tag.description : '';
-		return `| \`${paramName}\` | ${kind} | ${description} |`;
+		return `| ${index + 1} | \`${paramName}\` | ${kind} | ${description} |`;
 	});
-	const table = rows.length > 0 ? ['| Param | Kind | |', '| --- | --- | --- |', ...rows].join('\n') : '';
+	const table = rows.length > 0 ? ['| # | Param | Kind | |', '| --- | --- | --- | --- |', ...rows].join('\n') : '';
 
 	const returnLine = macro.docReturn
 		? `**Returns:** \`${macro.docReturn.kind}\`${macro.docReturn.description ? ` — ${macro.docReturn.description}` : ''}`
+		: '';
+
+	return [table, returnLine].filter((part) => part.length > 0).join('\n\n');
+}
+
+// `factorial:` untagged, or `factorial(reg r0) -> reg` once its doc comment tags it - the same
+// pseudo-signature notation `macroSignature` uses, adapted to a label: there is no header to
+// reconcile against, so whatever the doc comment tags is shown exactly as written.
+function labelSignature(label: LabelSymbol): string {
+	const prefix = globalPrefix(label.visibility === 'global');
+	const plain = `${prefix}${label.declaredName}:`;
+	if (label.docParams.length === 0 && !label.docReturn) {
+		return plain;
+	}
+
+	const params = label.docParams.map((tag) => `${tag.kind} ${tag.name}`);
+	const returns = label.docReturn ? ` -> ${label.docReturn.kind}` : '';
+	return `${prefix}${label.declaredName}(${params.join(', ')})${returns}`;
+}
+
+// The same `@param`/`@return` tags as `describeMacroTags`, but for a label used as a subroutine
+// (see docs/24-Calling-Convention.md) - there is no header to reconcile against here, since
+// nothing in the language declares what a label takes, so every tag the doc comment carries is
+// shown exactly as written.
+function describeLabelTags(label: LabelSymbol): string {
+	if (label.docParams.length === 0 && !label.docReturn) {
+		return '';
+	}
+
+	const rows = label.docParams.map(
+		(tag, index) => `| ${index + 1} | \`${tag.name}\` | \`${tag.kind}\` | ${tag.description} |`
+	);
+	const table = rows.length > 0 ? ['| # | Param | Kind | |', '| --- | --- | --- | --- |', ...rows].join('\n') : '';
+
+	const returnLine = label.docReturn
+		? `**Returns:** \`${label.docReturn.kind}\`${label.docReturn.description ? ` — ${label.docReturn.description}` : ''}`
 		: '';
 
 	return [table, returnLine].filter((part) => part.length > 0).join('\n\n');
@@ -173,8 +219,8 @@ export function provideHover(document: TextDocument, position: Position, indexer
 			return hover(`let ${resolved.symbol.name}: ${resolved.symbol.typeText}`, 'variable', withDoc(resolved.symbol.doc, description), range);
 		}
 		case 'label': {
-			const code = resolved.symbol.visibility === 'global' ? `global ${resolved.symbol.declaredName}:` : `${resolved.symbol.declaredName}:`;
-			return hover(code, `${resolved.symbol.visibility} label`, withDoc(resolved.symbol.doc), range);
+			const code = labelSignature(resolved.symbol);
+			return hover(code, `${resolved.symbol.visibility} label`, withDoc(resolved.symbol.doc, describeLabelTags(resolved.symbol)), range);
 		}
 		case 'macro': {
 			const code = resolved.candidates.map((candidate) => macroSignature(candidate)).join('\n');

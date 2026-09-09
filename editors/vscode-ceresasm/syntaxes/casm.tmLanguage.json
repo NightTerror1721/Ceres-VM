@@ -75,7 +75,7 @@
     },
     "types": {
       "name": "storage.type.casm",
-      "match": "\\b(u8|u16|u32|i8|i16|i32|f32|char|bool|string|ptr|port|irq|byte|half|word)\\b"
+      "match": "\\b(u8|u16|u32|i8|i16|i32|f32|char|bool|string|ptr|port|irq|byte|half|word|reg|freg|imm|mem|label|any|void)\\b"
     },
     "mnemonics": {
       "comment": "Case-insensitive: the real lexer resolves mnemonics via stringToMnemonic(str, /*caseSensitive=*/false).",
