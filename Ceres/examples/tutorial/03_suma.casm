@@ -1,0 +1,103 @@
+// Exercise 3: One-digit adder
+//
+// Goal: introduce the "read_command" subroutine, which we'll use for the rest
+// of the tutorial (including the two final games). It reads a whole line from
+// the terminal and returns only its first character in r0, discarding the
+// rest of the line (including the '\n'). That way the player can press a key
+// and then Enter without the leftover "\n" sneaking in as if it were the next
+// move.
+//
+// The program asks for two digits (0-9) and shows their sum as a character.
+// If the sum goes past 9 it prints "10+" instead of a second digit, so as not
+// to complicate the exercise with two-digit numbers just yet (that comes in
+// exercise 5).
+//
+// TRY IT YOURSELF:
+//   Change the program to subtract instead of add, and to reject (ask again
+//   for) an input that isn't a '0'-'9' digit.
+
+const TERM_STATUS = 0x00
+const TERM_OUT     = 0x01
+const TERM_IN      = 0x02
+const SYS_CTRL     = 0xFF
+const NEWLINE      = 10
+
+@rodata
+    let PROMPT1: u8[] = "First digit (0-9): "
+    let PROMPT2: u8[] = "Second digit (0-9): "
+    let RESULT_PREFIX: u8[] = "\nSum = "
+    let OVERFLOW_MSG: u8[] = "10+\n"
+
+@text
+global main:
+    la r1, PROMPT1
+    call print
+    call read_command
+    mov r4, r0          // r4 = first digit (ascii)
+
+    la r1, PROMPT2
+    call print
+    call read_command
+    mov r5, r0          // r5 = second digit (ascii)
+
+    sub r4, r4, '0'     // ascii -> numeric value
+    sub r5, r5, '0'
+    add r6, r4, r5      // r6 = numeric sum (0-18)
+
+    la r1, RESULT_PREFIX
+    call print
+
+    cmp r6, 10
+    jc .single_digit    // Carry is set if r6 < 10 (see note below)
+    la r1, OVERFLOW_MSG
+    call print
+    jp .done
+
+.single_digit:
+    add r6, r6, '0'     // number -> ascii
+    outb TERM_OUT, r6
+    li r7, NEWLINE
+    outb TERM_OUT, r7
+
+.done:
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+// read_command() -> r0 = first byte of the next line typed by the user.
+// Consumes the whole line, including the trailing '\n'.
+read_command:
+.wait_first:
+    inb r1, TERM_STATUS
+    and r1, r1, 1
+    jz .wait_first
+    inb r0, TERM_IN     // store the first byte in r0 (return value)
+
+.flush:
+    inb r1, TERM_STATUS
+    and r1, r1, 1
+    jz .flush
+    inb r2, TERM_IN
+    cmp r2, NEWLINE
+    jnz .flush
+    ret
+
+// print(r1 = pointer to a zero-terminated string)
+print:
+    mov r3, r1
+    call strlen
+    mov r2, r0
+    outm TERM_OUT, r3, r2
+    ret
+
+strlen:
+    xor r0, r0, r0
+.loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .end
+    add r0, r0, 1
+    add r1, r1, 1
+    jp .loop
+.end:
+    ret

@@ -26,7 +26,7 @@ The default machine has 16 MiB of RAM. `ceres run --memory <bytes>` overrides th
 | `0x00000100`–`0x000003FF` | 768 B (`BiosSegmentSize`) | BIOS. Currently a 3-instruction stub (`li r0, 'E'`; `out 0x01, r0`; `halt`) that every unhandled fault vector points at. |
 | `0x00000400`– | rest of memory (`UnrestrictedSegmentStart`) | `.text`, `.rodata`, `.data`, `.bss`, then heap and stack. This is where a program actually lives. |
 
-These two constants come straight from [`memory.h`](../Ceres-ASM/src/vm/memory.h):
+These two constants come straight from [`memory.h`](../Ceres/libs/vm/include/ceres/vm/memory.h):
 
 ```cpp
 static inline constexpr Address NullPageSegmentStart      = 0_addr;

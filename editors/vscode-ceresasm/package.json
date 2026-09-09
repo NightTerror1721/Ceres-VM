@@ -2,7 +2,7 @@
   "name": "ceresasm",
   "displayName": "CeresASM",
   "description": "Language support for CASM, the assembler of the Ceres virtual machine: syntax highlighting, live diagnostics from the real ceres compiler, and a debugger.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "ceresasm",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -63,7 +63,7 @@
         "ceresAsm.compilerPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the ceres executable used to check .casm files. Leave empty to auto-detect it under the workspace (Ceres-ASM/src/ceres[.exe]) or fall back to PATH."
+          "description": "Path to the ceres executable used to check .casm files. Leave empty to auto-detect the most recently built one under Ceres/build/<preset>/bin/<config>/ or fall back to PATH."
         },
         "ceresAsm.inlayHints.enabled": {
           "type": "boolean",

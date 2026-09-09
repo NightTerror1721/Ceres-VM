@@ -1,13 +1,13 @@
-# Dos targets INTERFACE que llevan todo lo que hoy está repartido entre los .vcxproj, el CI y
-# tests/build.sh. Están separados a propósito:
+# Two INTERFACE targets that carry everything currently spread across the .vcxproj files, CI and
+# tests/build.sh. They're kept separate on purpose:
 #
-#   ceres_settings  se enlaza PUBLIC. Es lo que cambia el lenguaje que ve quien nos incluye:
-#                   el modo conforme, la macro CERES_DEBUG que lee common/config.h desde una
-#                   cabecera, y las bibliotecas que hace falta enlazar en cada plataforma.
+#   ceres_settings  is linked PUBLIC. It's what changes the language seen by whoever includes us:
+#                   conformance mode, the CERES_DEBUG macro read from common/config.h in a
+#                   header, and the libraries that need linking on each platform.
 #
-#   ceres_warnings  se enlaza PRIVATE. Los avisos son asunto de quien compila el fichero, no de
-#                   quien lo incluye: si se propagaran, un aviso nuestro saldría en el código de
-#                   otro y no habría forma de callarlo desde el sitio correcto.
+#   ceres_warnings  is linked PRIVATE. Warnings are the business of whoever compiles the file,
+#                   not whoever includes it: if they propagated, a warning of ours would show up
+#                   in someone else's code with no way to silence it from the right place.
 
 include_guard(GLOBAL)
 include(CheckLinkerFlag)
@@ -19,23 +19,23 @@ add_library(ceres::settings ALIAS ceres_settings)
 
 target_compile_features(ceres_settings INTERFACE cxx_std_23)
 
-# CERES_DEBUG enciende las aserciones y el registro en common/config.h. Es una cabecera, así que
-# la macro tiene que llegar también a quien nos incluya: de ahí que viva en el target PUBLIC y no
-# en el de avisos. Antes la ponía a mano la configuración Debug del .vcxproj, y sólo esa.
+# CERES_DEBUG turns on assertions and logging in common/config.h. It's a header, so the macro
+# has to reach whoever includes us too: hence it lives on the PUBLIC target and not the warnings
+# one. It used to be set by hand by the .vcxproj's Debug configuration, and only that one.
 target_compile_definitions(ceres_settings INTERFACE $<$<CONFIG:Debug>:CERES_DEBUG>)
 
 if(MSVC)
     target_compile_options(ceres_settings INTERFACE
-        /permissive-        # ConformanceMode del .vcxproj
-        /utf-8              # las fuentes tienen acentos en los comentarios y literales
-        /Zc:preprocessor    # el preprocesador conforme, no el heredado de VC6
-        /Zc:__cplusplus     # sin esto __cplusplus miente y dice 199711L
+        /permissive-        # ConformanceMode from the .vcxproj
+        /utf-8              # source files may contain non-ASCII characters in comments and literals
+        /Zc:preprocessor    # the conformant preprocessor, not the one inherited from VC6
+        /Zc:__cplusplus     # without this __cplusplus lies and reports 199711L
         /EHsc)
 endif()
 
-# libstdc++ dejó fuera de la biblioteca principal parte de <print> y <stacktrace>. En MinGW hace
-# falta siempre; en otras configuraciones de GCC depende de la versión, así que se pregunta al
-# enlazador en vez de adivinar por la plataforma - que es lo que hacía tests/build.sh.
+# libstdc++ left part of <print> and <stacktrace> out of the main library. On MinGW it's always
+# needed; on other GCC configurations it depends on the version, so the linker is asked instead
+# of guessing from the platform - which is what tests/build.sh used to do.
 if(NOT MSVC)
     check_linker_flag(CXX "-lstdc++exp" CERES_HAS_LIBSTDCXXEXP)
     if(CERES_HAS_LIBSTDCXXEXP)
@@ -49,12 +49,12 @@ add_library(ceres_warnings INTERFACE)
 add_library(ceres::warnings ALIAS ceres_warnings)
 
 if(MSVC)
-    # El .vcxproj estaba en Level3. /W4 es el nivel que se usa cuando el proyecto se toma en
-    # serio los avisos, y ahora hay un sitio único donde subirlo o bajarlo.
+    # The .vcxproj was at Level3. /W4 is the level used when a project takes warnings
+    # seriously, and now there's a single place to raise or lower it.
     target_compile_options(ceres_warnings INTERFACE /W4)
 else()
-    # Exactamente los de tests/build.sh y los del CI: un parámetro sin usar es normal en un
-    # manejador que cumple una firma, y avisar de eso sólo enseña a ignorar los avisos.
+    # Exactly what tests/build.sh and CI used: an unused parameter is normal in a handler that
+    # fulfills a signature, and warning about that only teaches people to ignore warnings.
     target_compile_options(ceres_warnings INTERFACE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
@@ -66,8 +66,8 @@ if(CERES_WARNINGS_AS_ERRORS)
     endif()
 endif()
 
-# Compilación en paralelo con el generador de Visual Studio, que es lo que daba el -m de msbuild
-# en el CI. Ninja ya reparte trabajo por su cuenta.
+# Parallel compilation with the Visual Studio generator, which is what msbuild's -m gave us
+# in CI. Ninja already distributes work on its own.
 if(MSVC AND CMAKE_GENERATOR MATCHES "Visual Studio")
     target_compile_options(ceres_warnings INTERFACE /MP)
 endif()

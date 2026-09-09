@@ -1,11 +1,11 @@
-# ceres-devices - los periféricos.
+# ceres-devices - the peripherals.
 #
-# Terminal, temporizador, control del sistema, disco y framebuffer: todo lo que implementa
-# IODevice y habla con el host. Separado de la VM para que añadir un periférico no obligue a
-# tocar la CPU, y para que una construcción sin terminal ni disco sea posible.
+# Terminal, timer, system control, disk and framebuffer: everything that implements IODevice and
+# talks to the host. Separated from the VM so that adding a peripheral doesn't force touching the
+# CPU, and so a build without a terminal or a disk is possible.
 #
-# Es el corte más fácil de posponer de los cinco: si estorba, sus fuentes pueden volver a
-# ceres-vm sin que nada más cambie.
+# It's the easiest of the five cuts to postpone: if it gets in the way, its sources can move back
+# into ceres-vm without anything else changing.
 
 ceres_add_library(devices DEPENDS core vm)
 ceres_add_tests(devices)

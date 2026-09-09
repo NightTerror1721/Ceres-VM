@@ -10,7 +10,7 @@ moment `assemble()` returned.
 `ceres asm --debug` keeps it, as two tables: a **line table** mapping addresses to source locations
 in both directions, and a **symbol table** giving every label, variable and constant its address,
 type and size. Both are produced by
-[`DebugInfoBuilder`](../Ceres-ASM/src/debug/debug_info.h) during the same walk of the linked AST
+[`DebugInfoBuilder`](../Ceres/libs/core/include/ceres/core/format/debug_info.h) during the same walk of the linked AST
 that the emitter uses to write bytes, so nothing is re-analysed.
 
 ## Why the addresses are directly usable

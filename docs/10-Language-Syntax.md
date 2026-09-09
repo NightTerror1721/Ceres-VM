@@ -3,8 +3,8 @@
 [← Back to index](README.md)
 
 This page covers the lexical and statement-level grammar of `.casm`, as implemented by
-[`lexer.cpp`](../Ceres-ASM/src/assembler/lexer.cpp) and
-[`parser.cpp`](../Ceres-ASM/src/assembler/parser.cpp).
+[`lexer.cpp`](../Ceres/libs/asm/src/lexer.cpp) and
+[`parser.cpp`](../Ceres/libs/asm/src/parser.cpp).
 
 ## Lines and statements
 
@@ -244,7 +244,7 @@ mnemonic operand1, operand2, operand3
 ```
 
 Any identifier at the start of a statement that **is not** a recognized mnemonic (see
-[`mnemonic.h`](../Ceres-ASM/src/assembler/mnemonic.h)) is parsed as a **macro call** instead — this
+[`mnemonic.h`](../Ceres/libs/asm/include/ceres/asm/mnemonic.h)) is parsed as a **macro call** instead — this
 is also how a misspelled instruction name gets caught: it fails later, during macro expansion, with
 "Unknown mnemonic or macro '...'", rather than silently doing nothing.
 

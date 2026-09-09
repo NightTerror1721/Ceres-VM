@@ -5,53 +5,87 @@ on:
     branches: [main]
   pull_request:
 
+# Everything goes through the CMake presets. There used to be three separate sources of truth
+# for which files make up the project - two hand-maintained .vcxproj files, tests/build.sh with
+# globs, and a g++ line in here - and they drifted out of sync. Now CI builds exactly what gets
+# built locally, with the same names.
+
 jobs:
-  # The project's real toolchain. Only the x64 configurations set stdcpp23 and the include
-  # directory, so those are the ones built here.
+  # The usual toolchain. The msvc preset uses Ninja Multi-Config with cl, so it needs the dev
+  # environment: vswhere locates it without pinning a Visual Studio version, which changes
+  # whenever GitHub updates the runner image.
   msvc:
-    name: MSVC (x64)
+    name: MSVC (${{ matrix.config }})
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: cmd
+        working-directory: Ceres
     strategy:
       fail-fast: false
       matrix:
-        configuration: [Debug, Release]
+        include:
+          - { config: Debug,   preset: debug }
+          - { config: Release, preset: release }
     steps:
       - uses: actions/checkout@v4
-      - uses: microsoft/setup-msbuild@v2
 
-      - name: Build the assembler and VM
-        run: msbuild Ceres-ASM\Ceres-ASM.vcxproj -p:Configuration=${{ matrix.configuration }} -p:Platform=x64 -m
+      - name: Configure
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          cmake --preset msvc
 
-      - name: Build the test suite
-        run: msbuild Ceres-ASM\Ceres-ASM-Tests.vcxproj -p:Configuration=${{ matrix.configuration }} -p:Platform=x64 -m
+      - name: Build
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          cmake --build --preset msvc-${{ matrix.preset }}
 
-      - name: Run the test suite
-        run: Ceres-ASM\build\tests\x64\${{ matrix.configuration }}\Ceres-ASM-Tests.exe
+      - name: Test
+        run: ctest --preset msvc-${{ matrix.preset }}
 
-  # A second compiler is not redundant: four missing #includes went unnoticed for as long as
-  # MSVC was the only thing building this, because it supplies them transitively.
+      # Linking doesn't mean assembling. These two cover the whole path, and the second one
+      # also exercises an `import` of the library in stdlib/.
+      - name: Run the shipped examples
+        run: |
+          build\msvc\bin\${{ matrix.config }}\ceres.exe run examples\main.casm
+          build\msvc\bin\${{ matrix.config }}\ceres.exe run examples\calling_convention.casm
+
+  # A second compiler isn't redundant: four missing #includes went unnoticed while MSVC was
+  # the only thing building this, because it supplies them transitively.
   gcc:
-    name: GCC 15
+    name: GCC 15 (${{ matrix.config }})
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: Ceres
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { config: Debug,   preset: debug }
+          - { config: Release, preset: release }
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install GCC 15
+      - name: Install GCC 15 and Ninja
+        working-directory: .
         run: |
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get install -y g++-15
+          sudo apt-get install -y g++-15 ninja-build
 
-      - name: Build and run the test suite
-        env:
-          CXX: g++-15
-        run: sh tests/build.sh
+      # The preset sets CMAKE_CXX_COMPILER to g++, which on this runner is an older version;
+      # the command line overrides the preset, so naming the one we want is enough.
+      - name: Configure
+        run: cmake --preset gcc -DCMAKE_CXX_COMPILER=g++-15
 
-      - name: Build the assembler and run the shipped example
-        env:
-          CXX: g++-15
+      - name: Build
+        run: cmake --build --preset gcc-${{ matrix.preset }}
+
+      - name: Test
+        run: ctest --preset gcc-${{ matrix.preset }}
+
+      - name: Run the shipped examples
         run: |
-          cd Ceres-ASM/src
-          $CXX -std=c++23 -Wall -Wextra -Wno-unused-parameter -I. -o ../../ceres main.cpp vm/*.cpp assembler/*.cpp debug/*.cpp
-          cd ../..
-          cd Ceres-ASM && ../ceres examples/main.casm
+          ./build/gcc/bin/${{ matrix.config }}/ceres run examples/main.casm
+          ./build/gcc/bin/${{ matrix.config }}/ceres run examples/calling_convention.casm

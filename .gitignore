@@ -61,13 +61,6 @@ nunit-*.xml
 # Approval Tests result files
 *.received.*
 
-# Command-line g++/clang builds of the ceres CLI (Ceres-ASM-old/src/ceres[.exe]). The old tree
-# keeps its rule under both names while the rename settles; the new tree needs none, because
-# CMake puts the binary under Ceres/build/, which is ignored wholesale.
-/Ceres-ASM/src/ceres
-/Ceres-ASM/src/ceres.exe
-/Ceres-ASM-old/src/ceres
-/Ceres-ASM-old/src/ceres.exe
 
 # Build Results of an ATL Project
 [Dd]ebugPS/
@@ -425,9 +418,8 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-# Test runner binary built by tests/build.sh
-/tests/ceres-tests
-/tests/ceres-tests.exe
+# Command-line builds of the ceres CLI left at the repository root. CMake puts its own output
+# under Ceres/build/, which is ignored wholesale further down.
 /ceres
 /ceres.exe
 
@@ -442,17 +434,9 @@ FodyWeavers.xsd
 /Ceres/build/
 CMakeUserPresets.json
 
-# The debug-information module is source, not a Visual Studio build directory - but the
-# "[Dd]ebug/" rule near the top of this file cannot tell the two apart. Both lines are needed:
-# git will not look inside an excluded directory, so the directory itself has to be re-included
-# before anything in it can be.
-#
-# The same trap catches the new tree twice over: ceres-debug is a library directory, and every
-# library also has an include/ceres/<name>/ under it. Both paths are spelled out, and the old
-# tree keeps its rule under both names while the rename is pending.
-!/Ceres-ASM/src/debug/
-!/Ceres-ASM/src/debug/**
-!/Ceres-ASM-old/src/debug/
-!/Ceres-ASM-old/src/debug/**
+# ceres-debug is a library directory full of source, not a Visual Studio build directory - but
+# the "[Dd]ebug/" rule near the top of this file cannot tell the two apart. Both lines are
+# needed: git will not look inside an excluded directory, so the directory itself has to be
+# re-included before anything in it can be.
 !/Ceres/libs/debug/
 !/Ceres/libs/debug/**

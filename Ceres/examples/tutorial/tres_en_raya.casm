@@ -1,0 +1,310 @@
+// ============================================================
+//  TIC-TAC-TOE — two players, same keyboard
+// ============================================================
+//
+// The tutorial's final capstone. Reuses everything from before and adds two
+// new techniques:
+//   - a board as a 9-byte array, addressed with offsets computed at
+//     runtime (unlike exercise 5, here the index isn't known until the
+//     player types it)
+//   - a data table in @rodata (the 8 winning combinations) walked with a
+//     loop, instead of hand-writing an "if" for each one
+//
+// Board convention: 0 = empty, 1 = X, 2 = O. Cells are numbered 1 to 9 left
+// to right and top to bottom, like a phone keypad:
+//
+//     1 | 2 | 3
+//    ---+---+---
+//     4 | 5 | 6
+//    ---+---+---
+//     7 | 8 | 9
+//
+// It's a TWO human player game (no AI): X and O take turns typing on the
+// same terminal.
+//
+// TRY IT YOURSELF:
+//   1. Add a counter of games played and show it when the program ends.
+//   2. When someone wins, highlight the winning line (print which 3 cells
+//      it was) instead of just saying who won.
+//   3. The big challenge: replace player O with the machine, reusing
+//      next_random from exercise 7 so it picks a random empty cell.
+
+const TERM_STATUS = 0x00
+const TERM_OUT     = 0x01
+const TERM_IN      = 0x02
+const SYS_CTRL     = 0xFF
+const NEWLINE      = 10
+
+@data
+    let board: u8[9] = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    let turn:  u8    = 1
+
+@rodata
+    // 8 winning combinations: 3 rows, 3 columns, 2 diagonals.
+    let WIN_LINES: u8[24] = [0,1,2, 3,4,5, 6,7,8, 0,3,6, 1,4,7, 2,5,8, 0,4,8, 2,4,6]
+
+    let TITLE:     u8[] = "=== Tic-tac-toe ===\n"
+    let PROMPT_X:  u8[] = "X's turn. Pick a cell (1-9): "
+    let PROMPT_O:  u8[] = "O's turn. Pick a cell (1-9): "
+    let ERR_RANGE: u8[] = "Type a cell number between 1 and 9.\n"
+    let ERR_OCC:   u8[] = "That cell is already taken.\n"
+    let WIN_X_MSG: u8[] = "X has won the game!\n"
+    let WIN_O_MSG: u8[] = "O has won the game!\n"
+    let DRAW_MSG:  u8[] = "Board is full: draw.\n"
+    let SEP:       u8[] = "-----------\n"
+
+@text
+global main:
+    la r1, TITLE
+    call print
+
+.turn_loop:
+    call print_board
+
+    ldv r4, turn        // r4 = current player (1 = X, 2 = O)
+    cmp r4, 1
+    jz .prompt_x
+    la r1, PROMPT_O
+    jp .do_prompt
+.prompt_x:
+    la r1, PROMPT_X
+.do_prompt:
+    call print
+    call read_command    // r0 = first character typed
+
+    cmp r0, '1'
+    jc .bad_range         // carry => r0 < '1'
+    li r5, '9'
+    cmp r5, r0
+    jc .bad_range          // carry => '9' < r0
+
+    sub r5, r0, '1'       // r5 = cell index (0-8)
+    la r6, board
+    add r7, r6, r5
+    ldrb r8, [r7 + 0]
+    cmp r8, 0
+    jnz .occupied
+
+    strb [r7 + 0], r4      // mark the cell with the current player
+
+    call check_winner       // r0 = 0 (nobody), 1 (X) or 2 (O)
+    cmp r0, 0
+    jnz .have_winner
+
+    call check_full
+    cmp r0, 1
+    jz .have_draw
+
+    ldv r4, turn            // check_winner/check_full use r4 as a scratch
+                             // register, so we reread the current turn
+                             // instead of trusting it survived the call
+    cmp r4, 1              // switch turns
+    jz .to_o
+    li r4, 1
+    jp .save_turn
+.to_o:
+    li r4, 2
+.save_turn:
+    stv turn, r4
+    jp .turn_loop
+
+.bad_range:
+    la r1, ERR_RANGE
+    call print
+    jp .turn_loop
+
+.occupied:
+    la r1, ERR_OCC
+    call print
+    jp .turn_loop
+
+.have_winner:
+    mov r11, r0            // print_board calls print/strlen, which clobber
+                             // r0, so we save the winner before that
+    call print_board
+    cmp r11, 1
+    jz .win_x
+    la r1, WIN_O_MSG
+    jp .announce
+.win_x:
+    la r1, WIN_X_MSG
+.announce:
+    call print
+    jp .end
+
+.have_draw:
+    call print_board
+    la r1, DRAW_MSG
+    call print
+
+.end:
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+// -------------------------------------------------------------
+// Subroutines
+// -------------------------------------------------------------
+
+// check_winner() -> r0 = 0 (no winner yet), 1 or 2 (winning mark).
+// Walks WIN_LINES 3 at a time, comparing each line's 3 cells.
+check_winner:
+    la r6, board          // r6 = board base (constant through the loop)
+    la r1, WIN_LINES      // r1 = pointer to the current line
+    li r2, 8               // r2 = lines remaining
+
+.line_loop:
+    ldrb r3, [r1 + 0]      // index a
+    ldrb r4, [r1 + 1]      // index b
+    ldrb r5, [r1 + 2]      // index c
+
+    add r10, r6, r3
+    ldrb r7, [r10 + 0]     // board[a]
+    add r10, r6, r4
+    ldrb r8, [r10 + 0]     // board[b]
+    add r10, r6, r5
+    ldrb r9, [r10 + 0]     // board[c]
+
+    cmp r7, 0
+    jz .next_line          // empty cell: this line can't win
+    cmp r7, r8
+    jnz .next_line
+    cmp r8, r9
+    jnz .next_line
+
+    mov r0, r7              // a, b and c match and aren't empty: winner
+    ret
+
+.next_line:
+    add r1, r1, 3
+    sub r2, r2, 1
+    cmp r2, 0
+    jnz .line_loop
+
+    li r0, 0
+    ret
+
+// check_full() -> r0 = 1 if all 9 cells are occupied, 0 otherwise.
+check_full:
+    la r1, board
+    li r2, 9
+.cf_loop:
+    ldrb r3, [r1 + 0]
+    cmp r3, 0
+    jz .cf_not_full
+    add r1, r1, 1
+    sub r2, r2, 1
+    cmp r2, 0
+    jnz .cf_loop
+    li r0, 1
+    ret
+.cf_not_full:
+    li r0, 0
+    ret
+
+// print_board() -> prints the current 3x3 board with separators.
+print_board:
+    li r1, 0
+    call print_cell
+    call print_bar
+    li r1, 1
+    call print_cell
+    call print_bar
+    li r1, 2
+    call print_cell
+    li r6, NEWLINE
+    outb TERM_OUT, r6
+    la r1, SEP
+    call print
+
+    li r1, 3
+    call print_cell
+    call print_bar
+    li r1, 4
+    call print_cell
+    call print_bar
+    li r1, 5
+    call print_cell
+    li r6, NEWLINE
+    outb TERM_OUT, r6
+    la r1, SEP
+    call print
+
+    li r1, 6
+    call print_cell
+    call print_bar
+    li r1, 7
+    call print_cell
+    call print_bar
+    li r1, 8
+    call print_cell
+    li r6, NEWLINE
+    outb TERM_OUT, r6
+    ret
+
+// print_cell(r1 = index 0-8) -> prints " N " (empty), " X " or " O ".
+print_cell:
+    la r3, board
+    add r3, r3, r1
+    ldrb r4, [r3 + 0]
+
+    li r5, ' '
+    outb TERM_OUT, r5
+
+    cmp r4, 0
+    jz .empty
+    cmp r4, 1
+    jz .is_x
+    li r5, 'O'
+    jp .print_it
+.is_x:
+    li r5, 'X'
+    jp .print_it
+.empty:
+    add r5, r1, '1'        // show the cell's number (index+1)
+.print_it:
+    outb TERM_OUT, r5
+    li r5, ' '
+    outb TERM_OUT, r5
+    ret
+
+print_bar:
+    li r6, '|'
+    outb TERM_OUT, r6
+    ret
+
+// read_command() -> r0 = first byte of the next line typed.
+read_command:
+.wait_first:
+    inb r1, TERM_STATUS
+    and r1, r1, 1
+    jz .wait_first
+    inb r0, TERM_IN
+.flush:
+    inb r1, TERM_STATUS
+    and r1, r1, 1
+    jz .flush
+    inb r2, TERM_IN
+    cmp r2, NEWLINE
+    jnz .flush
+    ret
+
+// print(r1 = pointer to a zero-terminated string)
+print:
+    mov r3, r1
+    call strlen
+    mov r2, r0
+    outm TERM_OUT, r3, r2
+    ret
+
+strlen:
+    xor r0, r0, r0
+.loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .end
+    add r0, r0, 1
+    add r1, r1, 1
+    jp .loop
+.end:
+    ret

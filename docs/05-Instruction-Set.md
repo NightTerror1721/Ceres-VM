@@ -3,7 +3,7 @@
 [← Back to index](README.md)
 
 This page documents every **real** opcode the VM executes — the values of `ceres::vm::Opcode` in
-[`opcodes.h`](../Ceres-ASM/src/vm/opcodes.h). For the **pseudo-instructions** that expand into
+[`opcodes.h`](../Ceres/libs/core/include/ceres/core/isa/opcodes.h). For the **pseudo-instructions** that expand into
 several real ones (`la`, `ldv`, `stv`, `neg`, `swap`, the `ifXX` family and
 the rest), see [Pseudo-instructions](06-Pseudo-Instructions.md).
 
@@ -14,11 +14,11 @@ the rest), see [Pseudo-instructions](06-Pseudo-Instructions.md).
   [Instruction format](04-Instruction-Format.md)).
 - Where one mnemonic has several assembly forms (e.g. `add rd, rs, rt` vs. `add rd, rs, imm16`),
   **the assembler chooses the opcode automatically** based on the operand types — this is exactly
-  what the table in [`instruction_info.cpp`](../Ceres-ASM/src/assembler/instruction_info.cpp)
+  what the table in [`instruction_info.cpp`](../Ceres/libs/asm/src/instruction_info.cpp)
   encodes. You never write the opcode name (`ADDI`) yourself; you always write the mnemonic (`add`)
   and the assembler picks the right variant.
 - Mnemonics in `.casm` source are **case-insensitive** keywords, matched against `Mnemonic` in
-  [`mnemonic.h`](../Ceres-ASM/src/assembler/mnemonic.h) — `ADD`, `Add` and `add` are identical.
+  [`mnemonic.h`](../Ceres/libs/asm/include/ceres/asm/mnemonic.h) — `ADD`, `Add` and `add` are identical.
 - "Flags" lists what each instruction updates; a dash means it does not touch the flags register at
   all.
 

@@ -57,18 +57,22 @@ below for what rename/references deliberately don't reach.
 You need a built `ceres` executable. From the repository root:
 
 ```sh
-cd Ceres-ASM/src
-g++ -std=c++23 -I. -o ceres.exe main.cpp vm/*.cpp assembler/*.cpp debug/*.cpp -lstdc++exp
+cd Ceres
+cmake --preset gcc && cmake --build --preset gcc-debug
 ```
 
-The extension looks for it automatically at `Ceres-ASM/src/ceres[.exe]` under each open
-workspace folder, then falls back to `ceres` on `PATH`. If neither exists, set the full path
-explicitly:
+`--preset msvc` works the same way on Windows; any of the presets will do.
+
+The extension finds it by scanning `Ceres/build/<preset>/bin/<config>/ceres[.exe]` under each
+open workspace folder, and takes the **most recently built** one when several exist - so the
+configuration you compiled last is the one that checks your code. It then falls back to a loose
+`ceres` at the workspace root, and finally to `ceres` on `PATH`. If none of that fits, set the
+full path explicitly:
 
 ```jsonc
 // .vscode/settings.json
 {
-  "ceresAsm.compilerPath": "D:/Projects/CeresASM/Ceres-ASM/src/ceres.exe"
+  "ceresAsm.compilerPath": "D:/Projects/CeresASM/Ceres/build/msvc/bin/Debug/ceres.exe"
 }
 ```
 
@@ -80,7 +84,7 @@ This extension is not published yet. To try it:
 2. `npm run compile`.
 3. Open this folder in VSCode and press **F5** (Run Extension) to launch an Extension
    Development Host.
-4. In that window, open a `.casm` file (e.g. `Ceres-ASM/examples/main.casm`).
+4. In that window, open a `.casm` file (e.g. `Ceres/examples/main.casm`).
 
 Use the **CeresASM: Restart Language Server** command from the command palette if you change
 `ceresAsm.compilerPath` and diagnostics don't update.

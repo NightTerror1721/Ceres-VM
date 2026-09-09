@@ -5,7 +5,7 @@
 ## How an error is represented internally
 
 Every diagnostic the assembler produces is an `AssemblerErrorEntry`
-(in [`errors.h`](../Ceres-ASM/src/assembler/errors.h)):
+(in [`errors.h`](../Ceres/libs/asm/include/ceres/asm/errors.h)):
 
 ```cpp
 struct AssemblerErrorEntry
@@ -100,7 +100,7 @@ Printed to **stdout** (not stderr), always as valid JSON — an empty array `[]`
 tooling can parse the output unconditionally without special-casing the no-error case. Every field
 is always present, including `severity`, which is `"error"` or `"warning"`. String values are escaped for the small fixed set of characters the assembler's own
 messages can contain (quotes, backslashes, control characters) — see `jsonEscape()` in
-[`main.cpp`](../Ceres-ASM/src/main.cpp); this is a minimal escaper for the shape of text the
+[`main.cpp`](../Ceres/apps/cli/src/main.cpp); this is a minimal escaper for the shape of text the
 assembler itself produces, not a general-purpose JSON serializer suitable for arbitrary input.
 
 `--json` only changes how **assembly** diagnostics are reported (the `asm` command). It has no effect

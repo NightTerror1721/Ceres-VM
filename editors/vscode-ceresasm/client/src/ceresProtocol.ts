@@ -117,7 +117,7 @@ export class CeresProtocolClient {
 				// ENOENT here means the executable was not found, which is by far the most common
 				// way this goes wrong and deserves to say so plainly.
 				const message = (error as NodeJS.ErrnoException).code === 'ENOENT'
-					? `Could not run '${executable}'. Build it under Ceres-ASM/src, or set 'ceresAsm.compilerPath'.`
+					? `Could not run '${executable}'. Build it with "cmake --build --preset msvc-debug" in Ceres/, or set 'ceresAsm.compilerPath'.`
 					: error.message;
 				if (!settled) {
 					settled = true;

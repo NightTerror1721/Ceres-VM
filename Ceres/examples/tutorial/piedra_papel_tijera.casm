@@ -1,0 +1,236 @@
+// ============================================================
+//  ROCK, PAPER, SCISSORS — against the machine
+// ============================================================
+//
+// Brings together everything from exercises 1-7:
+//   - printing strings (exercise 1)
+//   - reading keyboard input with read_command (exercises 2-3)
+//   - arithmetic and conditional jumps (exercises 3-4)
+//   - a scoreboard in memory (exercise 5)
+//   - macros (exercise 6)
+//   - the machine "thinks" of its move with the LCG (exercise 7)
+//
+// Internal convention: 0 = Rock, 1 = Paper, 2 = Scissors.
+// Rule: move i beats move (i - 1 + 3) mod 3, i.e. "whoever is one position
+// ahead in the cycle wins".
+//
+// TRY IT YOURSELF, in increasing order of difficulty:
+//   1. Add a different message for each winning combination ("Rock crushes
+//      scissors", etc.) instead of the generic "You win!".
+//   2. Add a "best of 3" mode: the first to win 2 rounds wins the match and
+//      the program ends on its own.
+//   3. Replace the rock/paper/scissors rule with the extended 5-option
+//      variant (rock-paper-scissors-lizard-Spock).
+
+const TERM_STATUS = 0x00
+const TERM_OUT     = 0x01
+const TERM_IN      = 0x02
+const CLOCK_PORT   = 0x11
+const SYS_CTRL     = 0xFF
+const NEWLINE      = 10
+
+@data
+    let seed:         u32 = 0
+    let score_player:  u8 = 0
+    let score_cpu:     u8 = 0
+
+@rodata
+    let LCG_A: u32 = 1103515245
+    let LCG_C: u32 = 12345
+
+    let MENU: u8[] = "\n1) Rock  2) Paper  3) Scissors  0) Quit\nYour move: "
+    let ERR_MSG:    u8[] = "I didn't understand that move, try again.\n"
+    let YOU_PICKED: u8[] = "You pick:      "
+    let CPU_PICKED: u8[] = "Machine picks: "
+    let WIN_MSG:    u8[] = "-> You win this round!\n"
+    let LOSE_MSG:   u8[] = "-> You lose this round.\n"
+    let DRAW_MSG:   u8[] = "-> Draw.\n"
+    let SCORE_MSG:  u8[] = "Score (you-machine): "
+    let BYE_MSG:    u8[] = "\nThanks for playing! Final score -> you: "
+    let BYE_MID:    u8[] = "  machine: "
+    let NL:         u8[] = "\n"
+
+    let NAME_ROCK:     u8[] = "Rock\n"
+    let NAME_PAPER:    u8[] = "Paper\n"
+    let NAME_SCISSORS: u8[] = "Scissors\n"
+
+@text
+global main:
+    in r1, CLOCK_PORT
+    stv seed, r1
+
+.round:
+    la r1, MENU
+    call print
+    call read_command       // r0 = first character typed
+
+    cmp r0, '0'
+    jz .bye
+
+    cmp r0, '1'
+    jz .valid
+    cmp r0, '2'
+    jz .valid
+    cmp r0, '3'
+    jz .valid
+
+    la r1, ERR_MSG
+    call print
+    jp .round
+
+.valid:
+    sub r4, r0, '1'          // r4 = player's move (0,1,2)
+
+    call next_random
+    mod r5, r0, 3             // r5 = machine's move (0,1,2)
+
+    la r1, YOU_PICKED
+    call print
+    mov r1, r4
+    call print_choice_name
+
+    la r1, CPU_PICKED
+    call print
+    mov r1, r5
+    call print_choice_name
+
+    sub r6, r4, r5           // r6 = (player - machine)
+    add r6, r6, 3
+    mod r6, r6, 3             // 0 = draw, 1 = win, 2 = lose
+
+    cmp r6, 0
+    jz .draw
+    cmp r6, 1
+    jz .win
+
+    // r6 == 2: lose this round
+    la r1, LOSE_MSG
+    call print
+    ldv r7, score_cpu
+    add r7, r7, 1
+    stv score_cpu, r7
+    jp .show_score
+
+.win:
+    la r1, WIN_MSG
+    call print
+    ldv r7, score_player
+    add r7, r7, 1
+    stv score_player, r7
+    jp .show_score
+
+.draw:
+    la r1, DRAW_MSG
+    call print
+
+.show_score:
+    la r1, SCORE_MSG
+    call print
+    ldv r1, score_player
+    call print_uint
+    li r7, '-'
+    outb TERM_OUT, r7
+    ldv r1, score_cpu
+    call print_uint
+    la r1, NL
+    call print
+    jp .round
+
+.bye:
+    la r1, BYE_MSG
+    call print
+    ldv r1, score_player
+    call print_uint
+    la r1, BYE_MID
+    call print
+    ldv r1, score_cpu
+    call print_uint
+    la r1, NL
+    call print
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+// -------------------------------------------------------------
+// Subroutines
+// -------------------------------------------------------------
+
+// print_choice_name(r1 = 0/1/2) -> prints "Rock"/"Paper"/"Scissors\n"
+print_choice_name:
+    cmp r1, 0
+    jz .p_rock
+    cmp r1, 1
+    jz .p_paper
+    la r1, NAME_SCISSORS
+    call print
+    ret
+.p_rock:
+    la r1, NAME_ROCK
+    call print
+    ret
+.p_paper:
+    la r1, NAME_PAPER
+    call print
+    ret
+
+// print_uint(r1 = value 0-99) -> prints one or two decimal digits, without a
+// trailing newline. Clobbers r1, r2, r3.
+print_uint:
+    li r2, 10
+    cmp r1, r2
+    jc .pu_single          // carry => r1 < 10
+    div r3, r1, r2          // tens
+    mod r1, r1, r2          // units (r1 is reused)
+    add r3, r3, '0'
+    outb TERM_OUT, r3
+.pu_single:
+    add r1, r1, '0'
+    outb TERM_OUT, r1
+    ret
+
+// next_random() -> r0 = next value in the LCG sequence
+next_random:
+    ldv r1, seed
+    ldv r2, LCG_A
+    mul r1, r1, r2
+    ldv r2, LCG_C
+    add r1, r1, r2
+    stv seed, r1
+    mov r0, r1
+    ret
+
+// read_command() -> r0 = first byte of the next line typed
+read_command:
+.wait_first:
+    inb r1, TERM_STATUS
+    and r1, r1, 1
+    jz .wait_first
+    inb r0, TERM_IN
+.flush:
+    inb r1, TERM_STATUS
+    and r1, r1, 1
+    jz .flush
+    inb r2, TERM_IN
+    cmp r2, NEWLINE
+    jnz .flush
+    ret
+
+// print(r1 = pointer to a zero-terminated string)
+print:
+    mov r3, r1
+    call strlen
+    mov r2, r0
+    outm TERM_OUT, r3, r2
+    ret
+
+strlen:
+    xor r0, r0, r0
+.loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .end
+    add r0, r0, 1
+    add r1, r1, 1
+    jp .loop
+.end:
+    ret

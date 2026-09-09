@@ -1,0 +1,59 @@
+// Exercise 4: Countdown
+//
+// Goal: practice loops with cmp/jz/jnz without needing user input. Counts
+// down from 5 to 1 and then prints "Liftoff!".
+//
+// TRY IT YOURSELF:
+//   Change the starting point to 9. Then make a second version that counts
+//   UP from 1 to 5 using "jc"/"jnc" instead of "cmp"+"jz" (hint: cmp i, LIMIT
+//   and check the carry, like in exercise 3).
+
+const TERM_OUT = 0x01
+const SYS_CTRL = 0xFF
+const NEWLINE  = 10
+
+@rodata
+    let LIFTOFF: u8[] = "Liftoff!\n"
+
+@text
+global main:
+    li r4, 5            // r4 = counter
+
+.loop:
+    cmp r4, 0
+    jz .liftoff
+
+    add r5, r4, '0'     // convert the counter to an ascii character
+    outb TERM_OUT, r5
+    li r6, NEWLINE
+    outb TERM_OUT, r6
+
+    sub r4, r4, 1
+    jp .loop
+
+.liftoff:
+    la r1, LIFTOFF
+    call print
+
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+print:
+    mov r3, r1
+    call strlen
+    mov r2, r0
+    outm TERM_OUT, r3, r2
+    ret
+
+strlen:
+    xor r0, r0, r0
+.loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .end
+    add r0, r0, 1
+    add r1, r1, 1
+    jp .loop
+.end:
+    ret

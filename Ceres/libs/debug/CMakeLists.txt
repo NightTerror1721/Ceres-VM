@@ -1,13 +1,13 @@
-# ceres-debug - el depurador.
+# ceres-debug - the debugger.
 #
-# Sesión de depuración, historial de ejecución hacia atrás, evaluador de expresiones, el JSON
-# mínimo del protocolo, la CLI interactiva y el servidor NDJSON que habla con el editor.
+# Debug session, backward execution history, expression evaluator, the protocol's minimal JSON,
+# the interactive CLI and the NDJSON server that talks to the editor.
 #
-# Depende de ceres-asm porque la sesión ensambla fuente sobre la marcha. Eso no es un ciclo: es
-# el depurador estando por encima del ensamblador, que es donde le toca estar.
+# Depends on ceres-asm because the session assembles source on the fly. That's not a cycle: it's
+# the debugger sitting above the assembler, which is where it belongs.
 #
-# Ojo: la información de depuración (el formato, las tablas de líneas y símbolos) NO está aquí.
-# Vive en ceres-core, junto al resto de formatos.
+# Note: debug information (the format, the line and symbol tables) is NOT here. It lives in
+# ceres-core, alongside the rest of the formats.
 
 ceres_add_library(debug DEPENDS core vm devices asm)
 ceres_add_tests(debug)

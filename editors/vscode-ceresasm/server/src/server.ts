@@ -280,7 +280,7 @@ async function validateDocument(document: TextDocument): Promise<void> {
 		const notCheckedMessage =
 			error instanceof CompilerNotFoundError
 				? "CeresASM: couldn't find the 'ceres' compiler, so this file hasn't been checked. Build it " +
-					"under Ceres-ASM/src (see the extension README), or set 'ceresAsm.compilerPath' in your settings."
+					"with `cmake --build --preset msvc-debug` in Ceres/ (see the extension README), or set 'ceresAsm.compilerPath' in your settings."
 				: `CeresASM: this file hasn't been checked - ${(error as Error).message}`;
 		getBucket(document.uri).push({
 			severity: DiagnosticSeverity.Warning,

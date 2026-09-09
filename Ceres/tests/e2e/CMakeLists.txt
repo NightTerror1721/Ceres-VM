@@ -1,13 +1,13 @@
-# Los tests de extremo a extremo.
+# The end-to-end tests.
 #
-# Nueve de los quince ficheros de la suite actual pasan por assemble_helper.h: ensamblan fuente
-# y ejecutan el resultado. test_encoding.cpp son 920 líneas que prueban la codificación de
-# instrucciones... ensamblando texto.
+# Nine of the current suite's fifteen files go through assemble_helper.h: they assemble source
+# and run the result. test_encoding.cpp is 920 lines that test instruction encoding... by
+# assembling text.
 #
-# Son buenos tests, y no se trata de reescribirlos. Se trata de llamarlos por lo que son. Aquí
-# viven los que necesitan la tubería entera; a libs/<x>/tests/ bajan sólo los que ya se sostienen
-# con una librería sola: test_json y test_program_file a core, test_vm y test_devices a vm,
-# test_expression y test_history a debug.
+# They're good tests, and this isn't about rewriting them. It's about calling them what they are.
+# The ones that need the whole pipeline live here; only the ones that already stand on a single
+# library move down to libs/<x>/tests/: test_json and test_program_file to core, test_vm and
+# test_devices to vm, test_expression and test_history to debug.
 
 file(GLOB sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
@@ -16,7 +16,7 @@ if(NOT sources)
 endif()
 
 if(NOT TARGET ceres_test_main)
-	message(STATUS "ceres: hay tests e2e, pero falta tests/framework/main.cpp - suite omitida")
+	message(STATUS "ceres: e2e tests exist, but tests/framework/main.cpp is missing - suite skipped")
 	return()
 endif()
 

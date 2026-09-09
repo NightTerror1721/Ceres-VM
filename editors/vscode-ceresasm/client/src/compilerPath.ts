@@ -6,26 +6,64 @@
 // `ceresAsm.compilerPath` setting and look under the same relative paths, and they must keep
 // agreeing about what "the compiler" means.
 
-import { stat } from 'fs/promises';
+import { readdir, stat } from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-const CANDIDATE_RELATIVE_PATHS = [
-	path.join('Ceres-ASM', 'src', 'ceres.exe'),
-	path.join('Ceres-ASM', 'src', 'ceres'),
-	path.join('src', 'ceres.exe'),
-	path.join('src', 'ceres'),
-	'ceres.exe',
-	'ceres'
-];
+const EXECUTABLE_NAMES = ['ceres.exe', 'ceres'];
+
+// A loose `ceres` sitting at a candidate root, which is what someone gets after copying the
+// binary somewhere convenient. Everything built by CMake is found by scanning instead - see
+// cmakeBuildCandidates - because its path carries two segments nobody can list in advance.
+const CANDIDATE_RELATIVE_PATHS = EXECUTABLE_NAMES;
 
 const MAX_ANCESTOR_SEARCH_DEPTH = 8;
 
+// CMake puts the binary at <root>/[Ceres/]build/<preset>/bin/<config>/ceres[.exe]. Both the
+// preset ("msvc", "gcc", "ninja", or whatever else lives in CMakeUserPresets.json) and the
+// configuration ("Debug", "Release", ...) are chosen by whoever built it, so the only honest way
+// to find it is to read the two directories rather than guess their contents. A single-config
+// generator drops the executable straight into bin/, so that shape is tried too.
+async function cmakeBuildCandidates(root: string): Promise<string[]> {
+	const candidates: string[] = [];
+
+	for (const buildRoot of [path.join(root, 'Ceres', 'build'), path.join(root, 'build')]) {
+		let presets: string[];
+		try {
+			presets = await readdir(buildRoot);
+		} catch {
+			continue; // No build tree here; the next root gets its turn.
+		}
+
+		for (const preset of presets) {
+			const binDirectory = path.join(buildRoot, preset, 'bin');
+			let configurations: string[];
+			try {
+				configurations = await readdir(binDirectory);
+			} catch {
+				continue;
+			}
+
+			for (const name of EXECUTABLE_NAMES) {
+				candidates.push(path.join(binDirectory, name));
+			}
+			for (const configuration of configurations) {
+				for (const name of EXECUTABLE_NAMES) {
+					candidates.push(path.join(binDirectory, configuration, name));
+				}
+			}
+		}
+	}
+
+	return candidates;
+}
+
 // Every candidate that exists, newest first. Taking the first one that exists instead used to
-// mean that a stale build left in Ceres-ASM/src won a workspace-root one that had just been
-// rebuilt - and a compiler older than the language rejects source that is perfectly valid, with
-// a message about the source rather than about itself. The newest build is the one that knows
-// the most mnemonics, so it is the one to run.
+// mean that a stale build won one that had just been rebuilt - and a compiler older than the
+// language rejects source that is perfectly valid, with a message about the source rather than
+// about itself. The newest build is the one that knows the most mnemonics, so it is the one to
+// run. With several presets and configurations side by side this matters more, not less: the
+// one you built last is the one you meant.
 async function newestExisting(candidates: string[]): Promise<string | null> {
 	const found: { path: string; modifiedAt: number }[] = [];
 	for (const candidate of candidates) {
@@ -73,6 +111,7 @@ export async function resolveCeresExecutable(programPath?: string): Promise<stri
 		for (const relative of CANDIDATE_RELATIVE_PATHS) {
 			candidates.push(path.join(root, relative));
 		}
+		candidates.push(...await cmakeBuildCandidates(root));
 	}
 
 	const newest = await newestExisting(candidates);

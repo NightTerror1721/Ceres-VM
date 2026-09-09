@@ -15,11 +15,11 @@ fixed layout; different opcodes simply interpret different subsets of the bits.
                                               |<--- imm8 ----->|
 ```
 
-From [`instructions.h`](../Ceres-ASM/src/vm/instructions.h):
+From [`instructions.h`](../Ceres/libs/core/include/ceres/core/isa/instructions.h):
 
 | Field | Bits | Mask | Notes |
 | --- | --- | --- | --- |
-| `opcode` | 31:24 | `0xFF000000` | One of the 8-bit values in [`opcodes.h`](../Ceres-ASM/src/vm/opcodes.h). |
+| `opcode` | 31:24 | `0xFF000000` | One of the 8-bit values in [`opcodes.h`](../Ceres/libs/core/include/ceres/core/isa/opcodes.h). |
 | `rd` / `fd` | 23:20 | `0x00F00000` | Destination register. Only 4 bits — a register index is always 0–15. |
 | `rs` / `fs` | 19:16 | `0x000F0000` | First source register. |
 | `rt` / `ft` | 15:12 | `0x0000F000` | Second source register. |
@@ -71,7 +71,7 @@ target address straight out of a register — no displacement arithmetic involve
 
 ## Reading and writing fields
 
-[`instructions.h`](../Ceres-ASM/src/vm/instructions.h) exposes both accessors and constructors for
+[`instructions.h`](../Ceres/libs/core/include/ceres/core/isa/instructions.h) exposes both accessors and constructors for
 every field:
 
 ```cpp

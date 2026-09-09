@@ -1,0 +1,958 @@
+#include <ceres/asm/binary_emitter.h>
+#include <optional>
+
+namespace ceres::casm
+{
+	namespace
+	{
+		// The two enumerations happen to agree today, but debug::ScalarType is a file format and
+		// DataTypeScalarCode is an implementation detail, so they are translated rather than cast.
+		u8 toDebugScalarType(DataTypeScalarCode code) noexcept
+		{
+			switch (code)
+			{
+				case DataTypeScalarCode::U8:  return static_cast<u8>(ScalarType::U8);
+				case DataTypeScalarCode::U16: return static_cast<u8>(ScalarType::U16);
+				case DataTypeScalarCode::U32: return static_cast<u8>(ScalarType::U32);
+				case DataTypeScalarCode::I8:  return static_cast<u8>(ScalarType::I8);
+				case DataTypeScalarCode::I16: return static_cast<u8>(ScalarType::I16);
+				case DataTypeScalarCode::I32: return static_cast<u8>(ScalarType::I32);
+				case DataTypeScalarCode::F32: return static_cast<u8>(ScalarType::F32);
+				default:                      return static_cast<u8>(ScalarType::Invalid);
+			}
+		}
+	}
+
+	std::optional<Program> BinaryEmitter::emit()
+	{
+		Address entryPoint = Address::Null;
+		auto mainSymbol = _state.get().globalSymbolTable().get(SymbolTable::EntryPointLabelName);
+		const bool hasEntryPoint = mainSymbol.has_value() && mainSymbol.value().get().isLabel()
+			&& mainSymbol.value().get().isGlobal() && mainSymbol.value().get().hasAddress();
+
+		if (hasEntryPoint)
+		{
+			entryPoint = mainSymbol.value().get().address();
+		}
+		else if (_requireEntryPoint)
+		{
+			reportError(0, "Entry point label '{}' is not defined or not a global label", SymbolTable::EntryPointLabelName);
+			return std::nullopt;
+		}
+		// Without an entry point requirement the program below is built and thrown away: everything
+		// the emitter checks per instruction (immediates that do not fit, branches out of range,
+		// unresolved symbolic offsets) is diagnosed exactly as it would be for a real build.
+
+		for (const auto& unit : _state.get().translationUnits())
+		{
+			// An object is one unit's worth of bytes. Its imports were read for what they declare,
+			// the way a header is: emitting them here would put the same code in every object that
+			// imported the file, and the link would find each of those definitions twice over.
+			if (!_objectRootFile.empty() && unit.file() != _objectRootFile)
+				continue;
+
+			std::optional<SectionType> currentSection = std::nullopt;
+			const usize textStart = _textBuffer.size();
+			const usize rodataStart = _rodataBuffer.size();
+			const usize dataStart = _dataBuffer.size();
+			for (const auto& statement : unit.ast())
+			{
+				_currentFile = statement.file();
+
+				if (statement.isSection())
+				{
+					currentSection = statement.asSection().section;
+				}
+				else if (statement.isPadding())
+				{
+					// `align` and `org` reserved these; they are zero, like every other gap. .bss
+					// emits nothing at all, so its padding was never recorded as a statement.
+					if (!currentSection.has_value())
+					{
+						reportError(statement.line(), "Padding must be preceded by a section statement");
+						return std::nullopt;
+					}
+
+					auto& buffer = currentSection.value() == SectionType::Text ? _textBuffer
+						: currentSection.value() == SectionType::Rodata ? _rodataBuffer
+						: _dataBuffer;
+					for (u32 i = 0; i < statement.size(); ++i)
+						buffer.push_back(u8{ 0 });
+				}
+				else if (statement.isData())
+				{
+					if (!currentSection.has_value())
+					{
+						reportError(statement.line(), "Data statement must be preceded by a section statement");
+						return std::nullopt;
+					}
+					switch (currentSection.value())
+					{
+						case SectionType::Data:
+							emitData(statement, false);
+							break;
+
+						case SectionType::Rodata:
+							emitData(statement, true);
+							break;
+
+						case SectionType::BSS:
+							// BSS section does not have initial values, so we don't emit data for it.
+							break;
+
+						case SectionType::Text:
+							reportError(statement.line(), "Data statement cannot be in the text section");
+							return std::nullopt;
+
+						default:
+							reportError(statement.line(), "Unsupported section type");
+							return std::nullopt;
+					}
+					
+				}
+				else if (statement.isInstruction())
+				{
+					if (!currentSection.has_value() || currentSection.value() != SectionType::Text)
+					{
+						reportError(statement.line(), "Instruction statement must be in the text section");
+						return std::nullopt;
+					}
+					emitInstruction(statement);
+				}
+			}
+
+			// Mirrors alignUp() in the linker: it advanced the next unit's offsets by an aligned
+			// size, so the bytes have to be padded to the same boundary.
+			padSectionToAlignment(_textBuffer, textStart);
+			padSectionToAlignment(_rodataBuffer, rodataStart);
+			padSectionToAlignment(_dataBuffer, dataStart);
+		}
+
+		ProgramHeader header{
+			.magic = ProgramHeader::MagicNumber,
+			.version = ProgramHeader::CurrentVersion,
+			.entryPoint = entryPoint.value(),
+			.textSize = _state.get().memoryMap().textSize,
+			.rodataSize = _state.get().memoryMap().rodataSize,
+			.dataSize = _state.get().memoryMap().dataSize,
+			.bssSize = _state.get().memoryMap().bssSize,
+			.minimumStack = 1024 // For now, we can set this to 1024. In the future, we might want to calculate the minimum stack size based on the program's requirements.
+		};
+
+		std::vector<u8> debugSection;
+		if (_emitDebugInfo)
+		{
+			recordDebugSymbols();
+			recordFrames();
+			_debugInfo = _debugBuilder.release();
+			debugSection = _debugInfo.serialize();
+		}
+
+		return Program::make(
+			header,
+			_textBuffer,
+			_rodataBuffer,
+			_dataBuffer,
+			debugSection
+		);
+	}
+
+	// Addresses here are the ones the linker handed out, already relocated to where the loader will
+	// place each section, so nothing downstream has to adjust them.
+	void BinaryEmitter::recordDebugSymbols()
+	{
+		for (const auto& unit : _state.get().translationUnits())
+		{
+			if (!_objectRootFile.empty() && unit.file() != _objectRootFile)
+				continue;
+
+			for (const auto& [name, symbol] : unit.symbolTable().getAllSymbols())
+			{
+				SymbolEntry entry;
+				entry.nameOffset = _debugBuilder.internString(name);
+				entry.address = symbol.hasAddress() ? symbol.address().value() : 0;
+
+				switch (symbol.type())
+				{
+					case SymbolType::Label:    entry.kind = static_cast<u8>(SymbolKind::Label); break;
+					case SymbolType::Constant: entry.kind = static_cast<u8>(SymbolKind::Constant); break;
+					case SymbolType::Variable: entry.kind = static_cast<u8>(SymbolKind::Variable); break;
+				}
+
+				// A constant occupies no memory, so it belongs to no section however the symbol
+				// table happens to have tagged it.
+				if (symbol.isConstant())
+				{
+					entry.section = static_cast<u8>(SymbolSection::None);
+				}
+				else
+				{
+					switch (symbol.section())
+					{
+						case SectionType::Text:   entry.section = static_cast<u8>(SymbolSection::Text); break;
+						case SectionType::Rodata: entry.section = static_cast<u8>(SymbolSection::Rodata); break;
+						case SectionType::Data:   entry.section = static_cast<u8>(SymbolSection::Data); break;
+						case SectionType::BSS:    entry.section = static_cast<u8>(SymbolSection::BSS); break;
+					}
+				}
+
+				if (symbol.isGlobal())
+					entry.flags |= SymbolFlag::Global;
+				if (symbol.isReadonly())
+					entry.flags |= SymbolFlag::Readonly;
+
+				if (symbol.hasDataType())
+				{
+					const DataType dataType = symbol.dataType();
+					entry.scalarType = toDebugScalarType(dataType.scalarCode());
+					entry.elementCount = dataType.numElements();
+					entry.size = dataType.sizeInBytes().value_or(0);
+				}
+
+				// Only a scalar constant carries a value a debugger can show; an array one would
+				// need the whole literal, which is not worth a variable-length record here.
+				if (symbol.isConstant() && symbol.hasValue() && symbol.value().isScalar())
+				{
+					const LiteralScalar& scalar = symbol.value().elements().front();
+					entry.scalarType = toDebugScalarType(scalar.scalarCode());
+					entry.value = scalar.rawBits();
+					entry.flags |= SymbolFlag::HasValue;
+				}
+
+				_debugBuilder.addSymbol(entry);
+			}
+		}
+	}
+
+	// Where each function begins and ends, and whether it opens a frame pointer. The call stack is
+	// otherwise reconstructed by watching CALL and RET go past, which a program that unwinds by
+	// hand can desynchronise; a function with a frame can be walked instead of guessed at.
+	//
+	// A function here is a non-local label in .text, and it runs until the next one. What the
+	// assembler knows that the machine does not is that the first thing it does is an ENTER - and
+	// that instruction has already been emitted by the time this runs, so its operand is read back
+	// out of the text rather than inferred.
+	void BinaryEmitter::recordFrames()
+	{
+		struct Boundary { u32 address; };
+		std::vector<Boundary> starts;
+
+		for (const auto& unit : _state.get().translationUnits())
+		{
+			if (!_objectRootFile.empty() && unit.file() != _objectRootFile)
+				continue;
+
+			for (const auto& [name, symbol] : unit.symbolTable().getAllSymbols())
+			{
+				if (!symbol.isLabel() || symbol.section() != SectionType::Text || !symbol.hasAddress())
+					continue;
+				// A local label is a place inside a function, not a function.
+				if (name.find('.') != std::string::npos)
+					continue;
+				starts.push_back(Boundary{ symbol.address().value() });
+			}
+		}
+
+		std::ranges::sort(starts, {}, &Boundary::address);
+
+		const u32 textStart = _state.get().memoryMap().textStart.value();
+		const u32 textEnd = textStart + static_cast<u32>(_textBuffer.size());
+
+		for (usize i = 0; i < starts.size(); ++i)
+		{
+			FrameEntry frame;
+			frame.address = starts[i].address;
+			frame.endAddress = i + 1 < starts.size() ? starts[i + 1].address : textEnd;
+
+			// Read the first instruction back out of what was emitted. An ENTER there is what
+			// makes the frame walkable; anything else means this function has no frame pointer.
+			const usize offset = frame.address - textStart;
+			if (offset + Instruction::Size <= _textBuffer.size())
+			{
+				const u32 raw =
+					static_cast<u32>(_textBuffer[offset]) |
+					(static_cast<u32>(_textBuffer[offset + 1]) << 8) |
+					(static_cast<u32>(_textBuffer[offset + 2]) << 16) |
+					(static_cast<u32>(_textBuffer[offset + 3]) << 24);
+
+				const Instruction first{ raw };
+				if (first.opcode() == Opcode::ENTER)
+				{
+					frame.frameSize = first.imm16();
+					frame.flags |= FrameFlag::HasFramePointer;
+				}
+			}
+
+			_debugBuilder.addFrame(frame);
+		}
+	}
+
+	void BinaryEmitter::recordDebugLine(const RelocatableStatement& statement, Address address, u16 flags)
+	{
+		LineEntry entry;
+		entry.address = address.value();
+		entry.fileId = _debugBuilder.internFile(statement.file());
+		entry.line = statement.line();
+		entry.expansionFileId = _debugBuilder.internFile(statement.expansionFile());
+		entry.expansionLine = statement.expansionLine();
+		entry.macroDepth = statement.macroDepth();
+		entry.flags = flags;
+
+		if (statement.macroDepth() > 0)
+			entry.flags |= LineFlag::MacroExpansion;
+
+		_debugBuilder.addLine(entry);
+	}
+
+	// Mirrors alignCurrentOffset() in the translation unit: both have to insert the same padding
+	// or the bytes drift away from the addresses the linker handed out.
+	// Pads whatever a single unit contributed up to the section alignment.
+	void BinaryEmitter::padSectionToAlignment(std::vector<u8>& buffer, usize unitStart)
+	{
+		const usize contributed = buffer.size() - unitStart;
+		const usize remainder = contributed % SectionAlignment;
+		if (remainder != 0)
+			buffer.resize(buffer.size() + (SectionAlignment - remainder), 0);
+	}
+
+	void BinaryEmitter::padToAlignment(std::vector<u8>& buffer, u32 alignment)
+	{
+		if (alignment <= 1)
+			return;
+
+		const usize misaligned = buffer.size() % alignment;
+		if (misaligned != 0)
+			buffer.resize(buffer.size() + (alignment - misaligned), 0);
+	}
+
+	void BinaryEmitter::emitData(const RelocatableStatement& statement, bool isRodata)
+	{
+		const ResolvedDataStatement& data = statement.asData();
+		std::vector<u8>& buffer = isRodata ? _rodataBuffer : _dataBuffer;
+
+		padToAlignment(buffer, data.dataType.alignment());
+		
+		if (data.value.has_value())
+		{
+			const LiteralValue& value = data.value.value();
+			DataType type = data.dataType;
+			if (value.hasUnknownSize())
+			{
+				reportError(statement.line(), "Data statement has an initial value with unknown size");
+				return;
+			}
+
+			u32 size = 0;
+			if (type.hasUnknownSize())
+				size = type.withNumElements(static_cast<u32>(value.elements().size())).sizeInBytes().value_or(0);
+			else
+				size = type.sizeInBytes().value_or(0);
+
+			if (size == 0)
+			{
+				reportError(statement.line(), "Cannot determine size of data statement");
+				return;
+			}
+
+			const usize bufferStart = buffer.size();
+
+			for (const auto& scalarValue : value.elements())
+			{
+				switch (type.scalarCode())
+				{
+					case DataTypeScalarCode::U8:
+						writeToBuffer(buffer, static_cast<u8>(scalarValue.value().u8Value));
+						break;
+
+					case DataTypeScalarCode::U16:
+						writeToBuffer(buffer, static_cast<u16>(scalarValue.value().u16Value));
+						break;
+
+					case DataTypeScalarCode::U32:
+						writeToBuffer(buffer, static_cast<u32>(scalarValue.value().u32Value));
+						break;
+
+					case DataTypeScalarCode::I8:
+						writeToBuffer(buffer, static_cast<i8>(scalarValue.value().i8Value));
+						break;
+
+					case DataTypeScalarCode::I16:
+						writeToBuffer(buffer, static_cast<i16>(scalarValue.value().i16Value));
+						break;
+
+					case DataTypeScalarCode::I32:
+						writeToBuffer(buffer, static_cast<i32>(scalarValue.value().i32Value));
+						break;
+
+					case DataTypeScalarCode::F32:
+						writeToBuffer(buffer, static_cast<f32>(scalarValue.value().f32Value));
+						break;
+
+					default:
+						reportError(statement.line(), "Unsupported data type for scalar value in data statement");
+						return;
+				}
+			}
+
+			// A declaration may be larger than its initialiser (`let buf: u8[64] = "hi"`). The linker
+			// already reserved the declared size, so the remainder has to be written out as zeroes or
+			// every later symbol sits at the wrong address.
+			const usize written = buffer.size() - bufferStart;
+			if (written > size)
+			{
+				reportError(statement.line(), "Data statement emitted {} bytes but only {} were reserved", written, size);
+				return;
+			}
+			if (written < size)
+				buffer.resize(bufferStart + size, 0);
+		}
+		else
+		{
+			if (isRodata)
+			{
+				reportError(0, "Read-only data statement must have an initial value");
+				return;
+			}
+
+			u32 size = statement.size();
+			if (size == 0)
+			{
+				reportError(statement.line(), "Data statement must have a non-zero size");
+				return;
+			}
+
+			buffer.resize(buffer.size() + size, 0);
+		}
+	}
+
+	namespace
+	{
+		// The raw value an operand contributes to an immediate field, before shifting.
+		std::optional<u32> immediateSourceValue(const Operand& operand) noexcept
+		{
+			if (operand.isVariable())
+				return operand.asVariable().address.value();
+			if (operand.isLabel())
+				return operand.asLabel().address.value();
+			if (operand.isImmediate())
+				return operand.asImmediate().value;
+			return std::nullopt;
+		}
+
+		// True when truncating to `bits` loses nothing, reading the value as either signed or
+		// unsigned. Same rule the literal narrowing uses, so `-1` fits a byte and `70000` does not.
+		constexpr bool fitsInBits(u32 value, u32 bits) noexcept
+		{
+			if (bits >= 32)
+				return true;
+
+			const u32 mask = (1u << bits) - 1u;
+			const u32 truncated = value & mask;
+			const u32 signExtended = (truncated & (1u << (bits - 1))) != 0 ? (truncated | ~mask) : truncated;
+
+			return value == truncated || value == signExtended;
+		}
+
+		constexpr u32 immediateFieldWidth(OpcodeParameterType type) noexcept
+		{
+			switch (type)
+			{
+				case OpcodeParameterType::IMM8: return 8;
+				case OpcodeParameterType::IMM16:
+				case OpcodeParameterType::IMM16_LOW:
+				case OpcodeParameterType::SIMM16:
+				case OpcodeParameterType::RD_SIMM16:
+				case OpcodeParameterType::RS_SIMM16:
+				case OpcodeParameterType::RT_SIMM16:
+				case OpcodeParameterType::REL_SIMM16: return 16;
+				case OpcodeParameterType::IMM24:
+				case OpcodeParameterType::SIMM24:
+				case OpcodeParameterType::REL_ADDR: return 24;
+				case OpcodeParameterType::REL_ADDR20: return 20;
+				default: return 32;
+			}
+		}
+
+		constexpr std::string_view immediateFieldName(OpcodeParameterType type) noexcept
+		{
+			switch (type)
+			{
+				case OpcodeParameterType::IMM8: return "an 8-bit immediate";
+				case OpcodeParameterType::IMM16: return "a 16-bit immediate";
+				case OpcodeParameterType::IMM16_LOW: return "a 16-bit immediate";
+				case OpcodeParameterType::SIMM16: return "a signed 16-bit immediate";
+				case OpcodeParameterType::IMM24: return "a 24-bit immediate";
+				case OpcodeParameterType::SIMM24: return "a signed 24-bit immediate";
+				case OpcodeParameterType::REL_ADDR: return "a 24-bit relative displacement";
+				default: return "an immediate";
+			}
+		}
+	}
+
+	bool BinaryEmitter::checkDisplacement(const RelocatableStatement& statement, u32 value)
+	{
+		const i32 signedValue = static_cast<i32>(value);
+		if (signedValue >= -32768 && signedValue <= 32767)
+			return true;
+
+		reportError(statement.line(),
+			"Memory displacement {} does not fit in a signed 16-bit field (-32768 to 32767)", signedValue);
+		return false;
+	}
+
+	namespace
+	{
+		// The encoding field a parameter writes into, in the linker's own vocabulary. Only the
+		// types that can ever carry an address appear here; anything else never becomes a
+		// relocation, because its value was written in the source.
+		RelocationField relocationFieldOf(OpcodeParameterType type) noexcept
+		{
+			switch (type)
+			{
+				case OpcodeParameterType::IMM8:   return RelocationField::Imm8;
+				case OpcodeParameterType::SIMM16: return RelocationField::SImm16;
+				case OpcodeParameterType::IMM24:  return RelocationField::Imm24;
+				case OpcodeParameterType::SIMM24: return RelocationField::SImm24;
+				default:                          return RelocationField::Imm16;
+			}
+		}
+	}
+
+	bool BinaryEmitter::recordRelocation(const Operand& operand, RelocationField field, u8 shift, bool pcRelative)
+	{
+		if (_objectRootFile.empty())
+			return false;
+
+		NullableIdentifier symbol{};
+		SectionType section = SectionType::Text;
+		bool external = false;
+		Address address = Address::Null;
+
+		if (operand.isLabel())
+		{
+			const LabelOperand& label = operand.asLabel();
+			symbol = label.symbol;
+			section = label.section;
+			external = label.external;
+			address = label.address;
+		}
+		else if (operand.isVariable())
+		{
+			const VariableOperand& variable = operand.asVariable();
+			symbol = variable.symbol;
+			section = variable.section;
+			external = variable.external;
+			address = variable.address;
+		}
+		else
+		{
+			return false; // A number written in the source is already the final value
+		}
+
+		if (symbol.isNull())
+			return false;
+
+		// A branch to a label in this same object is already correct: the two ends move together
+		// wherever the object's .text is placed, so the distance between them never changes.
+		if (pcRelative && !external && section == SectionType::Text)
+			return false;
+
+		Relocation relocation;
+		relocation.offset = static_cast<u32>(_textBuffer.size());
+		relocation.field = field;
+		relocation.shift = shift;
+		relocation.pcRelative = pcRelative;
+		relocation.section = section;
+		relocation.external = external;
+		relocation.symbol = std::string(symbol.view());
+
+		if (!external)
+			relocation.addend = static_cast<i32>(address.value()); // Its offset within its own section
+
+		_relocations.push_back(std::move(relocation));
+		return true;
+	}
+
+	void BinaryEmitter::emitInstruction(const RelocatableStatement& statement)
+	{
+		const InstructionStatement& instruction = statement.asInstruction();
+		auto infoOpt = InstructionInfo::find(instruction.signature());
+		if (!infoOpt.has_value())
+		{
+			reportError(statement.line(), "Unknown instruction signature: {}", instruction.signature().toString());
+			return;
+		}
+
+		// What the layout set aside for this statement, not the largest this mnemonic can be: those
+		// differ whenever the operands already resolved when it was laid out, and padding to the
+		// larger of the two would write past the space the addresses were computed from.
+		isize remainingOpcodes = static_cast<isize>(statement.size() / Instruction::Size);
+
+		const InstructionInfo& info = infoOpt.value();
+		for (const auto& opcodeInfo : info.opcodes())
+		{
+			Instruction encodedInstruction;
+			encodedInstruction.setOpcode(opcodeInfo.opcode());
+
+			for (usize i = 0; i < OpcodeInfo::MaxParametersPerOpcode; i++)
+			{
+				const auto& param = opcodeInfo.parameterAt(i);
+				if (param.isInvalid())
+					break;
+
+				if (param.isFixed())
+				{
+					switch (param.type())
+					{
+						case OpcodeParameterType::RD:
+							encodedInstruction.setRd(param.fixedValueU8());
+							break;
+
+						case OpcodeParameterType::RS:
+							encodedInstruction.setRs(param.fixedValueU8());
+							break;
+
+						case OpcodeParameterType::RT:
+							encodedInstruction.setRt(param.fixedValueU8());
+							break;
+
+						case OpcodeParameterType::FD:
+							encodedInstruction.setFd(param.fixedValueU8());
+							break;
+
+						case OpcodeParameterType::FS:
+							encodedInstruction.setFs(param.fixedValueU8());
+							break;
+
+						case OpcodeParameterType::FT:
+							encodedInstruction.setFt(param.fixedValueU8());
+							break;
+
+						case OpcodeParameterType::IMM8:
+							encodedInstruction.setImm8(param.fixedValueU8());
+							break;
+
+						case OpcodeParameterType::IMM16:
+						case OpcodeParameterType::IMM16_LOW:
+							encodedInstruction.setImm16(param.fixedValueU16());
+							break;
+
+						case OpcodeParameterType::SIMM16:
+							encodedInstruction.setSImm16(param.fixedValueS16());
+							break;
+
+						case OpcodeParameterType::IMM24:
+							encodedInstruction.setImm24(param.fixedValueU24());
+							break;
+
+						case OpcodeParameterType::SIMM24:
+							encodedInstruction.setSImm24(param.fixedValueS24());
+							break;
+
+						default:
+							reportError(statement.line(), "Unsupported fixed parameter type for instruction encoding");
+							return;
+					}
+				}
+				else
+				{
+					u8 operandIndex = param.operandIndex();
+					if (operandIndex >= instruction.operands.size())
+					{
+						reportError(statement.line(), "Operand index {} out of range for instruction encoding", operandIndex);
+						return;
+					}
+
+					const auto& operandInfo = instruction.operands[operandIndex];
+					switch (param.type())
+					{
+						case OpcodeParameterType::RD:
+							encodedInstruction.setRd(operandInfo.asRegister().regIndex);
+							break;
+
+						case OpcodeParameterType::RS:
+							encodedInstruction.setRs(operandInfo.asRegister().regIndex);
+							break;
+
+						case OpcodeParameterType::RT:
+							encodedInstruction.setRt(operandInfo.asRegister().regIndex);
+							break;
+
+						case OpcodeParameterType::FD:
+							encodedInstruction.setFd(operandInfo.asFloatingPointRegister().regIndex);
+							break;
+
+						case OpcodeParameterType::FS:
+							encodedInstruction.setFs(operandInfo.asFloatingPointRegister().regIndex);
+							break;
+
+						case OpcodeParameterType::FT:
+							encodedInstruction.setFt(operandInfo.asFloatingPointRegister().regIndex);
+							break;
+
+						case OpcodeParameterType::IMM16_LOW:
+						{
+							if (recordRelocation(operandInfo, RelocationField::Imm16Low, 0, false))
+							{
+								encodedInstruction.setImm16(0);
+								break;
+							}
+
+							const auto sourceValue = immediateSourceValue(operandInfo);
+							if (!sourceValue.has_value())
+							{
+								reportError(statement.line(), "Operand {} cannot supply an immediate value", operandIndex);
+								return;
+							}
+							// Deliberately unchecked: the upper half went into the paired LUI.
+							encodedInstruction.setImm16(static_cast<u16>(*sourceValue & 0xFFFFu));
+							break;
+						}
+
+						case OpcodeParameterType::IMM8:
+						case OpcodeParameterType::IMM16:
+						case OpcodeParameterType::SIMM16:
+						case OpcodeParameterType::IMM24:
+						case OpcodeParameterType::SIMM24:
+						{
+							if (recordRelocation(operandInfo, relocationFieldOf(param.type()),
+								static_cast<u8>(param.fixedValueShift()), false))
+							{
+								break; // Zero is what an unset field already holds
+							}
+
+							const auto sourceValue = immediateSourceValue(operandInfo);
+							if (!sourceValue.has_value())
+							{
+								reportError(statement.line(), "Operand {} cannot supply an immediate value", operandIndex);
+								return;
+							}
+
+							const u32 shifted = *sourceValue >> param.fixedValueShift();
+							const u32 width = immediateFieldWidth(param.type());
+
+							// Truncating here used to be silent: `li r0, 70000` quietly became `li r0, 4464`.
+							if (!fitsInBits(shifted, width))
+							{
+								reportError(statement.line(), "Value {} does not fit in {}", shifted, immediateFieldName(param.type()));
+								return;
+							}
+
+							switch (param.type())
+							{
+								case OpcodeParameterType::IMM8:   encodedInstruction.setImm8(static_cast<u8>(shifted)); break;
+								case OpcodeParameterType::IMM16:  encodedInstruction.setImm16(static_cast<u16>(shifted)); break;
+								case OpcodeParameterType::SIMM16: encodedInstruction.setSImm16(static_cast<i16>(shifted)); break;
+								case OpcodeParameterType::IMM24:  encodedInstruction.setImm24(static_cast<u24>(shifted)); break;
+								default:                          encodedInstruction.setSImm24(static_cast<i24>(shifted)); break;
+							}
+							break;
+						}
+
+						case OpcodeParameterType::RD_SIMM16:
+						{
+							const MemoryOperand& memoryOperand = operandInfo.asMemory();
+							encodedInstruction.setRd(memoryOperand.baseRegIndex);
+
+							if (memoryOperand.isImmediateOffset())
+							{
+								if (!checkDisplacement(statement, memoryOperand.immediateOffset().value))
+									return;
+								encodedInstruction.setSImm16(static_cast<i16>(memoryOperand.immediateOffset().value));
+							}
+							else if (memoryOperand.isIdentifierOffset())
+							{
+								// The linker rewrites symbolic offsets into immediates, so reaching this
+								// point means the symbol was never resolved.
+								reportError(statement.line(), "Unresolved symbolic offset '{}' in memory operand", memoryOperand.identifierOffset().name.view());
+								return;
+							}
+							// No offset at all (e.g. [r1]) leaves imm16 at zero.
+							break;
+						}
+
+						case OpcodeParameterType::RS_SIMM16:
+						{
+							const MemoryOperand& memoryOperand = operandInfo.asMemory();
+							encodedInstruction.setRs(memoryOperand.baseRegIndex);
+
+							if (memoryOperand.isImmediateOffset())
+							{
+								if (!checkDisplacement(statement, memoryOperand.immediateOffset().value))
+									return;
+								encodedInstruction.setSImm16(static_cast<i16>(memoryOperand.immediateOffset().value));
+							}
+							else if (memoryOperand.isIdentifierOffset())
+							{
+								// The linker rewrites symbolic offsets into immediates, so reaching this
+								// point means the symbol was never resolved.
+								reportError(statement.line(), "Unresolved symbolic offset '{}' in memory operand", memoryOperand.identifierOffset().name.view());
+								return;
+							}
+							// No offset at all (e.g. [r1]) leaves imm16 at zero.
+							break;
+						}
+
+						case OpcodeParameterType::RT_SIMM16:
+						{
+							const MemoryOperand& memoryOperand = operandInfo.asMemory();
+							encodedInstruction.setRt(memoryOperand.baseRegIndex);
+
+							if (memoryOperand.isImmediateOffset())
+								encodedInstruction.setImm16(static_cast<u16>(memoryOperand.immediateOffset().value));
+							else if (memoryOperand.isIdentifierOffset())
+							{
+								// The linker rewrites symbolic offsets into immediates, so reaching this
+								// point means the symbol was never resolved.
+								reportError(statement.line(), "Unresolved symbolic offset '{}' in memory operand", memoryOperand.identifierOffset().name.view());
+								return;
+							}
+							// No offset at all (e.g. [r1]) leaves imm16 at zero.
+							break;
+						}
+
+						case OpcodeParameterType::RS_RT:
+						{
+							const MemoryOperand& memoryOperand = operandInfo.asMemory();
+							encodedInstruction.setRs(memoryOperand.baseRegIndex);
+							encodedInstruction.setRt(memoryOperand.registerOffset().regIndex);
+							break;
+						}
+
+						case OpcodeParameterType::RD_RT:
+						{
+							const MemoryOperand& memoryOperand = operandInfo.asMemory();
+							encodedInstruction.setRd(memoryOperand.baseRegIndex);
+							encodedInstruction.setRt(memoryOperand.registerOffset().regIndex);
+							break;
+						}
+
+						case OpcodeParameterType::REL_SIMM16:
+						{
+							if (recordRelocation(operandInfo, RelocationField::SImm16, 0, true))
+								break;
+
+							const Address currentAddress = lastSectionAddress(SectionType::Text);
+							const Address targetAddress = operandInfo.isVariable()
+								? operandInfo.asVariable().address
+								: operandInfo.asLabel().address;
+							const i32 relativeOffset = static_cast<i32>(targetAddress.value()) - static_cast<i32>(currentAddress.value());
+
+							// simm16 reaches +/- 32 KiB from the instruction. Further than that is an error
+							// rather than a wrap, and the way out is the LDV/STV that builds the whole
+							// address - which is why these are separate mnemonics and not an optimisation.
+							// Signed, so fitsInBits is the wrong test here: it would accept 40960, which
+							// fits in sixteen bits and is -24576 once the field is read back.
+							if (relativeOffset < -32768 || relativeOffset > 32767)
+							{
+								reportError(statement.line(),
+									"'{}' is {} bytes away, out of reach for a PC-relative access; use ldv/stv instead",
+									instruction.signature().toString(), relativeOffset);
+								return;
+							}
+
+							encodedInstruction.setSImm16(static_cast<i16>(relativeOffset));
+							break;
+						}
+
+						case OpcodeParameterType::REL_ADDR20:
+						{
+							if (recordRelocation(operandInfo, RelocationField::SImm20, 0, true))
+								break;
+
+							const Address currentAddress = lastSectionAddress(SectionType::Text);
+							const Address targetAddress = operandInfo.isLabel()
+								? operandInfo.asLabel().address
+								: Address(operandInfo.asImmediate().value);
+							const i32 relativeOffset = static_cast<i32>(targetAddress.value()) - static_cast<i32>(currentAddress.value());
+
+							// Rd took four bits off the displacement, so this reaches a quarter of what
+							// CALL does. The way out is CALL, which needs no register and reaches 8 MiB.
+							if (relativeOffset < -524288 || relativeOffset > 524287)
+							{
+								reportError(statement.line(),
+									"Branch-and-link target is {} bytes away, out of range for a 20-bit displacement; use call instead",
+									relativeOffset);
+								return;
+							}
+
+							encodedInstruction.setSImm20(relativeOffset);
+							break;
+						}
+
+						case OpcodeParameterType::REL_ADDR:
+							if (recordRelocation(operandInfo, RelocationField::SImm24, 0, true))
+								break;
+
+							if (operandInfo.isLabel())
+							{
+								Address currentAddress = lastSectionAddress(SectionType::Text);
+								Address targetAddress = operandInfo.asLabel().address;
+								i32 relativeOffset = static_cast<i32>(targetAddress.value()) - static_cast<i32>(currentAddress.value());
+
+								// simm24 reaches +/- 8 MiB. Past that the displacement wraps and the branch
+								// lands somewhere arbitrary.
+								if (!fitsInBits(static_cast<u32>(relativeOffset), 24))
+								{
+									reportError(statement.line(), "Branch target is {} bytes away, out of range for a 24-bit displacement", relativeOffset);
+									return;
+								}
+
+								encodedInstruction.setSImm24(static_cast<i24>(relativeOffset));
+							}
+							else // if (operandInfo.isImmediate())
+							{
+								encodedInstruction.setSImm24(static_cast<i24>(operandInfo.asImmediate().value));
+							}
+							break;
+
+						default:
+							reportError(statement.line(), "Unsupported operand type for instruction encoding");
+							return;
+					}
+				}
+			}
+
+			if (remainingOpcodes <= 0)
+			{
+				reportError(statement.line(), "No matching opcode found for instruction signature: {}", instruction.signature().toString());
+				return;
+			}
+
+			remainingOpcodes--;
+			if (_emitDebugInfo)
+				recordDebugLine(statement, lastSectionAddress(SectionType::Text), LineFlag::None);
+			writeToBuffer(_textBuffer, encodedInstruction);
+		}
+
+		while (remainingOpcodes > 0)
+		{
+			// Filler for the size the assembler reserved before it knew which overload would be
+			// chosen. Marked so a debugger can step straight through instead of stopping on a NOP
+			// the programmer never wrote.
+			if (_emitDebugInfo)
+				recordDebugLine(statement, lastSectionAddress(SectionType::Text), LineFlag::PseudoPadding);
+			writeToBuffer(_textBuffer, Instruction::NOP());
+			remainingOpcodes--;
+		}
+	}
+
+	Address BinaryEmitter::lastSectionAddress(SectionType sectionType)
+	{
+		switch (sectionType)
+		{
+			case SectionType::Text:
+				return _state.get().memoryMap().textStart + static_cast<u32>(_textBuffer.size());
+
+			case SectionType::Rodata:
+				return _state.get().memoryMap().rodataStart + static_cast<u32>(_rodataBuffer.size());
+
+			case SectionType::Data:
+				return _state.get().memoryMap().dataStart + static_cast<u32>(_dataBuffer.size());
+
+			default:
+				reportError(0, "Unsupported section type for lastSectionAddress");
+				return Address::Null;
+		}
+	}
+}

@@ -1,10 +1,10 @@
-# ceres-vm - la máquina en marcha.
+# ceres-vm - the running machine.
 #
-# Memoria, bancos de registros vivos, motor de ejecución, controlador de interrupciones, puertos
-# de E/S y la BIOS. Lo que hace falta para cargar un .cres y ejecutarlo, y nada más: no ensambla,
-# no sabe qué es un fichero fuente y no conoce ningún periférico concreto.
+# Memory, live register banks, execution engine, interrupt controller, I/O ports and the BIOS.
+# What's needed to load a .cres and run it, and nothing more: it doesn't assemble, doesn't know
+# what a source file is, and doesn't know about any specific peripheral.
 #
-# Es la pieza que tendría sentido empotrar sola - en wasm, en un juego, en un panel web.
+# It's the piece that would make sense to embed on its own - in wasm, in a game, in a web panel.
 
 ceres_add_library(vm DEPENDS core)
 ceres_add_tests(vm)

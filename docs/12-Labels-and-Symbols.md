@@ -10,7 +10,7 @@ helper:           // File — visible within this file, not exported
 .loop:             // Local — scoped to the nearest preceding non-local label
 ```
 
-`LabelLevel` (in [`common_defs.h`](../Ceres-ASM/src/assembler/common_defs.h)) has exactly three
+`LabelLevel` (in [`common_defs.h`](../Ceres/libs/asm/include/ceres/asm/common_defs.h)) has exactly three
 values:
 
 | Level | Written as | Visible from |
@@ -81,7 +81,7 @@ print:
 `.loop` used as an *operand* (not a declaration) always resolves against the label of the statement
 that references it, not the file as a whole — `TranslationUnitBuilder` tracks
 `_lastParentLabel` as it walks the file, updating it every time it processes a non-local label
-statement (see [`translation_unit.cpp`](../Ceres-ASM/src/assembler/translation_unit.cpp)). A local
+statement (see [`translation_unit.cpp`](../Ceres/libs/asm/src/translation_unit.cpp)). A local
 label reference before *any* non-local label has been seen in the file is invalid.
 
 ## The `main` entry point
@@ -93,7 +93,7 @@ declare an entry point — the linker looks up whatever symbol is named `main` (
 
 ## Symbols: labels, constants, and variables
 
-`SymbolTable` (in [`symbol_table.h`](../Ceres-ASM/src/assembler/symbol_table.cpp)) stores three kinds
+`SymbolTable` (in [`symbol_table.h`](../Ceres/libs/asm/src/symbol_table.cpp)) stores three kinds
 of symbol, all keyed by name in one map per translation unit:
 
 | `SymbolType` | Created by | Carries |
@@ -125,7 +125,7 @@ as `Linker error: Unresolved local symbol '.{name}'`; anything else unresolved i
 
 ## Linking multiple translation units
 
-`Linker::link()` (in [`linker.cpp`](../Ceres-ASM/src/assembler/linker.cpp)) runs in three passes over
+`Linker::link()` (in [`linker.cpp`](../Ceres/libs/asm/src/linker.cpp)) runs in three passes over
 every translation unit that went into the assembly:
 
 1. **Compute the overall memory map.** Each unit's `.text`/`.rodata`/`.data`/`.bss` sizes are summed,
@@ -143,7 +143,7 @@ every translation unit that went into the assembly:
 3. **Re-walk every unit's instructions**, resolving any operand that's still an unresolved identifier
    against the now-complete global symbol table, and validating that the resulting instruction (now
    with concrete operand types) actually matches a known signature in
-   [`instruction_info.cpp`](../Ceres-ASM/src/assembler/instruction_info.cpp) — an instruction that
+   [`instruction_info.cpp`](../Ceres/libs/asm/src/instruction_info.cpp) — an instruction that
    only becomes invalid once its operand is resolved (e.g. referencing a label where a variable was
    expected) is caught right here.
 

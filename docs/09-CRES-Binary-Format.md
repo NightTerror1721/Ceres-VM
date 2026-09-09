@@ -3,8 +3,8 @@
 [← Back to index](README.md)
 
 `ceres asm source.casm -o program.cres` writes a `vm::Program` out to disk. The format is defined by
-`ProgramHeader` in [`program.h`](../Ceres-ASM/src/vm/program.h) and implemented in
-[`program.cpp`](../Ceres-ASM/src/vm/program.cpp).
+`ProgramHeader` in [`program.h`](../Ceres/libs/core/include/ceres/core/format/program.h) and implemented in
+[`program.cpp`](../Ceres/libs/core/src/format/program.cpp).
 
 ## File layout
 
@@ -128,7 +128,7 @@ helper, which dispatches purely on file extension).
 
 ## From `.cres` to live memory
 
-Once loaded, `CeresVM::loadProgram()` (see [`ceresvm.cpp`](../Ceres-ASM/src/vm/ceresvm.cpp)) places
+Once loaded, `CeresVM::loadProgram()` (see [`ceresvm.cpp`](../Ceres/libs/vm/src/ceresvm.cpp)) places
 the sections into the machine's actual memory, starting right after the BIOS at
 `Memory::UnrestrictedSegmentStart` (`0x400`):
 

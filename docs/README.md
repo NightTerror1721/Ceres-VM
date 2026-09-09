@@ -2,7 +2,7 @@
 
 Ceres is a 32-bit virtual machine with its own instruction set, plus an assembler
 (`CeresASM`, `.casm` files) that compiles to that instruction set. The whole project is written in
-C++23 and lives under [`Ceres-ASM/src`](../Ceres-ASM/src).
+C++23 and lives under [`Ceres/libs`](../Ceres/libs).
 
 This wiki documents the assembler and the virtual machine in enough detail to write `.casm`
 programs from scratch, understand exactly how every instruction is encoded in binary, and know what
@@ -43,7 +43,7 @@ the assembler does internally at each stage of the build.
 
 ### Learn by doing
 
-20. [Tutorial práctico (Spanish)](20-Tutorial-Practico.md) — progressive exercises building up to
+20. [Practical tutorial](20-Practical-Tutorial.md) — progressive exercises building up to
     two playable terminal games (rock-paper-scissors and tic-tac-toe).
 
 ## What changed recently
@@ -89,6 +89,6 @@ the project, follow the table of contents in order: first the machine (what hard
 then the language (how to write code targeting that machine), then the tooling.
 
 Every code example uses the real `.casm` syntax as accepted by the parser in
-[`Ceres-ASM/src/assembler`](../Ceres-ASM/src/assembler); wherever a behaviour has a non-obvious
+[`Ceres/libs/asm`](../Ceres/libs/asm); wherever a behaviour has a non-obvious
 reason behind it (for example, why `str` takes the base register before the value), the *why* is
 explained, not just the *what*.

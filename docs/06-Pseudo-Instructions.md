@@ -4,7 +4,7 @@
 
 A pseudo-instruction is a mnemonic that doesn't correspond to a single real opcode: the assembler
 expands it into a short, fixed sequence of real instructions. From
-[`instruction_info.cpp`](../Ceres-ASM/src/assembler/instruction_info.cpp):
+[`instruction_info.cpp`](../Ceres/libs/asm/src/instruction_info.cpp):
 
 ### Addresses and constants
 
@@ -139,7 +139,7 @@ the time it lands in a register the instruction was already given, and nothing e
 
 So the hazard is exactly **`stv`, and `ldv` into a float register** — eight expansions out of
 twenty-one. Those borrow `r13`, the assembler temporary, spelled **`at`** — see the comment in
-[`instruction_info.cpp`](../Ceres-ASM/src/assembler/instruction_info.cpp):
+[`instruction_info.cpp`](../Ceres/libs/asm/src/instruction_info.cpp):
 
 > Register the assembler is allowed to clobber while materialising a 32-bit address. Only `STV` and
 > the float form of `LDV` need one: every other expansion builds the address in the operand register

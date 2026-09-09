@@ -5,7 +5,7 @@
 Ceres has a single unified mechanism for exceptions raised by the hardware (division by zero,
 misaligned access, stack overflow, …), software-triggered interrupts (`int imm8`, `trap`), and
 device-triggered interrupts (the timer). All of them go through `InterruptNumber`
-(in [`interrupts.h`](../Ceres-ASM/src/vm/interrupts.h)) and the same dispatch code in
+(in [`interrupts.h`](../Ceres/libs/core/include/ceres/core/isa/interrupts.h)) and the same dispatch code in
 `ExecutionEngine::triggerInterrupt()`.
 
 ## Interrupt number space
@@ -47,7 +47,7 @@ handler address per interrupt number, indexed by `interruptNumber * 4`. Entry 0 
 convention, the required entry point of every Ceres program (see
 [Labels and symbols](12-Labels-and-Symbols.md), `main`).
 
-The BIOS (see [`bios.h`](../Ceres-ASM/src/vm/bios.h)) initializes every vector from `Trap` through
+The BIOS (see [`bios.h`](../Ceres/libs/vm/include/ceres/vm/bios.h)) initializes every vector from `Trap` through
 `UserInterrupt0` to point at its own 3-instruction stub at `0x100` (which prints `'E'` and halts), so
 an unhandled fault produces visible, if minimal, feedback instead of silently jumping through a null
 pointer. A program that wants real handling of a given interrupt overwrites that vector's 4 bytes
@@ -88,7 +88,7 @@ These are triggered by `ExecutionEngine` itself, not by any explicit `int`/`trap
 
 | Interrupt | Raised when |
 | --- | --- |
-| `AlignmentFault` (6) | A 16- or 32-bit memory access (`ldr`/`ldrh`/`ldrsh`/`str`/`strh`/`fldr`/`fstr`) targets an address that isn't a multiple of its own size. Byte-sized accesses never trigger this. See [`checkAlignment<T>()`](../Ceres-ASM/src/vm/execution_engine.h). |
+| `AlignmentFault` (6) | A 16- or 32-bit memory access (`ldr`/`ldrh`/`ldrsh`/`str`/`strh`/`fldr`/`fstr`) targets an address that isn't a multiple of its own size. Byte-sized accesses never trigger this. See [`checkAlignment<T>()`](../Ceres/libs/vm/include/ceres/vm/execution_engine.h). |
 | `StackOverflow` (5) | A `push`/`call` would write below `0x400` (the protected segment), **or** a `pop`/`ret` would read past the top of memory (an unbalanced stack). See [Memory → The stack](02-Memory.md#the-stack). It's also raised (together with setting the Trap flag) if there isn't even room to push the two words an interrupt dispatch itself needs. |
 | `IllegalInstruction` (2) | The fetched opcode byte doesn't map to any known instruction — the 256-entry dispatch table defaults every unused slot to an internal `INVALID` handler that raises this. |
 

@@ -5,9 +5,13 @@
   "configurePresets": [
     {
       "name": "msvc",
-      "displayName": "Visual Studio (x64)",
-      "description": "El toolchain de siempre. No fija la version del generador a proposito: aqui hay Visual Studio 18 y en el CI hay 17, y CMake ya elige el mas nuevo que encuentre. Los generadores de VS 17 en adelante compilan x64 por defecto.",
+      "displayName": "MSVC (Ninja Multi-Config)",
+      "description": "The generator is pinned on purpose. Without it, every tool picked a different one: Visual Studio configured with plain Ninja -single-configuration, hence Debug-only- while the command line picked the Visual Studio generator. Multi-Config gives Debug and Release from a single tree, which is what VS expects from the configuration selector.",
+      "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build/msvc",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "cl"
+      },
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -17,14 +21,14 @@
     {
       "name": "ninja",
       "displayName": "Ninja Multi-Config",
-      "description": "El compilador por defecto del entorno, con ninja. Lo mas rapido para iterar.",
+      "description": "The environment's default compiler, with ninja. The fastest option for iterating.",
       "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build/ninja"
     },
     {
       "name": "gcc",
       "displayName": "GCC (Ninja Multi-Config)",
-      "description": "El segundo compilador, y no es redundante: cuatro cabeceras que faltaban aparecieron asi, porque MSVC las suministraba de forma transitiva.",
+      "description": "The second compiler, and it isn't redundant: four missing headers turned up this way, because MSVC was supplying them transitively.",
       "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build/gcc",
       "cacheVariables": {
@@ -59,6 +63,12 @@
       "name": "ninja-debug",
       "configurePreset": "ninja",
       "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "ninja-release",
+      "configurePreset": "ninja",
+      "configuration": "Release",
       "output": { "outputOnFailure": true }
     },
     {

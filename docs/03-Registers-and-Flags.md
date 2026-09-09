@@ -15,7 +15,7 @@ role beyond "general purpose" — though the VM only actually special-cases one 
 | `r14` | `fp` (Frame Pointer) | No *real* opcode reads or writes it specially, but the `enter` and `leave` [pseudo-instructions](06-Pseudo-Instructions.md#enter-and-leave--stack-frames) do — they are the only things in the project that name it by role. Beyond those, it behaves exactly like `r0`–`r11`. |
 | `r15` | `sp` (Stack Pointer) | Initialized to the top of memory (`memory.size()`) on reset. `PUSH`/`POP`/`CALL`/`RET`/`PUSHF`/`POPF`/interrupt dispatch all read and write it directly. |
 
-The aliases come from `RIndex` in [`registers.h`](../Ceres-ASM/src/vm/registers.h):
+The aliases come from `RIndex` in [`registers.h`](../Ceres/libs/core/include/ceres/core/isa/registers.h):
 
 ```cpp
 enum class RIndex : u8 { R0=0, ..., R12=12, R13=13, R14=14, R15=15, AT=R13, FP=R14, SP=R15 };
@@ -28,7 +28,7 @@ signed/unsigned conversion helpers.
 ## Floating-point registers
 
 There are also 16 floating-point registers, `f0`–`f15`, each holding a 32-bit IEEE-754 `float`
-(`FloatingPointRegisterPool`, in [`fregisters.h`](../Ceres-ASM/src/vm/fregisters.h)).
+(`FloatingPointRegisterPool`, in [`fregisters.h`](../Ceres/libs/core/include/ceres/core/isa/fregisters.h)).
 
 **Floating-point registers share the exact same bit fields in the instruction encoding as integer
 registers.** There is no separate register-index space: `f3` in an operand position occupies the

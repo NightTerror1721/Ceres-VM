@@ -1,0 +1,296 @@
+#include <ceres/asm/symbol_table.h>
+#include <ceres/asm/translation_unit.h>
+#include <ceres/asm/const_expr_eval.h>
+#include <ceres/core/base/string_utils.h>
+
+namespace ceres::casm
+{
+	void SymbolTable::defineLabel(u32 line, std::string_view name, SectionType section, Address address, LabelLevel level)
+	{
+		bool isLocal = level == LabelLevel::Local;
+		std::string fullName = resolveName(line, name, isLocal);
+		checkRedefinition(line, fullName);
+
+		std::string key = fullName;
+		Symbol symbol = Symbol::makeLabel(std::move(fullName), section, address, level == LabelLevel::Global);
+		auto [it, inserted] = _symbols.emplace(std::move(key), std::move(symbol));
+		if (!inserted)
+			error(line, "Redefinition of symbol: {}", it->first);
+		it->second.setLine(line);
+
+		if (!isLocal)
+			_lastParentLabel = it->first;
+	}
+
+	void SymbolTable::defineConstant(u32 line, std::string_view name, bool isGlobal, const LiteralValue& value)
+	{
+		std::string fullName = resolveName(line, name, false);
+		checkRedefinition(line, fullName);
+
+		std::string key = fullName;
+		Symbol symbol = Symbol::makeConstant(std::move(fullName), value, isGlobal);
+		auto [it, inserted] = _symbols.emplace(std::move(key), std::move(symbol));
+		if (!inserted)
+			error(line, "Redefinition of symbol: {}", it->first);
+		it->second.setLine(line);
+	}
+
+	void SymbolTable::defineVariable(u32 line, std::string_view name, SectionType section, Address address, bool isGlobal, bool isReadonly, DataType dataType, const LiteralValue* initialValue)
+	{
+		std::string fullName = resolveName(line, name, false);
+		checkRedefinition(line, fullName);
+
+		std::optional<LiteralValue> value = initialValue ? std::make_optional(*initialValue) : std::nullopt;
+		
+		std::string key = fullName;
+		Symbol symbol = Symbol::makeVariable(std::move(fullName), section, address, dataType, std::move(value), isGlobal, isReadonly);
+		auto [it, inserted] = _symbols.emplace(std::move(key), std::move(symbol));
+		if (!inserted)
+			error(line, "Redefinition of symbol: {}", it->first);
+		it->second.setLine(line);
+	}
+
+	std::optional<std::reference_wrapper<const Symbol>> SymbolTable::get(std::string_view name) const noexcept
+	{
+		if (const auto it = _symbols.find(std::string(name)); it != _symbols.end())
+		{
+			it->second.markUsed();
+			return std::cref(it->second);
+		}
+		return std::nullopt;
+	}
+
+	std::optional<std::reference_wrapper<const Symbol>> SymbolTable::getLocal(std::string_view name, std::string_view parentName) const noexcept
+	{
+		std::string fullName = string_utils::concat(parentName, ".", name);
+		if (const auto it = _symbols.find(fullName); it != _symbols.end())
+		{
+			it->second.markUsed();
+			return std::cref(it->second);
+		}
+		return std::nullopt;
+	}
+
+	std::string SymbolTable::resolveName(u32 line, std::string_view name, bool isLocal)
+	{
+		if (!isLocal)
+			return std::string(name);
+
+		if (_lastParentLabel.empty())
+			error(line, "Local label defined without a parent label");
+
+		return string_utils::concat(_lastParentLabel, ".", name);
+	}
+
+	void SymbolTable::checkRedefinition(u32 line, const std::string& name) const
+	{
+		if (_symbols.contains(name))
+			error(line, "Redefinition of symbol: {}", name);
+	}
+
+	std::optional<std::reference_wrapper<const Symbol>> SymbolTable::lookupBeyond(u32 line, std::string_view name, const TranslationUnit* unit, const SymbolTable* globalSymbolTable) const
+	{
+		if (unit != nullptr)
+		{
+			// A qualified name is answered by exactly one module, or by nobody: it must not fall
+			// through to the unqualified search or to the linker's global table.
+			if (const auto qualified = TranslationUnit::splitQualifiedName(name); qualified.has_value())
+			{
+				if (!unit->moduleNamed(qualified->first).has_value())
+					error(line, "No import is named '{}'", qualified->first);
+
+				if (auto found = unit->resolveSymbol(name); found.has_value())
+					return found;
+
+				error(line, "'{}' does not export '{}'", qualified->first, qualified->second);
+			}
+
+			const auto imported = unit->lookupImportedSymbol(name);
+			if (imported.ambiguous)
+				error(line, "'{}' is exported by both '{}' and '{}'", name, imported.foundIn, imported.alsoIn);
+			if (imported.has())
+				return std::cref(*imported.found);
+		}
+
+		if (globalSymbolTable != nullptr)
+			return globalSymbolTable->get(name);
+
+		return std::nullopt;
+	}
+
+	Operand& SymbolTable::resolveOperand(std::string_view file, u32 line, Operand& operand, std::string_view parentName, std::vector<UnresolvedSymbol>* unresolvedSymbols, const SymbolTable* globalSymbolTable, const TranslationUnit* unit) const
+	{
+		// An immediate the parser could not fold because it names something. Everything it can name
+		// is a constant, so it resolves as soon as there is a table to look in.
+		if (operand.isConstExpr())
+		{
+			const ConstExprSymbolLookup lookup = [&](std::string_view name) -> const Symbol*
+			{
+				if (auto own = get(name); own.has_value())
+					return &own.value().get();
+				auto beyond = lookupBeyond(line, name, unit, globalSymbolTable);
+				return beyond.has_value() ? &beyond.value().get() : nullptr;
+			};
+
+			auto value = evaluateConstExpr(operand.asConstExpr().expression, lookup);
+			if (value.has_value())
+				operand = Operand::makeImmediate(value->asRawValue());
+			else if (unresolvedSymbols == nullptr)
+				error(line, "{}", value.error()); // The linker's pass: nothing left to wait for.
+
+			return operand;
+		}
+
+		if (operand.isIdentifier())
+		{
+			const auto& identifierOperand = operand.asIdentifier();
+			auto value = identifierOperand.isLocal && !parentName.empty()
+				? getLocal(identifierOperand.name, parentName)
+				: get(identifierOperand.name);
+
+			// Whether the definition is in this unit or somewhere else is not interesting to a
+			// build that links everything at once, and is the whole question for one that does
+			// not: an address from another unit is a name until the link resolves it.
+			bool definedElsewhere = false;
+			if (!value.has_value() && !identifierOperand.isLocal)
+			{
+				value = lookupBeyond(line, identifierOperand.name, unit, globalSymbolTable);
+				definedElsewhere = value.has_value();
+			}
+
+			if (!value.has_value())
+			{
+				if (unresolvedSymbols == nullptr)
+					error(line, "Unresolved symbol: {}", identifierOperand.name);
+				{
+					UnresolvedSymbol unresolvedSymbol = {
+						.file = file,
+						.name = std::string(identifierOperand.name.view()),
+						.parentName = identifierOperand.isLocal ? std::string(parentName) : std::string(),
+						.line = line
+					};
+					unresolvedSymbols->push_back(std::move(unresolvedSymbol));
+				}
+			}
+			else
+			{
+				const bool resolveConstantsOnly = unresolvedSymbols != nullptr;
+				const Symbol& symbol = value.value().get();
+				if (symbol.isConstant())
+				{
+					auto result = Operand::makeFromLiteralValue(symbol.value());
+					if (!result)
+						error(line, "Cannot resolve constant symbol '{}' to a valid operand. {}", symbol.name(), result.error());
+					operand = std::move(result.value());
+				}
+				else if (symbol.isVariable() && !resolveConstantsOnly)
+				{
+					if (!symbol.hasAddress())
+						error(line, "Variable symbol '{}' does not have a valid address", symbol.name());
+					DataType dataType = symbol.dataType();
+					if (!dataType.isValid())
+						error(line, "Variable symbol '{}' has an invalid data type", symbol.name());
+					operand = Operand::makeVariable(dataType.scalarCode(), symbol.address(), identifierOperand.dereferenced,
+						identifierOperand.name, symbol.section(), definedElsewhere);
+				}
+				else if (symbol.isLabel() && !resolveConstantsOnly)
+				{
+					if (!symbol.hasAddress())
+						error(line, "Label symbol '{}' does not have a valid address", symbol.name());
+					operand = Operand::makeLabel(symbol.address(),
+						identifierOperand.name, symbol.section(), definedElsewhere);
+				}
+			}
+
+			return operand;
+		}
+
+		if (operand.isMemory())
+		{
+			const auto& memoryOperand = operand.asMemory();
+			if (memoryOperand.hasOffset() && memoryOperand.isIdentifierOffset())
+			{
+				const auto& identifierOperand = memoryOperand.identifierOffset();
+				auto value = get(identifierOperand.name);
+				if (!value.has_value())
+					value = lookupBeyond(line, identifierOperand.name, unit, globalSymbolTable);
+
+				if (!value.has_value())
+				{
+					if (unresolvedSymbols == nullptr)
+						error(line, "Unresolved symbol: {}", identifierOperand.name);
+
+					UnresolvedSymbol unresolvedSymbol = {
+						.file = file,
+						.name = std::string(identifierOperand.name.view()),
+						.parentName = identifierOperand.isLocal ? std::string(parentName) : std::string(),
+						.line = line
+					};
+					unresolvedSymbols->push_back(std::move(unresolvedSymbol));
+				}
+				else
+				{
+					const Symbol& symbol = value.value().get();
+					if (!symbol.isConstant())
+						error(line, "Memory operand offset must be a constant symbol, but '{}' is not a constant", symbol.name());
+
+					auto result = Operand::makeFromLiteralValue(symbol.value());
+					if (!result)
+						error(line, "Cannot resolve constant symbol '{}' to a valid immediate operand for memory offset. {}", symbol.name(), result.error());
+					if (!result->isImmediate())
+						error(line, "Constant symbol '{}' does not resolve to an immediate value usable as a memory offset", symbol.name());
+
+					operand = Operand::makeMemory(memoryOperand.baseRegIndex, result.value().asImmediate().value);
+				}
+			}
+
+			return operand;
+		}
+
+		return operand;
+	}
+
+	void SymbolTable::relocateSymbols(Address textOffset, Address dataOffset, Address rodataOffset, Address bssOffset)
+	{
+		for (auto& [name, symbol] : _symbols)
+		{
+			if (symbol.isLabel())
+			{
+				if (!symbol.hasAddress())
+					error(0, "Label symbol '{}' does not have a valid address", symbol.name());
+
+				Address newAddress = symbol.address();
+				switch (symbol.section())
+				{
+					case SectionType::Text: newAddress += textOffset; break;
+					case SectionType::Rodata: newAddress += rodataOffset; break;
+					case SectionType::Data: newAddress += dataOffset; break;
+					case SectionType::BSS: newAddress += bssOffset; break;
+					default:
+						error(0, "Label symbol '{}' has an invalid section type", symbol.name());
+				}
+				symbol.setAddress(newAddress);
+			}
+			else if (symbol.isVariable())
+			{
+				if (!symbol.hasAddress())
+					error(0, "Variable symbol '{}' does not have a valid address", symbol.name());
+
+				Address newAddress = symbol.address();
+				switch (symbol.section())
+				{
+					case SectionType::Text:
+						error(0, "Variable symbol '{}' cannot be in the text section", symbol.name());
+						break;
+
+					case SectionType::Rodata: newAddress += rodataOffset; break;
+					case SectionType::Data: newAddress += dataOffset; break;
+					case SectionType::BSS: newAddress += bssOffset; break;
+					default:
+						error(0, "Variable symbol '{}' has an invalid section type", symbol.name());
+				}
+				symbol.setAddress(newAddress);
+			}
+		}
+	}
+}

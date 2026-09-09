@@ -4,7 +4,7 @@
 
 ## Scalar types
 
-From [`data_type.h`](../Ceres-ASM/src/assembler/data_type.h):
+From [`data_type.h`](../Ceres/libs/asm/include/ceres/asm/data_type.h):
 
 | Type | Size | Alignment | Notes |
 | --- | --- | --- | --- |
@@ -202,7 +202,7 @@ let small: i8 = -10        // OK
 ```
 
 The check (`LiteralScalar::coerceTo` / `fitsInBits`, in
-[`literal_scalar.h`](../Ceres-ASM/src/assembler/literal_scalar.h)) accepts a value whenever
+[`literal_scalar.h`](../Ceres/libs/asm/include/ceres/asm/literal_scalar.h)) accepts a value whenever
 truncating it to the target width loses no information under *either* a signed or an unsigned
 reading — which is exactly what lets `-10` be written where an `i16` is expected, and rejects
 `70000` where a `u16` is expected. There is no implicit conversion between integers and `f32` in
@@ -215,7 +215,7 @@ Every scalar's *natural alignment* equals its size (1/2/4 bytes — see the tabl
 translation-unit builder pads the current section offset up to a variable's natural alignment before
 recording its address, so the symbol table and the emitted bytes always agree on exactly where a
 variable starts (see
-[`TranslationUnitBuilder::alignCurrentOffset`](../Ceres-ASM/src/assembler/translation_unit.cpp)).
+[`TranslationUnitBuilder::alignCurrentOffset`](../Ceres/libs/asm/src/translation_unit.cpp)).
 This padding is invisible in source — you never write it yourself — but it does mean the *size* of a
 section can be a few bytes larger than the sum of its declarations' sizes.
 

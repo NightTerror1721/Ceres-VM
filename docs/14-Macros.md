@@ -35,7 +35,7 @@ endmacro
 ```
 
 `MacroTable` keys macros by `MacroSignature { name, parameterCount }`
-(in [`macro_table.h`](../Ceres-ASM/src/assembler/macro_table.h)) — so `log x` and `log x, y` call two
+(in [`macro_table.h`](../Ceres/libs/asm/include/ceres/asm/macro_table.h)) — so `log x` and `log x, y` call two
 independently-defined macros that merely share a name. Declaring two macros with the *same* name and
 *same* parameter count is a hard error ("Macro redefinition"), but you're free to give the same name
 different bodies for different arities, similar to overloading by parameter count in general-purpose
@@ -259,7 +259,7 @@ declaration — see [Errors and diagnostics](17-Errors-and-Diagnostics.md#warnin
 ## Where this is actually used
 
 The calling convention's prologue and epilogue are two exported macros in
-[`lib/call.casm`](../Ceres-ASM/lib/call.casm) — a small, real example of a `global macro` that a
+[`lib/call.casm`](../Ceres/stdlib/call.casm) — a small, real example of a `global macro` that a
 project imports everywhere. See [A calling convention](24-Calling-Convention.md).
 
 ## Related pages

@@ -11,22 +11,20 @@ Hello, CeresVM!
 
 ## Building
 
-The project builds with MSVC from `Ceres-ASM/Ceres-ASM.vcxproj`, and with GCC or Clang from the
-command line. Only the **x64** configurations set `stdcpp23` and the include directory, so build
-those.
+Everything goes through CMake, from the `Ceres/` directory. There is one preset per toolchain
+and each builds Debug and Release from a single tree:
 
 ```sh
-cd Ceres-ASM/src
-g++ -std=c++23 -I. -o ceres main.cpp vm/*.cpp assembler/*.cpp debug/*.cpp
+cd Ceres
+cmake --preset gcc && cmake --build --preset gcc-debug && ctest --preset gcc-debug
 ```
 
-The test suite is a second executable, `Ceres-ASM/Ceres-ASM-Tests.vcxproj`, or:
+`--preset msvc` is the same on Windows, and `--preset ninja` uses whatever compiler the
+environment provides. The binary lands in `Ceres/build/<preset>/bin/<config>/`.
 
-```sh
-sh tests/build.sh
-```
-
-`std::print` needs `-lstdc++exp` on MinGW.
+The Visual Studio solution is generated, not maintained by hand: open the `Ceres/` folder and VS
+picks up `CMakePresets.json` by itself. `std::print` needs `-lstdc++exp` on MinGW, which the
+build detects by asking the linker rather than guessing from the platform.
 
 ## Command line
 
@@ -780,8 +778,10 @@ The assembler and the VM work end to end. What is not done:
 
 ## Tests
 
-173 cases, 777 assertions, run with `sh tests/build.sh`. CI builds with MSVC and GCC 15 and runs
-the suite on both.
+173 cases, 777 assertions, run with `ctest --preset gcc-debug` from `Ceres/`. They are split
+into three suites: `vm` and `debug` are unit tests living with their library, and `e2e` holds the
+ten that assemble source and execute the result. CI builds with MSVC and GCC 15, Debug and
+Release, and runs all three on each.
 
 A test that pins a bug which is still open is marked `TEST_KNOWN_FAILURE`: it asserts the correct
 behaviour and is expected to fail, so the suite stays green and turns **red** when the bug is

@@ -1,0 +1,86 @@
+// Exercise 5: Grade average
+//
+// Goal: practice arrays in memory and offset addressing ([reg + offset]).
+// Sums 5 grades stored in @data and computes their average (integer
+// division). Prints the result as one or two digits.
+//
+// TRY IT YOURSELF:
+//   Add a sixth grade (remember to update NUM_GRADES AND the array) and
+//   check that the average changes. Then write a generic "print_uint"
+//   subroutine that prints any number from 0 to 99 without using the
+//   special branch below for the two-digit case.
+
+const TERM_OUT   = 0x01
+const SYS_CTRL   = 0xFF
+const NEWLINE    = 10
+const NUM_GRADES = 5
+
+@data
+    let grades: u8[NUM_GRADES] = [7, 9, 6, 8, 10]
+
+@rodata
+    let PREFIX: u8[] = "Average = "
+
+@text
+global main:
+    la r1, PREFIX
+    call print
+
+    la r5, grades       // r5 = pointer to the array
+    li r4, 0             // r4 = running sum
+    li r6, 0             // r6 = index i
+
+.sum_loop:
+    li r7, NUM_GRADES
+    cmp r6, r7
+    jz .sum_done
+
+    ldrb r8, [r5 + 0]    // grades[i]
+    add r4, r4, r8
+
+    add r5, r5, 1        // next element (u8 = 1 byte)
+    add r6, r6, 1
+    jp .sum_loop
+
+.sum_done:
+    li r7, NUM_GRADES
+    div r4, r4, r7        // r4 = integer average = sum / NUM_GRADES
+
+    // Print r4 as one or two decimal digits (0-99)
+    li r7, 10
+    cmp r4, r7
+    jc .single_digit      // carry => r4 < 10
+
+    div r8, r4, r7        // r8 = tens
+    mod r4, r4, r7        // r4 = units
+    add r8, r8, '0'
+    outb TERM_OUT, r8
+
+.single_digit:
+    add r4, r4, '0'
+    outb TERM_OUT, r4
+    li r7, NEWLINE
+    outb TERM_OUT, r7
+
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+print:
+    mov r3, r1
+    call strlen
+    mov r2, r0
+    outm TERM_OUT, r3, r2
+    ret
+
+strlen:
+    xor r0, r0, r0
+.loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .end
+    add r0, r0, 1
+    add r1, r1, 1
+    jp .loop
+.end:
+    ret

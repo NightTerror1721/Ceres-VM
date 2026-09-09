@@ -15,12 +15,12 @@ existed the only debugging tool the project had was a static listing.
 Two things made it small rather than large. The machine already stepped one instruction at a time —
 `ExecutionEngine::step()` has always been the primitive a debugger needs — and
 [the line and symbol tables](21-Debug-Information.md) already say where every instruction came from.
-`DebugSession` (in [`debug_session.h`](../Ceres-ASM/src/debug/debug_session.h)) is what sits between
+`DebugSession` (in [`debug_session.h`](../Ceres/libs/debug/include/ceres/debug/debug_session.h)) is what sits between
 them: it owns the machine and its devices and drives the step loop itself instead of handing it to
 `CeresVM::run()`, which is what lets it decide between one instruction and the next.
 
 It answers in plain structs and knows nothing about terminals or protocols, so
-[`tests/test_debugger.cpp`](../tests/test_debugger.cpp) drives it exactly the way a real debugger
+[`tests/test_debugger.cpp`](../Ceres/libs/debug/tests/test_debugger.cpp) drives it exactly the way a real debugger
 does. `DebugCLI` is one front end over it; the editor integration is another.
 
 ## Commands
@@ -102,7 +102,7 @@ is back at the depth it started from.
 ## Expressions
 
 Watches, hover, breakpoint conditions and logpoint messages all go through one small evaluator
-([`expression.h`](../Ceres-ASM/src/debug/expression.h)). Nothing in the assembler could be reused
+([`expression.h`](../Ceres/libs/debug/include/ceres/debug/expression.h)). Nothing in the assembler could be reused
 for it: constant folding runs at assembly time and cannot even reference an identifier.
 
 | | |

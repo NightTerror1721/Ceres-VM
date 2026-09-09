@@ -1,0 +1,44 @@
+// Exercise 1: Hello, Ceres
+//
+// Goal: understand @rodata, la (load address), and how to print a string
+// through the terminal port.
+//
+// TRY IT YOURSELF:
+//   1. Change the message to your name and reassemble.
+//   2. Add a second line printing another string (remember: each string
+//      needs its own "let" and a call to "print").
+
+const TERM_OUT = 0x01
+const SYS_CTRL = 0xFF
+
+@rodata
+    let MSG: u8[] = "Hello, Ceres!\n"
+
+@text
+global main:
+    la r1, MSG
+    call print
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+// print(r1 = pointer to a zero-terminated string) -> prints the whole string
+print:
+    mov r3, r1
+    call strlen
+    mov r2, r0
+    outm TERM_OUT, r3, r2
+    ret
+
+// strlen(r1 = pointer) -> r0 = length not counting the terminator
+strlen:
+    xor r0, r0, r0
+.loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .end
+    add r0, r0, 1
+    add r1, r1, 1
+    jp .loop
+.end:
+    ret

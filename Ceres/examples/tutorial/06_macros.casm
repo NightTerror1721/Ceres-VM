@@ -1,0 +1,122 @@
+// Exercise 6: Macros and a calling convention
+//
+// Goal: stop repeating "outb TERM_OUT, r2" everywhere by defining macros,
+// and see the wiki's calling convention (proc_enter/proc_leave) in action:
+// r0 = return value, r1-r3 = arguments, r4-r9 are "callee-saved" (a
+// subroutine that touches them must restore them).
+//
+// TRY IT YOURSELF:
+//   Add a third question. Then write a "print_line $ptr" macro that calls
+//   "print" and then prints a newline, so you don't repeat those two
+//   instructions every time.
+
+const TERM_STATUS = 0x00
+const TERM_OUT     = 0x01
+const TERM_IN      = 0x02
+const SYS_CTRL     = 0xFF
+const NEWLINE      = 10
+
+macro print_char $reg
+    outb TERM_OUT, $reg
+endmacro
+
+macro proc_enter
+    push r4
+    push r5
+    push r6
+endmacro
+
+macro proc_leave
+    pop r6
+    pop r5
+    pop r4
+    ret
+endmacro
+
+@rodata
+    let Q1: u8[] = "Do you like assembly? (y/n): "
+    let Q2: u8[] = "Do you prefer RISC over CISC? (y/n): "
+    let YES_MSG: u8[] = "-> Great!\n"
+    let NO_MSG: u8[] = "-> Well, let's keep practicing.\n"
+
+@text
+global main:
+    la r1, Q1
+    call ask_yes_no      // r0 = 1 if they answered 'y', 0 otherwise
+    call react
+
+    la r1, Q2
+    call ask_yes_no
+    call react
+
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+// ask_yes_no(r1 = question) -> r0 = 1 if the user answered 'y'/'Y'
+ask_yes_no:
+    proc_enter
+    mov r4, r1           // save the pointer to the question (callee-saved)
+    call print
+    call read_command     // r0 = first character of the answer
+
+    li r5, 'y'
+    cmp r0, r5
+    jz .yes
+    li r5, 'Y'
+    cmp r0, r5
+    jz .yes
+
+    li r0, 0
+    proc_leave
+
+.yes:
+    li r0, 1
+    proc_leave
+
+// react(r0 = 1 or 0) -> prints YES_MSG or NO_MSG
+react:
+    cmp r0, 1
+    jz .print_yes
+    la r1, NO_MSG
+    call print
+    ret
+.print_yes:
+    la r1, YES_MSG
+    call print
+    ret
+
+read_command:
+.wait_first:
+    inb r1, TERM_STATUS
+    and r1, r1, 1
+    jz .wait_first
+    inb r0, TERM_IN
+
+.flush:
+    inb r1, TERM_STATUS
+    and r1, r1, 1
+    jz .flush
+    inb r2, TERM_IN
+    cmp r2, NEWLINE
+    jnz .flush
+    ret
+
+print:
+    mov r3, r1
+    call strlen
+    mov r2, r0
+    outm TERM_OUT, r3, r2
+    ret
+
+strlen:
+    xor r0, r0, r0
+.loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .end
+    add r0, r0, 1
+    add r1, r1, 1
+    jp .loop
+.end:
+    ret

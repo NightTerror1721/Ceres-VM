@@ -1,14 +1,14 @@
-# ceres-cli - el producto: el ejecutable `ceres`.
+# ceres-cli - the product: the `ceres` executable.
 #
-# Los siete subcomandos (asm, run, disasm, profile, debug, link, ar) y el formateo de
-# diagnósticos. Existe como proyecto aparte por una razón concreta: para que ninguna librería
-# pueda depender de él. Todo lo que el CLI necesite de otra parte tiene que subir a una librería
-# antes, y eso se nota al escribirlo.
+# The seven subcommands (asm, run, disasm, profile, debug, link, ar) and diagnostic formatting.
+# It exists as a separate project for a specific reason: so that no library can depend on it.
+# Anything the CLI needs from elsewhere has to move up into a library first, and that shows
+# while writing it.
 
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
 if(NOT sources)
-	message(STATUS "ceres: apps/cli/src está vacío - el ejecutable no se construye todavía")
+	message(STATUS "ceres: apps/cli/src is empty - the executable isn't built yet")
 	return()
 endif()
 

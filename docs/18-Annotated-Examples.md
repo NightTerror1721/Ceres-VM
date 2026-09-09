@@ -4,7 +4,7 @@
 
 ## Walkthrough: `examples/main.casm`
 
-The full source, from [`Ceres-ASM/examples/main.casm`](../Ceres-ASM/examples/main.casm):
+The full source, from [`Ceres/examples/main.casm`](../Ceres/examples/main.casm):
 
 ```casm
 const OUT_WRITE = 0x01

@@ -1,19 +1,18 @@
-# ceres-core - el contrato que comparte todo lo demás.
+# ceres-core - the contract everything else shares.
 #
-# Tres cosas, y ninguna de ellas ejecuta nada:
+# Three things, and none of them execute anything:
 #
-#   base/    tipos, u24/i24, fixed_vector, aserciones, utilidades de cadena
-#   isa/     opcodes, el formato de instrucción, los bancos de registros, el desensamblador
-#   format/  CRES (.cres), la información de depuración, el mapa de memoria de la plataforma
+#   base/    types, u24/i24, fixed_vector, assertions, string utilities
+#   isa/     opcodes, the instruction format, the register banks, the disassembler
+#   format/  CRES (.cres), debug information, the platform's memory map
 #
-# El desensamblador está aquí y no en la VM a propósito: decodificar una palabra de 32 bits es
-# función del juego de instrucciones, no del estado de una máquina en marcha, y así
-# `ceres asm --listing` no tiene que enlazar el motor de ejecución.
+# The disassembler is here and not in the VM on purpose: decoding a 32-bit word is a function of
+# the instruction set, not of a running machine's state, so `ceres asm --listing` doesn't have to
+# link the execution engine.
 #
-# La información de depuración también, y ése es uno de los dos cortes de la separación: el
-# ensamblador la produce y el depurador la consume, así que no puede vivir dentro de ninguno de
-# los dos. El otro corte son las constantes del mapa de memoria, que el enlazador necesitaba y
-# antes le obligaban a incluir vm::Memory entera.
+# So is debug information, and that's one of the separation's two cuts: the assembler produces it
+# and the debugger consumes it, so it can't live inside either one. The other cut is the memory
+# map constants, which the linker needed and used to force it to include the whole of vm::Memory.
 
 ceres_add_library(core)
 ceres_add_tests(core)

@@ -1,0 +1,133 @@
+// Exercise 9: Something that survives shutdown
+//
+// Goal: use the disk (ports 0x20-0x23). Until now everything a program did
+// vanished when it ended; a disk is what turns "this session" into "my
+// saved games".
+//
+// The disk is split into 512-byte sectors and only one sector moves at a
+// time. The cycle is:
+//   1. DISK_SECTOR = sector number.
+//   2. "inm buffer, DISK_DATA, n" brings it into memory, or
+//      "outm DISK_DATA, buffer, n" sends it to disk.
+//   3. DISK_STATUS says whether it went well (bit 0) or badly (bit 1).
+//   4. DISK_CMD = 1 forces the dump to the host's file.
+//
+// For the counter to stay alive between runs, the disk needs a file behind it:
+//
+//   ceres run examples/tutorial/09_disco.casm --disk saves.img
+//
+// Without --disk the disk still exists, but it forgets everything when the
+// machine stops: the first run will always say "1".
+//
+// TRY IT YOURSELF:
+//   1. Run it three times with the same --disk and watch the counter grow.
+//   2. Also save the last key pressed in byte 5 of the sector.
+//   3. Write to sector 1 and check that sector 0 doesn't change.
+
+const TERM_OUT    = 0x01
+const DISK_STATUS = 0x20
+const DISK_CMD    = 0x21
+const DISK_SECTOR = 0x22
+const DISK_DATA   = 0x23
+const SYS_CTRL    = 0xFF
+
+const CMD_FLUSH  = 1
+const ERROR_BIT  = 2
+const MARKER     = 0x43        // 'C', to recognize a sector as ours
+const SIZE       = 8           // we only move the bytes we actually use
+
+@rodata
+    let COUNT_MSG:    u8[] = "Times you've run this: "
+    let ERROR_MSG:    u8[] = "The disk isn't responding.\n"
+    let NEWLINE_MSG:  u8[] = "\n"
+
+@bss
+    // [0] = marker, [1] = counter. The rest is left for whatever you want to store.
+    let record: u8[SIZE]
+
+@text
+global main:
+    // Always the same sector: 0 is as good a place as any as long as the
+    // program and whoever reads it agree.
+    li r1, 0
+    out DISK_SECTOR, r1
+
+    la r1, record
+    li r2, SIZE
+    inm r1, DISK_DATA, r2
+
+    inb r3, DISK_STATUS
+    and r3, r3, ERROR_BIT
+    cmp r3, 0
+    jnz .error
+
+    // Is this one of our sectors, or another program's leftovers? The marker tells us.
+    la r1, record
+    ldrb r2, [r1]
+    cmp r2, MARKER
+    jz .known
+
+    li r2, MARKER
+    strb [r1], r2
+    li r2, 0
+    strb [r1 + 1], r2
+
+.known:
+    la r1, record
+    ldrb r2, [r1 + 1]
+    add r2, r2, 1
+    strb [r1 + 1], r2
+
+    // Counting from 0 to 9 is what fits in one digit; beyond that, exercise 3
+    // shows how to split a number into digits.
+    cmp r2, 10
+    jc .show
+    li r2, 9
+
+.show:
+    // The digit is prepared before the call, and kept in r8: "print" uses
+    // r0-r3 for its own work, and r0-r7 don't survive a call. The ones that
+    // do survive are r8-r11 (see the calling convention).
+    add r8, r2, '0'
+    la r1, COUNT_MSG
+    call print
+    outb TERM_OUT, r8
+    la r1, NEWLINE_MSG
+    call print
+
+    // Writing isn't saving: the dump to the file happens when asked for.
+    la r1, record
+    li r2, SIZE
+    outm DISK_DATA, r1, r2
+    li r1, CMD_FLUSH
+    out DISK_CMD, r1
+
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+.error:
+    la r1, ERROR_MSG
+    call print
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret
+
+print:
+    mov r3, r1
+    call strlen
+    mov r2, r0
+    outm TERM_OUT, r3, r2
+    ret
+
+strlen:
+    xor r0, r0, r0
+.loop:
+    ldrb r2, [r1]
+    cmp r2, 0
+    jz .end
+    add r0, r0, 1
+    add r1, r1, 1
+    jp .loop
+.end:
+    ret

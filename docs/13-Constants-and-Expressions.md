@@ -23,8 +23,8 @@ to the constant itself.
 ## What can appear on the right-hand side
 
 A constant expression is kept as a **tree** by the parser and evaluated later, once the symbol table
-exists (`ConstExpr` in [`const_expr.h`](../Ceres-ASM/src/assembler/const_expr.h), evaluated by
-[`const_expr_eval.cpp`](../Ceres-ASM/src/assembler/const_expr_eval.cpp)). That is what lets one
+exists (`ConstExpr` in [`const_expr.h`](../Ceres/libs/asm/include/ceres/asm/const_expr.h), evaluated by
+[`const_expr_eval.cpp`](../Ceres/libs/asm/src/const_expr_eval.cpp)). That is what lets one
 constant refer to another: folding on the spot, as the parser used to, only ever works for literals,
 because at parse time no constant has a value yet.
 

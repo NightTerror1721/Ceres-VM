@@ -1,0 +1,75 @@
+// ==========================================================
+// Ceres ASM - Exhaustive test file for VSCode
+// ==========================================================
+
+// 1. Constants (compile-time macros)
+const MAX_PLAYERS = 4
+const INITIAL_SCORE = 0x0000
+const MASK_BITS = 0b10101100
+
+@rodata
+    // 2. Unsized arrays and strings
+    let welcome_msg: u8[] = "Welcome to CeresVM!\n"
+    let error_msg: u8[] = "Error 404\0"
+
+    // 3. Floating-point types
+    let pi_value: f32 = 3.14159
+    let gravity: f32 = -9.81
+
+@bss
+    // 4. Uninitialized variables (sized arrays using constants)
+    let dynamic_buffer: u32[128]
+    let player_active: u8[MAX_PLAYERS]
+
+@data
+    // 5. Variables initialized with scalars and arrays
+    let global_score: u32 = INITIAL_SCORE
+    let magic_numbers: i16[4] = [42, -10, 0x1A, 0b10]
+    let is_running: u8 = 1
+
+@text
+// 6. Global labels
+global main:
+    // 7. Pseudo-instructions and identifier references
+    LA R1, welcome_msg      // Load the pointer (Load Address)
+    CALL print_string       // Jump to subroutine
+
+    LDV R2, global_score    // Load the absolute value (Load Value)
+    LI R3, 10               // Load immediate (Load Immediate)
+
+    // 8. Integer and register arithmetic
+    ADD R2, R2, R3          // Basic arithmetic
+    STV global_score, R2    // Store the absolute value (Store Value)
+
+    // 9. Floating-point (FPU) instructions and registers
+    LDV F0, pi_value
+    ADD F1, F0, F0          // 2 * pi
+    FTOI R4, F1             // Float -> Int conversion
+
+    // 10. Loop and pointer initialization
+    LI R4, 0                // Index i = 0
+    LA R5, player_active    // Array's base pointer in R5
+
+// 11. Local labels / loops
+.init_loop:
+    LI R6, MAX_PLAYERS
+    CMP R4, R6
+    JZ .end_loop             // Conditional jump if i == MAX_PLAYERS
+
+    // 12. Base-relative addressing (memory)
+    LI R7, 1
+    STRB [R5 + 0], R7       // player_active[i] = 1
+    LDRB R8, [R5 + 0]       // Read it back to test LDRB
+
+    ADD R4, R4, 1           // i++
+    ADD R5, R5, 1           // Advance the pointer by 1 byte
+    JP .init_loop           // Unconditional jump (Jump)
+
+.end_loop:
+    HALT                    // Halt the virtual machine
+
+// Dummy subroutine
+print_string:
+    // Prints the string pointed to by R1
+    NOP
+    RET

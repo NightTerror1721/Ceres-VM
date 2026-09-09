@@ -12,9 +12,9 @@ Nothing in the machine enforces one, and nothing ever will: `call` pushes a retu
 pops it, and that is the whole of what the hardware knows about subroutines.
 
 What exists now is a convention **written down** — register roles, a frame shape, and the two macros
-that open and close it — in [`lib/call.casm`](../Ceres-ASM/lib/call.casm), documented in
+that open and close it — in [`lib/call.casm`](../Ceres/stdlib/call.casm), documented in
 [A calling convention](24-Calling-Convention.md) and exercised by
-[`examples/calling_convention.casm`](../Ceres-ASM/examples/calling_convention.casm).
+[`examples/calling_convention.casm`](../Ceres/examples/calling_convention.casm).
 
 Following it is still discipline. There is no way to write a macro that verifies you preserved `r8`,
 or that you left `sp` where you found it, so the assembler cannot catch a function that breaks the
@@ -48,7 +48,7 @@ two drift apart, the link resolves names that no longer mean what the caller thi
 
 ## Most I/O devices are stubs
 
-Of the 26 default ports reserved in [`io_ports.h`](../Ceres-ASM/src/vm/io_ports.h), 15 are backed
+Of the 26 default ports reserved in [`io_ports.h`](../Ceres/libs/vm/include/ceres/vm/io_ports.h), 15 are backed
 by a working device today: the terminal (3 ports), the timer (3 ports), the disk (4 ports), the
 framebuffer (4 ports), and system control (1 port). Mouse/gamepad, audio, network and the
 debug-hex port are still reserved ranges with no device attached — reading them returns

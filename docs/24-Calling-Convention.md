@@ -5,11 +5,11 @@
 Nothing in the machine enforces one. `call` pushes a return address, `ret` pops it, and that is the
 whole of what the hardware knows about subroutines — see
 [Known limitations](19-Known-Limitations.md). What follows is a contract between the code you write:
-one set of rules, kept in [`lib/call.casm`](../Ceres-ASM/lib/call.casm) so it is written the same way
+one set of rules, kept in [`lib/call.casm`](../Ceres/stdlib/call.casm) so it is written the same way
 every time.
 
 The complete working example is
-[`examples/calling_convention.casm`](../Ceres-ASM/examples/calling_convention.casm). Everything on
+[`examples/calling_convention.casm`](../Ceres/examples/calling_convention.casm). Everything on
 this page was checked against the assembler and the engine, and the instruction-level facts say
 where they come from.
 

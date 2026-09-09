@@ -1,55 +1,75 @@
-# Migración de `Ceres-ASM-old/` a `Ceres/`
+# Migrating `Ceres-ASM-old/` to `Ceres/`
 
-El árbol nuevo está montado y construye desde el primer día, con los directorios todavía
-vacíos. La idea es mover el código a trozos, en commits que compilen, sin dejar la rama rota
-entre uno y otro.
+The new tree is set up and builds from day one, with its directories still
+empty. The idea is to move the code over in chunks, in commits that compile, without leaving the
+branch broken along the way.
 
-## Construir
+## Building
 
 ```sh
 cmake --preset msvc && cmake --build --preset msvc-debug
 cmake --preset gcc  && cmake --build --preset gcc-debug && ctest --preset gcc-debug
 ```
 
-El preset `msvc` no fija la versión del generador a propósito: en esta máquina hay Visual
-Studio 18 y en el CI hay 17, y CMake ya elige el más nuevo que encuentra. Los generadores de
-VS 17 en adelante compilan x64 por defecto, que es lo único que este proyecto ha soportado de
-verdad — sólo las configuraciones x64 tenían `stdcpp23` y el directorio de includes.
+The `msvc` preset doesn't pin the generator's version on purpose: this machine has Visual
+Studio 18 and CI has 17, and CMake already picks the newest one it finds. VS 17-and-later
+generators compile x64 by default, which is the only thing this project has ever really
+supported — only the x64 configurations had `stdcpp23` and the includes directory.
 
-Al configurar, CMake dice qué falta:
+When configuring, CMake says what's missing:
 
 ```
 -- Ceres 0.1.0 - C++23, GNU 15.2.0
---   por migrar  : core, vm, devices, asm, debug
---   ejecutable  : sin apps/cli/src/main.cpp todavía
+--   to migrate  : core, vm, devices, asm, debug
+--   executable  : no apps/cli/src/main.cpp yet
 ```
 
-## Las reglas del árbol nuevo
+## The new tree's rules
 
-**`include/` es la API, `src/` no lo es.** Lo que esté bajo `libs/<x>/include/ceres/<x>/` lo
-puede incluir cualquiera; lo que esté en `libs/<x>/src/` no lo ve nadie de fuera, y el
-compilador lo hace cumplir. Al mover cada cabecera hay que decidir de qué lado cae. En la duda,
-`src/`: subirla después es fácil, bajarla cuando ya hay quien la incluye no lo es.
+**`include/` is the API, `src/` isn't.** Whatever is under `libs/<x>/include/ceres/<x>/` can be
+included by anyone; whatever is in `libs/<x>/src/` is invisible from outside, and the
+compiler enforces it.
 
-**Los includes públicos van con ángulos y ruta completa.** `#include "vm/opcodes.h"` pasa a ser
-`#include <ceres/core/isa/opcodes.h>`. Entre cabeceras privadas de la misma librería vale
-`#include "lexer.h"` como hasta ahora.
+**Almost every header ends up in `include/`, and that's not a sloppy split.** The transitive
+closure of the `#include`s from headers used outside their own folder says as much:
 
-**Nadie añade una dependencia sin escribirla.** Si `ceres-asm` necesita algo de `ceres-vm`, no
-compila hasta que alguien ponga `ceres::vm` en el `DEPENDS` de `libs/asm/CMakeLists.txt`. Ése
-es el punto de toda la separación: que sea una decisión y no un descuido.
+| Library | Headers | Reachable from a public one | Can stay in `src/` today |
+| --- | ---: | ---: | --- |
+| `asm`   | 30 | 29 | only `scope.h` |
+| `vm`    |  6 |  6 | none |
+| `debug` |  6 |  6 | none |
 
-**Los ficheros se descubren solos, de momento.** Mover un `.cpp` no exige tocar ningún
-CMakeLists. Cuando la migración termine hay que cambiar los globs de `cmake/CeresLibrary.cmake`
-por listas explícitas — un glob no sabe avisar de que alguien se dejó un fichero fuera.
+`assembler.h` directly includes `parser.h`, `translation_unit.h`, `linker.h`,
+`binary_emitter.h`, `object_file.h` and `assembly_state.h`, and those drag in the rest. `ceresvm.h`
+includes `execution_engine.h`, which drags in the other four. `debug_session.h` drags in
+`expression.h` and `history.h`, and `debug_server.h` drags in `json.h`.
+
+So **move every header to `include/` and only the `.cpp` files to `src/`**. Thinning out the
+public headers is the next phase, and it needs to happen separately: if you move and thin at
+the same time, when something breaks you won't know which of the two caused it.
+
+The recipe for thinning, afterward: drop a header down to `src/`, rebuild, and if it fails, fix
+the public header that was dragging it in. The compiler says exactly when you've cut too much.
+
+**Public includes use angle brackets and the full path.** `#include "vm/opcodes.h"` becomes
+`#include <ceres/core/isa/opcodes.h>`. Between private headers of the same library
+`#include "lexer.h"` still works as before.
+
+**Nobody adds a dependency without writing it down.** If `ceres-asm` needs something from
+`ceres-vm`, it won't compile until someone puts `ceres::vm` in `libs/asm/CMakeLists.txt`'s
+`DEPENDS`. That's the whole point of the separation: that it's a decision, not an oversight.
+
+**Files are discovered on their own, for now.** Moving a `.cpp` doesn't require touching any
+CMakeLists. Once the migration is done the globs in `cmake/CeresLibrary.cmake` need to become
+explicit lists — a glob can't warn you that someone left a file out.
 
 ---
 
-## Mapa de destinos
+## Destination map
 
-### `libs/core` — el contrato compartido
+### `libs/core` — the shared contract
 
-| De `Ceres-ASM-old/src/` | A |
+| From `Ceres-ASM-old/src/` | To |
 | --- | --- |
 | `common/types.h` `assert.h` `config.h` `logs.h` `int24.h` `fixed_vector.h` `memory.h` `string_utils.h` | `libs/core/include/ceres/core/base/` |
 | `vm/opcodes.h` `instructions.h` `registers.h` `fregisters.h` `address.h` `interrupts.h` `disassembler.h` | `libs/core/include/ceres/core/isa/` |
@@ -57,92 +77,145 @@ por listas explícitas — un glob no sabe avisar de que alguien se dejó un fic
 | `vm/program.cpp` | `libs/core/src/format/program.cpp` |
 | `debug/debug_info.h` | `libs/core/include/ceres/core/format/debug_info.h` |
 | `debug/debug_info.cpp` | `libs/core/src/format/debug_info.cpp` |
-| *(nuevo)* constantes del mapa de memoria | `libs/core/include/ceres/core/format/memory_map.h` |
+| *(new)* memory map constants | `libs/core/include/ceres/core/format/memory_map.h` |
 
-`common/config.h` define `forceinline` y lee `CERES_DEBUG`. La macro la sigue poniendo la
-construcción, ahora desde `cmake/CeresSettings.cmake` y en el target público, para que llegue
-también a quien incluya la cabecera.
+`common/config.h` defines `forceinline` and reads `CERES_DEBUG`. The build still sets that
+macro, now from `cmake/CeresSettings.cmake` and on the public target, so it also reaches
+whoever includes the header.
 
-### `libs/vm` — la máquina
+### `libs/vm` — the machine
 
-| De | A |
+| From | To |
 | --- | --- |
-| `vm/memory.h` *(sin las constantes del mapa)* | `libs/vm/include/ceres/vm/memory.h` |
-| `vm/ceresvm.h` `interrupt_controller.h` `io_ports.h` `bios.h` | `libs/vm/include/ceres/vm/` |
-| `vm/execution_engine.h` | `libs/vm/include/ceres/vm/` *(ver nota)* |
+| `vm/ceresvm.h` `execution_engine.h` `memory.h` `interrupt_controller.h` `io_ports.h` `bios.h` | `libs/vm/include/ceres/vm/` |
 | `vm/ceresvm.cpp` `execution_engine.cpp` | `libs/vm/src/` |
+| `tests/test_vm.cpp` | `libs/vm/tests/` |
 
-`execution_engine.h` son 1 647 líneas de cabecera. Es el sitio donde preguntarse si la API de
-`ceres-vm` es todo eso o sólo `CeresVM`; si es lo segundo, la cabecera baja a `src/` y en
-`include/` queda lo que de verdad se usa desde fuera.
+`vm/memory.h` stays here without the map constants, which move up to `core/format/memory_map.h`.
+Don't confuse it with `common/memory.h`, which holds utilities and goes to `core/base/`.
 
-### `libs/devices` — los periféricos
+`ceres-vm` has no private header, and the reason is one line: `ceresvm.h` includes
+`execution_engine.h` — 1,647 lines — which in turn drags in the other four. That's the place to
+ask, later, whether `ceres-vm`'s API is all of that or just `CeresVM`. Not now: move the six
+into `include/`, get it to compile, and leave that for its own commit.
 
-| De | A |
+`test_vm.cpp` is the only one of the fifteen tests that stands on the machine alone — it doesn't
+go through `assemble_helper.h` — so it gives the new tree's first green suite.
+
+### `libs/devices` — the peripherals
+
+| From | To |
 | --- | --- |
 | `vm/devices.h` | `libs/devices/include/ceres/devices/devices.h` |
 | `vm/storage_devices.h` | `libs/devices/include/ceres/devices/storage_devices.h` |
 
-### `libs/asm` — ensamblador y enlazador
+### `libs/asm` — assembler and linker
 
-Las 45 entradas de `assembler/` se van enteras. Reparto sugerido:
+The 45 entries under `assembler/` move together: they can't be split up, because the headers
+include each other.
 
 | | |
 | --- | --- |
-| **`include/ceres/asm/`** | `assembler.h` `object_linker.h` `linker.h` `errors.h` |
-| **`src/`** | todo lo demás: `lexer` `parser` `token` `statement` `operand` `mnemonic` `instruction_info` `macro_table` `symbol_table` `scope` `const_expr*` `data_type*` `literal_*` `strings_pool` `binary_emitter` `object_file` `relocation*` `assembly_state` `identifier` `size` `common_defs` |
+| **`include/ceres/asm/`** | the 30 headers **minus** `scope.h` |
+| **`src/`** | the 15 `.cpp` files, plus `scope.h` |
 
-### `libs/debug` — el depurador
+`scope.h` is the only assembler header no public one reaches, so it's the only one that can
+start in `src/`. The rest rises through the transitive closure of `assembler.h` and
+`object_linker.h`, measured, not estimated.
 
-| De `debug/` | A |
+Both cuts apply here. If `ceres_asm` compiles, both are done: its include path contains
+neither `debug/` nor `vm/`, so there's no way a stray edge is left.
+
+### `libs/debug` — the debugger
+
+| From `debug/` | To |
 | --- | --- |
-| `debug_session.h` `debug_cli.h` `debug_server.h` | `libs/debug/include/ceres/debug/` |
-| `json.*` `expression.*` `history.*` | `libs/debug/src/` |
-| `debug_session.cpp` `debug_cli.cpp` `debug_server.cpp` | `libs/debug/src/` |
-| `debug_info.*` | **no**: se va a `libs/core/src/format/` |
+| `debug_session.h` `debug_cli.h` `debug_server.h` `expression.h` `history.h` `json.h` | `libs/debug/include/ceres/debug/` |
+| the corresponding six `.cpp` files | `libs/debug/src/` |
+| `debug_info.h` `debug_info.cpp` | **no**: they go to `ceres-core` |
+| `tests/test_debugger.cpp` `test_expression.cpp` `test_history.cpp` `test_json.cpp` | `libs/debug/tests/` |
 
-`json.h` dice de sí mismo que es «lo justo de JSON para hablar el protocolo». Mientras sólo lo
-use el depurador se queda privado aquí; si algún día lo necesita otro, sube a `core/base/`.
+The last three headers go public by drag-along: `debug_session.h` includes `expression.h`
+and `history.h`, and `debug_server.h` includes `json.h`. When they move down to `src/`, their
+tests will still see them: `ceres_add_tests()` gives each library's suite access to its own
+`src/`. It's the only exception to the boundary, and it's deliberate — a unit test that can only
+touch the public API isn't unitary.
+
+`debug_session.cpp` includes `assembler/assembler.h` because the session assembles source on the
+fly. It's not a cycle and doesn't need touching: it becomes `<ceres/asm/assembler.h>` and that's
+it.
 
 ### `apps/cli`
 
-| De | A |
+| From | To |
 | --- | --- |
 | `src/main.cpp` | `apps/cli/src/main.cpp` |
 
 ### Tests
 
-| De `tests/` | A | Por qué |
+| From `tests/` | To | Why |
 | --- | --- | --- |
-| `framework.h` `main.cpp` | `Ceres/tests/framework/` | El andamio, sin dependencias |
-| `assemble_helper.h` | `Ceres/tests/e2e/` | Arrastra el ensamblador entero |
-| `test_encoding` `test_language` `test_macros` `test_modules` `test_pipeline` `test_robustness` `test_devices` `test_debug_info` `test_program_file` `test_objects` | `Ceres/tests/e2e/` | Ensamblan fuente y la ejecutan |
-| `test_vm` | `libs/vm/tests/` | Sólo necesita la máquina |
-| `test_debugger` `test_expression` `test_history` `test_json` | `libs/debug/tests/` | `ceres-debug` ya depende de `asm` y `vm` |
+| `framework.h` `main.cpp` | `Ceres/tests/framework/` | The scaffolding, no dependencies |
+| `assemble_helper.h` | `Ceres/tests/e2e/` | Drags in the whole assembler |
+| `test_encoding` `test_language` `test_macros` `test_modules` `test_pipeline` `test_robustness` `test_devices` `test_debug_info` `test_program_file` `test_objects` | `Ceres/tests/e2e/` | Assemble source and run it |
+| `test_vm` | `libs/vm/tests/` | Only needs the machine |
+| `test_debugger` `test_expression` `test_history` `test_json` | `libs/debug/tests/` | `ceres-debug` already depends on `asm` and `vm` |
+| `build.sh` | — | Replaced by `cmake --build --preset` and `ctest --preset` |
 
-Nueve de los quince ficheros pasan por `assemble_helper.h`, así que **partir las librerías no
-parte los tests**. No hay que reescribirlos: son buenos. Sólo hay que llamarlos por lo que son.
+Move `framework.h` and `main.cpp` **first**: until they're in place, CMake won't build any
+suite (it says so at configure time, it doesn't fail at link time) and you'll have nothing to
+check the rest with.
 
-`test_program_file.cpp` es el mejor candidato a convertirse en un test unitario de `core`: sólo
-usa `assemble_helper` para fabricarse un `.cres`, y eso se puede construir a mano.
+Nine of the fifteen files go through `assemble_helper.h`, so **splitting up the libraries
+doesn't split up the tests**. They don't need rewriting: they're good. They just need to be
+called what they are.
 
-### Lo demás
+`test_program_file.cpp` is the best candidate to become a unit test of `core`: it only uses
+`assemble_helper` to produce a `.cres`, and that can be built by hand.
 
-| De | A |
+### Everything else
+
+| From | To |
 | --- | --- |
 | `Ceres-ASM-old/examples/` | `Ceres/examples/` |
 | `Ceres-ASM-old/lib/call.casm` | `Ceres/stdlib/call.casm` |
 
-`lib/` pasa a `stdlib/` para que no se confunda con `libs/`, que es otra cosa. Los dos son
-candidatos a salir a su propio repositorio (`ceres-lang`) en la fase 04.
+`lib/` becomes `stdlib/` so it isn't confused with `libs/`, which is something else. Both are
+candidates to move out into their own repository (`ceres-lang`) in phase 04.
 
 ---
 
-## Los dos cortes, con sus sitios exactos
+## The order to move things in
 
-Hay que aplicarlos **al mover**, no después, o el árbol nuevo hereda las mismas aristas.
+Bottom-up, following the graph. Each step leaves the tree compiling, so if something
+breaks you know exactly what caused it. Check after each one:
 
-**1. El ensamblador incluye el depurador.** Tres cabeceras de `assembler/` incluyen
+```sh
+cmake --build --preset gcc-debug
+```
+
+1. **The tests' scaffolding** — `framework.h` and `main.cpp` to `tests/framework/`.
+2. **`core/base`** — the whole `common/` folder. Depends on nothing.
+3. **`core/isa`** — the seven files of the instruction set.
+4. **`core/format`** — `program.*`, `debug_info.*`, and this is where you write `memory_map.h`.
+5. **`vm`**, then **`devices`**. When done, `test_vm.cpp` moves down to `libs/vm/tests/` and gives
+   the first green suite.
+6. **`asm`** — all 45 at once, applying both cuts. If it compiles, they're done.
+7. **`debug`** and **`cli`** — this is where the new tree's `ceres` first appears.
+8. **The tests and the data** — `tests/e2e/`, then the unit ones, then `examples/` and `stdlib/`.
+   Finishes with `ctest --preset gcc-debug`.
+
+Use `git mv`, not copy-and-delete: with 106 files git detects the renames by similarity and
+`git log --follow` and `git blame` keep working afterward.
+
+---
+
+## The two cuts, with their exact locations
+
+They need to be applied **while moving**, not afterward, or the new tree inherits the same
+edges.
+
+**1. The assembler includes the debugger.** Three headers under `assembler/` include
 `debug/debug_info.h`:
 
 ```
@@ -151,47 +224,46 @@ assembler/binary_emitter.h
 assembler/object_linker.h
 ```
 
-Como `debug_info` se va a `core`, los tres pasan a `#include <ceres/core/format/debug_info.h>`
-y la arista desaparece sola.
+Since `debug_info` moves to `core`, all three switch to `#include <ceres/core/format/debug_info.h>`
+and the edge disappears on its own.
 
-**2. El enlazador conoce la RAM.** Dos usos de una constante que vive dentro de `vm::Memory`:
+**2. The linker knows about RAM.** Two uses of a constant that lives inside `vm::Memory`:
 
 ```
 assembler/linker.cpp:416        memoryMap.textStart = vm::Memory::UnrestrictedSegmentStart;
 assembler/object_linker.cpp:161 const u32 textStart = vm::Memory::UnrestrictedSegmentStart.value();
 ```
 
-Hay que sacar las constantes del mapa de memoria de `vm/memory.h` a
-`core/format/memory_map.h`, e incluirla desde los dos sitios. `Memory` — el array de bytes de
-una máquina en marcha — se queda en `ceres-vm`, y `libs/asm/CMakeLists.txt` no gana ningún
+The memory map constants need to come out of `vm/memory.h` into
+`core/format/memory_map.h`, and be included from both places. `Memory` — the byte array of
+a running machine — stays in `ceres-vm`, and `libs/asm/CMakeLists.txt` doesn't gain any
 `DEPENDS`.
 
-Para comprobar que el corte está hecho no hace falta leer nada: si `ceres_asm` compila, está
-hecho, porque su include path no contiene ni `debug/` ni `vm/`.
+To check the cut is done there's no need to read anything: if `ceres_asm` compiles, it's
+done, because its include path contains neither `debug/` nor `vm/`.
 
 ---
 
-## Fuera del alcance de esta fase
+## Out of scope for this phase
 
-Lo siguiente sigue apuntando al árbol viejo y hay que rehacerlo cuando `Ceres/` tenga código:
+The following still points at the old tree and needs redoing once `Ceres/` has code:
 
-- **`.github/workflows/ci.yml`** — dos rutas de `msbuild`, la ruta del ejecutable de tests y una
-  línea de `g++` que enumera `vm/*.cpp assembler/*.cpp debug/*.cpp`. Se sustituye entera por
+- **`.github/workflows/ci.yml`** — two `msbuild` paths, the test executable's path and a
+  `g++` line that lists `vm/*.cpp assembler/*.cpp debug/*.cpp`. Gets replaced entirely by
   `cmake --preset` + `cmake --build --preset` + `ctest --preset`.
-- **`tests/build.sh`** — los mismos globs y los dieciséis ficheros de test a mano. Desaparece.
-- **`Ceres-ASM-old/*.vcxproj`** — 87 entradas por duplicado. Las genera CMake.
-- **`editors/vscode-ceresasm/client/src/compilerPath.ts`** y **`server/src/compiler.ts`** —
-  buscan `Ceres-ASM/src/ceres.exe` subiendo hasta ocho directorios. Ahora el binario sale en
-  `Ceres/build/<preset>/bin/`.
-- **`README.md`** — las instrucciones de construcción son la línea de `g++` y la ruta del
-  `.vcxproj`.
-- **`.gitnexus/`** — el índice está construido sobre las rutas viejas: `node .gitnexus/run.cjs
-  analyze` cuando el árbol nuevo tenga código.
+- **`tests/build.sh`** — the same globs and the sixteen test files by hand. Goes away.
+- **`Ceres-ASM-old/*.vcxproj`** — 87 duplicated entries. CMake generates these.
+- **`editors/vscode-ceresasm/client/src/compilerPath.ts`** and **`server/src/compiler.ts`** —
+  they search for `Ceres-ASM/src/ceres.exe` climbing up to eight directories. The binary now lands
+  in `Ceres/build/<preset>/bin/`.
+- **`README.md`** — the build instructions are the `g++` line and the `.vcxproj` path.
+- **`.gitnexus/`** — the index is built on the old paths: `node .gitnexus/run.cjs
+  analyze` once the new tree has code.
 
-Dos trampas del `.gitignore` ya están resueltas, y conviene saber que existían:
+Two `.gitignore` traps are already resolved, and it's worth knowing they existed:
 
-- La regla `[Dd]ebug/` de Visual Studio se traga `Ceres/libs/debug/`, igual que se tragaba
-  `Ceres-ASM/src/debug/`. Hay negaciones explícitas para ambas.
-- La regla `/ceres` del binario compilado también capturaba el directorio `Ceres/`, porque en
-  Windows git compara los patrones sin distinguir mayúsculas — el árbol entero era invisible
-  para `git status`. Lo arregla un `!/Ceres/` con barra final, que sólo aplica a directorios.
+- Visual Studio's `[Dd]ebug/` rule swallows `Ceres/libs/debug/`, just like it used to swallow
+  `Ceres-ASM/src/debug/`. There are explicit negations for both.
+- The `/ceres` rule for the compiled binary also captured the `Ceres/` directory, because on
+  Windows git compares patterns case-insensitively — the whole tree was invisible to
+  `git status`. A trailing-slash `!/Ceres/`, which only applies to directories, fixes it.

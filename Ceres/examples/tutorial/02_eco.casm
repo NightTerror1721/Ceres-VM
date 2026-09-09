@@ -1,0 +1,40 @@
+// Exercise 2: Keyboard echo
+//
+// Goal: read from the terminal's input port (0x02) and write each
+// character back to the output port (0x01), byte by byte, until a
+// newline is found ('\n', code 10).
+//
+// IMPORTANT about input in Ceres:
+//   The terminal is line-buffered, just like any shell: the program
+//   receives nothing until the user presses Enter, and then it receives
+//   the WHOLE line at once (including the trailing '\n'). That's why you
+//   have to check TERM_STATUS (bit 0) before reading TERM_IN: if you read
+//   it without checking, and there's nothing yet, you get a 0.
+//
+// TRY IT YOURSELF:
+//   Run the program and type a sentence. Then modify it to convert each
+//   letter to uppercase before printing it (hint: lowercase ASCII runs
+//   from 'a'=97 to 'z'=122; subtracting 32 converts it to uppercase).
+
+const TERM_STATUS = 0x00
+const TERM_OUT     = 0x01
+const TERM_IN      = 0x02
+const SYS_CTRL     = 0xFF
+const NEWLINE      = 10
+
+@text
+global main:
+.wait_byte:
+    inb r1, TERM_STATUS   // r1 = status bits
+    and r1, r1, 1         // we only care about the "data available" bit
+    jz .wait_byte         // if nothing is ready yet, keep waiting
+
+    inb r2, TERM_IN        // r2 = the byte the user typed
+    outb TERM_OUT, r2      // send it right back
+
+    cmp r2, NEWLINE
+    jnz .wait_byte         // if it wasn't the end of line, keep reading
+
+    li r0, 0x01
+    out SYS_CTRL, r0
+    ret

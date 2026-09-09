@@ -5,7 +5,7 @@
 Ceres has no memory-mapped I/O: devices are reached exclusively through the `in`/`out` family of
 instructions (see [Instruction set → I/O operations](05-Instruction-Set.md#io-operations-0x90-0xa3)),
 addressing one of 256 8-bit **ports**. `IOPorts` (in
-[`io_ports.h`](../Ceres-ASM/src/vm/io_ports.h)) holds a `std::array<IODevice*, 256>` and dispatches
+[`io_ports.h`](../Ceres/libs/vm/include/ceres/vm/io_ports.h)) holds a `std::array<IODevice*, 256>` and dispatches
 reads/writes to whichever device is attached at a given port — or synthesizes a default response if
 nothing is attached there.
 
@@ -18,8 +18,8 @@ nothing is attached there.
 
 ## The default port map
 
-This is the layout `default_ports` in [`io_ports.h`](../Ceres-ASM/src/vm/io_ports.h) reserves.
-"Implemented" means a device in [`devices.h`](../Ceres-ASM/src/vm/devices.h) actually backs it today;
+This is the layout `default_ports` in [`io_ports.h`](../Ceres/libs/vm/include/ceres/vm/io_ports.h) reserves.
+"Implemented" means a device in [`devices.h`](../Ceres/libs/devices/include/ceres/devices/devices.h) actually backs it today;
 everything else currently behaves as an unattached port (all-ones on read, no-op on write) until a
 device is written and wired up.
 
@@ -129,12 +129,12 @@ outb 0x01, r0
 
 The block forms (`outm`, `inm`) work here too: `outm 0x01, r_addr, r_size` prints `r_size` bytes
 starting at `r_addr` in one instruction, instead of looping byte by byte — this is exactly what
-[`examples/main.casm`](../Ceres-ASM/examples/main.casm)'s `print` routine does.
+[`examples/main.casm`](../Ceres/examples/main.casm)'s `print` routine does.
 
 ### `DiskDevice` (ports `0x20`–`0x23`)
 
 Block storage in sectors of 512 bytes, in
-[`storage_devices.h`](../Ceres-ASM/src/vm/storage_devices.h). One sector moves at a time: the
+[`storage_devices.h`](../Ceres/libs/devices/include/ceres/devices/storage_devices.h). One sector moves at a time: the
 sector port selects which, and a block transfer on the data port moves it.
 
 | Port | Direction | Meaning |
