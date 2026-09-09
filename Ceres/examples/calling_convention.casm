@@ -14,34 +14,36 @@
 // be declared here.
 import "../stdlib/call.casm"
 
+/// Terminal-output port. `outb TERM_OUT, r` writes one byte straight to stdout.
 const TERM_OUT = 0x01
+/// System-control port, write-only. Writing `1` shuts the machine down cleanly.
 const SYS_CTRL = 0xFF
+/// ASCII line feed, printed after each number.
 const NEWLINE  = 10
+/// ASCII `'0'`. A digit `d` prints as `DIGIT_0 + d`.
 const DIGIT_0  = 48
 
 @text
 
 // ---------------------------------------------------------------------------------------------
-// A leaf. It takes one argument, calls nothing, and touches only a caller-saved register, so it
-// needs no frame and no prologue.
-// ---------------------------------------------------------------------------------------------
+/// A leaf. Takes one argument, calls nothing, and touches only a caller-saved register - so it
+/// needs no frame and no prologue.
 print_char:
     outb TERM_OUT, arg0
     ret
 
 // ---------------------------------------------------------------------------------------------
-// Prints an unsigned number. The digits come out least-significant first, so they are collected in
-// a local buffer and emitted backwards.
-//
-// r8 and r9 hold the buffer and the count across a `call`, so they have to be callee-saved ones -
-// and therefore saved in the frame on the way in.
-// ---------------------------------------------------------------------------------------------
+/// `r8` and `r9` hold the digit buffer and how many digits are in it across the `call` to
+/// `print_char`, so both have to be callee-saved ones - and therefore saved in the frame on the
+/// way in.
 struct PrintFrame
     saved_r8: u32
     saved_r9: u32
     digits:   u8[12]
 endstruct
 
+/// Prints an unsigned number. Digits come out least-significant first, so they are collected
+/// into `PrintFrame.digits` and emitted backwards.
 print_u32:
     proc_enter PrintFrame
     str [sp + PrintFrame.saved_r8], r8
@@ -79,13 +81,14 @@ print_u32:
     proc_leave
 
 // ---------------------------------------------------------------------------------------------
-// Recursion is where a callee-saved register earns its keep: `n` has to survive the recursive
-// call, and every caller-saved register is fair game across one.
-// ---------------------------------------------------------------------------------------------
+/// Just `r8`: the only register this body needs to survive the recursive call below.
 struct FactFrame
     saved_r8: u32
 endstruct
 
+/// Recursive factorial. Recursion is where a callee-saved register earns its keep: `n` has to
+/// survive the call to `factorial` itself, and every caller-saved register is fair game across
+/// one - which is exactly why `r8`, not a caller-saved register, holds it here.
 factorial:
     proc_enter FactFrame
     str [sp + FactFrame.saved_r8], r8
@@ -106,9 +109,8 @@ factorial:
     proc_leave
 
 // ---------------------------------------------------------------------------------------------
-// Arguments five and up arrive on the stack. The callee's view of them is the frame it was given:
-// [fp + 8] is the first one, immediately above the return address.
-// ---------------------------------------------------------------------------------------------
+/// The callee's view of arguments five and up. `[fp + 8]` is the first one, immediately above
+/// the return address `call` pushed and the saved `fp` that `enter` pushed on top of it.
 struct Sum6Frame
     saved_fp: u32       // fp + 0
     retaddr:  u32       // fp + 4
@@ -116,6 +118,8 @@ struct Sum6Frame
     arg5:     u32       // fp + 12
 endstruct
 
+/// Adds six numbers. The first four arrive in `arg0`-`arg3`; the fifth and sixth arrive on the
+/// stack, at `[fp + 8]`/`[fp + 12]` - see `Sum6Frame`.
 sum6:
     enter                               // no locals, so no `sub sp` is needed
     add ret0, arg0, arg1
@@ -129,14 +133,15 @@ sum6:
     ret
 
 // ---------------------------------------------------------------------------------------------
-// The caller's own frame carries the outgoing arguments, at offset 0 so that they land exactly
-// where `call` leaves them for the callee.
-// ---------------------------------------------------------------------------------------------
+/// `main`'s own outgoing area, at offset 0 so it lands exactly where `call` leaves it for
+/// `sum6` to read back as `Sum6Frame.arg4`/`arg5`.
 struct MainFrame
     outgoing0: u32      // becomes sum6's [fp + 8]
     outgoing1: u32      // becomes sum6's [fp + 12]
 endstruct
 
+/// Entry point. Prints `factorial(5)`, then the sum of six numbers - the first four in
+/// registers, the last two through `MainFrame`'s outgoing area.
 global main:
     proc_enter MainFrame
 

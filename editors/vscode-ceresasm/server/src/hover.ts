@@ -2,7 +2,7 @@ import { Hover, MarkupKind, Position, Range } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { describeRegister, KEYWORDS, LINKER_SYMBOLS, MNEMONICS, SECTIONS, TYPES } from './languageData';
 import { resolveUserSymbol } from './resolution';
-import { findEnclosingMacro, getCleanedLines, getTokenAtCharacter, StructSymbol, SymbolIndexer } from './symbolIndex';
+import { findEnclosingMacro, getCleanedLines, getTokenAtCharacter, MacroSymbol, StructSymbol, SymbolIndexer } from './symbolIndex';
 
 // A fenced ```casm block gets the same TextMate-grammar syntax highlighting in the hover popup
 // as the editor itself; a single-backtick inline span never does; a plain paragraph doesn't
@@ -16,6 +16,59 @@ function hover(code: string, kindLabel: string, description: string, range: Rang
 		parts.push(description);
 	}
 	return { contents: { kind: MarkupKind.Markdown, value: parts.join('\n\n') }, range };
+}
+
+// The `///` doc comment above a declaration, if any, followed by whatever technical detail this
+// hover already computes for it (a struct's field table, a field's offset...). The doc comment
+// leads because it says what the symbol is *for*; the rest says how it is laid out.
+function withDoc(doc: string | undefined, ...rest: string[]): string {
+	return [doc, ...rest].filter((part) => part && part.length > 0).join('\n\n');
+}
+
+// `clamp $value, $lo, $hi` untagged, or `clamp(reg value, imm lo, imm hi) -> reg` once its doc
+// comment tags every parameter it has - never a mix of the two, so a partially-tagged macro
+// doesn't look more precise than it actually is.
+function macroSignature(macro: MacroSymbol): string {
+	const plain = `${macro.name} ${macro.params.join(', ')}`.trimEnd();
+	if (macro.docParams.length !== macro.params.length) {
+		return plain;
+	}
+
+	const byName = new Map(macro.docParams.map((tag) => [tag.name, tag] as const));
+	const typedParams: string[] = [];
+	for (const paramName of macro.params) {
+		const tag = byName.get(paramName);
+		if (!tag) {
+			return plain; // A tag names a parameter that doesn't match this macro's own header.
+		}
+		typedParams.push(`${tag.kind} ${paramName.replace(/^\$/, '')}`);
+	}
+
+	const returns = macro.docReturn ? ` -> ${macro.docReturn.kind}` : '';
+	return `${macro.name}(${typedParams.join(', ')})${returns}`;
+}
+
+// The `@param`/`@return` tags as a table plus a return line, in the same style `describeStruct`
+// already uses for fields - empty when the doc comment carries no tags at all.
+function describeMacroTags(macro: MacroSymbol): string {
+	if (macro.docParams.length === 0 && !macro.docReturn) {
+		return '';
+	}
+
+	const byName = new Map(macro.docParams.map((tag) => [tag.name, tag] as const));
+	const rows = macro.params.map((paramName) => {
+		const tag = byName.get(paramName);
+		const kind = tag ? `\`${tag.kind}\`` : '?';
+		const description = tag ? tag.description : '';
+		return `| \`${paramName}\` | ${kind} | ${description} |`;
+	});
+	const table = rows.length > 0 ? ['| Param | Kind | |', '| --- | --- | --- |', ...rows].join('\n') : '';
+
+	const returnLine = macro.docReturn
+		? `**Returns:** \`${macro.docReturn.kind}\`${macro.docReturn.description ? ` — ${macro.docReturn.description}` : ''}`
+		: '';
+
+	return [table, returnLine].filter((part) => part.length > 0).join('\n\n');
 }
 
 // A struct as the assembler lays it out: every field with the offset its name stands for, which
@@ -98,7 +151,7 @@ export function provideHover(document: TextDocument, position: Position, indexer
 			return hover(
 				`struct ${resolved.symbol.name}   // ${size}`,
 				`struct with ${resolved.symbol.fields.length} field(s)`,
-				describeStruct(resolved.symbol),
+				withDoc(resolved.symbol.doc, describeStruct(resolved.symbol)),
 				range
 			);
 		}
@@ -109,24 +162,24 @@ export function provideHover(document: TextDocument, position: Position, indexer
 			return hover(
 				`${resolved.owner.name}.${resolved.field.name}: ${resolved.field.typeText}`,
 				'struct field',
-				offset,
+				withDoc(resolved.field.doc, offset),
 				range
 			);
 		}
 		case 'const':
-			return hover(`const ${resolved.symbol.name} = ${resolved.symbol.valueText}`, 'const', '', range);
+			return hover(`const ${resolved.symbol.name} = ${resolved.symbol.valueText}`, 'const', withDoc(resolved.symbol.doc), range);
 		case 'variable': {
 			const description = resolved.symbol.section ? `Declared in \`@${resolved.symbol.section}\`.` : '';
-			return hover(`let ${resolved.symbol.name}: ${resolved.symbol.typeText}`, 'variable', description, range);
+			return hover(`let ${resolved.symbol.name}: ${resolved.symbol.typeText}`, 'variable', withDoc(resolved.symbol.doc, description), range);
 		}
 		case 'label': {
 			const code = resolved.symbol.visibility === 'global' ? `global ${resolved.symbol.declaredName}:` : `${resolved.symbol.declaredName}:`;
-			return hover(code, `${resolved.symbol.visibility} label`, '', range);
+			return hover(code, `${resolved.symbol.visibility} label`, withDoc(resolved.symbol.doc), range);
 		}
 		case 'macro': {
-			const code = resolved.candidates.map((candidate) => `${resolved.symbol.name} ${candidate.params.join(', ')}`.trimEnd()).join('\n');
+			const code = resolved.candidates.map((candidate) => macroSignature(candidate)).join('\n');
 			const kindLabel = resolved.candidates.length > 1 ? `macro (${resolved.candidates.length} overloads)` : 'macro';
-			return hover(code, kindLabel, '', range);
+			return hover(code, kindLabel, withDoc(resolved.symbol.doc, describeMacroTags(resolved.symbol)), range);
 		}
 	}
 }

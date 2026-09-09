@@ -24,6 +24,8 @@ import {
 	RenameParams,
 	SemanticTokens,
 	SemanticTokensParams,
+	SignatureHelp,
+	SignatureHelpParams,
 	TextDocumentPositionParams,
 	TextDocumentSyncKind,
 	TextDocuments,
@@ -35,12 +37,14 @@ import { URI } from 'vscode-uri';
 import { checkFile, CompilerNotFoundError, resolveCompilerPath } from './compiler';
 import { provideCompletion } from './completion';
 import { provideDefinition } from './definition';
+import { provideDocTagHints } from './docTagDiagnostics';
 import { provideFoldingRanges } from './folding';
 import { provideHover } from './hover';
 import { DEFAULT_INLAY_HINT_SETTINGS, InlayHintSettings, provideInlayHints } from './inlayHints';
 import { findReferences } from './references';
 import { providePrepareRename, provideRenameEdits } from './rename';
 import { TOKEN_MODIFIERS, TOKEN_TYPES, provideSemanticTokens } from './semanticTokens';
+import { provideSignatureHelp } from './signatureHelp';
 import { getCleanedLines, SymbolIndexer } from './symbolIndex';
 
 const connection = createConnection(ProposedFeatures.all);
@@ -98,6 +102,11 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 			inlayHintProvider: { resolveProvider: false },
 			completionProvider: {
 				triggerCharacters: ['.', '$', '%', '@']
+			},
+			// A macro call has no parentheses (`clamp r1, 0, 10`, not `clamp(r1, 0, 10)`), so a space
+			// after the name is the only trigger that fires before the first argument is typed.
+			signatureHelpProvider: {
+				triggerCharacters: [' ', ',']
 			},
 			semanticTokensProvider: {
 				legend: { tokenTypes: [...TOKEN_TYPES], tokenModifiers: [...TOKEN_MODIFIERS] },
@@ -249,6 +258,14 @@ async function validateDocument(document: TextDocument): Promise<void> {
 	};
 	getBucket(document.uri); // Always publish for the document itself, even if it's just to clear it.
 
+	// Advisory `@param`/`@return` mismatches - static, cheap, and independent of the real compiler,
+	// so they run whether or not `ceres` itself is even found below.
+	try {
+		getBucket(document.uri).push(...provideDocTagHints(document, indexer));
+	} catch (error) {
+		connection.console.error(`Doc-tag hint pass failed: ${(error as Error).message}`);
+	}
+
 	try {
 		const compilerPath = await getCompilerPath(filePath);
 
@@ -390,6 +407,19 @@ connection.onCompletion((params: CompletionParams): CompletionItem[] => {
 	} catch (error) {
 		connection.console.error(`Completion request failed: ${(error as Error).message}`);
 		return [];
+	}
+});
+
+connection.onSignatureHelp((params: SignatureHelpParams): SignatureHelp | null => {
+	try {
+		const document = documents.get(params.textDocument.uri);
+		if (!document) {
+			return null;
+		}
+		return provideSignatureHelp(document, params.position, indexer);
+	} catch (error) {
+		connection.console.error(`Signature help request failed: ${(error as Error).message}`);
+		return null;
 	}
 });
 

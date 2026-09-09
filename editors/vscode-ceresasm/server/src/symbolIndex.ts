@@ -9,6 +9,7 @@ import { Range } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { TextDocuments } from 'vscode-languageserver/node';
 import { URI } from 'vscode-uri';
+import { ParamTag, parseDocTags, ReturnTag } from './docTags';
 
 export interface ConstSymbol {
 	kind: 'const';
@@ -17,6 +18,7 @@ export interface ConstSymbol {
 	uri: string;
 	range: Range;
 	valueText: string;
+	doc?: string;
 }
 
 export interface VariableSymbol {
@@ -27,6 +29,7 @@ export interface VariableSymbol {
 	range: Range;
 	typeText: string;
 	section: string | undefined;
+	doc?: string;
 }
 
 export type LabelVisibility = 'global' | 'file' | 'local';
@@ -38,6 +41,7 @@ export interface LabelSymbol {
 	visibility: LabelVisibility;
 	uri: string;
 	range: Range;
+	doc?: string;
 }
 
 export interface MacroSymbol {
@@ -50,6 +54,12 @@ export interface MacroSymbol {
 	range: Range;
 	bodyStartLine: number;
 	bodyEndLine: number;
+	doc?: string;
+	// Parsed from `@param`/`@return` lines in the doc comment above - advisory only, never
+	// validated against `params` here. Empty/absent when the doc comment has no tags, which is
+	// the common case and exactly today's behaviour.
+	docParams: ParamTag[];
+	docReturn?: ReturnTag;
 }
 
 export interface StructField {
@@ -62,6 +72,7 @@ export interface StructField {
 	// fold, say - because a wrong offset is worse than none.
 	offset?: number;
 	size?: number;
+	doc?: string;
 }
 
 export interface StructSymbol {
@@ -74,6 +85,7 @@ export interface StructSymbol {
 	fieldsByName: Map<string, StructField>;
 	size?: number;
 	bodyEndLine: number;
+	doc?: string;
 }
 
 export interface ImportSpec {
@@ -187,6 +199,24 @@ export function getCleanedLines(indexer: SymbolIndexer, uri: string): string[] {
 	return stripStringLiterals(stripComments(indexer.getText(uri))).split(/\r\n|\r|\n/);
 }
 
+const DOC_COMMENT_RE = /^\s*\/\/\/\s?(.*)$/;
+
+// A `///` block is a doc comment: contiguous `///` lines immediately above a declaration, in
+// source order. Anything that breaks the contiguity - a blank line, a plain `//`, code - severs
+// the link, exactly like Rust/JSDoc/LuaCATS treat the same convention. Reads the *raw* lines
+// (comments intact), never the comment-blanked ones `buildFileIndex` scans everything else with.
+function collectLeadingDoc(rawLines: string[], declarationLine: number): string | undefined {
+	const parts: string[] = [];
+	for (let line = declarationLine - 1; line >= 0; line--) {
+		const match = DOC_COMMENT_RE.exec(rawLines[line]);
+		if (!match) {
+			break;
+		}
+		parts.unshift(match[1]);
+	}
+	return parts.length > 0 ? parts.join('\n') : undefined;
+}
+
 const IMPORT_RE = /^(\s*)import\s+"([^"]*)"(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?/;
 const CONST_RE = /^(\s*)(global\s+)?const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\S.*?)\s*$/;
 const LET_RE = /^(\s*)(global\s+)?let\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:\s*\[[^\]]*\])*)/;
@@ -215,6 +245,9 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 	const index = emptyFileIndex(uri);
 	const clean = stripComments(text);
 	const lines = clean.split(/\r\n|\r|\n/);
+	// Same split, same line numbering as `lines` - just with comments intact, so a `///` block can
+	// be read above a declaration line without the scanners below ever seeing comment text.
+	const rawLines = text.split(/\r\n|\r|\n/);
 
 	let currentSection: string | undefined;
 	let currentNonLocalLabel: string | undefined;
@@ -260,6 +293,7 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 			const [, indent, globalPrefix, name, rest] = macroMatch;
 			const params = [...rest.matchAll(MACRO_PARAM_RE)].map((m) => m[0]);
 			const nameStart = indent.length + (globalPrefix ? globalPrefix.length : 0) + 'macro '.length;
+			const parsedDoc = parseDocTags(collectLeadingDoc(rawLines, lineNumber));
 			const symbol: MacroSymbol = {
 				kind: 'macro',
 				isGlobal: Boolean(globalPrefix),
@@ -269,7 +303,10 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 				uri,
 				range: lineRange(lineNumber, nameStart, nameStart + name.length),
 				bodyStartLine: lineNumber + 1,
-				bodyEndLine: lines.length - 1
+				bodyEndLine: lines.length - 1,
+				doc: parsedDoc.doc,
+				docParams: parsedDoc.params,
+				docReturn: parsedDoc.returns
 			};
 			index.macros.set(`${name}/${params.length}`, symbol);
 			activeMacro = symbol;
@@ -289,7 +326,8 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 				name,
 				uri,
 				range: lineRange(lineNumber, nameStart, nameStart + name.length),
-				valueText: register
+				valueText: register,
+				doc: collectLeadingDoc(rawLines, lineNumber)
 			});
 			continue;
 		}
@@ -306,7 +344,8 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 				range: lineRange(lineNumber, nameStart, nameStart + name.length),
 				fields: [],
 				fieldsByName: new Map(),
-				bodyEndLine: lines.length - 1
+				bodyEndLine: lines.length - 1,
+				doc: collectLeadingDoc(rawLines, lineNumber)
 			};
 			index.structs.set(name, symbol);
 			activeStruct = symbol;
@@ -323,7 +362,8 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 					name,
 					typeText: typeText.replace(/\s+/g, ''),
 					uri,
-					range: lineRange(lineNumber, indent.length, indent.length + name.length)
+					range: lineRange(lineNumber, indent.length, indent.length + name.length),
+					doc: collectLeadingDoc(rawLines, lineNumber)
 				};
 				activeStruct.fields.push(field);
 				activeStruct.fieldsByName.set(name, field);
@@ -341,7 +381,8 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 				name,
 				uri,
 				range: lineRange(lineNumber, nameStart, nameStart + name.length),
-				valueText
+				valueText,
+				doc: collectLeadingDoc(rawLines, lineNumber)
 			});
 			continue;
 		}
@@ -357,7 +398,8 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 				uri,
 				range: lineRange(lineNumber, nameStart, nameStart + name.length),
 				typeText: typeText.replace(/\s+/g, ''),
-				section: currentSection
+				section: currentSection,
+				doc: collectLeadingDoc(rawLines, lineNumber)
 			});
 			continue;
 		}
@@ -383,7 +425,8 @@ export function buildFileIndex(uri: string, text: string): FileIndex {
 				qualifiedName,
 				visibility,
 				uri,
-				range: lineRange(lineNumber, nameStart, nameStart + declaredName.length)
+				range: lineRange(lineNumber, nameStart, nameStart + declaredName.length),
+				doc: collectLeadingDoc(rawLines, lineNumber)
 			};
 			index.labels.set(qualifiedName, symbol);
 			if (!isLocal) {
