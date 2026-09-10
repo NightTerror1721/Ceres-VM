@@ -123,3 +123,36 @@ TEST(driver_machine, host_receives_terminal_output)
 	CHECK_EQ(output, std::string{"A"});
 	CHECK_EQ(machine.droppedInputBytes(), ceres::u64{0});
 }
+
+TEST(driver_machine, host_receives_presented_frames)
+{
+	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_frame_test.casm";
+	{
+		std::ofstream file{source};
+		file << "@text\n"
+			"global main:\n"
+			"    la r13, 0xFF030000\n"
+			"    li r0, 2\n"
+			"    str [r13 + 4], r0\n"
+			"    li r0, 1\n"
+			"    str [r13 + 8], r0\n"
+			"    li r0, 88\n"
+			"    str [r13 + 12], r0\n"
+			"    li r0, 2\n"
+			"    str [r13 + 0], r0\n"
+			"    la r13, 0xFFFF0000\n"
+			"    li r0, 1\n"
+			"    strb [r13 + 0], r0\n";
+	}
+	ceres::casm::Assembler assembler;
+	auto program = assembler.assemble({source});
+	std::filesystem::remove(source);
+	CHECK(program.has_value());
+	if (!program) return;
+
+	std::string frame;
+	Machine machine{{}, {.framePresented = [&frame](std::string_view value) { frame = value; }}};
+	CHECK(machine.load(*program).has_value());
+	CHECK(machine.run().has_value());
+	CHECK_EQ(frame, std::string{"X \n"});
+}
