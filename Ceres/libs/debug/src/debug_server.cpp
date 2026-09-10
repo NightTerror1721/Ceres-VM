@@ -45,12 +45,15 @@ namespace ceres::debug
 
 	DebugServer::~DebugServer()
 	{
+		// getline cannot be cancelled portably. The shared control lets a detached reader wake later
+		// without dereferencing this, while the mutex waits out any command it is currently handling.
+		const std::lock_guard lock{ _readerControl->mutex };
+		_readerControl->stopping = true;
 		_stopping.store(true, std::memory_order_release);
 		if (_reader.joinable())
 		{
-			// The reader is blocked in a read on stdin and cannot be woken from here; detaching
-			// lets the process exit without waiting for a keystroke that may never come. The same
-			// bargain `ceres run` already makes with its own stdin thread.
+			// The reader may be blocked in stdin. It owns ReaderControl, not this, after returning
+			// from getline, so detaching does not leave an object access behind.
 			_reader.detach();
 		}
 	}
@@ -248,11 +251,15 @@ namespace ceres::debug
 
 	// --- Reading --------------------------------------------------------------------------------
 
-	void DebugServer::readLoop()
+	void DebugServer::readLoop(const std::shared_ptr<ReaderControl>& control)
 	{
 		std::string line;
 		while (std::getline(std::cin, line))
 		{
+			const std::lock_guard lock{ control->mutex };
+			if (control->stopping)
+				return;
+
 			if (line.empty())
 				continue;
 
@@ -272,14 +279,18 @@ namespace ceres::debug
 				_session.requestPause();
 
 			{
-				const std::lock_guard<std::mutex> lock{ _queueMutex };
+				const std::lock_guard<std::mutex> queueLock{ _queueMutex };
 				_pending.push_back(std::move(parsed.value()));
 			}
 			_queueSignal.notify_one();
 		}
 
-		_inputClosed.store(true, std::memory_order_release);
-		_queueSignal.notify_all();
+		const std::lock_guard lock{ control->mutex };
+		if (!control->stopping)
+		{
+			_inputClosed.store(true, std::memory_order_release);
+			_queueSignal.notify_all();
+		}
 	}
 
 	int DebugServer::run()
@@ -333,7 +344,7 @@ namespace ceres::debug
 			}) }
 		});
 
-		_reader = std::thread([this]() { readLoop(); });
+		_reader = std::thread([this, control = _readerControl]() { readLoop(control); });
 
 		while (!_stopping.load(std::memory_order_acquire))
 		{

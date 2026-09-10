@@ -18,6 +18,7 @@
 #include <condition_variable>
 #include <deque>
 #include <mutex>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -29,11 +30,18 @@ namespace ceres::debug
 		static inline constexpr u32 ProtocolVersion = 1;
 
 	private:
+		struct ReaderControl
+		{
+			std::mutex mutex;
+			bool stopping = false;
+		};
+
 		DebugSession& _session;
 
 		// Requests arrive on a reader thread so that `pause` can be acted on while the main thread
 		// is inside resume(); everything else is queued and handled in order.
 		std::thread _reader;
+		std::shared_ptr<ReaderControl> _readerControl = std::make_shared<ReaderControl>();
 		std::deque<json::Value> _pending;
 		std::mutex _queueMutex;
 		std::condition_variable _queueSignal;
@@ -62,7 +70,7 @@ namespace ceres::debug
 		int run();
 
 	private:
-		void readLoop();
+		void readLoop(const std::shared_ptr<ReaderControl>& control);
 		bool dispatch(const json::Value& request);
 
 		void emit(const json::Value& message);
