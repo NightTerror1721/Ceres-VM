@@ -279,7 +279,8 @@ A function that calls nothing has no reason to touch the stack, and
     bl r11, print_char      // the return address goes in r11, not on the stack
 
 print_char:
-    outb TERM_OUT, arg0
+    la r13, 0xFF000004      // Terminal's OutputRegister
+    strb [r13 + 0], arg0
     jp r11
 ```
 

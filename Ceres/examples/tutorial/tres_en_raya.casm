@@ -29,10 +29,15 @@
 //   3. The big challenge: replace player O with the machine, reusing
 //      next_random from exercise 7 so it picks a random empty cell.
 
-const TERM_STATUS = 0x00
-const TERM_OUT     = 0x01
-const TERM_IN      = 0x02
-const SYS_CTRL     = 0xFF
+const TERM           = 0xFF000000  // Terminal's MMIO base
+const TERM_STATUS     = 0x00       // offsets within it
+const TERM_OUT          = 0x04
+const TERM_IN             = 0x08
+const TERM_BLOCK_ADDR      = 0xF0
+const TERM_BLOCK_LEN        = 0xF4
+const TERM_BLOCK_CMD         = 0xF8
+const BLOCK_WRITE = 2
+const SYS_CTRL     = 0xFFFF0000
 const NEWLINE      = 10
 
 @data
@@ -139,7 +144,8 @@ global main:
 
 .end:
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 // -------------------------------------------------------------
@@ -213,7 +219,8 @@ print_board:
     li r1, 2
     call print_cell
     li r6, NEWLINE
-    outb TERM_OUT, r6
+    la r13, TERM
+    strb [r13 + TERM_OUT], r6
     la r1, SEP
     call print
 
@@ -226,7 +233,8 @@ print_board:
     li r1, 5
     call print_cell
     li r6, NEWLINE
-    outb TERM_OUT, r6
+    la r13, TERM
+    strb [r13 + TERM_OUT], r6
     la r1, SEP
     call print
 
@@ -239,7 +247,8 @@ print_board:
     li r1, 8
     call print_cell
     li r6, NEWLINE
-    outb TERM_OUT, r6
+    la r13, TERM
+    strb [r13 + TERM_OUT], r6
     ret
 
 // print_cell(r1 = index 0-8) -> prints " N " (empty), " X " or " O ".
@@ -247,9 +256,10 @@ print_cell:
     la r3, board
     add r3, r3, r1
     ldrb r4, [r3 + 0]
+    la r13, TERM           // built once; nothing below calls out, so it survives
 
     li r5, ' '
-    outb TERM_OUT, r5
+    strb [r13 + TERM_OUT], r5
 
     cmp r4, 0
     jz .empty
@@ -263,28 +273,30 @@ print_cell:
 .empty:
     add r5, r1, '1'        // show the cell's number (index+1)
 .print_it:
-    outb TERM_OUT, r5
+    strb [r13 + TERM_OUT], r5
     li r5, ' '
-    outb TERM_OUT, r5
+    strb [r13 + TERM_OUT], r5
     ret
 
 print_bar:
     li r6, '|'
-    outb TERM_OUT, r6
+    la r13, TERM
+    strb [r13 + TERM_OUT], r6
     ret
 
 // read_command() -> r0 = first byte of the next line typed.
 read_command:
+    la r13, TERM
 .wait_first:
-    inb r1, TERM_STATUS
+    ldrb r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .wait_first
-    inb r0, TERM_IN
+    ldrb r0, [r13 + TERM_IN]
 .flush:
-    inb r1, TERM_STATUS
+    ldrb r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .flush
-    inb r2, TERM_IN
+    ldrb r2, [r13 + TERM_IN]
     cmp r2, NEWLINE
     jnz .flush
     ret
@@ -294,7 +306,11 @@ print:
     mov r3, r1
     call strlen
     mov r2, r0
-    outm TERM_OUT, r3, r2
+    la r13, TERM
+    str [r13 + TERM_BLOCK_ADDR], r3
+    str [r13 + TERM_BLOCK_LEN], r2
+    li r0, BLOCK_WRITE
+    str [r13 + TERM_BLOCK_CMD], r0
     ret
 
 strlen:

@@ -111,7 +111,8 @@ They also keep a program from repeating a size it already stated:
 
 @text
     li  r2, sizeof(buffer)   // says 256 once, in the declaration
-    inm 0x20, r1, r2
+    la  r13, DISK_BLOCK_LEN
+    str [r13 + 0], r2
 ```
 
 ## Where a constant expression is legal

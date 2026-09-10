@@ -1,15 +1,18 @@
 // Exercise 1: Hello, Ceres
 //
 // Goal: understand @rodata, la (load address), and how to print a string
-// through the terminal port.
+// through the terminal's MMIO registers.
 //
 // TRY IT YOURSELF:
 //   1. Change the message to your name and reassemble.
 //   2. Add a second line printing another string (remember: each string
 //      needs its own "let" and a call to "print").
 
-const TERM_OUT = 0x01
-const SYS_CTRL = 0xFF
+const TERM_BLOCK_ADDR = 0xFF0000F0
+const TERM_BLOCK_LEN   = 0xFF0000F4
+const TERM_BLOCK_CMD    = 0xFF0000F8
+const BLOCK_WRITE = 2
+const SYS_CTRL = 0xFFFF0000
 
 @rodata
     let MSG: u8[] = "Hello, Ceres!\n"
@@ -19,7 +22,8 @@ global main:
     la r1, MSG
     call print
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 // print(r1 = pointer to a zero-terminated string) -> prints the whole string
@@ -27,7 +31,13 @@ print:
     mov r3, r1
     call strlen
     mov r2, r0
-    outm TERM_OUT, r3, r2
+    la r13, TERM_BLOCK_ADDR
+    str [r13 + 0], r3
+    la r13, TERM_BLOCK_LEN
+    str [r13 + 0], r2
+    la r13, TERM_BLOCK_CMD
+    li r0, BLOCK_WRITE
+    str [r13 + 0], r0
     ret
 
 // strlen(r1 = pointer) -> r0 = length not counting the terminator

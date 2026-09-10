@@ -1,6 +1,6 @@
 // Exercise 6: Macros and a calling convention
 //
-// Goal: stop repeating "outb TERM_OUT, r2" everywhere by defining macros,
+// Goal: stop repeating "strb [r13 + 0], r2" everywhere by defining macros,
 // and see the wiki's calling convention (proc_enter/proc_leave) in action:
 // r0 = return value, r1-r3 = arguments, r4-r9 are "callee-saved" (a
 // subroutine that touches them must restore them).
@@ -10,14 +10,20 @@
 //   "print" and then prints a newline, so you don't repeat those two
 //   instructions every time.
 
-const TERM_STATUS = 0x00
-const TERM_OUT     = 0x01
-const TERM_IN      = 0x02
-const SYS_CTRL     = 0xFF
+const TERM          = 0xFF000000  // Terminal's MMIO base
+const TERM_STATUS   = 0x00        // offsets within it
+const TERM_OUT      = 0x04
+const TERM_IN       = 0x08
+const TERM_BLOCK_ADDR = 0xF0
+const TERM_BLOCK_LEN   = 0xF4
+const TERM_BLOCK_CMD    = 0xF8
+const BLOCK_WRITE = 2
+const SYS_CTRL     = 0xFFFF0000
 const NEWLINE      = 10
 
 macro print_char $reg
-    outb TERM_OUT, $reg
+    la r13, TERM
+    strb [r13 + TERM_OUT], $reg
 endmacro
 
 macro proc_enter
@@ -50,7 +56,8 @@ global main:
     call react
 
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 // ask_yes_no(r1 = question) -> r0 = 1 if the user answered 'y'/'Y'
@@ -87,17 +94,18 @@ react:
     ret
 
 read_command:
+    la r13, TERM
 .wait_first:
-    inb r1, TERM_STATUS
+    ldrb r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .wait_first
-    inb r0, TERM_IN
+    ldrb r0, [r13 + TERM_IN]
 
 .flush:
-    inb r1, TERM_STATUS
+    ldrb r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .flush
-    inb r2, TERM_IN
+    ldrb r2, [r13 + TERM_IN]
     cmp r2, NEWLINE
     jnz .flush
     ret
@@ -106,7 +114,11 @@ print:
     mov r3, r1
     call strlen
     mov r2, r0
-    outm TERM_OUT, r3, r2
+    la r13, TERM
+    str [r13 + TERM_BLOCK_ADDR], r3
+    str [r13 + TERM_BLOCK_LEN], r2
+    li r0, BLOCK_WRITE
+    str [r13 + TERM_BLOCK_CMD], r0
     ret
 
 strlen:

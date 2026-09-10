@@ -10,8 +10,12 @@
 //   subroutine that prints any number from 0 to 99 without using the
 //   special branch below for the two-digit case.
 
-const TERM_OUT   = 0x01
-const SYS_CTRL   = 0xFF
+const TERM_OUT   = 0xFF000004
+const TERM_BLOCK_ADDR = 0xFF0000F0
+const TERM_BLOCK_LEN   = 0xFF0000F4
+const TERM_BLOCK_CMD    = 0xFF0000F8
+const BLOCK_WRITE = 2
+const SYS_CTRL   = 0xFFFF0000
 const NEWLINE    = 10
 const NUM_GRADES = 5
 
@@ -47,6 +51,9 @@ global main:
     div r4, r4, r7        // r4 = integer average = sum / NUM_GRADES
 
     // Print r4 as one or two decimal digits (0-99)
+    la r13, TERM_OUT      // reused for every byte written below - built before the
+                            // compare, since `la` (lui+ori) would otherwise clear
+                            // the carry flag the jump right after it depends on
     li r7, 10
     cmp r4, r7
     jc .single_digit      // carry => r4 < 10
@@ -54,23 +61,30 @@ global main:
     div r8, r4, r7        // r8 = tens
     mod r4, r4, r7        // r4 = units
     add r8, r8, '0'
-    outb TERM_OUT, r8
+    strb [r13 + 0], r8
 
 .single_digit:
     add r4, r4, '0'
-    outb TERM_OUT, r4
+    strb [r13 + 0], r4
     li r7, NEWLINE
-    outb TERM_OUT, r7
+    strb [r13 + 0], r7
 
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 print:
     mov r3, r1
     call strlen
     mov r2, r0
-    outm TERM_OUT, r3, r2
+    la r13, TERM_BLOCK_ADDR
+    str [r13 + 0], r3
+    la r13, TERM_BLOCK_LEN
+    str [r13 + 0], r2
+    la r13, TERM_BLOCK_CMD
+    li r0, BLOCK_WRITE
+    str [r13 + 0], r0
     ret
 
 strlen:

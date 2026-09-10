@@ -7,9 +7,13 @@
 The full source, from [`Ceres/examples/main.casm`](../Ceres/examples/main.casm):
 
 ```casm
-const OUT_WRITE = 0x01
+const TERM_OUT = 0xFF000004
+const TERM_BLOCK_ADDR = 0xFF0000F0
+const TERM_BLOCK_LEN = 0xFF0000F4
+const TERM_BLOCK_CMD = 0xFF0000F8
+const BLOCK_CMD_WRITE = 2
 const EXIT_CODE = 0x01
-const SYS_CTRL = 0xFF
+const SYS_CTRL = 0xFFFF0000
 
 @rodata
     let HELLO_MSG: u8[16] = "Hello, CeresVM!"
@@ -19,7 +23,8 @@ global main:
     la r1, HELLO_MSG
     call print
     li r0, EXIT_CODE
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 println:
@@ -27,7 +32,8 @@ println:
     ldrb r2, [r1]
     cmp r2, 0
     jz .print_end
-    out OUT_WRITE, r2
+    la r13, TERM_OUT
+    strb [r13 + 0], r2
     add r1, r1, 1
     jp .print_loop
 .print_end:
@@ -37,7 +43,13 @@ print:
     mov r3, r1  // Save the original pointer
     call strlen
     mov r2, r0  // Length of the string
-    outm OUT_WRITE, r3, r2  // port, address, size
+    la r13, TERM_BLOCK_ADDR
+    str [r13 + 0], r3
+    la r13, TERM_BLOCK_LEN
+    str [r13 + 0], r2
+    la r13, TERM_BLOCK_CMD
+    li r0, BLOCK_CMD_WRITE
+    str [r13 + 0], r0
     ret
 
 strlen:
@@ -64,15 +76,21 @@ Hello, CeresVM!
 ### Constants block
 
 ```casm
-const OUT_WRITE = 0x01
+const TERM_OUT = 0xFF000004
+const TERM_BLOCK_ADDR = 0xFF0000F0
+const TERM_BLOCK_LEN = 0xFF0000F4
+const TERM_BLOCK_CMD = 0xFF0000F8
+const BLOCK_CMD_WRITE = 2
 const EXIT_CODE = 0x01
-const SYS_CTRL = 0xFF
+const SYS_CTRL = 0xFFFF0000
 ```
 
-Three named constants for values that would otherwise be unexplained magic numbers scattered through
-the file. `OUT_WRITE` (`0x01`) is the terminal output port, `SYS_CTRL` (`0xFF`) is the system control
-port — see [I/O devices and ports](07-IO-Devices-and-Ports.md). None of these occupy memory; every
-use is substituted with the literal value at assembly time (see
+Named constants for values that would otherwise be unexplained magic numbers scattered through the
+file. All six are physical addresses on the MMIO bus: `TERM_OUT` and the three `TERM_BLOCK_*`
+registers are offsets within the terminal's slot at `0xFF000000`, already added in since this
+example only ever touches one offset per register; `SYS_CTRL` is the system-control device's own
+slot at `0xFFFF0000` — see [I/O devices and ports](07-IO-Devices-and-Ports.md). None of these
+occupy memory; every use is substituted with the literal value at assembly time (see
 [Constants and expressions](13-Constants-and-Expressions.md)).
 
 ### Read-only data
@@ -95,7 +113,8 @@ global main:
     la r1, HELLO_MSG
     call print
     li r0, EXIT_CODE
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 ```
 
@@ -108,11 +127,12 @@ global main:
   register calling convention this file establishes purely by hand: the string pointer is passed in
   `r1` (there's no enforced calling convention in the VM itself — see
   [Known limitations](19-Known-Limitations.md)).
-- `li r0, EXIT_CODE; out SYS_CTRL, r0` — writes `0x01` to the system control port, which shuts the VM
-  down cleanly (see [I/O devices and ports](07-IO-Devices-and-Ports.md)).
-- `ret` here is actually unreachable in practice — the preceding `out` already stops the machine — but
-  it's there so `main` still returns properly if it were ever called as an ordinary subroutine instead
-  of being the entry point.
+- `li r0, EXIT_CODE; la r13, SYS_CTRL; strb [r13 + 0], r0` — loads the system-control device's MMIO
+  base into `r13` and writes `0x01` to its command register (offset `0`), which shuts the VM down
+  cleanly (see [I/O devices and ports](07-IO-Devices-and-Ports.md)).
+- `ret` here is actually unreachable in practice — the preceding `strb` already stops the machine —
+  but it's there so `main` still returns properly if it were ever called as an ordinary subroutine
+  instead of being the entry point.
 
 ### `println` / `print` — two related routines, on purpose
 
@@ -122,7 +142,8 @@ println:
     ldrb r2, [r1]
     cmp r2, 0
     jz .print_end
-    out OUT_WRITE, r2
+    la r13, TERM_OUT
+    strb [r13 + 0], r2
     add r1, r1, 1
     jp .print_loop
 .print_end:
@@ -132,18 +153,27 @@ print:
     mov r3, r1
     call strlen
     mov r2, r0
-    outm OUT_WRITE, r3, r2
+    la r13, TERM_BLOCK_ADDR
+    str [r13 + 0], r3
+    la r13, TERM_BLOCK_LEN
+    str [r13 + 0], r2
+    la r13, TERM_BLOCK_CMD
+    li r0, BLOCK_CMD_WRITE
+    str [r13 + 0], r0
     ret
 ```
 
 These demonstrate the two different ways to write the null-terminated string pointed to by `r1`:
 
 - **`println`** loops byte by byte: load a byte (`ldrb`), compare it to zero, jump to `.print_end`
-  when the terminator is found, otherwise write the byte (`out`) and advance the pointer. This is the
-  "obvious" approach and works on any device, but costs one VM instruction per character.
-- **`print`** instead computes the string's length once (`call strlen`) and then writes the whole
-  block in a single instruction: `outm OUT_WRITE, r3, r2` — port, address, size, in that order (see
-  [Instruction set → I/O operations](05-Instruction-Set.md#io-operations-0x90-0xa3)). `main` actually
+  when the terminator is found, otherwise write the byte to the terminal's `OutputRegister`
+  (`strb`) and advance the pointer. This is the "obvious" approach and works on any device, but
+  costs several VM instructions per character.
+- **`print`** instead computes the string's length once (`call strlen`) and then hands the whole
+  block to the device at once: write the source address to `TERM_BLOCK_ADDR`, the length to
+  `TERM_BLOCK_LEN`, and finally `2` (write) to `TERM_BLOCK_CMD` — the block-transfer trio every
+  MMIO device exposes at its top three offsets (see
+  [I/O devices and ports → block-transfer registers](07-IO-Devices-and-Ports.md)). `main` actually
   calls `print`, not `println` — `println` is left in the file as an illustration of the manual
   approach, unused by the rest of the program.
 
@@ -177,5 +207,5 @@ the by-hand calling convention this file uses: **return value in `r0`**, **strin
 
 - [Instruction set](05-Instruction-Set.md) — every mnemonic used above, in full detail.
 - [Pseudo-instructions](06-Pseudo-Instructions.md) — what `la` actually expands to.
-- [I/O devices and ports](07-IO-Devices-and-Ports.md) — the terminal and system-control ports this example drives.
+- [I/O devices and ports](07-IO-Devices-and-Ports.md) — the terminal and system-control devices this example drives.
 - [Labels and symbols](12-Labels-and-Symbols.md) — global vs. file-level vs. local labels, as used throughout this file.

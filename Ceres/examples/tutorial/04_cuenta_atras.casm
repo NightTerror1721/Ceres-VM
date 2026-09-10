@@ -8,8 +8,12 @@
 //   UP from 1 to 5 using "jc"/"jnc" instead of "cmp"+"jz" (hint: cmp i, LIMIT
 //   and check the carry, like in exercise 3).
 
-const TERM_OUT = 0x01
-const SYS_CTRL = 0xFF
+const TERM_OUT = 0xFF000004
+const TERM_BLOCK_ADDR = 0xFF0000F0
+const TERM_BLOCK_LEN   = 0xFF0000F4
+const TERM_BLOCK_CMD    = 0xFF0000F8
+const BLOCK_WRITE = 2
+const SYS_CTRL = 0xFFFF0000
 const NEWLINE  = 10
 
 @rodata
@@ -18,15 +22,16 @@ const NEWLINE  = 10
 @text
 global main:
     li r4, 5            // r4 = counter
+    la r13, TERM_OUT     // reused for every byte written to the terminal below
 
 .loop:
     cmp r4, 0
     jz .liftoff
 
     add r5, r4, '0'     // convert the counter to an ascii character
-    outb TERM_OUT, r5
+    strb [r13 + 0], r5
     li r6, NEWLINE
-    outb TERM_OUT, r6
+    strb [r13 + 0], r6
 
     sub r4, r4, 1
     jp .loop
@@ -36,14 +41,21 @@ global main:
     call print
 
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 print:
     mov r3, r1
     call strlen
     mov r2, r0
-    outm TERM_OUT, r3, r2
+    la r13, TERM_BLOCK_ADDR
+    str [r13 + 0], r3
+    la r13, TERM_BLOCK_LEN
+    str [r13 + 0], r2
+    la r13, TERM_BLOCK_CMD
+    li r0, BLOCK_WRITE
+    str [r13 + 0], r0
     ret
 
 strlen:

@@ -39,8 +39,8 @@ print:
     la r13, TERM_BLOCK_LEN
     str [r13 + 0], r2
     la r13, TERM_BLOCK_CMD
-    li r12, BLOCK_CMD_WRITE
-    str [r13 + 0], r12
+    li r0, BLOCK_CMD_WRITE
+    str [r13 + 0], r0
     ret
 
 strlen:

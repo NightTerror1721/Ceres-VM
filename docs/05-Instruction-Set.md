@@ -291,7 +291,8 @@ a leaf function pays for nothing: it has no reason to touch the stack at all.
     bl r11, print_char      // r11 = the instruction after this one
     ...
 print_char:
-    outb 0x01, r0
+    la r13, 0xFF000004      // Terminal's OutputRegister
+    strb [r13 + 0], r0
     jp r11                  // the return: JPR, which already existed
 ```
 

@@ -133,10 +133,15 @@ and an offset for a handler in the same object, or a name for one `ceres link` h
 
 ```casm
 // lib.casm
+const TERM_IN  = 0xFF000008
+const TERM_OUT = 0xFF000004
+
 @text
 global term_isr:
-    inb r1, TERM_IN
-    outb TERM_OUT, r1
+    la r13, TERM_IN
+    ldrb r1, [r13 + 0]
+    la r13, TERM_OUT
+    strb [r13 + 0], r1
     iret
 ```
 

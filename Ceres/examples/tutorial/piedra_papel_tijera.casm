@@ -22,11 +22,17 @@
 //   3. Replace the rock/paper/scissors rule with the extended 5-option
 //      variant (rock-paper-scissors-lizard-Spock).
 
-const TERM_STATUS = 0x00
-const TERM_OUT     = 0x01
-const TERM_IN      = 0x02
-const CLOCK_PORT   = 0x11
-const SYS_CTRL     = 0xFF
+const TERM           = 0xFF000000  // Terminal's MMIO base
+const TERM_STATUS     = 0x00       // offsets within it
+const TERM_OUT          = 0x04
+const TERM_IN             = 0x08
+const TERM_BLOCK_ADDR      = 0xF0
+const TERM_BLOCK_LEN        = 0xF4
+const TERM_BLOCK_CMD         = 0xF8
+const BLOCK_WRITE = 2
+
+const CLOCK_REG    = 0xFF010004   // Timer's ClockRegister
+const SYS_CTRL     = 0xFFFF0000
 const NEWLINE      = 10
 
 @data
@@ -56,7 +62,8 @@ const NEWLINE      = 10
 
 @text
 global main:
-    in r1, CLOCK_PORT
+    la r13, CLOCK_REG
+    ldr r1, [r13 + 0]
     stv seed, r1
 
 .round:
@@ -129,7 +136,8 @@ global main:
     ldv r1, score_player
     call print_uint
     li r7, '-'
-    outb TERM_OUT, r7
+    la r13, TERM
+    strb [r13 + TERM_OUT], r7
     ldv r1, score_cpu
     call print_uint
     la r1, NL
@@ -148,7 +156,8 @@ global main:
     la r1, NL
     call print
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 // -------------------------------------------------------------
@@ -177,15 +186,17 @@ print_choice_name:
 // trailing newline. Clobbers r1, r2, r3.
 print_uint:
     li r2, 10
+    la r13, TERM           // built before the compare: `la` is lui+ori, and ori
+                             // would clear the carry flag the jump right after needs
     cmp r1, r2
     jc .pu_single          // carry => r1 < 10
     div r3, r1, r2          // tens
     mod r1, r1, r2          // units (r1 is reused)
     add r3, r3, '0'
-    outb TERM_OUT, r3
+    strb [r13 + TERM_OUT], r3
 .pu_single:
     add r1, r1, '0'
-    outb TERM_OUT, r1
+    strb [r13 + TERM_OUT], r1
     ret
 
 // next_random() -> r0 = next value in the LCG sequence
@@ -201,16 +212,17 @@ next_random:
 
 // read_command() -> r0 = first byte of the next line typed
 read_command:
+    la r13, TERM
 .wait_first:
-    inb r1, TERM_STATUS
+    ldrb r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .wait_first
-    inb r0, TERM_IN
+    ldrb r0, [r13 + TERM_IN]
 .flush:
-    inb r1, TERM_STATUS
+    ldrb r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .flush
-    inb r2, TERM_IN
+    ldrb r2, [r13 + TERM_IN]
     cmp r2, NEWLINE
     jnz .flush
     ret
@@ -220,7 +232,11 @@ print:
     mov r3, r1
     call strlen
     mov r2, r0
-    outm TERM_OUT, r3, r2
+    la r13, TERM
+    str [r13 + TERM_BLOCK_ADDR], r3
+    str [r13 + TERM_BLOCK_LEN], r2
+    li r0, BLOCK_WRITE
+    str [r13 + TERM_BLOCK_CMD], r0
     ret
 
 strlen:

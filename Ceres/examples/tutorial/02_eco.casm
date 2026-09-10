@@ -1,8 +1,8 @@
 // Exercise 2: Keyboard echo
 //
-// Goal: read from the terminal's input port (0x02) and write each
-// character back to the output port (0x01), byte by byte, until a
-// newline is found ('\n', code 10).
+// Goal: read from the terminal's input register and write each character
+// back to the output register, byte by byte, until a newline is found
+// ('\n', code 10).
 //
 // IMPORTANT about input in Ceres:
 //   The terminal is line-buffered, just like any shell: the program
@@ -16,25 +16,28 @@
 //   letter to uppercase before printing it (hint: lowercase ASCII runs
 //   from 'a'=97 to 'z'=122; subtracting 32 converts it to uppercase).
 
-const TERM_STATUS = 0x00
-const TERM_OUT     = 0x01
-const TERM_IN      = 0x02
-const SYS_CTRL     = 0xFF
+const TERM         = 0xFF000000   // Terminal's MMIO base
+const TERM_STATUS  = 0x00         // offsets within it
+const TERM_OUT     = 0x04
+const TERM_IN      = 0x08
+const SYS_CTRL     = 0xFFFF0000
 const NEWLINE      = 10
 
 @text
 global main:
+    la r13, TERM           // built once; every register below is [r13 + offset]
 .wait_byte:
-    inb r1, TERM_STATUS   // r1 = status bits
-    and r1, r1, 1         // we only care about the "data available" bit
-    jz .wait_byte         // if nothing is ready yet, keep waiting
+    ldrb r1, [r13 + TERM_STATUS]   // r1 = status bits
+    and r1, r1, 1                   // we only care about the "data available" bit
+    jz .wait_byte                    // if nothing is ready yet, keep waiting
 
-    inb r2, TERM_IN        // r2 = the byte the user typed
-    outb TERM_OUT, r2      // send it right back
+    ldrb r2, [r13 + TERM_IN]         // r2 = the byte the user typed
+    strb [r13 + TERM_OUT], r2         // send it right back
 
     cmp r2, NEWLINE
     jnz .wait_byte         // if it wasn't the end of line, keep reading
 
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret

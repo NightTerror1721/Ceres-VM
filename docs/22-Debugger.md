@@ -191,8 +191,8 @@ reverse debugging possible.
 Two things are not deterministic, and both are recorded as they happen and served back from the
 recording during a replay:
 
-- **The real-time clock** (port `0x11`), whose value is journalled against the instruction count it
-  was read at.
+- **The real-time clock** (the timer's `ClockRegister`), whose value is journalled against the
+  instruction count it was read at.
 - **Whatever the user types**, journalled the same way and pushed into the terminal again at the
   same point in the replay.
 
@@ -344,14 +344,15 @@ events rather than being written to stdout, which it would otherwise corrupt.
 ### Bytes, not text
 
 The terminal device emits **bytes**: a multi-byte UTF-8 character reaches it as several separate
-port writes. They cross the protocol as hex and are decoded on the editor side with a streaming
+MMIO writes. They cross the protocol as hex and are decoded on the editor side with a streaming
 decoder, because the adapter is the first place that can safely know where a character ends.
 Decoding each write on its own would turn every accented letter in the Spanish tutorial into two
 replacement characters.
 
 ### Feeding a program its input
 
-The debugger owns the Debug Console, so a program reading port `0x02` has no keyboard of its own.
+The debugger owns the Debug Console, so a program reading the terminal's `InputRegister` has no
+keyboard of its own.
 Typing `>` followed by text in the Debug Console sends that line to the program, as does the
 **CeresASM: Send Input to the Running Program** command.
 

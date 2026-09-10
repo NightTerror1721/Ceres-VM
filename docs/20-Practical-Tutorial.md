@@ -23,8 +23,8 @@ cmake --preset gcc && cmake --build --preset gcc-debug
 The binary lands at `Ceres/build/gcc/bin/Debug/ceres`.
 
 **Important note if your copy of `ceres` predates this tutorial:** `ceres run` didn't read the
-real keyboard. The terminal device (`TerminalDevice`, port `0x02`) always had an input buffer
-meant to receive data concurrently (`pushInput`, protected with atomics), but nothing in
+real keyboard. The terminal device (`TerminalDevice`, MMIO base `0xFF000000`) always had an input
+buffer meant to receive data concurrently (`pushInput`, protected with atomics), but nothing in
 `main.cpp` connected it to `stdin`. Without that, no interactive program — and so neither of the
 two games — could read what the player types. A background thread has been added in
 `runProgram()` that reads from `stdin` and calls `terminal.pushInput()`, reusing the buffer that
@@ -41,66 +41,70 @@ Type a sentence and press Enter: the program echoes it back character by charact
 
 ## 1. How keyboard input works in Ceres (read this before exercise 2)
 
-Ceres's terminal is **line-buffered**, just like any shell: a program receives nothing on port
-`0x02` (`TERM_IN`) until the user presses Enter, and then it receives the whole line at once,
-including the `\n` itself (code 10). Port `0x00` (`TERM_STATUS`) has bit 0 set to one when at
-least one byte is pending; reading `TERM_IN` without checking that first simply returns `0` if
-there's nothing there.
+Ceres's terminal is **line-buffered**, just like any shell: a program receives nothing from
+`TERM_IN` until the user presses Enter, and then it receives the whole line at once, including the
+`\n` itself (code 10). `TERM_STATUS`'s bit 0 is set to one when at least one byte is pending;
+reading `TERM_IN` without checking that first simply returns `0` if there's nothing there.
 
 This has a practical consequence: if your program only reads **one** character per turn (for
 example, a rock-paper-scissors move), the `\n` the user typed afterward stays in the buffer and
 sneaks in as if it were the next data read. The solution every exercise from 3 onward uses is a
 `read_command` subroutine that reads the first character it gets, and then **discards the rest of
-the line until it finds the `\n`**:
+the line until it finds the `\n`**. The terminal's registers sit at a fixed MMIO address (see
+[07 · I/O devices and ports](07-IO-Devices-and-Ports.md)), built once into a register and reused
+by displacement for every access below:
 
 ```casm
+const TERM         = 0xFF000000   // Terminal's MMIO base
+const TERM_STATUS  = 0x00         // offsets within it
+const TERM_IN      = 0x08
+
 read_command:
+    la r13, TERM
 .wait_first:
-    inb TERM_STATUS, r1
+    ldrb r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .wait_first
-    inb TERM_IN, r0        // r0 = first byte (return value)
+    ldrb r0, [r13 + TERM_IN]      // r0 = first byte (return value)
 .flush:
-    inb TERM_STATUS, r1
+    ldrb r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .flush
-    inb TERM_IN, r2
+    ldrb r2, [r13 + TERM_IN]
     cmp r2, 10
     jnz .flush
     ret
 ```
 
-## 2. Two corrections to the instruction reference
+## 2. A correction to the instruction reference
 
-While writing the exercises, two spots turned up where the real code (verified by assembling and
-running it) doesn't match what
-[05 · Instruction set](05-Instruction-Set.md) says — already fixed on that page, but worth
-explaining here because it's easy to trip over the same thing:
+While writing the exercises, one spot turned up where the real code (verified by assembling and
+running it) doesn't match what [05 · Instruction set](05-Instruction-Set.md) said — already fixed
+on that page, but worth explaining here because it's easy to trip over the same thing:
 
-- **`in`/`inb`/`inh`/`insb`/`insh`**: the port goes **first**, the destination register
-  **second** — `inb PORT, rd`, not `inb rd, PORT` as the table said. It's consistent with `out`
-  (`outb PORT, rs`): in both cases the port is written first.
-- **`str`/`strb`/`strh`**: the value goes **first**, the bracketed address **second** —
-  `strb rs, [rd + imm16]`, not `strb [rd + imm16], rs`. In fact, the
+- **`str`/`strb`/`strh`**: the bracketed address goes **first**, the value **second** —
+  `strb [rd + imm16], rs`, not `strb rs, [rd + imm16]`. In fact, the
   [`examples/test.casm`](../Ceres/examples/test.casm) example had this exact mistake and didn't
   even assemble; it's been fixed too.
 
-This tutorial's exercises already use the correct order in both cases, verified by assembling and
-running each one.
+This tutorial's exercises already use the correct order, verified by assembling and running each
+one. (An older version of this page also warned about `in`/`inb`'s operand order; the whole
+port-based I/O family it was about has since been retired in favour of the MMIO addressing every
+snippet on this page now uses — see [07 · I/O devices and ports](07-IO-Devices-and-Ports.md).)
 
 ## 3. The exercises
 
 | # | File | What it practices |
 | --- | --- | --- |
-| 1 | [`01_hola.casm`](../Ceres/examples/tutorial/01_hola.casm) | `@rodata`, `la`, printing a string through the terminal port |
+| 1 | [`01_hola.casm`](../Ceres/examples/tutorial/01_hola.casm) | `@rodata`, `la`, printing a string through the terminal's MMIO registers |
 | 2 | [`02_eco.casm`](../Ceres/examples/tutorial/02_eco.casm) | Reading from `TERM_IN`/`TERM_STATUS`, byte by byte |
 | 3 | [`03_suma.casm`](../Ceres/examples/tutorial/03_suma.casm) | `read_command`, ASCII↔number conversion, `cmp`+`jc` |
 | 4 | [`04_cuenta_atras.casm`](../Ceres/examples/tutorial/04_cuenta_atras.casm) | Loops with `cmp`/`jz`/`jnz` |
 | 5 | [`05_notas.casm`](../Ceres/examples/tutorial/05_notas.casm) | Arrays in `@data`, `[reg + offset]` addressing, `div`/`mod` |
 | 6 | [`06_macros.casm`](../Ceres/examples/tutorial/06_macros.casm) | `macro`, the `proc_enter`/`proc_leave` calling convention |
-| 7 | [`07_aleatorio.casm`](../Ceres/examples/tutorial/07_aleatorio.casm) | A linear congruential generator seeded with `RTC_TIME` |
-| 8 | [`08_pantalla.casm`](../Ceres/examples/tutorial/08_pantalla.casm) | The framebuffer: setting the grid, drawing into memory and flushing it with `outm` |
-| 9 | [`09_disco.casm`](../Ceres/examples/tutorial/09_disco.casm) | The disk: selecting a sector, `inm`/`outm`, checking `DISK_STATUS` and flushing to a file |
+| 7 | [`07_aleatorio.casm`](../Ceres/examples/tutorial/07_aleatorio.casm) | A linear congruential generator seeded with the timer's `ClockRegister` |
+| 8 | [`08_pantalla.casm`](../Ceres/examples/tutorial/08_pantalla.casm) | The framebuffer: setting the grid, drawing into memory and flushing it with a block write |
+| 9 | [`09_disco.casm`](../Ceres/examples/tutorial/09_disco.casm) | The disk: selecting a sector, block read/write, checking `DISK_STATUS` and flushing to a file |
 
 For each one:
 
@@ -118,19 +122,18 @@ ceres run examples/tutorial/09_disco.casm --disk saves.img
 and read the header comment before looking at the code: it poses a specific challenge for you to
 solve before seeing how this tutorial solved it.
 
-### Note on exercise 7: why the seed is `RTC_TIME` (port `0x11`) and not `SYS_TICKS` (port `0x10`)
+### Note on exercise 7: why the seed is the `ClockRegister` and not the `TicksRegister`
 
-Ceres has no real source of random numbers — port `0xFE` is reserved but not implemented (see
-[07 · I/O devices and ports](07-IO-Devices-and-Ports.md)). The temptation is to seed a generator
-of your own with the count of executed instructions (`SYS_TICKS`), but
+Ceres has no dedicated random-number device. The temptation is to seed a generator of your own
+with the count of executed instructions (the timer's `TicksRegister`, offset `0x00`), but
 [02 · Memory](02-Memory.md) and [07 · I/O devices and ports](07-IO-Devices-and-Ports.md) already
 point out that time in Ceres is counted in executed instructions, not real time, precisely so a
-program behaves the same way on every run — and that includes `SYS_TICKS`. Seeding with it gives
-literally the same "randomness" every time you run the program (you can check this by running
-`07_aleatorio.casm` twice in a row). The only value in the whole machine that genuinely changes is
-the wall clock in seconds, `RTC_TIME` (port `0x11`) — the wiki itself points it out as "the only
-thing here that isn't deterministic". That's why it's the seed exercise 7 uses, and later,
-rock-paper-scissors too.
+program behaves the same way on every run — and that includes the `TicksRegister`. Seeding with it
+gives literally the same "randomness" every time you run the program (you can check this by
+running `07_aleatorio.casm` twice in a row). The only value in the whole machine that genuinely
+changes is the wall clock in seconds, the timer's `ClockRegister` (offset `0x04`) — the wiki
+itself points it out as "the only thing here that isn't deterministic". That's why it's the seed
+exercise 7 uses, and later, rock-paper-scissors too.
 
 ## 4. The two games
 

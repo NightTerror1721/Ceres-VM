@@ -1,14 +1,14 @@
 // Exercise 8: A real screen
 //
-// Goal: draw to the framebuffer (ports 0x30-0x33) instead of writing loose
-// characters to the terminal. The difference matters: the terminal is a
-// stream that only moves forward, and the screen is a grid that gets
-// redrawn whole.
+// Goal: draw to the framebuffer instead of writing loose characters to the
+// terminal. The difference matters: the terminal is a stream that only
+// moves forward, and the screen is a grid that gets redrawn whole.
 //
 // The cycle is always the same:
 //   1. Set width and height (GPU_WIDTH / GPU_HEIGHT).
 //   2. GPU_CMD = 1 clears the grid and resets the write cursor to the start.
-//   3. Write cells: one at a time through GPU_DATA, or all at once with "outm".
+//   3. Write cells: one at a time through GPU_DATA, or all at once through
+//      the block registers.
 //   4. GPU_CMD = 2 shows the frame.
 //
 // TRY IT YOURSELF:
@@ -16,11 +16,16 @@
 //   2. Move the ball to another cell by changing BALL_ROW / BALL_COL.
 //   3. Draw two frames in a row with the ball in different spots.
 
-const GPU_CMD    = 0x30
-const GPU_WIDTH  = 0x31
-const GPU_HEIGHT = 0x32
-const GPU_DATA   = 0x33
-const SYS_CTRL   = 0xFF
+const GPU          = 0xFF030000   // Framebuffer's MMIO base
+const GPU_CMD       = 0x00        // offsets within it
+const GPU_WIDTH      = 0x04
+const GPU_HEIGHT      = 0x08
+const GPU_DATA         = 0x0C
+const GPU_BLOCK_ADDR    = 0xF0
+const GPU_BLOCK_LEN      = 0xF4
+const GPU_BLOCK_CMD       = 0xF8
+const BLOCK_WRITE = 2
+const SYS_CTRL   = 0xFFFF0000
 
 const CMD_CLEAR = 1
 const CMD_SHOW  = 2
@@ -38,12 +43,14 @@ const BALL_COL = 9
 
 @text
 global main:
+    la r13, GPU
+
     // The screen is as big as we tell it to be, within reason: a width of
     // zero or a hundred thousand is a typo, and the device ignores it.
     li r1, WIDTH
-    out GPU_WIDTH, r1
+    str [r13 + GPU_WIDTH], r1
     li r1, HEIGHT
-    out GPU_HEIGHT, r1
+    str [r13 + GPU_HEIGHT], r1
 
     call draw_frame
     call place_ball
@@ -52,17 +59,21 @@ global main:
     // top left; without that clear, the second frame would continue where
     // the first one left off.
     li r1, CMD_CLEAR
-    out GPU_CMD, r1
+    str [r13 + GPU_CMD], r1
 
     la r1, screen
     li r2, CELLS
-    outm GPU_DATA, r1, r2
+    str [r13 + GPU_BLOCK_ADDR], r1
+    str [r13 + GPU_BLOCK_LEN], r2
+    li r4, BLOCK_WRITE
+    str [r13 + GPU_BLOCK_CMD], r4
 
     li r1, CMD_SHOW
-    out GPU_CMD, r1
+    str [r13 + GPU_CMD], r1
 
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 // Fills the grid: '#' on the border, ' ' inside.

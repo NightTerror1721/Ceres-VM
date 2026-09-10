@@ -1,14 +1,13 @@
 // Exercise 9: Something that survives shutdown
 //
-// Goal: use the disk (ports 0x20-0x23). Until now everything a program did
-// vanished when it ended; a disk is what turns "this session" into "my
-// saved games".
+// Goal: use the disk. Until now everything a program did vanished when it
+// ended; a disk is what turns "this session" into "my saved games".
 //
 // The disk is split into 512-byte sectors and only one sector moves at a
 // time. The cycle is:
 //   1. DISK_SECTOR = sector number.
-//   2. "inm buffer, DISK_DATA, n" brings it into memory, or
-//      "outm DISK_DATA, buffer, n" sends it to disk.
+//   2. writing 1 to the block command register brings it into memory, or
+//      writing 2 sends memory to disk (see the block registers below).
 //   3. DISK_STATUS says whether it went well (bit 0) or badly (bit 1).
 //   4. DISK_CMD = 1 forces the dump to the host's file.
 //
@@ -24,12 +23,23 @@
 //   2. Also save the last key pressed in byte 5 of the sector.
 //   3. Write to sector 1 and check that sector 0 doesn't change.
 
-const TERM_OUT    = 0x01
-const DISK_STATUS = 0x20
-const DISK_CMD    = 0x21
-const DISK_SECTOR = 0x22
-const DISK_DATA   = 0x23
-const SYS_CTRL    = 0xFF
+const TERM           = 0xFF000000  // Terminal's MMIO base
+const TERM_OUT        = 0x04       // offset within it
+const TERM_BLOCK_ADDR  = 0xF0
+const TERM_BLOCK_LEN     = 0xF4
+const TERM_BLOCK_CMD      = 0xF8
+
+const DISK          = 0xFF020000   // Disk's MMIO base
+const DISK_STATUS    = 0x00        // offsets within it
+const DISK_CMD         = 0x04
+const DISK_SECTOR       = 0x08
+const DISK_BLOCK_ADDR    = 0xF0
+const DISK_BLOCK_LEN      = 0xF4
+const DISK_BLOCK_CMD       = 0xF8
+const BLOCK_READ  = 1
+const BLOCK_WRITE = 2
+
+const SYS_CTRL    = 0xFFFF0000
 
 const CMD_FLUSH  = 1
 const ERROR_BIT  = 2
@@ -47,16 +57,21 @@ const SIZE       = 8           // we only move the bytes we actually use
 
 @text
 global main:
+    la r13, DISK
+
     // Always the same sector: 0 is as good a place as any as long as the
     // program and whoever reads it agree.
     li r1, 0
-    out DISK_SECTOR, r1
+    str [r13 + DISK_SECTOR], r1
 
     la r1, record
     li r2, SIZE
-    inm r1, DISK_DATA, r2
+    str [r13 + DISK_BLOCK_ADDR], r1
+    str [r13 + DISK_BLOCK_LEN], r2
+    li r4, BLOCK_READ
+    str [r13 + DISK_BLOCK_CMD], r4
 
-    inb r3, DISK_STATUS
+    ldrb r3, [r13 + DISK_STATUS]
     and r3, r3, ERROR_BIT
     cmp r3, 0
     jnz .error
@@ -91,33 +106,44 @@ global main:
     add r8, r2, '0'
     la r1, COUNT_MSG
     call print
-    outb TERM_OUT, r8
+    la r13, TERM
+    strb [r13 + TERM_OUT], r8
     la r1, NEWLINE_MSG
     call print
 
     // Writing isn't saving: the dump to the file happens when asked for.
+    la r13, DISK
     la r1, record
     li r2, SIZE
-    outm DISK_DATA, r1, r2
+    str [r13 + DISK_BLOCK_ADDR], r1
+    str [r13 + DISK_BLOCK_LEN], r2
+    li r4, BLOCK_WRITE
+    str [r13 + DISK_BLOCK_CMD], r4
     li r1, CMD_FLUSH
-    out DISK_CMD, r1
+    str [r13 + DISK_CMD], r1
 
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 .error:
     la r1, ERROR_MSG
     call print
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 print:
     mov r3, r1
     call strlen
     mov r2, r0
-    outm TERM_OUT, r3, r2
+    la r13, TERM
+    str [r13 + TERM_BLOCK_ADDR], r3
+    str [r13 + TERM_BLOCK_LEN], r2
+    li r0, BLOCK_WRITE
+    str [r13 + TERM_BLOCK_CMD], r0
     ret
 
 strlen:

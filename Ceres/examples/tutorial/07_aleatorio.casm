@@ -1,13 +1,12 @@
 // Exercise 7: "Random" numbers
 //
-// Goal: Ceres has no real source of random numbers (port 0xFE is reserved
-// but not implemented yet), and the timer's "tick" counter (0x10) does NOT
-// work as a seed either: the wiki is clear that the number of instructions
-// executed is identical on every run, so seeding with it always gives the
-// same sequence (try it: that's exactly what we DON'T want). The only value
-// in the whole machine that genuinely changes between runs is the wall
-// clock in seconds, port 0x11 (RTC_TIME) — the wiki itself points it out as
-// "the only thing here that isn't deterministic".
+// Goal: Ceres has no real source of random numbers, and the timer's "tick"
+// counter does NOT work as a seed either: the wiki is clear that the number
+// of instructions executed is identical on every run, so seeding with it
+// always gives the same sequence (try it: that's exactly what we DON'T
+// want). The only value in the whole machine that genuinely changes between
+// runs is the wall clock in seconds, the timer's ClockRegister — the wiki
+// itself points it out as "the only thing here that isn't deterministic".
 //
 // With that seed we generate pseudo-randomness ourselves with a linear
 // congruential generator (LCG), the way 8-bit computers used to: seed =
@@ -18,14 +17,14 @@
 // rock-paper-scissors game to let the machine pick its move.
 //
 // TRY IT YOURSELF:
-//   Run the program twice in quick succession: since RTC_TIME only changes
+//   Run the program twice in quick succession: since the clock only changes
 //   once per second, you might see the same sequence if both runs land in
 //   the same second. Change the modulus from 6 to 2 to simulate a coin
 //   flip.
 
-const CLOCK_PORT = 0x11
-const TERM_OUT    = 0x01
-const SYS_CTRL    = 0xFF
+const CLOCK_REG   = 0xFF010004   // Timer's ClockRegister
+const TERM_OUT    = 0xFF000004
+const SYS_CTRL    = 0xFFFF0000
 const NEWLINE     = 10
 
 @data
@@ -33,17 +32,19 @@ const NEWLINE     = 10
 
 @text
 global main:
-    in r1, CLOCK_PORT     // r1 = seconds since 1970 (initial seed)
+    la r13, CLOCK_REG
+    ldr r1, [r13 + 0]      // r1 = seconds since 1970 (initial seed)
     stv seed, r1
 
     li r4, 0              // round counter
+    la r13, TERM_OUT       // reused for every byte written below
 .loop:
     call next_random       // r0 = pseudo-random number 0-31
     mod r0, r0, 6           // r0 = 0-5, like a die
     add r0, r0, '0'
-    outb TERM_OUT, r0
+    strb [r13 + 0], r0
     li r5, NEWLINE
-    outb TERM_OUT, r5
+    strb [r13 + 0], r5
 
     add r4, r4, 1
     li r6, 8
@@ -51,7 +52,8 @@ global main:
     jnz .loop
 
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 // next_random() -> r0 = next number in the sequence (the full 32 bits, the

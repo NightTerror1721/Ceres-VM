@@ -16,10 +16,15 @@
 //   Change the program to subtract instead of add, and to reject (ask again
 //   for) an input that isn't a '0'-'9' digit.
 
-const TERM_STATUS = 0x00
-const TERM_OUT     = 0x01
-const TERM_IN      = 0x02
-const SYS_CTRL     = 0xFF
+const TERM          = 0xFF000000  // Terminal's MMIO base
+const TERM_STATUS   = 0x00        // offsets within it
+const TERM_OUT      = 0x04
+const TERM_IN       = 0x08
+const TERM_BLOCK_ADDR = 0xF0
+const TERM_BLOCK_LEN   = 0xF4
+const TERM_BLOCK_CMD    = 0xF8
+const BLOCK_WRITE = 2
+const SYS_CTRL     = 0xFFFF0000
 const NEWLINE      = 10
 
 @rodata
@@ -55,29 +60,32 @@ global main:
 
 .single_digit:
     add r6, r6, '0'     // number -> ascii
-    outb TERM_OUT, r6
+    la r13, TERM
+    strb [r13 + TERM_OUT], r6
     li r7, NEWLINE
-    outb TERM_OUT, r7
+    strb [r13 + TERM_OUT], r7
 
 .done:
     li r0, 0x01
-    out SYS_CTRL, r0
+    la r13, SYS_CTRL
+    strb [r13 + 0], r0
     ret
 
 // read_command() -> r0 = first byte of the next line typed by the user.
 // Consumes the whole line, including the trailing '\n'.
 read_command:
+    la r13, TERM
 .wait_first:
-    inb r1, TERM_STATUS
+    ldrb r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .wait_first
-    inb r0, TERM_IN     // store the first byte in r0 (return value)
+    ldrb r0, [r13 + TERM_IN]     // store the first byte in r0 (return value)
 
 .flush:
-    inb r1, TERM_STATUS
+    ldrb r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .flush
-    inb r2, TERM_IN
+    ldrb r2, [r13 + TERM_IN]
     cmp r2, NEWLINE
     jnz .flush
     ret
@@ -87,7 +95,11 @@ print:
     mov r3, r1
     call strlen
     mov r2, r0
-    outm TERM_OUT, r3, r2
+    la r13, TERM
+    str [r13 + TERM_BLOCK_ADDR], r3
+    str [r13 + TERM_BLOCK_LEN], r2
+    li r0, BLOCK_WRITE
+    str [r13 + TERM_BLOCK_CMD], r0
     ret
 
 strlen:
