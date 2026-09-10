@@ -16,6 +16,72 @@ namespace ceres::driver
 	using namespace fmt;
 	using namespace vm;
 
+	class Machine::Impl
+	{
+	public:
+		CeresVM vm;
+		SystemControlDevice control;
+		TerminalDevice terminal;
+		TimerDevice timer;
+		DiskDevice disk;
+		FramebufferDevice framebuffer;
+		std::string startupError;
+
+		Impl(const MachineConfig& config, const MachineHost& host) :
+			vm(config.memorySize),
+			control([this] { vm.shutdown(); }, [this] { vm.shutdown(); })
+		{
+			control.attachTo(vm.io());
+			terminal.attachTo(vm.io());
+			timer.attachTo(vm.io());
+			disk.attachTo(vm.io());
+			framebuffer.attachTo(vm.io());
+
+			if (host.terminalOutput)
+				terminal.setOutputSink([sink = host.terminalOutput](u8 byte)
+				{
+					sink(std::span<const u8>(&byte, 1));
+				});
+			if (host.framePresented)
+				framebuffer.setPresentSink(std::move(host.framePresented));
+			if (!config.diskImage.empty() && !disk.open(config.diskImage))
+				startupError = "Failed to open disk image: " + config.diskImage.string();
+		}
+
+		~Impl()
+		{
+			terminal.detachFrom(vm.io());
+			framebuffer.detachFrom(vm.io());
+			disk.detachFrom(vm.io());
+			timer.detachFrom(vm.io());
+			control.detachFrom(vm.io());
+		}
+	};
+
+	Machine::Machine(MachineConfig config, MachineHost host) : _impl(std::make_unique<Impl>(config, host)) {}
+	Machine::~Machine() = default;
+
+	std::expected<void, std::string> Machine::load(const Program& program)
+	{
+		if (!_impl->startupError.empty())
+			return std::unexpected(_impl->startupError);
+		if (auto result = _impl->vm.loadProgram(program); !result)
+			return std::unexpected(result.error());
+		return {};
+	}
+
+	std::expected<void, std::string> Machine::run()
+	{
+		if (!_impl->startupError.empty())
+			return std::unexpected(_impl->startupError);
+		if (auto result = _impl->vm.run(); !result)
+			return std::unexpected(result.error());
+		return {};
+	}
+
+	void Machine::pushInput(std::span<const u8> bytes) { _impl->terminal.pushInput(bytes); }
+	void Machine::pushInput(std::string_view text) { _impl->terminal.pushInput(text); }
+
 	namespace
 	{
 		void printProfile(CeresVM& vm, const DebugInfo& info, std::ostream& err)

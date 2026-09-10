@@ -1,6 +1,8 @@
 #include "framework.h"
 #include <ceres/driver/command.h>
 #include <ceres/driver/driver.h>
+#include <ceres/driver/machine.h>
+#include <ceres/asm/assembler.h>
 
 #include <filesystem>
 #include <fstream>
@@ -87,4 +89,36 @@ TEST(driver_command, missing_input_is_an_operational_error)
 
 	CHECK_EQ(result, 1);
 	CHECK(diagnostics.str().starts_with("No such file:"));
+}
+
+TEST(driver_machine, host_receives_terminal_output)
+{
+	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_machine_test.casm";
+	{
+		std::ofstream file{source};
+		file << "@text\n"
+			"global main:\n"
+			"    la r13, 0xFF000004\n"
+			"    li r0, 65\n"
+			"    strb [r13 + 0], r0\n"
+			"    la r13, 0xFFFF0000\n"
+			"    li r0, 1\n"
+			"    strb [r13 + 0], r0\n";
+	}
+	ceres::casm::Assembler assembler;
+	auto program = assembler.assemble({source});
+	std::filesystem::remove(source);
+	CHECK(program.has_value());
+	if (!program) return;
+
+	std::string output;
+	Machine machine{{.memorySize = ceres::vm::Memory::DefaultSize}, {
+		.terminalOutput = [&output](std::span<const ceres::u8> bytes)
+		{
+			output.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+		}
+	}};
+	CHECK(machine.load(*program).has_value());
+	CHECK(machine.run().has_value());
+	CHECK_EQ(output, std::string{"A"});
 }
