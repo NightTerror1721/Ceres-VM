@@ -169,7 +169,12 @@ namespace ceres::driver
 				// reader from touching a destroyed device; detachFrom clears its VM connection on return.
 				std::thread([input = services.input, terminal] { char c; while (input->get(c)) terminal->pushInput(c); }).detach();
 			}
-			if (auto loaded = vm.loadProgram(program); !loaded) { *services.diagnostics << "Failed to load program: " << loaded.error() << '\n'; return 1; }
+			if (auto loaded = vm.loadProgram(program); !loaded)
+			{
+				terminal->detachFrom(vm.io());
+				*services.diagnostics << "Failed to load program: " << loaded.error() << '\n';
+				return 1;
+			}
 			if (profileInfo) vm.engine().enableProfiling();
 			if (auto result = vm.run(); !result)
 			{

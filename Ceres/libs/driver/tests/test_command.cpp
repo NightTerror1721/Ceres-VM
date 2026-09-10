@@ -1,5 +1,10 @@
 #include "framework.h"
 #include <ceres/driver/command.h>
+#include <ceres/driver/driver.h>
+
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 
 using namespace ceres::driver;
 using namespace ceres::testing;
@@ -50,4 +55,36 @@ TEST(driver_command, options_from_another_command_are_rejected)
 	char* argv[] = { program, run, input, json };
 	auto parsed = parseCommandLine(4, argv);
 	CHECK(!parsed.has_value());
+}
+
+TEST(driver_command, json_diagnostics_stay_on_the_output_stream)
+{
+	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_invalid_test.casm";
+	{
+		std::ofstream file{source};
+		file << "this is not Ceres assembly\n";
+	}
+
+	std::istringstream input;
+	std::ostringstream output;
+	std::ostringstream diagnostics;
+	const int result = execute(AssembleCommand{.inputs = {source}, .jsonDiagnostics = true},
+		{&input, &output, &diagnostics});
+	std::filesystem::remove(source);
+
+	CHECK_EQ(result, 1);
+	CHECK(output.str().starts_with("["));
+	CHECK(diagnostics.str().empty());
+}
+
+TEST(driver_command, missing_input_is_an_operational_error)
+{
+	std::istringstream input;
+	std::ostringstream output;
+	std::ostringstream diagnostics;
+	const int result = execute(RunCommand{.input = "definitely-missing.casm"},
+		{&input, &output, &diagnostics});
+
+	CHECK_EQ(result, 1);
+	CHECK(diagnostics.str().starts_with("No such file:"));
 }
