@@ -16,6 +16,18 @@ namespace ceres::isa
 		CLI = 0x06, // [] - Clear the interrupt flag, masking user interrupts.
 		STI = 0x07, // [] - Set the interrupt flag, allowing user interrupts to be delivered.
 
+		// Memory Management Unit //
+		// Off by default and fully additive: no existing opcode changes meaning, and paging stays
+		// disabled (and identity-equivalent, since every physical address is used as-is) until a
+		// program explicitly sets a page directory and turns it on with PGON.
+		MTP = 0x08, // [rs] - Move To Ptbr: the page directory base register (physical address) = rs.
+		MFP = 0x09, // [rd] - Move From Ptbr: rd = the page directory base register.
+		PGON = 0x0A, // [] - Enable paging: every subsequent memory access and instruction fetch is translated.
+		PGOFF = 0x0B, // [] - Disable paging: addresses go straight to physical memory again.
+		INVLPG = 0x0C, // [rs] - Invalidate the TLB entry for the page containing the address in rs.
+		FLPG = 0x0D, // [] - Flush every TLB entry.
+		MFPF = 0x0E, // [rd] - Move From Page Fault address: rd = the virtual address that last faulted.
+
 		// Arithmetic //
 		ADD = 0x10, // [rd, rs, rt] - rd = rs + rt
 		ADDI = 0x11, // [rd, rs, imm16] - rd = rs + imm16
@@ -255,7 +267,7 @@ namespace ceres::isa
 		FRSQRTE = 0xD5, // [fd, fs] - fd = 1 / sqrt(fs); traps on fs == 0
 		CTZ = 0xD6, // [rd, rs] - rd = trailing zero bits in rs; 32 when rs is zero
 
-		// Free: 0x08-0x0F, 0x4F, 0x7A-0x7F, 0x8A-0x8F, 0xD7-0xFF.
+		// Free: 0x0F, 0x4F, 0x7A-0x7F, 0x8A-0x8F, 0xD7-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

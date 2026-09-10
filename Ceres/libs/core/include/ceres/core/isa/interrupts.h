@@ -15,7 +15,8 @@ namespace ceres::isa
 		DivisionByZero = 4, // Division by zero exception, triggered when a division by zero is attempted
 		StackOverflow = 5, // Stack overflow exception, triggered when the stack pointer exceeds memory limits
 		AlignmentFault = 6, // Alignment fault exception, triggered when an unaligned memory access is attempted
-		
+		PageFault = 7, // Page fault exception, triggered by the MMU on a not-present or permission-violating translation (see MFPF)
+
 		Syscall = 15, // System call interrupt, triggered by the SYSCALL instruction (if implemented)
 
 		// User-defined interrupts (16-63)

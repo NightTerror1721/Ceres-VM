@@ -38,6 +38,21 @@ the rest), see [Pseudo-instructions](06-Pseudo-Instructions.md).
 `iret` never restores the Halting bit even if it was set when the interrupt fired — see
 [Registers and flags](03-Registers-and-Flags.md#flags-register) for why.
 
+## Memory management unit · `0x08`–`0x0E`
+
+| Assembly | Opcode | Operands | Semantics | Flags |
+| --- | --- | --- | --- | --- |
+| `mtp rs` | `MTP` (`0x08`) | `rs` | Page directory base register (PTBR) = `rs`. Also flushes the entire TLB. | — |
+| `mfp rd` | `MFP` (`0x09`) | `rd` | `rd` = PTBR. Zero until the first `mtp`. | — |
+| `pgon` | `PGON` (`0x0A`) | none | Sets the Paging flag: every subsequent load, store and instruction fetch is translated. | Paging = 1 |
+| `pgoff` | `PGOFF` (`0x0B`) | none | Clears the Paging flag: addresses go straight to physical memory again. | Paging = 0 |
+| `invlpg rs` | `INVLPG` (`0x0C`) | `rs` | Drops the TLB entry for the page containing the address in `rs`, if any. | — |
+| `flpg` | `FLPG` (`0x0D`) | none | Drops every TLB entry. | — |
+| `mfpf rd` | `MFPF` (`0x0E`) | `rd` | `rd` = the virtual address that last raised `PageFault` — CR2's equivalent. | — |
+
+See [Virtual memory and paging](27-Virtual-Memory-and-Paging.md) for the two-level table format, the
+TLB, which regions stay physical regardless of the Paging flag, and a worked example.
+
 ## Arithmetic · `0x10`–`0x28`
 
 Every arithmetic mnemonic below has up to three encodings, chosen by operand shape:
@@ -536,3 +551,4 @@ which of these are actually backed by a device today.
 - [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `ldv`, `stv`, `neg`, `ifXX` and the rest.
 - [I/O devices and ports](07-IO-Devices-and-Ports.md) — what's actually listening on each port.
 - [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — `int`/`iret` and hardware-raised faults.
+- [Virtual memory and paging](27-Virtual-Memory-and-Paging.md) — `mtp`/`mfp`/`pgon`/`pgoff`/`invlpg`/`flpg`/`mfpf` in depth.

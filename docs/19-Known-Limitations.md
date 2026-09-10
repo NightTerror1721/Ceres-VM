@@ -103,6 +103,26 @@ that is a spelling of `u8[Entity]` and nothing more (see [Structs](23-Structs.md
 still a generator of offset constants: nothing checks that the `r2` in `ldr r1, [r2 + Entity.y]`
 points at an Entity, and there is no way to say that it should.
 
+## Paging has no demand loading, and two rough edges at the fault boundary
+
+See [Virtual memory and paging](27-Virtual-Memory-and-Paging.md) for the MMU itself. What it does not
+do:
+
+- **No demand paging, no swap, no eviction.** Accessed and Dirty are tracked because a real PTE has
+  them, not because anything in Ceres reads them back — there is no page-replacement policy to feed.
+- **`pushm`/`popm` are not restart-safe across a page fault that interrupts them.** Each stops at the
+  first register a fault touches rather than continuing through the rest of the mask (which would
+  otherwise write to memory the instruction is meant to have aborted into) — but a mask half-applied
+  by the first attempt is applied again, harmlessly, when the fault handler fixes the mapping and
+  `iret` re-runs the instruction from the top. What is not safe is a page table edited *between* the
+  fault and the retry in a way that changes which registers the mask covers.
+- **No double-fault mechanism.** A fault taken while dispatching another fault is only survivable
+  because the system stack itself is exempt from translation (see
+  [Virtual memory and paging → What stays physical](27-Virtual-Memory-and-Paging.md#what-stays-physical-no-matter-what));
+  a handler that itself faults on something *other* than the system stack recurses into
+  `triggerInterrupt` the way any other instruction would, with no dedicated fault stack to fall back
+  to the way real hardware's IST does.
+
 ## A register alias cannot be exported
 
 `alias` is resolved by the parser, which is what makes it cost nothing downstream — but it also means
@@ -135,3 +155,4 @@ because a reader coming from a more conventional ISA might otherwise assume they
 - [Constants and expressions](13-Constants-and-Expressions.md)
 - [Structs](23-Structs.md)
 - [Macros](14-Macros.md) — a worked example of a calling convention built with `proc_enter`/`proc_leave` macros.
+- [Virtual memory and paging](27-Virtual-Memory-and-Paging.md)

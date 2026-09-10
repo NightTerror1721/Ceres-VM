@@ -274,6 +274,10 @@ namespace ceres::isa
 		Interrupt	= 1 << 4, // Interrupt Flag (IF)
 		Halting		= 1 << 5, // Halting Flag (HF)
 		Trap		= 1 << 6, // Trap Flag (TF)
+		// The last bit this u8 has room for. Cleared by reset(), the same as every other flag here -
+		// so a machine always starts up translating nothing, exactly like paging being off is the
+		// only state a fresh CR0 could mean on a real CPU before anything has run.
+		Paging		= 1 << 7, // Paging Flag (PF) - when set, PGON is in effect and the MMU translates every access
 	};
 
 	constexpr ExecutionFlag operator|(ExecutionFlag lhs, ExecutionFlag rhs) noexcept
@@ -345,5 +349,6 @@ namespace ceres::isa
 		forceinline constexpr bool interrupt() const noexcept { return get<ExecutionFlag::Interrupt>(); }
 		forceinline constexpr bool halting() const noexcept { return get<ExecutionFlag::Halting>(); }
 		forceinline constexpr bool trap() const noexcept { return get<ExecutionFlag::Trap>(); }
+		forceinline constexpr bool paging() const noexcept { return get<ExecutionFlag::Paging>(); }
 	};
 }

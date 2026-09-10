@@ -147,6 +147,15 @@ namespace ceres::isa
 		static constexpr Instruction CLI() noexcept { return make(Opcode::CLI); }
 		static constexpr Instruction STI() noexcept { return make(Opcode::STI); }
 
+		// Memory Management Unit
+		static constexpr Instruction MTP(u8 rs) noexcept { return make(Opcode::MTP, 0, rs); }
+		static constexpr Instruction MFP(u8 rd) noexcept { return make(Opcode::MFP, rd, 0); }
+		static constexpr Instruction PGON() noexcept { return make(Opcode::PGON); }
+		static constexpr Instruction PGOFF() noexcept { return make(Opcode::PGOFF); }
+		static constexpr Instruction INVLPG(u8 rs) noexcept { return make(Opcode::INVLPG, 0, rs); }
+		static constexpr Instruction FLPG() noexcept { return make(Opcode::FLPG); }
+		static constexpr Instruction MFPF(u8 rd) noexcept { return make(Opcode::MFPF, rd, 0); }
+
 		// Arithmetic
 		static constexpr Instruction ADD(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::ADD, rd, rs, rt); }
 		static constexpr Instruction ADDI(u8 rd, u8 rs, u16 imm16) noexcept { return make(Opcode::ADDI, rd, rs, imm16); }

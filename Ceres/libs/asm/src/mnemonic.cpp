@@ -30,6 +30,14 @@ namespace ceres::casm
 		{ "CLI", Mnemonic::CLI },
 		{ "STI", Mnemonic::STI },
 
+		{ "MTP", Mnemonic::MTP },
+		{ "MFP", Mnemonic::MFP },
+		{ "PGON", Mnemonic::PGON },
+		{ "PGOFF", Mnemonic::PGOFF },
+		{ "INVLPG", Mnemonic::INVLPG },
+		{ "FLPG", Mnemonic::FLPG },
+		{ "MFPF", Mnemonic::MFPF },
+
 		{ "ADD", Mnemonic::ADD },
 		{ "ADC", Mnemonic::ADC },
 		{ "SUB", Mnemonic::SUB },
@@ -177,6 +185,14 @@ namespace ceres::casm
 		{ Mnemonic::IRET, "IRET" },
 		{ Mnemonic::CLI, "CLI" },
 		{ Mnemonic::STI, "STI" },
+
+		{ Mnemonic::MTP, "MTP" },
+		{ Mnemonic::MFP, "MFP" },
+		{ Mnemonic::PGON, "PGON" },
+		{ Mnemonic::PGOFF, "PGOFF" },
+		{ Mnemonic::INVLPG, "INVLPG" },
+		{ Mnemonic::FLPG, "FLPG" },
+		{ Mnemonic::MFPF, "MFPF" },
 
 		{ Mnemonic::ADD, "ADD" },
 		{ Mnemonic::ADC, "ADC" },

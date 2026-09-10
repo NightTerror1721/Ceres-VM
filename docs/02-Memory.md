@@ -2,9 +2,16 @@
 
 [← Back to index](README.md)
 
-The VM's memory is a single flat array of bytes: `ceres::vm::Memory` wraps a `std::vector<u8>`.
-There is no MMU, no paging, and no virtual addressing — every address a program uses is a real
-offset into that array.
+The VM's memory is a single flat array of bytes: `ceres::vm::Memory` wraps a `std::vector<u8>`, and
+every address it takes is a real offset into that array — `Memory` itself has no notion of anything
+else. By default that is also everything a running program sees: no MMU, no paging, no virtual
+addressing, every address physical.
+
+A program that turns paging on (`pgon`) sees something different: `ExecutionEngine` translates most
+addresses through the MMU *before* they ever reach `Memory`, which keeps being exactly the flat
+physical array described below throughout. See
+[Virtual memory and paging](27-Virtual-Memory-and-Paging.md) for how that translation works, and
+which addresses (the null page, the BIOS, the system stack) stay physical regardless of it.
 
 ## Size
 

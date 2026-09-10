@@ -20,7 +20,8 @@ enum class InterruptNumber : u8
     DivisionByZero     = 4,
     StackOverflow      = 5,
     AlignmentFault     = 6,
-    // 7-14 currently unused
+    PageFault          = 7,
+    // 8-14 currently unused
     Syscall            = 15,
 
     UserInterrupt0  = 16,
@@ -37,8 +38,10 @@ enum class InterruptNumber : u8
   [I/O devices and ports](07-IO-Devices-and-Ports.md#timerdevice-ports-0x10-0x12).
 
 `MemoryFault` (3) is raised by a store, or a block read, whose target overlaps the loaded program's
-`.text` — see [Memory → `.text` is read-only](02-Memory.md#text-is-read-only). Of the reserved
-numbers, `Syscall` (15) is defined but nothing raises it yet.
+`.text` — see [Memory → `.text` is read-only](02-Memory.md#text-is-read-only). `PageFault` (7) is
+raised by the MMU on a not-present or permission-violating translation, and only ever fires once a
+program has turned paging on — see [Virtual memory and paging](27-Virtual-Memory-and-Paging.md). Of
+the reserved numbers, `Syscall` (15) is defined but nothing raises it yet.
 
 ## The vector table
 
@@ -98,6 +101,7 @@ These are triggered by `ExecutionEngine` itself, not by any explicit `int`/`trap
 | `AlignmentFault` (6) | A 16- or 32-bit memory access (`ldr`/`ldrh`/`ldrsh`/`str`/`strh`/`fldr`/`fstr`) targets an address that isn't a multiple of its own size. Byte-sized accesses never trigger this. See [`checkAlignment<T>()`](../Ceres/libs/vm/include/ceres/vm/execution_engine.h). |
 | `StackOverflow` (5) | A `push`/`call` would write below `0x400` (the protected segment), **or** a `pop`/`ret` would read past the top of memory (an unbalanced stack). See [Memory → The stack](02-Memory.md#the-stack). It's also raised (together with setting the Trap flag) if there isn't even room to push the two words an interrupt dispatch itself needs. |
 | `IllegalInstruction` (2) | The fetched opcode byte doesn't map to any known instruction — the 256-entry dispatch table defaults every unused slot to an internal `INVALID` handler that raises this. |
+| `PageFault` (7) | Paging is on (`pgon`) and a load, store or instruction fetch translates to a directory or table entry that isn't Present, or to one that is but doesn't grant the access (a write without the Writable bit, a fetch without Executable). `mfpf` reads back the address that faulted. See [Virtual memory and paging → Faults](27-Virtual-Memory-and-Paging.md#faults). |
 
 Division and modulo by zero (`div`/`idiv`/`mod`/`imod`) are a deliberate **exception** to "faults go
 through the interrupt mechanism": they set the Trap flag directly and continue execution with the

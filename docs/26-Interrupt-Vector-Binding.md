@@ -29,9 +29,9 @@ Either side of the number is accepted:
   | Name | Number | Name | Number |
   | --- | --- | --- | --- |
   | `Trap` | 1 | `AlignmentFault` | 6 |
-  | `IllegalInstruction` | 2 | `Syscall` | 15 |
-  | `MemoryFault` | 3 | `UserInterrupt0` … `UserInterrupt47` | 16 … 63 |
-  | `DivisionByZero` | 4 | | |
+  | `IllegalInstruction` | 2 | `PageFault` | 7 |
+  | `MemoryFault` | 3 | `Syscall` | 15 |
+  | `DivisionByZero` | 4 | `UserInterrupt0` … `UserInterrupt47` | 16 … 63 |
   | `StackOverflow` | 5 | | |
 
   `Reset` (0) is deliberately not among them — see below.

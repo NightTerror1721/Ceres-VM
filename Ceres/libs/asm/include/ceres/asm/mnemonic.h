@@ -15,6 +15,14 @@ namespace ceres::casm
 		CLI, // CLI
 		STI, // STI
 
+		MTP, // MTP - move to PTBR (rs -> page directory base register)
+		MFP, // MFP - move from PTBR (page directory base register -> rd)
+		PGON, // PGON - enable paging
+		PGOFF, // PGOFF - disable paging
+		INVLPG, // INVLPG - invalidate one TLB entry
+		FLPG, // FLPG - flush the whole TLB
+		MFPF, // MFPF - move from page-fault address (rd = last faulting virtual address)
+
 		ADD, // ADD, ADDI, FADD
 		ADC, // ADDC, ADDCI
 		SUB, // SUB, SUBI, FSUB

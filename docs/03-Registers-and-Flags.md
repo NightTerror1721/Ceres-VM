@@ -66,7 +66,7 @@ By the time anything downstream sees the operand it is an ordinary register, so 
 
 ## Flags register
 
-`FlagRegister` (also a `Register` subclass) holds seven single-bit flags, defined in `ExecutionFlag`:
+`FlagRegister` (also a `Register` subclass) holds eight single-bit flags, defined in `ExecutionFlag`:
 
 | Flag | Bit | Set by | Read by |
 | --- | --- | --- | --- |
@@ -77,6 +77,7 @@ By the time anything downstream sees the operand it is an ordinary register, so 
 | Interrupt (`IF`) | `1<<4` | `sti` / `cli` | Interrupt dispatch: interrupts 16–63 (user interrupts) are dropped while it's clear; interrupts 0–15 (reserved/system) are always deliverable regardless of this flag. |
 | Halting (`HF`) | `1<<5` | `halt` | The `step()` loop, to decide whether to actually fetch/execute or just tick devices and sleep. |
 | Trap (`TF`) | `1<<6` | Division/modulo by zero, an unrecoverable stack fault during interrupt dispatch | Nothing reads it today — it's informational, there's no `jt`/`jnt`. |
+| Paging (`PF`) | `1<<7` | `pgon` / `pgoff` | `ExecutionEngine::translate()`, once per load, store and instruction fetch: while set, every address (outside the regions that always stay physical) goes through the MMU — see [Virtual memory and paging](27-Virtual-Memory-and-Paging.md). |
 
 A crucial, deliberately non-obvious detail: **the Halting flag is *not* saved when an interrupt is
 taken.** `triggerInterrupt()` masks it out of the flags word it pushes onto the stack before jumping

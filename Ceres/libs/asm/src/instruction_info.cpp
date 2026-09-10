@@ -80,6 +80,14 @@ namespace ceres::casm
 		inst(Opcode::CLI, Mnemonic::CLI),
 		inst(Opcode::STI, Mnemonic::STI),
 
+		inst(Opcode::MTP, Mnemonic::MTP, OpcodeParameterType::RS),
+		inst(Opcode::MFP, Mnemonic::MFP, OpcodeParameterType::RD),
+		inst(Opcode::PGON, Mnemonic::PGON),
+		inst(Opcode::PGOFF, Mnemonic::PGOFF),
+		inst(Opcode::INVLPG, Mnemonic::INVLPG, OpcodeParameterType::RS),
+		inst(Opcode::FLPG, Mnemonic::FLPG),
+		inst(Opcode::MFPF, Mnemonic::MFPF, OpcodeParameterType::RD),
+
 		inst(Opcode::ADD, Mnemonic::ADD, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),
 		inst(Opcode::ADDI, Mnemonic::ADD, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::IMM16),
 		inst(Opcode::ADDC, Mnemonic::ADC, OpcodeParameterType::RD, OpcodeParameterType::RS, OpcodeParameterType::RT),

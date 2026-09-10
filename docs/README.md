@@ -41,6 +41,7 @@ the assembler does internally at each stage of the build.
 22. [The debugger](22-Debugger.md) — `ceres debug`: breakpoints, stepping by source line, the reconstructed call stack.
 25. [Separate compilation](25-Separate-Compilation.md) — `.cobj` objects, archives and `ceres link`: building one file at a time.
 26. [Interrupt vector binding](26-Interrupt-Vector-Binding.md) — the `interrupt NUMBER: handler` declaration, and how a program gets its own handler installed instead of the BIOS's.
+27. [Virtual memory and paging](27-Virtual-Memory-and-Paging.md) — the MMU: two-level page tables, the TLB, `pgon`/`pgoff`, and `PageFault`.
 
 ### Learn by doing
 
@@ -80,6 +81,9 @@ If you already knew this language, these are the parts that moved:
   default stub. The terminal now raises `UserInterrupt1` when input arrives, so this is also what
   `halt` needs to wake up on it instead of polling `TERM_STATUS` —
   [Interrupt vector binding](26-Interrupt-Vector-Binding.md).
+- **Virtual memory.** `mtp`/`mfp`/`pgon`/`pgoff`/`invlpg`/`flpg`/`mfpf` and a two-level, 4 KiB-paged
+  MMU with a small TLB — off by default, additive (no existing opcode or binary changes meaning), and
+  raising a new `PageFault` (7) on a bad translation — [Virtual memory and paging](27-Virtual-Memory-and-Paging.md).
 
 ## Quick start
 

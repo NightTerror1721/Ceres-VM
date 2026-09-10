@@ -81,6 +81,14 @@ namespace ceres::isa
 				case Opcode::CLI:    return { "CLI",   Shape::None };
 				case Opcode::STI:    return { "STI",   Shape::None };
 
+				case Opcode::MTP:     return { "MTP",     Shape::Rs };
+				case Opcode::MFP:     return { "MFP",     Shape::Rd };
+				case Opcode::PGON:    return { "PGON",    Shape::None };
+				case Opcode::PGOFF:   return { "PGOFF",   Shape::None };
+				case Opcode::INVLPG:  return { "INVLPG",  Shape::Rs };
+				case Opcode::FLPG:    return { "FLPG",    Shape::None };
+				case Opcode::MFPF:    return { "MFPF",    Shape::Rd };
+
 				case Opcode::ADD:    return { "ADD",   Shape::RdRsRt };
 				case Opcode::ADDI:   return { "ADDI",  Shape::RdRsImm16 };
 				case Opcode::ADDC:   return { "ADDC",  Shape::RdRsRt };

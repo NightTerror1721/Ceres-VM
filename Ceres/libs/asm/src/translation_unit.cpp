@@ -18,7 +18,7 @@ namespace ceres::casm
 			static constexpr struct { std::string_view name; u8 number; } ReservedNames[] = {
 				{ "Trap", 1 }, { "IllegalInstruction", 2 }, { "MemoryFault", 3 },
 				{ "DivisionByZero", 4 }, { "StackOverflow", 5 }, { "AlignmentFault", 6 },
-				{ "Syscall", 15 },
+				{ "PageFault", 7 }, { "Syscall", 15 },
 			};
 
 			for (const auto& entry : ReservedNames)

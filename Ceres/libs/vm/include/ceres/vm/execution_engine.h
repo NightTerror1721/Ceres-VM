@@ -3,6 +3,7 @@
 #include "memory.h"
 #include "io_ports.h"
 #include "interrupt_controller.h"
+#include "mmu.h"
 #include <ceres/core/isa/address.h>
 #include <ceres/core/isa/fregisters.h>
 #include <ceres/core/isa/instructions.h>
@@ -31,6 +32,15 @@ namespace ceres::vm
 		Memory& _memory;
 		IOPorts& _ioPorts;
 		InterruptController& _interrupts;
+		Mmu _mmu;
+
+		// Set the instant a translation or an alignment check redirects the PC into a fault handler,
+		// and checked by advancePC() so the handler that was mid-instruction cannot then walk the PC
+		// past that redirect. Reset once per step(), before fetch(). Existing faults (alignment, the
+		// text-segment write guard) already returned early before their own advancePC() and never
+		// needed this; it is what makes every *other* load/store handler - the ones that call
+		// read<T>()/write<T>() unconditionally, like LDRB - safe now that either can fault too.
+		bool _faulted = false;
 
 		// Instructions retired since the last reset. The timer already counts in executed
 		// instructions rather than wall clock, so this is the machine's own notion of time and
@@ -102,6 +112,11 @@ namespace ceres::vm
 		constexpr u32 textStart() const noexcept { return _textStart; }
 		constexpr u32 textEnd() const noexcept { return _textEnd; }
 		std::span<const u64> executionCounts() const noexcept { return _executionCounts; }
+
+		// A program builds its own page tables in plain memory before PGON, and a test or debugger
+		// wants to build them from outside too - see docs/27-Virtual-Memory-and-Paging.md.
+		Mmu& mmu() noexcept { return _mmu; }
+		const Mmu& mmu() const noexcept { return _mmu; }
 
 	public:
 		// Write access, for a debugger: setting a register from the editor's variables view,
@@ -179,8 +194,46 @@ namespace ceres::vm
 		}
 
 	private:
-		forceinline Instruction fetch() const noexcept { return _memory.readInstruction(_pc); }
-		forceinline void advancePC() noexcept { _pc += Instruction::SizeInBytes; }
+		// The one MMU chokepoint every read<T>/write<T> call and fetch() share. Paging off is the
+		// fast, common path: the address comes back unchanged and nothing about Memory has to know
+		// paging exists at all. Paging on and a translation failure both go through triggerInterrupt
+		// here, exactly like the alignment and text-segment checks already do, so PageFault behaves
+		// like every other fault this engine raises rather than like a new kind of failure.
+		forceinline std::optional<Address> translate(Address address, MmuAccess access) noexcept
+		{
+			if (!_flags.get<ExecutionFlag::Paging>())
+				return address;
+
+			// The null page and the BIOS (below 0x400) and the system stack (the top SystemStackSize
+			// bytes) are VM-owned memory that no program's page table describes - they stay physical
+			// whether or not paging is on, the same way they are already reached through the unchecked
+			// path rather than the checked one. This is not just convenience: without it, a page fault
+			// taken while the system stack itself happened to be unmapped would recurse into dispatching
+			// the very fault it is trying to save a frame for, and a program that forgot to map its own
+			// fault vectors could never even reach the BIOS's default handler to fail safely.
+			const u32 raw = address.value();
+			if (raw < Memory::UnrestrictedSegmentStartValue || raw >= systemStackFloor())
+				return address;
+
+			if (const auto physical = _mmu.translate(_memory, address, access))
+				return physical;
+
+			triggerInterrupt(InterruptNumber::PageFault);
+			return std::nullopt;
+		}
+
+		forceinline Instruction fetch() noexcept
+		{
+			const auto physical = translate(_pc, MmuAccess::Execute);
+			if (!physical.has_value())
+				return Instruction(0); // Never executed: step() checks _faulted and skips execute().
+			return _memory.readInstruction(*physical);
+		}
+		// A no-op once this instruction has already faulted: triggerInterrupt has redirected the PC
+		// to the handler, and a handler still mid-execution after that must not then walk it forward
+		// again. Every handler that does not check for a fault explicitly - most of them - relies on
+		// this to stay correct now that read<T>/write<T> can fault too.
+		forceinline void advancePC() noexcept { if (!_faulted) _pc += Instruction::SizeInBytes; }
 
 		forceinline u32 getReg(u8 index) const noexcept { return _registers.getValue(index); }
 		forceinline void setReg(u8 index, u32 value) noexcept { _registers.setValue(index, value); }
@@ -217,15 +270,19 @@ namespace ceres::vm
 		}
 
 		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
-		forceinline T read(Address address) const noexcept
+		forceinline T read(Address address) noexcept
 		{
 			if (_accessObserver)
 				_accessObserver(AccessKind::Read, address.value(), static_cast<u32>(sizeof(T)));
 
+			const auto physical = translate(address, MmuAccess::Read);
+			if (!physical.has_value())
+				return T{};
+
 			if constexpr (FloatingPoint<T>)
-				return _memory.readFloat(address);
+				return _memory.readFloat(*physical);
 			else
-				return _memory.read<T>(address);
+				return _memory.read<T>(*physical);
 		}
 
 		// Returns false when the write would land in the program's own text, having already raised
@@ -247,10 +304,14 @@ namespace ceres::vm
 			if (_accessObserver)
 				_accessObserver(AccessKind::Write, address.value(), static_cast<u32>(sizeof(T)));
 
+			const auto physical = translate(address, MmuAccess::Write);
+			if (!physical.has_value())
+				return;
+
 			if constexpr (FloatingPoint<T>)
-				_memory.writeFloat(address, value);
+				_memory.writeFloat(*physical, value);
 			else
-				_memory.write(address, value);
+				_memory.write(*physical, value);
 		}
 
 		template <ExecutionFlag Flag>
@@ -304,11 +365,21 @@ namespace ceres::vm
 				return false;
 			}
 
-			sp(sp() - sizeof(T));
+			// sp moves before the write lands, so a write that page-faults has to put it back: the
+			// fault handler's IRET re-runs this same PUSH from the top, and a second decrement of an
+			// sp that never actually got written would leave a live word of stack skipped forever.
+			const u32 savedSp = sp();
+			sp(savedSp - sizeof(T));
 			if constexpr (FloatingPoint<T>)
 				write<u32>(Address(sp()), std::bit_cast<u32>(value));
 			else
 				write(Address(sp()), value);
+
+			if (_faulted)
+			{
+				sp(savedSp);
+				return false;
+			}
 			return true;
 		}
 
@@ -327,12 +398,16 @@ namespace ceres::vm
 			if constexpr (FloatingPoint<T>)
 			{
 				const T value = std::bit_cast<T>(read<u32>(Address(sp())));
+				if (_faulted)
+					return std::nullopt; // sp is untouched: the fault handler's IRET retries this pop from scratch.
 				sp(sp() + sizeof(T));
 				return value;
 			}
 			else
 			{
 				const T value = read<T>(Address(sp()));
+				if (_faulted)
+					return std::nullopt;
 				sp(sp() + sizeof(T));
 				return value;
 			}
@@ -828,6 +903,15 @@ namespace ceres::vm
 		// unreachable: triggerInterrupt drops numbers >= 16 while the flag is clear.
 		forceinline void CLI(const Instruction inst) noexcept { _flags.clear<ExecutionFlag::Interrupt>(); advancePC(); }
 		forceinline void STI(const Instruction inst) noexcept { _flags.set<ExecutionFlag::Interrupt>(); advancePC(); }
+
+		// Memory Management Unit. See docs/27-Virtual-Memory-and-Paging.md.
+		forceinline void MTP(const Instruction inst) noexcept { _mmu.setPtbr(getReg(inst.rs())); advancePC(); }
+		forceinline void MFP(const Instruction inst) noexcept { setReg(inst.rd(), _mmu.ptbr()); advancePC(); }
+		forceinline void PGON(const Instruction inst) noexcept { _flags.set<ExecutionFlag::Paging>(); advancePC(); }
+		forceinline void PGOFF(const Instruction inst) noexcept { _flags.clear<ExecutionFlag::Paging>(); advancePC(); }
+		forceinline void INVLPG(const Instruction inst) noexcept { _mmu.invalidate(Address(getReg(inst.rs()))); advancePC(); }
+		forceinline void FLPG(const Instruction inst) noexcept { _mmu.invalidateAll(); advancePC(); }
+		forceinline void MFPF(const Instruction inst) noexcept { setReg(inst.rd(), _mmu.faultAddress().value()); advancePC(); }
 
 		// Puts the program's own stack pointer back once the outermost handler is done with it.
 		forceinline void leaveInterrupt() noexcept
@@ -1343,7 +1427,15 @@ namespace ceres::vm
 			for (u32 i = GeneralPurposeRegisterPool::Count; i-- > 0;)
 			{
 				if (mask & (1u << i))
-					(void)push<u32>(getReg(static_cast<u8>(i)));
+				{
+					// The whole-mask room check above only rules out StackOverflow; a page fault is a
+					// second, independent way a push here can fail, and this loop has to stop the
+					// moment one does; a push already made this discipline to itself (see push<T>), but
+					// nothing stopped this loop from calling it again for the next register in the
+					// mask, onto memory that instruction was never actually supposed to touch.
+					if (!push<u32>(getReg(static_cast<u8>(i))))
+						break;
+				}
 			}
 			advancePC();
 		}
@@ -1361,8 +1453,10 @@ namespace ceres::vm
 			{
 				if (mask & (1u << i))
 				{
-					if (const auto value = pop<u32>())
-						setReg(static_cast<u8>(i), *value);
+					const auto value = pop<u32>();
+					if (!value.has_value())
+						break; // Same reasoning as PUSHM's loop: stop at the first fault, don't paper over it.
+					setReg(static_cast<u8>(i), *value);
 				}
 			}
 			advancePC();
@@ -1547,6 +1641,15 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::IRET)] = &ExecutionEngine::IRET;
 				handlers[static_cast<u8>(Opcode::CLI)] = &ExecutionEngine::CLI;
 				handlers[static_cast<u8>(Opcode::STI)] = &ExecutionEngine::STI;
+
+				// MMU
+				handlers[static_cast<u8>(Opcode::MTP)] = &ExecutionEngine::MTP;
+				handlers[static_cast<u8>(Opcode::MFP)] = &ExecutionEngine::MFP;
+				handlers[static_cast<u8>(Opcode::PGON)] = &ExecutionEngine::PGON;
+				handlers[static_cast<u8>(Opcode::PGOFF)] = &ExecutionEngine::PGOFF;
+				handlers[static_cast<u8>(Opcode::INVLPG)] = &ExecutionEngine::INVLPG;
+				handlers[static_cast<u8>(Opcode::FLPG)] = &ExecutionEngine::FLPG;
+				handlers[static_cast<u8>(Opcode::MFPF)] = &ExecutionEngine::MFPF;
 
 				// Arithmetic
 				handlers[static_cast<u8>(Opcode::ADD)] = &ExecutionEngine::ADD;

@@ -13,6 +13,7 @@ namespace ceres::vm
 		_interruptDepth = 0;
 		_savedStackPointer = 0;
 		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
+		_mmu.reset(); // No program has had the chance to point PTBR at garbage yet; leave none behind either
 	}
 
 	void ExecutionEngine::handleHalt() noexcept
@@ -85,8 +86,12 @@ namespace ceres::vm
 
 		_flags.clear<ExecutionFlag::Interrupt>(); // Clear interrupt flag before handling the interrupt
 		_flags.clear<ExecutionFlag::Halting>(); // Clear halting flag to allow execution to continue after handling the interrupt
-		
+
 		_pc = Address(handlerAddress);
+		// The redirect just above is the one PC write a still-running handler must not undo: this is
+		// what advancePC() (and push<T>/pop<T>, for the handlers that read a value back through them)
+		// check to stay out of its way for the rest of the instruction that triggered it.
+		_faulted = true;
 		notify(true);
 	}
 
@@ -119,8 +124,13 @@ namespace ceres::vm
 		if (!_executionCounts.empty() && _pc.value() >= _textStart && _pc.value() < _textEnd)
 			++_executionCounts[(_pc.value() - _textStart) / Instruction::Size];
 
+		_faulted = false;
 		const Instruction instruction = fetch();
-		execute(instruction);
+		// A fetch that page-faulted already redirected the PC to the handler; the word it "fetched"
+		// is a dummy that must never run, or the machine would execute whatever raw bits happened to
+		// sit at that virtual address's physical counterpart instead of the fault handler.
+		if (!_faulted)
+			execute(instruction);
 		++_executedInstructions;
 		_ioPorts.tick();
 	}
