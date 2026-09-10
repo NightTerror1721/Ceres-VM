@@ -6,6 +6,7 @@
 #include "framework.h"
 #include <ceres/vm/ceresvm.h>
 #include <ceres/core/isa/disassembler.h>
+#include <ceres/core/format/program.h>
 #include <vector>
 
 using namespace ceres;
@@ -63,6 +64,43 @@ TEST(vm, li_loads_an_immediate)
 
 	CHECK_EQ(m.reg(4), 4321u);
 	CHECK_EQ(m.pc().value(), Memory::UnrestrictedSegmentStart.value() + Instruction::Size);
+}
+
+TEST(vm, loading_a_program_clears_its_bss)
+{
+	CeresVM vm{};
+	const auto header = fmt::ProgramHeader{
+		.magic = fmt::ProgramHeader::MagicNumber,
+		.version = fmt::ProgramHeader::CurrentVersion,
+		.entryPoint = Memory::UnrestrictedSegmentStart.value(),
+		.bssSize = 16,
+	};
+	const fmt::Program program = fmt::Program::make(header, {}, {}, {});
+	const Address bssStart = Memory::UnrestrictedSegmentStart;
+
+	vm.memory().setBytesUnchecked(bssStart, 0xA5, header.bssSize);
+	CHECK(vm.loadProgram(program).has_value());
+
+	for (u32 i = 0; i < header.bssSize; ++i)
+		CHECK_EQ(vm.memory().readUnchecked<u8>(bssStart + Address(i)), u8{ 0 });
+}
+
+TEST(vm, an_invalid_program_leaves_the_current_image_intact)
+{
+	CeresVM vm{};
+	const Address preserved = Memory::UnrestrictedSegmentStart;
+	vm.memory().writeUnchecked<u32>(preserved, 0xDEADBEEFu);
+
+	const auto header = fmt::ProgramHeader{
+		.magic = fmt::ProgramHeader::MagicNumber,
+		.version = fmt::ProgramHeader::CurrentVersion,
+		.entryPoint = preserved.value(),
+	};
+	const std::array invalidVectors{ fmt::InterruptVectorPatch{ 0, preserved.value() } };
+	const fmt::Program program = fmt::Program::make(header, {}, {}, {}, invalidVectors);
+
+	CHECK(!vm.loadProgram(program).has_value());
+	CHECK_EQ(vm.memory().readUnchecked<u32>(preserved), 0xDEADBEEFu);
 }
 
 TEST(vm, add_sets_zero_flag_when_the_result_is_zero)
