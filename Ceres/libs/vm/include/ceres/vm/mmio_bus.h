@@ -3,6 +3,7 @@
 #include <ceres/core/isa/address.h>
 #include "memory.h"
 #include "interrupt_controller.h"
+#include <algorithm>
 #include <array>
 #include <limits>
 
