@@ -129,7 +129,7 @@ namespace ceres::vm
 		// A fetch that page-faulted already redirected the PC to the handler; the word it "fetched"
 		// is a dummy that must never run, or the machine would execute whatever raw bits happened to
 		// sit at that virtual address's physical counterpart instead of the fault handler.
-		if (!_faulted)
+		if (!_faulted) [[likely]]
 			execute(instruction);
 		++_executedInstructions;
 		_mmioBus.tick();

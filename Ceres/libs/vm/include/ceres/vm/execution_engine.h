@@ -191,8 +191,7 @@ namespace ceres::vm
 
 		inline void execute(const Instruction instruction) noexcept
 		{
-			InstructionHandler handler = InstructionHandlers[static_cast<u8>(instruction.opcode())];
-			(this->*handler)(instruction);
+			(this->*InstructionHandlers[static_cast<u8>(instruction.opcode())])(instruction);
 		}
 
 	private:
@@ -203,7 +202,7 @@ namespace ceres::vm
 		// like every other fault this engine raises rather than like a new kind of failure.
 		forceinline std::optional<Address> translate(Address address, MmuAccess access) noexcept
 		{
-			if (!_flags.get<ExecutionFlag::Paging>())
+			if (!_flags.get<ExecutionFlag::Paging>()) [[likely]]
 				return address;
 
 			// The null page and the BIOS (below 0x400) and the system stack (the top SystemStackSize
@@ -274,7 +273,7 @@ namespace ceres::vm
 		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
 		forceinline T read(Address address) noexcept
 		{
-			if (_accessObserver)
+			if (_accessObserver) [[unlikely]]
 				_accessObserver(AccessKind::Read, address.value(), static_cast<u32>(sizeof(T)));
 
 			const auto physical = translate(address, MmuAccess::Read);
@@ -315,7 +314,7 @@ namespace ceres::vm
 		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
 		forceinline void write(Address address, T value) noexcept
 		{
-			if (_accessObserver)
+			if (_accessObserver) [[unlikely]]
 				_accessObserver(AccessKind::Write, address.value(), static_cast<u32>(sizeof(T)));
 
 			const auto physical = translate(address, MmuAccess::Write);
