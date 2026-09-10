@@ -401,6 +401,16 @@ TEST(devices, pushing_input_with_nothing_to_deliver_raises_no_interrupt)
 	CHECK(m.flags().halting());
 }
 
+TEST(devices, terminal_counts_input_discarded_by_a_full_buffer)
+{
+	TerminalDevice terminal{};
+	std::vector<u8> input(TerminalDevice::InputBufferCapacity + 8, 'X');
+
+	terminal.pushInput(input);
+
+	CHECK_EQ(terminal.droppedInputBytes(), u64{9});
+}
+
 TEST(devices, the_interrupt_directive_installs_a_real_handler_for_terminal_input)
 {
 	// The whole path this feature exists for: a real .casm program, assembled and loaded exactly

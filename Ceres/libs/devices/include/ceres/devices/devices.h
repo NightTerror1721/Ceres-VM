@@ -258,10 +258,13 @@ namespace ceres::devices
 		// nothing raises this unless pushInput() is called at all.
 		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt1;
 
+	public:
+		// Kept small to model a simple UART. Hosts can detect loss through droppedInputBytes().
+		static inline constexpr usize InputBufferCapacity = 64;
+
 	private:
 		static inline constexpr u8 RxReadyMask = 0x01; // Bit 0 indicates if input is available.
 		static inline constexpr u8 TxReadyMask = 0x02; // Bit 1 indicates if the terminal is ready to accept output (always ready in this simple implementation).
-		static inline constexpr usize MaxInputBufferSize = 64; // Maximum size of the input buffer.
 
 	public:
 		// Where a byte written to the output register ends up. `ceres run` leaves it empty and the
@@ -271,9 +274,10 @@ namespace ceres::devices
 		using OutputSink = std::function<void(u8)>;
 
 	private:
-		std::array<u8, MaxInputBufferSize> _buffer{};
+		std::array<u8, InputBufferCapacity> _buffer{};
 		std::atomic<usize> _head{0};
 		std::atomic<usize> _tail{0};
+		std::atomic<u64> _droppedInputBytes{0};
 		OutputSink _outputSink;
 		u32 _blockAddress = 0;
 		u32 _blockLength = 0;
@@ -303,9 +307,12 @@ namespace ceres::devices
 			bool wroteAnyByte = false;
 			for (u8 byte : input)
 			{
-				usize nextTail = (_tail.load(std::memory_order_relaxed) + 1) % MaxInputBufferSize;
+				usize nextTail = (_tail.load(std::memory_order_relaxed) + 1) % InputBufferCapacity;
 				if (nextTail == _head.load(std::memory_order_acquire))
+				{
+					_droppedInputBytes.fetch_add(1, std::memory_order_relaxed);
 					continue;
+				}
 
 				_buffer[_tail.load(std::memory_order_relaxed)] = byte;
 				_tail.store(nextTail, std::memory_order_release);
@@ -335,6 +342,8 @@ namespace ceres::devices
 			pushInput(std::string_view(&input, 1));
 		}
 
+		u64 droppedInputBytes() const noexcept { return _droppedInputBytes.load(std::memory_order_relaxed); }
+
 		void setOutputSink(OutputSink sink) { _outputSink = std::move(sink); }
 		void clearOutputSink() { _outputSink = nullptr; }
 
@@ -343,7 +352,7 @@ namespace ceres::devices
 		// another thread.
 		struct State
 		{
-			std::array<u8, MaxInputBufferSize> buffer{};
+			std::array<u8, InputBufferCapacity> buffer{};
 			usize head = 0;
 			usize tail = 0;
 		};
@@ -397,7 +406,7 @@ namespace ceres::devices
 					break; // No more input available.
 
 				buffer[bytesRead] = _buffer[currentHead];
-				_head.store((currentHead + 1) % MaxInputBufferSize, std::memory_order_release);
+				_head.store((currentHead + 1) % InputBufferCapacity, std::memory_order_release);
 				++bytesRead;
 			}
 		}
@@ -431,7 +440,7 @@ namespace ceres::devices
 					return 0; // No input available, return 0.
 
 				u8 value = _buffer[currentHead];
-				_head.store((currentHead + 1) % MaxInputBufferSize, std::memory_order_release);
+				_head.store((currentHead + 1) % InputBufferCapacity, std::memory_order_release);
 				return value;
 			}
 
