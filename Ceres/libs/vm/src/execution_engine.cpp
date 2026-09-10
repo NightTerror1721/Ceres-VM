@@ -121,8 +121,8 @@ namespace ceres::vm
 		}
 
 		// Counted before the instruction runs, because running it is what moves the PC.
-		if (!_executionCounts.empty() && _pc.value() >= _textStart && _pc.value() < _textEnd)
-			++_executionCounts[(_pc.value() - _textStart) / Instruction::Size];
+		if (_executionCountsData && _pc.value() >= _textStart && _pc.value() < _textEnd)
+			++_executionCountsData[(_pc.value() - _textStart) / Instruction::Size];
 
 		_faulted = false;
 		const Instruction instruction = fetch();

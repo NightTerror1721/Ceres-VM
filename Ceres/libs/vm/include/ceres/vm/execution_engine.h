@@ -66,10 +66,11 @@ namespace ceres::vm
 		u32 _textStart = 0;
 		u32 _textEnd = 0;
 
-		// One counter per instruction word of .text, and empty unless a profile was asked for.
+		// One counter per instruction word of .text, and null unless a profile was asked for.
 		// The machine already counts in executed instructions rather than wall clock, so this is a
 		// profile that comes out the same on every run - which a real machine cannot offer.
 		std::vector<u64> _executionCounts;
+		u64* _executionCountsData = nullptr;
 
 		// Empty unless a debugger is attached. A watchpoint that compares snapshots between
 		// instructions cannot see a read at all, nor a write that puts back the value that was
@@ -160,6 +161,7 @@ namespace ceres::vm
 		void enableProfiling()
 		{
 			_executionCounts.assign(_textEnd > _textStart ? (_textEnd - _textStart) / Instruction::Size : 0, 0);
+			_executionCountsData = _executionCounts.empty() ? nullptr : _executionCounts.data();
 		}
 
 		void setFlags(FlagRegister flags) noexcept { _flags = flags; }
