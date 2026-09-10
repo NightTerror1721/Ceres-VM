@@ -112,7 +112,7 @@ TEST(driver_machine, host_receives_terminal_output)
 	if (!program) return;
 
 	std::string output;
-	Machine machine{{.memorySize = ceres::vm::Memory::DefaultSize}, {
+	Machine machine{{}, {
 		.terminalOutput = [&output](std::span<const ceres::u8> bytes)
 		{
 			output.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
@@ -121,4 +121,5 @@ TEST(driver_machine, host_receives_terminal_output)
 	CHECK(machine.load(*program).has_value());
 	CHECK(machine.run().has_value());
 	CHECK_EQ(output, std::string{"A"});
+	CHECK_EQ(machine.droppedInputBytes(), ceres::u64{0});
 }

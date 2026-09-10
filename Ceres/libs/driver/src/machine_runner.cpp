@@ -81,6 +81,7 @@ namespace ceres::driver
 
 	void Machine::pushInput(std::span<const u8> bytes) { _impl->terminal.pushInput(bytes); }
 	void Machine::pushInput(std::string_view text) { _impl->terminal.pushInput(text); }
+	u64 Machine::droppedInputBytes() const noexcept { return _impl->terminal.droppedInputBytes(); }
 
 	namespace
 	{

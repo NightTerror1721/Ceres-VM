@@ -2,6 +2,7 @@
 
 #include <ceres/core/base/types.h>
 #include <ceres/core/format/program.h>
+#include <ceres/vm/memory.h>
 
 #include <expected>
 #include <filesystem>
@@ -23,7 +24,7 @@ namespace ceres::driver
 
 	struct MachineConfig
 	{
-		usize memorySize;
+		usize memorySize = vm::Memory::DefaultSize;
 		std::filesystem::path diskImage;
 	};
 
@@ -42,6 +43,7 @@ namespace ceres::driver
 		std::expected<void, std::string> run();
 		void pushInput(std::span<const u8> bytes);
 		void pushInput(std::string_view text);
+		u64 droppedInputBytes() const noexcept;
 
 	private:
 		class Impl;
