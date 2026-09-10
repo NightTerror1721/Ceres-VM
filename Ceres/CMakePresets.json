@@ -34,6 +34,16 @@
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "g++"
       }
+    },
+    {
+      "name": "gcc-ipo",
+      "displayName": "GCC (Ninja Multi-Config, IPO)",
+      "description": "Release-oriented configuration with portable CMake IPO/LTO enabled. Profile-guided optimization remains an explicit compiler-specific workflow.",
+      "inherits": "gcc",
+      "binaryDir": "${sourceDir}/build/gcc-ipo",
+      "cacheVariables": {
+        "CERES_ENABLE_IPO": "ON"
+      }
     }
   ],
 
@@ -44,6 +54,7 @@
     { "name": "ninja-release", "configurePreset": "ninja", "configuration": "Release" },
     { "name": "gcc-debug",     "configurePreset": "gcc",   "configuration": "Debug" },
     { "name": "gcc-release",   "configurePreset": "gcc",   "configuration": "Release" }
+    ,{ "name": "gcc-ipo-release", "configurePreset": "gcc-ipo", "configuration": "Release" }
   ],
 
   "testPresets": [
@@ -80,6 +91,12 @@
     {
       "name": "gcc-release",
       "configurePreset": "gcc",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "gcc-ipo-release",
+      "configurePreset": "gcc-ipo",
       "configuration": "Release",
       "output": { "outputOnFailure": true }
     }

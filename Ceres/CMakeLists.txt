@@ -41,6 +41,16 @@ endif()
 
 option(CERES_BUILD_TESTS      "Build the test suites"                 ${PROJECT_IS_TOP_LEVEL})
 option(CERES_WARNINGS_AS_ERRORS "Treat warnings as errors"             OFF)
+option(CERES_ENABLE_IPO "Enable interprocedural optimization for release builds" OFF)
+
+if(CERES_ENABLE_IPO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT CERES_IPO_SUPPORTED OUTPUT CERES_IPO_ERROR LANGUAGES CXX)
+    if(NOT CERES_IPO_SUPPORTED)
+        message(FATAL_ERROR "CERES_ENABLE_IPO was requested, but the compiler does not support it: ${CERES_IPO_ERROR}")
+    endif()
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+endif()
 
 include(CeresSettings)
 include(CeresLibrary)
