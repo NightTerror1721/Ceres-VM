@@ -36,8 +36,15 @@ namespace ceres::vm
 		virtual void writeWord(Address offset, u32 value) = 0;
 
 	public:
-		// Called once per executed instruction. A device that needs no notion of time ignores it;
-		// the default does nothing so existing devices are unaffected.
+		// Opt-in: only a device whose needsTick() returns true is called every instruction (see
+		// MmioBus::rebuildTickedDevices). Most devices have no notion of time - the terminal, the
+		// disk, the framebuffer - and paid for a virtual call every instruction regardless; this is
+		// what lets them stop paying for it without their tick() ever having to be touched.
+		virtual bool needsTick() const noexcept { return false; }
+
+		// Called once per executed instruction, but only for a device that opted in via needsTick().
+		// The default does nothing, which is also what a device that never overrides either method
+		// gets: no per-instruction cost at all, not even the call.
 		virtual void tick() {}
 
 	protected:
@@ -101,7 +108,7 @@ namespace ceres::vm
 			_tickedDeviceCount = 0;
 			for (IODevice* device : _devices)
 			{
-				if (device == nullptr)
+				if (device == nullptr || !device->needsTick())
 					continue;
 
 				bool alreadyListed = false;

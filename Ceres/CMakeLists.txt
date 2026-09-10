@@ -49,6 +49,15 @@ option(CERES_ENABLE_IPO "Enable interprocedural optimization for release builds"
 # result will run on, which -O2/-O3 alone never does.
 option(CERES_ENABLE_ARCH_TUNING "Enable target-CPU instruction tuning for release builds (not portable to older CPUs)" OFF)
 
+# Profile-guided optimization, GCC/Clang only for now (see CeresSettings.cmake for why MSVC's
+# /LTCG:PGInstrument + /LTCG:PGOptimize workflow isn't wired here yet). Two builds, not one:
+# configure+build with CERES_PGO_GENERATE, run a representative workload (libs/vm/benchmarks is
+# the one already in the tree), then reconfigure the *same* CERES_PGO_DIR with CERES_PGO_USE and
+# rebuild. Mutually exclusive - CeresSettings.cmake errors out if both are set at once.
+option(CERES_PGO_GENERATE "Instrument this build to record a profile for a later CERES_PGO_USE build" OFF)
+option(CERES_PGO_USE "Optimize this build using a profile previously recorded with CERES_PGO_GENERATE" OFF)
+set(CERES_PGO_DIR "${CMAKE_BINARY_DIR}/pgo" CACHE PATH "Where PGO profile data is written to (CERES_PGO_GENERATE) or read from (CERES_PGO_USE) - must be the same path across both builds")
+
 if(CERES_ENABLE_IPO)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT CERES_IPO_SUPPORTED OUTPUT CERES_IPO_ERROR LANGUAGES CXX)

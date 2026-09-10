@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <cstring>
 #include <type_traits>
+#include <bit>
 
 namespace ceres::vm
 {
@@ -208,10 +209,21 @@ namespace ceres::vm
 			// Fast path: fully in-bounds contiguous access. Keep checks conservative.
 			if (_data.size() >= n && base >= FirstValidIndex && base <= _data.size() - n)
 			{
-				// Specialize common sizes so compiler can optimize (unrolled, no memcpy to avoid host endianness differences).
 				if constexpr (n == 1)
 				{
 					value = static_cast<UT>(_data[base]);
+					return static_cast<T>(value);
+				}
+				// The wire format here IS little-endian (byte 0 holds bits 0:7, as the byte-by-byte
+				// form below spells out), so on a little-endian host this is a reinterpretation, not
+				// a byteswap - std::memcpy of exactly sizeof(T) bytes is the portable, alignment-safe
+				// way to ask for that single load. Measured against GCC 15's -O3 codegen: the
+				// byte-by-byte form below, which every host used to take, did NOT get folded into a
+				// single load on its own - four separate movzbl+shl+or instead of one mov. A
+				// big-endian host keeps the byte-by-byte path, which stays correct there unchanged.
+				else if constexpr (std::endian::native == std::endian::little)
+				{
+					std::memcpy(&value, _data.data() + base, n);
 					return static_cast<T>(value);
 				}
 				else if constexpr (n == 2)
@@ -262,6 +274,13 @@ namespace ceres::vm
 				if constexpr (n == 1)
 				{
 					_data[base] = static_cast<ByteType>(uv & 0xFFu);
+					return;
+				}
+				// See the matching comment in readRaw(): same wire format, same host-endianness
+				// guard, same measured reason (a single store instead of n byte stores).
+				else if constexpr (std::endian::native == std::endian::little)
+				{
+					std::memcpy(_data.data() + base, &uv, n);
 					return;
 				}
 				else if constexpr (n == 2)

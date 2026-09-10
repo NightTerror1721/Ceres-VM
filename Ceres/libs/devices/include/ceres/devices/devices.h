@@ -178,6 +178,10 @@ namespace ceres::devices
 		void clearClockSource() { _clockSource = nullptr; }
 
 	public:
+		// The one device every program that arms it relies on advancing every instruction, whether
+		// or not it is armed - TicksRegister reads instructions executed even while disarmed.
+		bool needsTick() const noexcept override { return true; }
+
 		void tick() override
 		{
 			++_ticks;
@@ -525,6 +529,11 @@ namespace ceres::devices
 		}
 
 	public:
+		// Must be unconditionally true, not "return _pending": MmioBus only re-reads needsTick() when
+		// the topology changes (attach/detach), not every instruction, so a device that flipped this
+		// on the fly could arm a transfer that then never sees the tick() that lands it.
+		bool needsTick() const noexcept override { return true; }
+
 		// Arms on the CMD write; the actual copy happens on the next tick(), one instruction later -
 		// never on the same step that requested it, so a program relying on the interrupt (rather
 		// than busy-polling STATUS) always sees a real handoff instead of an already-finished copy.

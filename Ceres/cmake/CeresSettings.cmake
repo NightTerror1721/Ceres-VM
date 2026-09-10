@@ -46,6 +46,32 @@ elseif(MSVC)
     target_compile_options(ceres_settings INTERFACE /Oi)
 endif()
 
+# See CERES_PGO_GENERATE/CERES_PGO_USE's definition in the root CMakeLists.txt for the two-build
+# workflow. Wired for GCC/Clang, where it was built and verified against libs/vm/benchmarks; MSVC's
+# equivalent is /LTCG:PGInstrument (generate) then /LTCG:PGOptimize (use), which additionally needs
+# CERES_ENABLE_IPO for the /LTCG it depends on - left as a FATAL_ERROR rather than guessed flags,
+# since nothing in this tree can build with MSVC to verify the exact syntax before shipping it.
+if(CERES_PGO_GENERATE AND CERES_PGO_USE)
+    message(FATAL_ERROR "CERES_PGO_GENERATE and CERES_PGO_USE are mutually exclusive: record a profile first (CERES_PGO_GENERATE), run a representative workload, then rebuild against it (CERES_PGO_USE) - not both in the same build.")
+endif()
+
+if((CERES_PGO_GENERATE OR CERES_PGO_USE) AND MSVC)
+    message(FATAL_ERROR "CERES_PGO_GENERATE/CERES_PGO_USE are not wired for MSVC yet - its /LTCG:PGInstrument + /LTCG:PGOptimize flags need verifying against an actual MSVC build before they're added here. Use the gcc or clang presets for PGO in the meantime.")
+elseif(CERES_PGO_GENERATE)
+    target_compile_options(ceres_settings INTERFACE -fprofile-generate=${CERES_PGO_DIR})
+    target_link_options(ceres_settings INTERFACE -fprofile-generate=${CERES_PGO_DIR})
+elseif(CERES_PGO_USE)
+    target_compile_options(ceres_settings INTERFACE -fprofile-use=${CERES_PGO_DIR})
+    target_link_options(ceres_settings INTERFACE -fprofile-use=${CERES_PGO_DIR})
+    # -fprofile-correction: GCC-only. A profile trained on one binary and applied to a slightly
+    # different rebuild (a touched comment, a different compiler point release) is otherwise a
+    # hard error instead of a best-effort match - exactly the kind of drift a two-build workflow
+    # invites. Clang tolerates a stale profile by default, so it needs no equivalent flag.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(ceres_settings INTERFACE -fprofile-correction)
+    endif()
+endif()
+
 # libstdc++ left part of <print> and <stacktrace> out of the main library. On MinGW it's always
 # needed; on other GCC configurations it depends on the version, so the linker is asked instead
 # of guessing from the platform - which is what tests/build.sh used to do.
