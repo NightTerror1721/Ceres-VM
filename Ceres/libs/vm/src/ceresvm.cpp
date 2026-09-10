@@ -23,6 +23,18 @@ namespace ceres::vm
 				" bytes of memory, but only " + std::to_string(_memory.size()) + " bytes are available.");
 		}
 
+		// Validate metadata before changing VM memory, so a rejected program cannot leave a
+		// partially replaced image behind.
+		std::array<bool, isa::InterruptNumberCount> patchedVectors{};
+		for (const auto& patch : program.interruptVectors())
+		{
+			if (patch.interruptNumber == 0 || patch.interruptNumber >= isa::InterruptNumberCount)
+				return std::unexpected("Invalid .cres: interrupt vector patch targets out-of-range interrupt " + std::to_string(patch.interruptNumber) + ".");
+			if (patchedVectors[patch.interruptNumber])
+				return std::unexpected("Invalid .cres: interrupt vector " + std::to_string(patch.interruptNumber) + " is patched more than once.");
+			patchedVectors[patch.interruptNumber] = true;
+		}
+
 		Address offset = Memory::UnrestrictedSegmentStart;
 
 		// Where .text lands, so the engine can refuse to let the program write over it.
@@ -47,7 +59,10 @@ namespace ceres::vm
 			offset += header.dataSize;
 		}
 
-		offset += header.bssSize; // BSS is zero-initialized, so we just need to reserve the space.
+		// Memory is only zero-initialized at VM construction. Reloading a program must not expose
+		// the previous image's bytes through its BSS.
+		_memory.setBytesUnchecked(offset, 0, header.bssSize);
+		offset += header.bssSize;
 
 		// Everything from here up is free ground: heap first, then the stack coming down from the
 		// top of memory. The machine could only ever guard the vector table and the BIOS before,
@@ -61,15 +76,8 @@ namespace ceres::vm
 		// shared stub exactly as it always has - only the bound ones get overwritten. `writeUnchecked`
 		// is what a running program can never do for itself: the checked accessors every instruction
 		// goes through refuse this whole region, precisely so a stray pointer can't reach it.
-		std::array<bool, isa::InterruptNumberCount> patchedVectors{};
 		for (const auto& patch : program.interruptVectors())
 		{
-			if (patch.interruptNumber == 0 || patch.interruptNumber >= isa::InterruptNumberCount)
-				return std::unexpected("Invalid .cres: interrupt vector patch targets out-of-range interrupt " + std::to_string(patch.interruptNumber) + ".");
-			if (patchedVectors[patch.interruptNumber])
-				return std::unexpected("Invalid .cres: interrupt vector " + std::to_string(patch.interruptNumber) + " is patched more than once.");
-			patchedVectors[patch.interruptNumber] = true;
-
 			const Address vectorAddress = Memory::NullPageSegmentStart + Address(static_cast<Address::ValueType>(patch.interruptNumber) * Address::Size);
 			_memory.writeUnchecked<u32>(vectorAddress, patch.handlerAddress);
 		}
