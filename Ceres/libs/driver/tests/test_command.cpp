@@ -40,3 +40,14 @@ TEST(driver_command, archive_has_an_output_not_a_fake_input)
 	CHECK_EQ(archive->output.string(), std::string("library.car"));
 	CHECK_EQ(archive->inputs.size(), std::size_t{1});
 }
+
+TEST(driver_command, options_from_another_command_are_rejected)
+{
+	char program[] = "ceres";
+	char run[] = "run";
+	char input[] = "demo.casm";
+	char json[] = "--json";
+	char* argv[] = { program, run, input, json };
+	auto parsed = parseCommandLine(4, argv);
+	CHECK(!parsed.has_value());
+}

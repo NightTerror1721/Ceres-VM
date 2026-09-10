@@ -27,15 +27,25 @@ namespace ceres::driver
 			std::filesystem::path output;
 			std::vector<std::filesystem::path> positional;
 			bool compileOnly = false;
+			bool usedOutput = false;
 			bool listing = false;
+			bool usedListing = false;
 			bool json = false;
+			bool usedJson = false;
 			bool debugInfo = false;
+			bool usedDebugInfo = false;
 			bool debugJson = false;
+			bool usedDebugJson = false;
 			bool stopOnEntry = true;
+			bool usedStopOnEntry = false;
 			bool server = false;
+			bool usedServer = false;
 			bool recordHistory = true;
+			bool usedHistory = false;
 			usize memorySize = vm::Memory::DefaultSize;
+			bool usedMemory = false;
 			std::filesystem::path disk;
+			bool usedDisk = false;
 		};
 
 		std::expected<usize, ParseError> parseMemorySize(std::string_view text)
@@ -79,21 +89,21 @@ namespace ceres::driver
 			{
 				auto value = nextValue(argument);
 				if (!value) return std::unexpected(value.error());
-				raw.output = *value;
+				raw.output = *value; raw.usedOutput = true;
 			}
 			else if (argument == "-c") raw.compileOnly = true;
-			else if (argument == "--listing") raw.listing = true;
-			else if (argument == "--json") raw.json = true;
-			else if (argument == "--debug") raw.debugInfo = true;
-			else if (argument == "--emit-debug-json") { raw.debugJson = true; raw.debugInfo = true; }
-			else if (argument == "--no-stop-on-entry") raw.stopOnEntry = false;
-			else if (argument == "--server") raw.server = true;
-			else if (argument == "--no-history") raw.recordHistory = false;
+			else if (argument == "--listing") { raw.listing = true; raw.usedListing = true; }
+			else if (argument == "--json") { raw.json = true; raw.usedJson = true; }
+			else if (argument == "--debug") { raw.debugInfo = true; raw.usedDebugInfo = true; }
+			else if (argument == "--emit-debug-json") { raw.debugJson = true; raw.debugInfo = true; raw.usedDebugJson = true; }
+			else if (argument == "--no-stop-on-entry") { raw.stopOnEntry = false; raw.usedStopOnEntry = true; }
+			else if (argument == "--server") { raw.server = true; raw.usedServer = true; }
+			else if (argument == "--no-history") { raw.recordHistory = false; raw.usedHistory = true; }
 			else if (argument == "--disk")
 			{
 				auto value = nextValue(argument);
 				if (!value) return std::unexpected(value.error());
-				raw.disk = *value;
+				raw.disk = *value; raw.usedDisk = true;
 			}
 			else if (argument == "--memory")
 			{
@@ -101,7 +111,7 @@ namespace ceres::driver
 				if (!value) return std::unexpected(value.error());
 				auto memory = parseMemorySize(*value);
 				if (!memory) return std::unexpected(memory.error());
-				raw.memorySize = *memory;
+				raw.memorySize = *memory; raw.usedMemory = true;
 			}
 			else if (argument == "-h" || argument == "--help")
 				return std::unexpected(ParseError{});
@@ -126,17 +136,23 @@ namespace ceres::driver
 
 		std::vector<std::filesystem::path> inputs(raw.positional.begin() + static_cast<std::ptrdiff_t>(firstInput), raw.positional.end());
 		if (command == "asm")
+		{
+			if (raw.usedMemory || raw.usedDisk || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+				return std::unexpected(invalidOption("a supplied option", command));
 			return AssembleCommand{ std::move(inputs), std::move(raw.output), raw.compileOnly, raw.listing,
 				raw.json, raw.debugInfo, raw.debugJson };
+		}
 		if (command == "link")
 		{
+			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedMemory || raw.usedDisk || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+				return std::unexpected(invalidOption("a supplied option", command));
 			if (raw.output.empty()) return std::unexpected(ParseError{ "'ceres link' needs -o <output.cres>" });
 			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson };
 		}
 		if (command == "ar")
 		{
-			if (raw.compileOnly || raw.listing || raw.json || raw.debugInfo || raw.debugJson || !raw.disk.empty() ||
-				raw.memorySize != vm::Memory::DefaultSize || !raw.stopOnEntry || raw.server || !raw.recordHistory || !raw.output.empty())
+			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk ||
+				raw.usedMemory || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory || raw.usedOutput)
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (inputs.size() < 2) return std::unexpected(ParseError{ "'ceres ar' needs an output and at least one object" });
 			ArchiveCommand archive{ std::move(inputs.front()), {} };
@@ -146,11 +162,25 @@ namespace ceres::driver
 		if (inputs.size() != 1 && command != "debug")
 			return std::unexpected(ParseError{ "'" + std::string(command) + "' takes a single input file" });
 		if (command == "run")
+		{
+			if (raw.compileOnly || raw.usedOutput || raw.usedJson || raw.usedDebugJson || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+				return std::unexpected(invalidOption("a supplied option", command));
 			return RunCommand{ std::move(inputs.front()), raw.memorySize, std::move(raw.disk), raw.listing, raw.debugInfo };
+		}
 		if (command == "profile")
+		{
+			if (raw.compileOnly || raw.usedOutput || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+				return std::unexpected(invalidOption("a supplied option", command));
 			return ProfileCommand{ std::move(inputs.front()), raw.memorySize, raw.listing };
+		}
 		if (command == "disasm")
+		{
+			if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedMemory || raw.usedDisk || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+				return std::unexpected(invalidOption("a supplied option", command));
 			return DisassembleCommand{ std::move(inputs.front()), raw.debugInfo, raw.debugJson };
+		}
+		if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk)
+			return std::unexpected(invalidOption("a supplied option", command));
 		return DebugCommand{ std::move(inputs), raw.memorySize, raw.stopOnEntry, raw.server, raw.recordHistory };
 	}
 }

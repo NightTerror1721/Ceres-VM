@@ -1,12 +1,12 @@
 #pragma once
 
 #include "command.h"
-#include <functional>
 #include <iosfwd>
 
 namespace ceres::driver
 {
-	// Host-owned streams keep the driver usable by terminals, GUIs and tests alike.
+	// Host-owned streams keep the command adapter usable by terminals and tests. Native GUI hosts
+	// should invoke execute() with their own stream adapters or use the lower-level VM libraries.
 	struct HostServices
 	{
 		std::istream* input = nullptr;
