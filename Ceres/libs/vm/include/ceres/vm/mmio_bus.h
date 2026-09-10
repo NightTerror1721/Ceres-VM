@@ -88,8 +88,35 @@ namespace ceres::vm
 
 	private:
 		std::array<IODevice*, MaxDevices> _devices{};
+		// Rebuilt only when the topology changes. The execution engine ticks this list after
+		// every instruction, so it must not scan the entire MMIO address space each time.
+		std::array<IODevice*, MaxDevices> _tickedDevices{};
+		usize _tickedDeviceCount = 0;
 		Memory& _memory;
 		InterruptController& _interrupts;
+
+		void rebuildTickedDevices()
+		{
+			_tickedDeviceCount = 0;
+			for (IODevice* device : _devices)
+			{
+				if (device == nullptr)
+					continue;
+
+				bool alreadyListed = false;
+				for (usize i = 0; i < _tickedDeviceCount; ++i)
+				{
+					if (_tickedDevices[i] == device)
+					{
+						alreadyListed = true;
+						break;
+					}
+				}
+
+				if (!alreadyListed)
+					_tickedDevices[_tickedDeviceCount++] = device;
+			}
+		}
 
 	public:
 		MmioBus() = delete;
@@ -118,30 +145,8 @@ namespace ceres::vm
 		// component - the DMA controller does not need this, but a future device might).
 		void tick()
 		{
-			IODevice* alreadyTicked[MaxDevices] = {};
-			usize tickedCount = 0;
-
-			for (IODevice* device : _devices)
-			{
-				if (device == nullptr)
-					continue;
-
-				bool seen = false;
-				for (usize i = 0; i < tickedCount; ++i)
-				{
-					if (alreadyTicked[i] == device)
-					{
-						seen = true;
-						break;
-					}
-				}
-
-				if (seen)
-					continue;
-
-				alreadyTicked[tickedCount++] = device;
-				device->tick();
-			}
+			for (usize i = 0; i < _tickedDeviceCount; ++i)
+				_tickedDevices[i]->tick();
 		}
 
 		inline constexpr void attach(Address base, IODevice& device)
@@ -150,6 +155,7 @@ namespace ceres::vm
 			_devices[index] = &device;
 			device._memory = &_memory;
 			device._interrupts = &_interrupts;
+			rebuildTickedDevices();
 		}
 
 		inline constexpr void attachRange(Address firstBase, Address lastBase, IODevice& device)
@@ -162,6 +168,7 @@ namespace ceres::vm
 				device._memory = &_memory;
 				device._interrupts = &_interrupts;
 			}
+			rebuildTickedDevices();
 		}
 
 		inline constexpr void detach(Address base)
@@ -169,8 +176,10 @@ namespace ceres::vm
 			const u32 index = (base.value() - BaseValue) / SlotSize;
 			if (IODevice* device = _devices[index])
 			{
-				device->_memory = nullptr;
 				_devices[index] = nullptr;
+				if (std::find(_devices.begin(), _devices.end(), device) == _devices.end())
+					device->_memory = nullptr;
+				rebuildTickedDevices();
 			}
 		}
 
