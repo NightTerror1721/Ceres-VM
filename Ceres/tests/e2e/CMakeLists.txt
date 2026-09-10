@@ -36,3 +36,5 @@ target_link_libraries(ceres_e2e_tests
 set_target_properties(ceres_e2e_tests PROPERTIES FOLDER "tests")
 
 add_test(NAME e2e COMMAND ceres_e2e_tests)
+
+add_subdirectory(../cli cli)
