@@ -9,7 +9,7 @@
 
 import { InlayHint, InlayHintKind, Range } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { describeRegister, IMPLEMENTED_PORTS, isReservedWord, MNEMONICS, PORTS } from './languageData';
+import { describeRegister, isReservedWord, MNEMONICS } from './languageData';
 import { resolveUserSymbol } from './resolution';
 import { getAllTokens, getCleanedLines, qualifierBefore, SymbolIndexer, TokenAtPosition } from './symbolIndex';
 
@@ -19,7 +19,6 @@ export interface InlayHintSettings {
 	constantValues: boolean;
 	structOffsets: boolean;
 	macroParameterNames: boolean;
-	portNames: boolean;
 	registerAliases: boolean;
 }
 
@@ -29,23 +28,7 @@ export const DEFAULT_INLAY_HINT_SETTINGS: InlayHintSettings = {
 	constantValues: true,
 	structOffsets: true,
 	macroParameterNames: true,
-	portNames: true,
 	registerAliases: true
-};
-
-// The instructions whose operands include a port number, and which operand that is. Everything
-// else that takes a small immediate takes it as a value, so annotating those would be wrong.
-const PORT_OPERAND: Record<string, number> = {
-	in: 1,
-	inb: 1,
-	inh: 1,
-	insb: 1,
-	insh: 1,
-	inm: 1,
-	out: 0,
-	outb: 0,
-	outh: 0,
-	outm: 0
 };
 
 interface Argument {
@@ -84,14 +67,6 @@ function splitArguments(lineText: string, from: number): Argument[] {
 	push(lineText.length);
 
 	return args;
-}
-
-function parseNumber(text: string): number | null {
-	const trimmed = text.trim();
-	if (/^0[xX][0-9a-fA-F]+$/.test(trimmed) || /^\d+$/.test(trimmed)) {
-		return Number(trimmed);
-	}
-	return null;
 }
 
 // The mnemonic a line starts with, if it starts with one at all. A label declaration, a `let` or a
@@ -147,25 +122,6 @@ export function provideInlayHints(
 
 		const mnemonic = mnemonicOfLine(tokens, lineText);
 		const mnemonicText = mnemonic ? mnemonic.text.toLowerCase() : '';
-
-		// --- the device behind a port number ---------------------------------------------------
-		if (settings.portNames && mnemonic && mnemonicText in PORT_OPERAND) {
-			const args = splitArguments(lineText, mnemonic.endCharacter);
-			const argument = args[PORT_OPERAND[mnemonicText]];
-			const value = argument ? parseNumber(argument.text) : null;
-			const name = value === null ? undefined : PORTS[value];
-			if (argument && name) {
-				hints.push({
-					position: { line, character: argument.startCharacter + argument.text.length },
-					label: ` ${name}`,
-					kind: InlayHintKind.Type,
-					paddingLeft: true,
-					tooltip: IMPLEMENTED_PORTS.has(value!)
-						? `Port ${name}.`
-						: `Port ${name} is reserved in the default map but has no device behind it: reads answer all-ones and writes are swallowed.`
-				});
-			}
-		}
 
 		// --- what a macro calls its arguments ---------------------------------------------------
 		if (settings.macroParameterNames && mnemonic && !isReservedWord(mnemonic.text) && !MNEMONICS[mnemonicText]) {

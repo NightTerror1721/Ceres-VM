@@ -90,11 +90,6 @@
           "default": true,
           "markdownDescription": "Before each argument of a macro call, the name the macro gave that parameter."
         },
-        "ceresAsm.inlayHints.portNames": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "After the port number of an `in`/`out`, the name it has in the default port map, and whether anything is behind it."
-        },
         "ceresAsm.inlayHints.registerAliases": {
           "type": "boolean",
           "default": true,

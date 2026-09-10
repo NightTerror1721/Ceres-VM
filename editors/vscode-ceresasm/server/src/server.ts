@@ -165,7 +165,6 @@ async function getInlayHintSettings(): Promise<InlayHintSettings> {
 			constantValues: read('constantValues'),
 			structOffsets: read('structOffsets'),
 			macroParameterNames: read('macroParameterNames'),
-			portNames: read('portNames'),
 			registerAliases: read('registerAliases')
 		};
 	} catch {

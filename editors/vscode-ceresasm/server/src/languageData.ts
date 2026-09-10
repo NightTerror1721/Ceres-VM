@@ -22,6 +22,15 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	cli: { summary: 'Clears the Interrupt flag, masking user interrupts (16-63).' },
 	sti: { summary: 'Sets the Interrupt flag, unmasking user interrupts (16-63).' },
 
+	// Memory management unit - 0x08-0x0E
+	mtp: { operands: 'rs', summary: 'Sets the page directory base register (PTBR) from `rs`, and flushes the TLB.' },
+	mfp: { operands: 'rd', summary: 'Reads the page directory base register (PTBR) into `rd`. Zero until the first `mtp`.' },
+	pgon: { summary: 'Enables paging: every subsequent load, store and instruction fetch is translated through the MMU.' },
+	pgoff: { summary: 'Disables paging: addresses go straight to physical memory again.' },
+	invlpg: { operands: 'rs', summary: 'Invalidates the TLB entry for the page containing the address in `rs`, if any.' },
+	flpg: { summary: 'Flushes every TLB entry.' },
+	mfpf: { operands: 'rd', summary: 'Reads the virtual address that last raised a page fault into `rd` - the CR2 equivalent.' },
+
 	// Arithmetic - 0x10-0x28
 	add: { operands: 'rd, rs, rt|imm16', summary: 'Addition. A float-register operand selects `fadd` automatically.' },
 	adc: { operands: 'rd, rs, rt|imm16', summary: 'Addition with carry.' },
@@ -192,17 +201,10 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	mtf: { operands: 'fd, rs', summary: 'Moves the bit pattern from an integer register into a float register, without converting.' },
 	mff: { operands: 'rd, fs', summary: 'Moves the bit pattern from a float register into an integer register, without converting.' },
 
-	// I/O - 0x90-0xA3
-	in: { operands: 'rd, imm8|rs', summary: 'Reads a 32-bit word from an I/O port into `rd`. **Destination first**: `in r1, 0x10`.' },
-	inb: { operands: 'rd, imm8|rs', summary: 'Reads a byte from a port into `rd`, zero-extended.' },
-	inh: { operands: 'rd, imm8|rs', summary: 'Reads a half-word from a port into `rd`, zero-extended.' },
-	insb: { operands: 'rd, imm8|rs', summary: 'Reads a byte from a port into `rd`, sign-extended.' },
-	insh: { operands: 'rd, imm8|rs', summary: 'Reads a half-word from a port into `rd`, sign-extended.' },
-	inm: { operands: 'addr, imm8|rs, size', summary: 'Reads a block of `size` bytes from the port into memory at `addr` (DMA-style). The memory is the destination, so it goes first.' },
-	out: { operands: 'imm8|rs, rs', summary: 'Writes a 32-bit word to an I/O port.' },
-	outb: { operands: 'imm8|rs, rs', summary: 'Writes a byte to a port.' },
-	outh: { operands: 'imm8|rs, rs', summary: 'Writes a half-word to a port.' },
-	outm: { operands: 'imm8|rs, addr, size', summary: 'Writes a block of `size` bytes from memory at `addr` to the port.' },
+	// I/O used to live here (0x90-0xA3, later 0xA0-0xB3): a dedicated `in`/`out` family addressing
+	// 256 single-byte ports. It is retired. Devices are reached through ordinary loads and stores
+	// now, at an address in the top 16 MiB of the address space - see the MMIO map in
+	// docs/07-IO-Devices-and-Ports.md.
 
 	// Pseudo-instructions
 	la: {
@@ -267,7 +269,7 @@ export const TYPES: Record<string, string> = {
 	bool: 'Alias for `u8`.',
 	string: 'Alias for an unsized `u8[]`.',
 	ptr: 'Alias for `u32`: a memory address.',
-	port: 'Alias for `u8`: an I/O port number.',
+	port: 'Alias for `u8`. From when devices were reached through port numbers; a device register is an address now, so `ptr` fits that better.',
 	irq: 'Alias for `u8`: an interrupt vector number, 0-63.',
 	byte: 'Alias for `u8`.',
 	half: 'Alias for `u16`.',
@@ -319,42 +321,9 @@ for (let i = 0; i < 48; i++) {
 		`Interrupt number ${16 + i}, a user interrupt - masked unless \`sti\` was run.${raisedBy}`;
 }
 
-// The default port map, from `io_ports.h`. Used by the inlay hints to put a name next to a bare
-// port number, which is the one number in an `out` that is impossible to read at a glance.
-export const PORTS: Record<number, string> = {
-	0x00: 'TERM_STATUS',
-	0x01: 'TERM_OUT',
-	0x02: 'TERM_IN',
-	0x03: 'DEBUG_HEX',
-	0x10: 'SYS_TICKS',
-	0x11: 'RTC_TIME',
-	0x12: 'TIMER_CMD',
-	0x20: 'DISK_STATUS',
-	0x21: 'DISK_CMD',
-	0x22: 'DISK_SECTOR',
-	0x23: 'DISK_DATA',
-	0x30: 'GPU_CMD',
-	0x31: 'GPU_WIDTH',
-	0x32: 'GPU_HEIGHT',
-	0x33: 'SPRITE_DATA',
-	0x40: 'MOUSE_STATUS',
-	0x41: 'MOUSE_X',
-	0x42: 'MOUSE_Y',
-	0x43: 'GAMEPAD_STATE',
-	0x50: 'AUDIO_CMD',
-	0x51: 'AUDIO_FREQ',
-	0x60: 'NET_STATUS',
-	0x61: 'NET_SEND',
-	0x62: 'NET_RECV',
-	0xfe: 'SYS_RNG',
-	0xff: 'SYS_CONTROL'
-};
-
-// Which of them have a device behind them today. The rest answer all-ones on a read and swallow a
-// write, exactly like a port with nothing attached - which is worth saying next to the name.
-export const IMPLEMENTED_PORTS = new Set<number>([
-	0x00, 0x01, 0x02, 0x10, 0x11, 0x12, 0x20, 0x21, 0x22, 0x23, 0x30, 0x31, 0x32, 0x33, 0xff
-]);
+// The port map (and the inlay hints that named one from a bare number) is gone along with the
+// in/out family it went with. A device's registers are addresses now, in the MMIO window
+// mmio_bus.h reserves - see docs/07-IO-Devices-and-Ports.md.
 
 export const SECTIONS: Record<string, string> = {
 	text: 'Code section.',
