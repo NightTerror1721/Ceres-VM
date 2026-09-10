@@ -16,11 +16,7 @@ add_executable(ceres ${sources})
 
 target_link_libraries(ceres
 	PRIVATE
-		ceres::core
-		ceres::vm
-		ceres::devices
-		ceres::asm
-		ceres::debug
+		ceres::driver
 		ceres::warnings)
 
 set_target_properties(ceres PROPERTIES FOLDER "apps")

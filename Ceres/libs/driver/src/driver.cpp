@@ -2,19 +2,26 @@
 
 #include <ceres/asm/assembler.h>
 #include <ceres/asm/object_linker.h>
+#include <ceres/core/format/debug_info.h>
+#include <ceres/core/isa/disassembler.h>
 #include <ceres/debug/debug_cli.h>
 #include <ceres/debug/debug_server.h>
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage_devices.h>
 #include <ceres/vm/ceresvm.h>
 #include <iostream>
+#include <format>
+#include <map>
 #include <span>
+#include <thread>
 
 namespace ceres::driver
 {
 	using namespace casm;
 	using namespace debug;
 	using namespace devices;
+	using namespace fmt;
+	using namespace isa;
 	using namespace vm;
 
 	namespace
@@ -38,6 +45,129 @@ namespace ceres::driver
 				err << (error.isWarning() ? "  warning " : "  ") << '[' << error.file << ':' << error.line << "] " << error.message << '\n';
 		}
 
+		std::string jsonEscape(std::string_view text)
+		{
+			std::string out;
+			out.reserve(text.size());
+			for (const char c : text)
+			{
+				switch (c)
+				{
+					case '"': out += "\\\""; break;
+					case '\\': out += "\\\\"; break;
+					case '\n': out += "\\n"; break;
+					case '\r': out += "\\r"; break;
+					case '\t': out += "\\t"; break;
+					default: out += c; break;
+				}
+			}
+			return out;
+		}
+
+		void printJsonErrors(const Assembler& assembler, std::ostream& out)
+		{
+			out << '[';
+			bool first = true;
+			for (const auto& error : assembler.errors())
+			{
+				if (!first) out << ',';
+				first = false;
+				out << "{\"file\":\"" << jsonEscape(error.file) << "\",\"line\":" << error.line
+					<< ",\"column\":" << error.column << ",\"severity\":\""
+					<< (error.isWarning() ? "warning" : "error") << "\",\"message\":\""
+					<< jsonEscape(error.message) << "\"}";
+			}
+			out << "]\n";
+		}
+
+		struct LoadedProgram { Program program; DebugInfo debugInfo; };
+
+		std::optional<LoadedProgram> loadProgram(const std::filesystem::path& path, bool wantDebugInfo, std::ostream& err)
+		{
+			if (path.extension() == ".cres")
+			{
+				auto loaded = Program::loadFromFile(path);
+				if (!loaded) { err << "Failed to load " << path.string() << ": " << loaded.error() << '\n'; return std::nullopt; }
+				DebugInfo debugInfo;
+				if (wantDebugInfo && loaded->hasDebugSection())
+				{
+					auto parsed = DebugInfo::deserialize(loaded->debugSection());
+					if (parsed) debugInfo = std::move(*parsed);
+					else err << "Ignoring debug section in " << path.string() << ": " << parsed.error() << '\n';
+				}
+				return LoadedProgram{std::move(*loaded), std::move(debugInfo)};
+			}
+
+			Assembler assembler{AssemblerOptions{.emitDebugInfo = wantDebugInfo}};
+			auto program = assembler.assemble({path});
+			if (!program || assembler.hasErrors()) { reportErrors(assembler, std::span(&path, 1), err); return std::nullopt; }
+			return LoadedProgram{std::move(*program), assembler.debugInfo()};
+		}
+
+		void printListing(const Program& program, const std::filesystem::path& path, const DebugInfo& debugInfo, std::ostream& out)
+		{
+			const auto& header = program.header();
+			out << "; " << path.string() << "  text=" << header.textSize << "  rodata=" << header.rodataSize
+				<< "  data=" << header.dataSize << "  bss=" << header.bssSize << "  entry=0x" << std::hex
+				<< header.entryPoint << std::dec << '\n';
+			if (debugInfo.isEmpty()) { out << Disassembler::listing(program.text(), Memory::UnrestrictedSegmentStart); return; }
+			const auto text = program.text();
+			for (usize i = 0; i < text.size() / Instruction::Size; ++i)
+			{
+				const usize offset = i * Instruction::Size;
+				const u32 address = Memory::UnrestrictedSegmentStart.value() + static_cast<u32>(offset);
+				const Instruction::RawType raw = static_cast<Instruction::RawType>(text[offset]) |
+					(static_cast<Instruction::RawType>(text[offset + 1]) << 8) |
+					(static_cast<Instruction::RawType>(text[offset + 2]) << 16) |
+					(static_cast<Instruction::RawType>(text[offset + 3]) << 24);
+				out << std::format("{:08x}  {:08x}  {:<28}", address, raw, Disassembler::disassemble(Instruction(raw)));
+				if (const auto location = debugInfo.locationOf(address))
+					out << std::format("; {}:{}{}{}", std::filesystem::path(location->expansionFile).filename().string(), location->expansionLine, location->isMacroExpansion() ? " (macro)" : "", location->isPadding() ? " (padding)" : "");
+				out << '\n';
+			}
+		}
+
+		void printProfile(CeresVM& vm, const DebugInfo& info, std::ostream& err)
+		{
+			std::map<std::pair<u32, u32>, u64> lines;
+			u64 total = 0;
+			const auto counts = vm.engine().executionCounts();
+			for (const auto& entry : info.lines())
+			{
+				if (entry.address < vm.engine().textStart()) continue;
+				const usize index = (entry.address - vm.engine().textStart()) / Instruction::Size;
+				if (index < counts.size()) { lines[{entry.expansionFileId, entry.expansionLine}] += counts[index]; total += counts[index]; }
+			}
+			err << std::format("\n{} instructions executed\n\n     count      share  line\n", total);
+			for (const auto& [location, count] : lines)
+				if (count != 0) err << std::format("{:>10}  {:>8.2f}%  {}:{}\n", count, total ? 100.0 * count / total : 0.0, info.fileName(location.first), location.second);
+		}
+
+		int runProgram(const Program& program, usize memorySize, const DebugInfo* profileInfo, const std::filesystem::path& diskImage, HostServices services)
+		{
+			CeresVM vm{memorySize};
+			SystemControlDevice control{[&vm] { vm.shutdown(); }, [&vm] { vm.shutdown(); }};
+			TerminalDevice terminal;
+			TimerDevice timer;
+			DiskDevice disk;
+			FramebufferDevice framebuffer;
+			control.attachTo(vm.io()); terminal.attachTo(vm.io()); timer.attachTo(vm.io());
+			terminal.setOutputSink([out = services.output](u8 byte) { out->put(static_cast<char>(byte)); out->flush(); });
+			framebuffer.setPresentSink([out = services.output](std::string_view frame) { *out << frame; out->flush(); });
+			if (!diskImage.empty() && !disk.open(diskImage)) { *services.diagnostics << "Failed to open disk image: " << diskImage.string() << '\n'; return 1; }
+			disk.attachTo(vm.io()); framebuffer.attachTo(vm.io());
+			if (services.input != nullptr)
+			{
+				// The terminal owns neither the host stream nor this reader. Process shutdown ends a blocked console read.
+				std::thread([input = services.input, &terminal] { char c; while (input->get(c)) terminal.pushInput(c); }).detach();
+			}
+			if (auto loaded = vm.loadProgram(program); !loaded) { *services.diagnostics << "Failed to load program: " << loaded.error() << '\n'; return 1; }
+			if (profileInfo) vm.engine().enableProfiling();
+			if (auto result = vm.run(); !result) { *services.diagnostics << "Failed to run program: " << result.error() << '\n'; return 1; }
+			if (profileInfo) printProfile(vm, *profileInfo, *services.diagnostics);
+			return 0;
+		}
+
 		int executeAssemble(const AssembleCommand& command, std::ostream& out, std::ostream& err)
 		{
 			if (!inputsExist(command.inputs, err)) return 1;
@@ -47,7 +177,8 @@ namespace ceres::driver
 				Assembler assembler{AssemblerOptions{.emitDebugInfo = command.debugInfo, .requireEntryPoint = false}};
 				auto object = assembler.assembleObject(command.inputs.front());
 				const bool failed = !object || assembler.hasErrors();
-				if (failed || !assembler.errors().empty()) reportErrors(assembler, command.inputs, err);
+				if (command.jsonDiagnostics) printJsonErrors(assembler, out);
+				else if (failed || !assembler.errors().empty()) reportErrors(assembler, command.inputs, err);
 				if (failed || command.output.empty()) return failed ? 1 : 0;
 				if (auto saved = object->write(command.output); !saved) { err << saved.error() << '\n'; return 1; }
 				err << "Wrote " << command.output.string() << '\n';
@@ -57,7 +188,8 @@ namespace ceres::driver
 			Assembler assembler{AssemblerOptions{.emitDebugInfo = command.debugInfo, .requireEntryPoint = !command.output.empty()}};
 			auto program = assembler.assemble(command.inputs);
 			const bool failed = !program || assembler.hasErrors();
-			if (failed || !assembler.errors().empty()) reportErrors(assembler, command.inputs, err);
+			if (command.jsonDiagnostics) printJsonErrors(assembler, out);
+			else if (failed || !assembler.errors().empty()) reportErrors(assembler, command.inputs, err);
 			if (failed) return 1;
 			if (command.debugJson) out << assembler.debugInfo().toJson() << '\n';
 			if (command.output.empty()) return 0;
@@ -109,6 +241,39 @@ namespace ceres::driver
 			DebugCLI cli{**session};
 			return cli.run();
 		}
+
+		int executeRun(const RunCommand& command, HostServices services)
+		{
+			if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
+			auto loaded = loadProgram(command.input, command.debugInfo, *services.diagnostics);
+			if (!loaded) return 1;
+			if (command.listing) printListing(loaded->program, command.input, loaded->debugInfo, *services.output);
+			return runProgram(loaded->program, command.memorySize, nullptr, command.diskImage, services);
+		}
+
+		int executeProfile(const ProfileCommand& command, HostServices services)
+		{
+			if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
+			auto loaded = loadProgram(command.input, true, *services.diagnostics);
+			if (!loaded) return 1;
+			if (command.listing) printListing(loaded->program, command.input, loaded->debugInfo, *services.output);
+			if (loaded->debugInfo.lines().empty())
+			{
+				*services.diagnostics << "Cannot profile a .cres without debug information: assemble with --debug, or profile the source directly.\n";
+				return 1;
+			}
+			return runProgram(loaded->program, command.memorySize, &loaded->debugInfo, {}, services);
+		}
+
+		int executeDisassemble(const DisassembleCommand& command, HostServices services)
+		{
+			if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
+			auto loaded = loadProgram(command.input, command.debugInfo, *services.diagnostics);
+			if (!loaded) return 1;
+			printListing(loaded->program, command.input, loaded->debugInfo, *services.output);
+			if (command.debugJson) *services.output << loaded->debugInfo.toJson() << '\n';
+			return 0;
+		}
 	}
 
 	int execute(const Command& command, HostServices services)
@@ -119,8 +284,9 @@ namespace ceres::driver
 		if (const auto* value = std::get_if<LinkCommand>(&command)) return executeLink(*value, out, err);
 		if (const auto* value = std::get_if<ArchiveCommand>(&command)) return executeArchive(*value, err);
 		if (const auto* value = std::get_if<DebugCommand>(&command)) return executeDebug(*value, err);
-		err << "This command is not yet available through the driver.\n";
-		return 1;
+		if (const auto* value = std::get_if<RunCommand>(&command)) return executeRun(*value, services);
+		if (const auto* value = std::get_if<ProfileCommand>(&command)) return executeProfile(*value, services);
+		return executeDisassemble(std::get<DisassembleCommand>(command), services);
 	}
 
 	int runCommandLine(int argc, char* const argv[], HostServices services)
