@@ -83,6 +83,7 @@ add_subdirectory(libs/vm)
 add_subdirectory(libs/devices)
 add_subdirectory(libs/asm)
 add_subdirectory(libs/debug)
+add_subdirectory(libs/driver)
 add_subdirectory(apps/cli)
 
 if(CERES_BUILD_TESTS)
