@@ -42,6 +42,12 @@ endif()
 option(CERES_BUILD_TESTS      "Build the test suites"                 ${PROJECT_IS_TOP_LEVEL})
 option(CERES_WARNINGS_AS_ERRORS "Treat warnings as errors"             OFF)
 option(CERES_ENABLE_IPO "Enable interprocedural optimization for release builds" OFF)
+# Opt-in only: -mpopcnt/-mbmi (GCC/Clang) or /arch:AVX2 (MSVC) let opcodes like POPCNT/CLZ/CTZ
+# (execution_engine.h, backed by std::popcount/std::countl_zero/std::countr_zero) compile to a
+# single native instruction instead of falling back to library sequences on the generic x86-64
+# baseline. Never turned on for a binary that gets distributed: it raises the minimum CPU the
+# result will run on, which -O2/-O3 alone never does.
+option(CERES_ENABLE_ARCH_TUNING "Enable target-CPU instruction tuning for release builds (not portable to older CPUs)" OFF)
 
 if(CERES_ENABLE_IPO)
     include(CheckIPOSupported)

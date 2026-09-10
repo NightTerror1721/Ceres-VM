@@ -120,8 +120,10 @@ namespace ceres::vm
 			return;
 		}
 
-		// Counted before the instruction runs, because running it is what moves the PC.
-		if (_executionCountsData && _pc.value() >= _textStart && _pc.value() < _textEnd)
+		// Counted before the instruction runs, because running it is what moves the PC. Profiling
+		// is off unless enableProfiling() was called, so this is cold on every step() by default -
+		// same rationale as translate()'s [[likely]] on the paging-off path.
+		if (_executionCountsData && _pc.value() >= _textStart && _pc.value() < _textEnd) [[unlikely]]
 			++_executionCountsData[(_pc.value() - _textStart) / Instruction::Size];
 
 		_faulted = false;

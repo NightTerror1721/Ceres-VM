@@ -44,6 +44,36 @@
       "cacheVariables": {
         "CERES_ENABLE_IPO": "ON"
       }
+    },
+    {
+      "name": "msvc-ipo",
+      "displayName": "MSVC (Ninja Multi-Config, IPO)",
+      "description": "Release-oriented configuration with portable CMake IPO/LTCG enabled - MSVC's /GL + /LTCG, driven the same way gcc-ipo drives GCC's -flto. MSVC gets no LTO at all unless a build opts into this preset (or sets CERES_ENABLE_IPO by hand), which the plain msvc preset never does.",
+      "inherits": "msvc",
+      "binaryDir": "${sourceDir}/build/msvc-ipo",
+      "cacheVariables": {
+        "CERES_ENABLE_IPO": "ON"
+      }
+    },
+    {
+      "name": "clang",
+      "displayName": "Clang (Ninja Multi-Config)",
+      "description": "The third compiler, checked for the same reason as gcc: a warning or a codegen quirk that only one front end catches shouldn't have to wait for someone building with it by accident to find it.",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/clang",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "clang-ipo",
+      "displayName": "Clang (Ninja Multi-Config, IPO)",
+      "description": "Release-oriented configuration with portable CMake IPO/LTO enabled, same as gcc-ipo. CMake's IPO property asks Clang for -flto (full LTO); switching it to ThinLTO is a deliberate follow-up, not a default worth forcing on everyone building this preset.",
+      "inherits": "clang",
+      "binaryDir": "${sourceDir}/build/clang-ipo",
+      "cacheVariables": {
+        "CERES_ENABLE_IPO": "ON"
+      }
     }
   ],
 
@@ -53,8 +83,12 @@
     { "name": "ninja-debug",   "configurePreset": "ninja", "configuration": "Debug" },
     { "name": "ninja-release", "configurePreset": "ninja", "configuration": "Release" },
     { "name": "gcc-debug",     "configurePreset": "gcc",   "configuration": "Debug" },
-    { "name": "gcc-release",   "configurePreset": "gcc",   "configuration": "Release" }
-    ,{ "name": "gcc-ipo-release", "configurePreset": "gcc-ipo", "configuration": "Release" }
+    { "name": "gcc-release",   "configurePreset": "gcc",   "configuration": "Release" },
+    { "name": "gcc-ipo-release", "configurePreset": "gcc-ipo", "configuration": "Release" },
+    { "name": "msvc-ipo-release", "configurePreset": "msvc-ipo", "configuration": "Release" },
+    { "name": "clang-debug",   "configurePreset": "clang", "configuration": "Debug" },
+    { "name": "clang-release", "configurePreset": "clang", "configuration": "Release" },
+    { "name": "clang-ipo-release", "configurePreset": "clang-ipo", "configuration": "Release" }
   ],
 
   "testPresets": [
@@ -97,6 +131,30 @@
     {
       "name": "gcc-ipo-release",
       "configurePreset": "gcc-ipo",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "msvc-ipo-release",
+      "configurePreset": "msvc-ipo",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "clang-debug",
+      "configurePreset": "clang",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "clang-release",
+      "configurePreset": "clang",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "clang-ipo-release",
+      "configurePreset": "clang-ipo",
       "configuration": "Release",
       "output": { "outputOnFailure": true }
     }

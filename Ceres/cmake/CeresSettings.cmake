@@ -33,6 +33,19 @@ if(MSVC)
         /EHsc)
 endif()
 
+# See CERES_ENABLE_ARCH_TUNING's definition in the root CMakeLists.txt for what this buys and why
+# it defaults off. /Oi is requested explicitly too: /O2 alone doesn't reliably guarantee intrinsic
+# substitution across MSVC versions the way GCC/Clang's -O2/-O3 already do.
+if(CERES_ENABLE_ARCH_TUNING)
+    if(MSVC)
+        target_compile_options(ceres_settings INTERFACE /arch:AVX2 /Oi)
+    else()
+        target_compile_options(ceres_settings INTERFACE -mpopcnt -mbmi)
+    endif()
+elseif(MSVC)
+    target_compile_options(ceres_settings INTERFACE /Oi)
+endif()
+
 # libstdc++ left part of <print> and <stacktrace> out of the main library. On MinGW it's always
 # needed; on other GCC configurations it depends on the version, so the linker is asked instead
 # of guessing from the platform - which is what tests/build.sh used to do.
