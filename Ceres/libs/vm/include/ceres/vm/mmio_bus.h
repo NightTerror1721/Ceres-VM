@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <mutex>
 
 namespace ceres::vm
 {
@@ -20,6 +21,9 @@ namespace ceres::vm
 	private:
 		Memory* _memory = nullptr;
 		InterruptController* _interrupts = nullptr;
+		// A host input thread may call raiseInterrupt while a machine is being torn down.
+		// The bus clears both pointers under this lock before the VM can be destroyed.
+		std::mutex _connectionMutex;
 
 	public:
 		virtual ~IODevice() = default;
@@ -54,8 +58,9 @@ namespace ceres::vm
 		// How a device speaks first.
 		void raiseInterrupt(InterruptNumber interruptNumber)
 		{
-			if (_interrupts != nullptr)
-				_interrupts->raise(interruptNumber);
+			const std::lock_guard lock{_connectionMutex};
+			if (InterruptController* interrupts = _interrupts)
+				interrupts->raise(interruptNumber);
 		}
 
 	public:
@@ -161,6 +166,7 @@ namespace ceres::vm
 		{
 			const u32 index = (base.value() - BaseValue) / SlotSize;
 			_devices[index] = &device;
+			const std::lock_guard lock{device._connectionMutex};
 			device._memory = &_memory;
 			device._interrupts = &_interrupts;
 			rebuildTickedDevices();
@@ -173,6 +179,7 @@ namespace ceres::vm
 			for (u32 index = first; index <= last; ++index)
 			{
 				_devices[index] = &device;
+				const std::lock_guard lock{device._connectionMutex};
 				device._memory = &_memory;
 				device._interrupts = &_interrupts;
 			}
@@ -186,7 +193,11 @@ namespace ceres::vm
 			{
 				_devices[index] = nullptr;
 				if (std::find(_devices.begin(), _devices.end(), device) == _devices.end())
+				{
+					const std::lock_guard lock{device->_connectionMutex};
 					device->_memory = nullptr;
+					device->_interrupts = nullptr;
+				}
 				rebuildTickedDevices();
 			}
 		}
