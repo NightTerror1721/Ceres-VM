@@ -411,6 +411,19 @@ TEST(devices, terminal_counts_input_discarded_by_a_full_buffer)
 	CHECK_EQ(terminal.droppedInputBytes(), u64{9});
 }
 
+TEST(devices, terminal_snapshot_and_restore_preserve_unread_input)
+{
+	TerminalDevice terminal{};
+	terminal.pushInput("AB");
+
+	const auto snapshot = terminal.captureState();
+	CHECK_EQ(terminal.readUnsignedByte(TerminalDevice::InputRegister), static_cast<u8>('A'));
+
+	terminal.restoreState(snapshot);
+	CHECK_EQ(terminal.readUnsignedByte(TerminalDevice::InputRegister), static_cast<u8>('A'));
+	CHECK_EQ(terminal.readUnsignedByte(TerminalDevice::InputRegister), static_cast<u8>('B'));
+}
+
 TEST(devices, the_interrupt_directive_installs_a_real_handler_for_terminal_input)
 {
 	// The whole path this feature exists for: a real .casm program, assembled and loaded exactly

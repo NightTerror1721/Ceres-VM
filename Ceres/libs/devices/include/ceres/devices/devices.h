@@ -6,6 +6,7 @@
 #include <span>
 #include <functional>
 #include <chrono>
+#include <mutex>
 
 namespace ceres::devices
 {
@@ -278,6 +279,9 @@ namespace ceres::devices
 		std::atomic<usize> _head{0};
 		std::atomic<usize> _tail{0};
 		std::atomic<u64> _droppedInputBytes{0};
+		// Protects the byte array while a debugger snapshots it. Head/tail remain atomic so the
+		// single-producer/single-consumer fast path still has a minimal synchronization surface.
+		mutable std::mutex _inputMutex;
 		OutputSink _outputSink;
 		u32 _blockAddress = 0;
 		u32 _blockLength = 0;
@@ -304,6 +308,7 @@ namespace ceres::devices
 
 		void pushInput(std::span<const u8> input)
 		{
+			const std::lock_guard lock{_inputMutex};
 			bool wroteAnyByte = false;
 			for (u8 byte : input)
 			{
@@ -359,6 +364,7 @@ namespace ceres::devices
 
 		State captureState() const noexcept
 		{
+			const std::lock_guard lock{_inputMutex};
 			State state;
 			state.buffer = _buffer;
 			state.head = _head.load(std::memory_order_acquire);
@@ -368,6 +374,7 @@ namespace ceres::devices
 
 		void restoreState(const State& state) noexcept
 		{
+			const std::lock_guard lock{_inputMutex};
 			_buffer = state.buffer;
 			_head.store(state.head, std::memory_order_release);
 			_tail.store(state.tail, std::memory_order_release);
@@ -397,6 +404,7 @@ namespace ceres::devices
 			if (size == 0)
 				return;
 
+			const std::lock_guard lock{_inputMutex};
 			auto buffer = memory().peekMutBytes(ramAddress, size);
 			usize bytesRead = 0;
 			while (bytesRead < buffer.size())
@@ -435,6 +443,7 @@ namespace ceres::devices
 
 			if (offset == InputRegister)
 			{
+				const std::lock_guard lock{_inputMutex};
 				usize currentHead = _head.load(std::memory_order_relaxed);
 				if (currentHead == _tail.load(std::memory_order_acquire))
 					return 0; // No input available, return 0.
