@@ -8,3 +8,9 @@
 
 ceres_add_library(vm DEPENDS core)
 ceres_add_tests(vm)
+
+if(CERES_BUILD_TESTS)
+	add_executable(ceres_vm_benchmarks benchmarks/benchmark_vm.cpp)
+	target_link_libraries(ceres_vm_benchmarks PRIVATE ceres::vm ceres::warnings)
+	set_target_properties(ceres_vm_benchmarks PROPERTIES FOLDER "benchmarks")
+endif()
