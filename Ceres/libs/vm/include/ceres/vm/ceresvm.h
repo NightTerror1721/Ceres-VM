@@ -52,8 +52,9 @@ namespace ceres::vm
 		std::expected<void, std::string> powerOn() noexcept;
 
 	public:
-		bool isPoweredOn() const noexcept { return _isPoweredOn.load(std::memory_order_acquire); }
-		void shutdown() noexcept { _isPoweredOn.store(false, std::memory_order_release); }
+		// This is only a stop signal; it does not publish any associated state between threads.
+		bool isPoweredOn() const noexcept { return _isPoweredOn.load(std::memory_order_relaxed); }
+		void shutdown() noexcept { _isPoweredOn.store(false, std::memory_order_relaxed); }
 
 		MmioBus& io() noexcept { return _mmioBus; }
 		InterruptController& interrupts() noexcept { return _interrupts; }
