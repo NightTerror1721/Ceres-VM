@@ -48,13 +48,13 @@ two drift apart, the link resolves names that no longer mean what the caller thi
 
 ## Most I/O devices are stubs
 
-Of the 26 default ports reserved in [`io_ports.h`](../Ceres/libs/vm/include/ceres/vm/io_ports.h), 15 are backed
-by a working device today: the terminal (3 ports), the timer (3 ports), the disk (4 ports), the
-framebuffer (4 ports), and system control (1 port). Mouse/gamepad, audio, network and the
-debug-hex port are still reserved ranges with no device attached — reading them returns
-all-ones and writing them does nothing, exactly like any other unattached port. The framebuffer
-draws characters rather than pixels, which is as far as a VM with no window of its own can go.
-See [I/O devices and ports](07-IO-Devices-and-Ports.md) for the full map.
+Of the 256 MMIO slots [`mmio_bus.h`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h) allows, six are backed by a
+working device today: the terminal, the timer, the disk, the framebuffer, the DMA controller, and
+system control (see [`default_mmio`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h) for their slots). Mouse/gamepad,
+audio and network have no device attached and no slot reserved for them yet — reading an unattached
+slot returns all-ones and writing one does nothing, exactly like an unattached port used to. The
+framebuffer draws characters rather than pixels, which is as far as a VM with no window of its own
+can go. See [I/O devices and ports](07-IO-Devices-and-Ports.md) for the full map.
 
 ## One gap left in `parseOperand`
 

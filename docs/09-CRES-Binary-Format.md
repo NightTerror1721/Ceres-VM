@@ -51,8 +51,8 @@ See [Debug information](21-Debug-Information.md).
 struct ProgramHeader
 {
     static inline constexpr u32 MagicNumber    = 0x43524553; // 'CRES' in ASCII
-    static inline constexpr u16 CurrentVersion = 3;
-    static inline constexpr u16 MinimumSupportedVersion = 3;
+    static inline constexpr u16 CurrentVersion = 4;
+    static inline constexpr u16 MinimumSupportedVersion = 4;
 
     u32 magic;
     u16 version;
@@ -72,7 +72,7 @@ struct ProgramHeader
 | Field | Meaning |
 | --- | --- |
 | `magic` | Always `0x43524553` — the ASCII bytes `CRES`. Loading rejects any file that doesn't start with this. |
-| `version` | Format version; currently `3`. A file below `MinimumSupportedVersion` is rejected — see [Versioning](#versioning). |
+| `version` | Format version; currently `4`. A file below `MinimumSupportedVersion` is rejected — see [Versioning](#versioning). |
 | `flags` | Bit 0 (`ProgramFlags::HasDebugInfo`) says a debug section follows; bit 1 (`ProgramFlags::HasInterruptVectors`) says an interrupt vector patch table does, immediately before it. Every other bit is still reserved. See [Debug information](21-Debug-Information.md) and [Interrupt vector binding](26-Interrupt-Vector-Binding.md). |
 | `entryPoint` | The absolute address execution starts at (the resolved address of the `main` label). |
 | `textSize` / `rodataSize` / `dataSize` / `bssSize` | Byte sizes of each section, as computed by the linker (each rounded up to a 4-byte boundary — see [Labels and symbols](12-Labels-and-Symbols.md)). |
@@ -92,21 +92,23 @@ if (header.version > ProgramHeader::CurrentVersion ||
 Both ends of the range are checked, and the lower one is the interesting half.
 
 The check originally only rejected files **newer** than the current version, and accepted every older
-one. That was fine while the instruction encoding never changed. Twice now it has:
+one. That was fine while the instruction encoding never changed. Three times now it has:
 
 | Change | What the same bytes used to mean |
 | --- | --- |
-| **1 → 2** | The comparison jumps needed sixteen opcodes where eight slots were free, so the control-flow block grew and pushed the three families above it up (see [Instruction set → The opcodes moved](05-Instruction-Set.md#the-opcodes-moved)). `0x70` was `PUSH`; it is now `JAB`. |
+| **1 → 2** | The comparison jumps needed sixteen opcodes where eight slots were free, so the control-flow block grew and pushed the three families above it up (see [Instruction set → The opcodes moved](05-Instruction-Set.md#the-opcodes-moved-twice)). `0x70` was `PUSH`; it is now `JAB`. |
 | **2 → 3** | Memory displacements became **signed**. A v2 `[r1 + 65528]` was the only way to write what is now `[r1 - 8]`, so the same sixteen bits address different memory. |
+| **3 → 4** | The port-based I/O family (`0xA0`–`0xB3`: `in`/`out` and every variant) was retired in favour of memory-mapped devices — see [I/O devices and ports](07-IO-Devices-and-Ports.md). A v3 `outb` (`0xAD`) decodes as an unmapped opcode now, not as something else that happens to run. |
 
-Neither is detectable from the file itself. Without a lower bound an old file would load cleanly and
-run as something else entirely, with no error and no trace — a `PUSH` executed as a conditional jump,
-or a load reaching 64 KiB in the wrong direction.
+None of these are detectable from the file itself. Without a lower bound an old file would load
+cleanly and run as something else entirely, with no error and no trace — a `PUSH` executed as a
+conditional jump, a load reaching 64 KiB in the wrong direction, or a byte meant for a terminal port
+silently doing nothing at all.
 
 ```
 $ ceres run old.cres
 Failed to load old.cres: Unsupported .cres version in file: old.cres
-(this build reads versions 2 to 2; reassemble the source)
+(this build reads versions 4 to 4; reassemble the source)
 ```
 
 The fix is always to reassemble from source; there is no converter, and there is no reason to want

@@ -503,52 +503,41 @@ faulted), because the fault handler has already redirected execution to the hand
 
 None of the conversions touch the flags register.
 
-## I/O operations · `0xA0`–`0xB3`
+## Devices: no opcodes of their own · `0xA0`–`0xB3` free
 
-Every I/O mnemonic (`in`, `inb`, `inh`, `insb`, `insh`, `inm`, `out`, `outb`, `outh`, `outm`) has two
-forms depending on how the **port number** is specified — the assembler picks between them
-automatically:
+There used to be a dedicated I/O family here — `in`/`out` and their eight variants, addressing one
+of 256 single-byte "ports". It is gone: a device's registers now sit at an ordinary memory address,
+in a 64 KiB window reserved for it in the top 16 MiB of the address space
+(`0xFF000000`–`0xFFFFFFFF`), and are reached with the same `ldr`/`str` family as everything else.
 
-- **Immediate port** — `mnemonic imm8, ...` — the port is a fixed 8-bit literal, encoded straight
-  into the instruction's `imm8` field.
-- **Register port** — `mnemonic reg, ...` — the port number is read at run time from a register
-  (opcode suffixed `R`, e.g. `INR` for `IN` with a register port).
+```casm
+la r1, 0xFF000004   // TerminalDevice's OutputRegister
+strb [r1 + 0], r2    // write a byte to it, exactly like any other store
+```
 
-| Assembly | Imm. port opcode | Reg. port opcode | Semantics |
-| --- | --- | --- | --- |
-| `in rd, port` | `IN` `0xA0` | `INR` `0xA6` | `rd = (u32)` word read from `port`. |
-| `inb rd, port` | `INB` `0xA1` | `INRB` `0xA7` | `rd = (u8)` byte read from `port` (zero-extended). |
-| `inh rd, port` | `INH` `0xA2` | `INRH` `0xA8` | `rd = (u16)` halfword read (zero-extended). |
-| `insb rd, port` | `INSB` `0xA3` | `INRSB` `0xA9` | `rd = sign_extend((i8)` byte read`)`. |
-| `insh rd, port` | `INSH` `0xA4` | `INRSH` `0xAA` | `rd = sign_extend((i16)` halfword read`)`. |
-| `inm rd, port, rs` | `INM` `0xA5` | `INRM` `0xAB` | Block read: reads `rs` bytes from `port` into memory starting at address `rd`. Operand order in assembly is **port, address, size**. |
-| `out port, rs` | `OUT` `0xAC` | `OUTR` `0xB0` | Writes the 32-bit value in `rs` to `port`. |
-| `outb port, rs` | `OUTB` `0xAD` | `OUTRB` `0xB1` | Writes the low byte of `rs` to `port`. |
-| `outh port, rs` | `OUTH` `0xAE` | `OUTRH` `0xB2` | Writes the low halfword of `rs` to `port`. |
-| `outm port, rs, rt` | `OUTM` `0xAF` | `OUTRM` `0xB3` | Block write: writes `rt` bytes from memory address `rs` to `port`. Operand order is **port, address, size**, matching `inm`. |
+See [I/O devices and ports](07-IO-Devices-and-Ports.md) for the address map, the register layout
+each device uses, and the bulk-transfer registers that replaced `inm`/`outm`.
 
-### The opcodes moved
+### The opcodes moved, twice
 
 Adding the comparison jumps left only eight free slots where sixteen were needed, so the control-flow
-block grew to `0x77` and pushed the three families above it up: stack `0x70`→`0x80`, conversions
-`0x80`→`0x90`, I/O `0x90`→`0xA0`. Every family starts on a round boundary again and keeps a gap to
-grow into. Free today: `0x08`–`0x0F`, `0x29`–`0x2F`, `0x3D`–`0x3F`, `0x4F`, `0x78`–`0x7F`,
-`0x86`–`0x8F`, `0x96`–`0x9F`, `0xB4`–`0xFF`.
+block grew to `0x77` and pushed the families above it up: stack `0x70`→`0x80`, conversions
+`0x80`→`0x90`, I/O `0x90`→`0xA0`. Retiring I/O entirely freed `0xA0`–`0xB3` outright rather than
+moving anything into it. Free today: `0x0F`, `0x29`–`0x2F`, `0x3D`–`0x3F`, `0x4F`, `0x78`–`0x7F`,
+`0x86`–`0x8F`, `0x96`–`0x9F`, `0xA0`–`0xB3`, `0xD7`–`0xFF` (the memory-management block, `0x08`–`0x0E`,
+took the first eight of what a version ago was `0x08`–`0x0F` — see
+[Virtual memory and paging](27-Virtual-Memory-and-Paging.md)).
 
-That is a **binary-breaking** change: a `.cres` written before it has `0x70` meaning `PUSH` where it
-now means `JAB`. The file format's version was raised to 2 and a minimum supported version added, so
-an older file is rejected rather than run as something else — see
+Both moves are **binary-breaking**: a `.cres` assembled against an older opcode layout is
+misinterpreted, not merely different, if it is run as-is. The file format's version has been raised
+each time (most recently to 4, for the I/O retirement) with a minimum supported version alongside it,
+so an old file is rejected outright — see
 [The CRES binary format](09-CRES-Binary-Format.md#versioning).
-
-None of the I/O instructions touch the flags register. A read from an unattached port returns all
-ones (`0xFF`, `0xFFFF`, `0xFFFFFFFF` depending on width); a write to an unattached port is silently
-discarded. See [I/O devices and ports](07-IO-Devices-and-Ports.md) for the concrete port map and
-which of these are actually backed by a device today.
 
 ## Related pages
 
 - [Instruction format](04-Instruction-Format.md) — bit-level encoding these tables build on.
 - [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `ldv`, `stv`, `neg`, `ifXX` and the rest.
-- [I/O devices and ports](07-IO-Devices-and-Ports.md) — what's actually listening on each port.
+- [I/O devices and ports](07-IO-Devices-and-Ports.md) — the MMIO map and every device's registers.
 - [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — `int`/`iret` and hardware-raised faults.
 - [Virtual memory and paging](27-Virtual-Memory-and-Paging.md) — `mtp`/`mfp`/`pgon`/`pgoff`/`invlpg`/`flpg`/`mfpf` in depth.

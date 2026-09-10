@@ -57,8 +57,8 @@ static inline constexpr Address UnrestrictedSegmentStart   = NullPageSegmentStar
 ### `.text` is read-only
 
 `CeresVM::loadProgram` tells the engine where the code it just placed begins and ends, and every
-instruction that writes memory — `str`, `strb`, `strh`, the float `str`, and the block reads `inm`
-and `inrm` — checks the target against that range first. A write that overlaps it raises
+instruction that writes memory — `str`, `strb`, `strh`, the float `str` — checks the target against
+that range first. A write that overlaps it raises
 `MemoryFault` and the instruction is abandoned before it takes effect.
 
 This is the fault a lost pointer actually deserves. Overwriting an instruction that has not run

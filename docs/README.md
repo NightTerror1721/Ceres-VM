@@ -18,7 +18,7 @@ the assembler does internally at each stage of the build.
 4. [Instruction format](04-Instruction-Format.md) — the 32-bit encoding, and how fields overlap.
 5. [Instruction set](05-Instruction-Set.md) — full reference for every real instruction, grouped by category.
 6. [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `ldv`, `stv`, `neg`, `ifXX`, and how they expand.
-7. [I/O devices and ports](07-IO-Devices-and-Ports.md) — the port map, the terminal, the timer, system control.
+7. [I/O devices and ports](07-IO-Devices-and-Ports.md) — the MMIO map, the terminal, the timer, the DMA controller, system control.
 8. [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — the vector table, `INT`/`IRET`, hardware faults.
 9. [The `.cres` binary format](09-CRES-Binary-Format.md) — the executable header and the loaded program's memory layout.
 
@@ -84,6 +84,10 @@ If you already knew this language, these are the parts that moved:
 - **Virtual memory.** `mtp`/`mfp`/`pgon`/`pgoff`/`invlpg`/`flpg`/`mfpf` and a two-level, 4 KiB-paged
   MMU with a small TLB — off by default, additive (no existing opcode or binary changes meaning), and
   raising a new `PageFault` (7) on a bad translation — [Virtual memory and paging](27-Virtual-Memory-and-Paging.md).
+- **Memory-mapped I/O.** The port-based `in`/`out` family (0xA0-0xB3) is gone; every device is reached
+  through ordinary loads and stores at an address in the top 16 MiB of the address space instead, and
+  a real `DmaController` replaces the pseudo-DMA `inm`/`outm` used to be. This is a breaking version
+  bump (`.cres` version 4) — [I/O devices and ports](07-IO-Devices-and-Ports.md).
 
 ## Quick start
 

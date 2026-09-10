@@ -22,8 +22,8 @@ to assemble, run, or disassemble.
                                                                           ▼
                                                           ┌──────────────────────────┐
                                                           │ Virtual machine (ceres::vm)│
-                                                          │ Memory + Registers +       │
-                                                          │ ExecutionEngine + IOPorts  │
+                                                          │ Memory + Registers + MMU + │
+                                                          │ ExecutionEngine + MmioBus  │
                                                           └──────────────────────────┘
 ```
 
@@ -39,8 +39,8 @@ to assemble, run, or disassemble.
 | Folder | Contents |
 | --- | --- |
 | [`libs/core`](../Ceres/libs/core) | The contract everyone shares, in three parts: `base/` (integer types `u8`…`u32`, `int24`, assertions, a fixed-size vector), `isa/` (opcodes, instruction format, register banks, disassembler) and `format/` (the CRES container, debug information, the memory map). |
-| [`libs/vm`](../Ceres/libs/vm) | Memory, execution engine, interrupt controller, I/O ports, BIOS. |
-| [`libs/devices`](../Ceres/libs/devices) | Terminal, timer, disk and framebuffer — everything that implements `IODevice`. |
+| [`libs/vm`](../Ceres/libs/vm) | Memory, execution engine, the MMU, interrupt controller, the MMIO bus, BIOS. |
+| [`libs/devices`](../Ceres/libs/devices) | Terminal, timer, disk, framebuffer and the DMA controller — everything that implements `IODevice`. |
 | [`libs/asm`](../Ceres/libs/asm) | Lexer, parser, symbol table, macro table, linker, binary emitter, object files. |
 | [`libs/debug`](../Ceres/libs/debug) | Debug session, history, expression evaluator, interactive CLI, NDJSON server. |
 | [`apps/cli`](../Ceres/apps/cli) | The `ceres` executable: the seven subcommands and diagnostic formatting. |
@@ -72,11 +72,12 @@ to assemble, run, or disassemble.
 | [`opcodes.h`](../Ceres/libs/core/include/ceres/core/isa/opcodes.h) | The `Opcode` enum: every real operation code the VM knows how to execute. |
 | [`execution_engine.h`/`.cpp`](../Ceres/libs/vm/src/execution_engine.cpp) | The interpreter: `step()` fetches, decodes and executes one instruction; a per-opcode function-pointer table does the dispatch. |
 | [`interrupt_controller.h`](../Ceres/libs/vm/include/ceres/vm/interrupt_controller.h) | The queue of pending interrupts that devices use to signal the CPU. |
-| [`io_ports.h`](../Ceres/libs/vm/include/ceres/vm/io_ports.h) | The 256 I/O lines and the mechanism for attaching `IODevice`s to them. |
-| [`devices.h`](../Ceres/libs/devices/include/ceres/devices/devices.h) | The devices that exist today: `SystemControlDevice`, `TimerDevice`, `TerminalDevice`. |
-| [`bios.h`](../Ceres/libs/vm/include/ceres/vm/bios.h) | The minimal BIOS: writes the vector table and a three-instruction stub into the protected segment. |
+| [`mmu.h`](../Ceres/libs/vm/include/ceres/vm/mmu.h) | The two-level page table walk, the TLB, and `PageFault` — see [Virtual memory and paging](27-Virtual-Memory-and-Paging.md). |
+| [`mmio_bus.h`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h) | The 256 MMIO slots and the mechanism for attaching `IODevice`s to them — see [I/O devices and ports](07-IO-Devices-and-Ports.md). |
+| [`devices.h`](../Ceres/libs/devices/include/ceres/devices/devices.h) | The devices that exist today: `SystemControlDevice`, `TimerDevice`, `TerminalDevice`, `DmaController`. |
+| [`bios.h`](../Ceres/libs/vm/include/ceres/vm/bios.h) | The minimal BIOS: writes the vector table and a fault stub into the protected segment. |
 | [`program.h`/`.cpp`](../Ceres/libs/core/src/format/program.cpp) | The `Program` container (header + sections) and its serialization to/from `.cres`. |
-| [`ceresvm.h`/`.cpp`](../Ceres/libs/vm/src/ceresvm.cpp) | The high-level `CeresVM` class that ties together memory, execution engine, ports and interrupts, and knows how to load a `Program`. |
+| [`ceresvm.h`/`.cpp`](../Ceres/libs/vm/src/ceresvm.cpp) | The high-level `CeresVM` class that ties together memory, execution engine, the MMIO bus and interrupts, and knows how to load a `Program`. |
 | [`disassembler.h`](../Ceres/libs/core/include/ceres/core/isa/disassembler.h) | Turns encoded instructions back into readable text (used by `--listing` and `ceres disasm`). |
 
 ## Design philosophy worth knowing up front

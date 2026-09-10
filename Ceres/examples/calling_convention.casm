@@ -14,10 +14,10 @@
 // be declared here.
 import "../stdlib/call.casm"
 
-/// Terminal-output port. `outb TERM_OUT, r` writes one byte straight to stdout.
-const TERM_OUT = 0x01
-/// System-control port, write-only. Writing `1` shuts the machine down cleanly.
-const SYS_CTRL = 0xFF
+/// Terminal's OutputRegister, in its MMIO window. A `strb` to it writes one byte straight to stdout.
+const TERM_OUT = 0xFF000004
+/// SystemControlDevice's MMIO base, write-only. Writing `1` to it shuts the machine down cleanly.
+const SYS_CTRL = 0xFFFF0000
 /// ASCII line feed, printed after each number.
 const NEWLINE  = 10
 /// ASCII `'0'`. A digit `d` prints as `DIGIT_0 + d`.
@@ -31,7 +31,8 @@ const DIGIT_0  = 48
 /// @param r0 reg - the character to print.
 /// @return void
 print_char:
-    outb TERM_OUT, arg0
+    la r13, TERM_OUT
+    strb [r13 + 0], arg0
     ret
 
 // ---------------------------------------------------------------------------------------------
@@ -170,5 +171,6 @@ global main:
     call print_char
 
     li  r0, 1
-    out SYS_CTRL, r0
+    la  r13, SYS_CTRL
+    strb [r13 + 0], r0
     halt
