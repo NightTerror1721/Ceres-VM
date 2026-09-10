@@ -50,6 +50,19 @@ namespace ceres::casm
 		u32 widestAlignment = 1;
 	};
 
+	// One `interrupt <number>: <label>` declaration. Kept apart from `_ast`/RelocatableStatement -
+	// it emits no bytes and needs no address - but resolved through exactly the same two-pass
+	// machinery as an instruction operand, which is why it carries the same file/line/parent
+	// context an instruction's operand resolution needs.
+	struct InterruptBindingRecord
+	{
+		std::string_view file;
+		u32 line = 0;
+		std::string parentName; // The nearest preceding non-local label, for a local (`.name`) target
+		Operand number;
+		Operand target;
+	};
+
 	class TranslationUnit
 	{
 	private:
@@ -61,6 +74,7 @@ namespace ceres::casm
 		MacroTable _macroTable; // The macro table for the translation unit
 		SectionSizes _sectionSizes; // The sizes of the sections in the translation unit
 		std::vector<UnresolvedSymbol> _unresolvedSymbols; // List of unresolved symbols in the translation unit
+		std::vector<InterruptBindingRecord> _interruptBindings; // This unit's `interrupt` declarations
 		// The modules this unit imports *directly*, in source order. A module is referenced, never
 		// merged: its symbols and macros stay in its own tables and are found by walking this list
 		// (see resolveSymbol). Merging is what used to make the same declaration arrive twice
@@ -94,12 +108,14 @@ namespace ceres::casm
 		inline const MacroTable& macroTable() const noexcept { return _macroTable; }
 		inline const SectionSizes& sectionSizes() const noexcept { return _sectionSizes; }
 		inline std::span<const UnresolvedSymbol> unresolvedSymbols() const noexcept { return _unresolvedSymbols; }
+		inline std::span<const InterruptBindingRecord> interruptBindings() const noexcept { return _interruptBindings; }
 
 		inline AssemblyState& state() noexcept { return _state.get(); }
 		inline SymbolTable& symbolTable() noexcept { return _symbolTable; }
 		inline MacroTable& macroTable() noexcept { return _macroTable; }
 		inline SectionSizes& sectionSizes() noexcept { return _sectionSizes; }
 		inline std::vector<RelocatableStatement>& ast() noexcept { return _ast; }
+		inline std::vector<InterruptBindingRecord>& interruptBindings() noexcept { return _interruptBindings; }
 
 		// Walks .text again and writes down where everything ended up. Relaxation is the only
 		// caller: rewriting a three-word LDV into a one-word LDVP moves every instruction and every
@@ -112,6 +128,7 @@ namespace ceres::casm
 
 		inline void setAST(std::vector<RelocatableStatement>&& ast) noexcept { _ast = std::move(ast); }
 		inline void setUnresolvedSymbols(std::vector<UnresolvedSymbol>&& symbols) noexcept { _unresolvedSymbols = std::move(symbols); }
+		inline void setInterruptBindings(std::vector<InterruptBindingRecord>&& bindings) noexcept { _interruptBindings = std::move(bindings); }
 
 		inline bool hasDirectImport(const std::string& modulePath) const noexcept
 		{
@@ -217,6 +234,7 @@ namespace ceres::casm
 		// Were locals of build() until macro expansion made statement processing recursive.
 		std::vector<RelocatableStatement> _ast;
 		std::vector<UnresolvedSymbol> _unresolvedSymbols;
+		std::vector<InterruptBindingRecord> _interruptBindings;
 		std::string_view _lastParentLabel;
 		u32 _macroExpansionCounter = 0;
 

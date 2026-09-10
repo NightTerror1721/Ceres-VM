@@ -250,7 +250,9 @@ export const KEYWORDS: Record<string, string> = {
 	align: 'Pads the current section up to a boundary: `align 16`. The boundary has to be a power of two.',
 	org: 'Pads the current section up to an offset within it: `org 0x100`. It can only move forward - going back would mean overwriting something already emitted.',
 	assert:
-		'A constant expression that has to hold at assembly time: `assert Frame % 4 == 0`. It emits nothing; it either passes or stops the build with the expression that failed. This is how a rule that used to live in a comment becomes something the machine checks.'
+		'A constant expression that has to hold at assembly time: `assert Frame % 4 == 0`. It emits nothing; it either passes or stops the build with the expression that failed. This is how a rule that used to live in a comment becomes something the machine checks.',
+	interrupt:
+		'Binds an interrupt number to a handler label: `interrupt UserInterrupt0: timer_isr`. Resolved by the linker like any other operand pair and patched into the vector table by the loader, before the program\'s first instruction runs. Needs no section - it emits no code or data of its own. `interrupt 0` (the reset vector) is rejected; declare `global main` instead.'
 };
 
 export const TYPES: Record<string, string> = {
@@ -286,6 +288,36 @@ export const LINKER_SYMBOLS: Record<string, string> = {
 	__heap_start:
 		'The first free byte above the program - the same address as `__bss_end`, under the name that says what it is for. Everything from here up is free ground, with the stack growing down to meet it. There is deliberately no `__stack_top`: the stack starts at the size of memory, which `--memory` picks at run time. Read `sp` on entry instead.'
 };
+
+// The interrupt numbers `interrupt NUMBER: handler` accepts by name instead of a bare literal -
+// the reserved 0-15 range's named entries, plus UserInterrupt0..47. Predefined as ordinary
+// constants in every translation unit by the assembler itself (see
+// defineBuiltinInterruptNames in translation_unit.cpp), which is why they're reserved words here
+// too: a user `const` of the same name is a redefinition error in the real compiler.
+export const INTERRUPT_NUMBERS: Record<string, string> = {
+	Trap: 'Interrupt number 1. Raised by the `trap` instruction (equivalent to `int 1`).',
+	IllegalInstruction: 'Interrupt number 2. Raised when the fetched opcode does not map to any known instruction.',
+	MemoryFault:
+		"Interrupt number 3. Raised by a store, or a block read, whose target overlaps the loaded program's `.text`.",
+	DivisionByZero:
+		'Interrupt number 4. Reserved, but not actually raised by anything: `div`/`idiv`/`mod`/`imod` set the Trap flag directly on a zero divisor instead of dispatching through the vector table.',
+	StackOverflow:
+		"Interrupt number 5. Raised when a `push`/`call` would write below the protected segment, or a `pop`/`ret` would read past the top of memory - or when an interrupt dispatch itself can't fit the two words it needs to save state.",
+	AlignmentFault:
+		'Interrupt number 6. Raised by a misaligned 16- or 32-bit memory access (`ldr`/`ldrh`/`str`/`strh`/... and their float forms). Byte-sized accesses never trigger this.',
+	Syscall: 'Interrupt number 15. Reserved; nothing raises it yet.'
+};
+
+for (let i = 0; i < 48; i++) {
+	const raisedBy =
+		i === 0
+			? ' Raised by the timer device when an armed countdown reaches zero.'
+			: i === 1
+				? ' Raised by the terminal device when `pushInput()` adds a byte to its input buffer.'
+				: '';
+	INTERRUPT_NUMBERS[`UserInterrupt${i}`] =
+		`Interrupt number ${16 + i}, a user interrupt - masked unless \`sti\` was run.${raisedBy}`;
+}
 
 // The default port map, from `io_ports.h`. Used by the inlay hints to put a name next to a bare
 // port number, which is the one number in an `out` that is impossible to read at a glance.
@@ -388,6 +420,7 @@ export function isReservedWord(text: string): boolean {
 		Boolean(MNEMONICS[text.toLowerCase()]) ||
 		text in KEYWORDS ||
 		text in TYPES ||
-		text in LINKER_SYMBOLS
+		text in LINKER_SYMBOLS ||
+		text in INTERRUPT_NUMBERS
 	);
 }

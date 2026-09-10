@@ -491,6 +491,7 @@ namespace ceres::casm
 		if (identifier == "align") return KeywordType::Align;
 		if (identifier == "org") return KeywordType::Org;
 		if (identifier == "assert") return KeywordType::Assert;
+		if (identifier == "interrupt") return KeywordType::Interrupt;
 
 		return std::nullopt;
 	}

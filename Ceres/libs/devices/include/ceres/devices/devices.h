@@ -260,6 +260,12 @@ namespace ceres::devices
 		static inline constexpr PortNumber OutputPort = default_ports::TERM_OUT; // Write-only: Writing a byte to this port outputs it to the terminal.
 		static inline constexpr PortNumber InputPort = default_ports::TERM_IN;  // Read-only: Reading from this port returns the next byte of input, or 0 if no input is available.
 
+		// Which interrupt pushInput() requests once new bytes are actually sitting in the buffer.
+		// The second user interrupt (the first, UserInterrupt0, is the timer's) - so a program that
+		// never expects terminal input keeps working exactly as before: STI is still required, and
+		// nothing raises this unless pushInput() is called at all.
+		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt1;
+
 	private:
 		static inline constexpr u8 RxReadyMask = 0x01; // Bit 0 indicates if input is available.
 		static inline constexpr u8 TxReadyMask = 0x02; // Bit 1 indicates if the terminal is ready to accept output (always ready in this simple implementation).
@@ -304,6 +310,7 @@ namespace ceres::devices
 
 		void pushInput(std::span<const u8> input)
 		{
+			bool wroteAnyByte = false;
 			for (u8 byte : input)
 			{
 				usize nextTail = (_tail.load(std::memory_order_relaxed) + 1) % MaxInputBufferSize;
@@ -312,7 +319,15 @@ namespace ceres::devices
 
 				_buffer[_tail.load(std::memory_order_relaxed)] = byte;
 				_tail.store(nextTail, std::memory_order_release);
+				wroteAnyByte = true;
 			}
+
+			// Idempotent if the machine is already awake or a request is already pending - raise()
+			// only sets a bit, and triggerInterrupt() clears it once delivered - so calling this once
+			// per pushInput() rather than once per byte costs nothing and wakes a halted CPU exactly
+			// as reliably.
+			if (wroteAnyByte)
+				raiseInterrupt(Interrupt);
 		}
 
 		void pushInput(std::string_view input)

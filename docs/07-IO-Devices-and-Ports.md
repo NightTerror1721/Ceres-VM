@@ -127,6 +127,13 @@ outb 0x01, r0
 .print_end:
 ```
 
+Each `pushInput()` call that actually adds a byte to the ring buffer also raises `UserInterrupt1` —
+so a program need not poll `TERM_STATUS` in a busy loop to notice input; it can `sti`/`halt` instead
+and be woken the instant a byte arrives, the same wake-up pattern the timer uses above. See
+[Interrupts and exceptions](08-Interrupts-and-Exceptions.md) and
+[Interrupt vector binding](26-Interrupt-Vector-Binding.md) for how a program installs a handler for
+it rather than falling through to the BIOS's default one.
+
 The block forms (`outm`, `inm`) work here too: `outm 0x01, r_addr, r_size` prints `r_size` bytes
 starting at `r_addr` in one instruction, instead of looping byte by byte — this is exactly what
 [`examples/main.casm`](../Ceres/examples/main.casm)'s `print` routine does.

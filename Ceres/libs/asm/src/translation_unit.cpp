@@ -6,6 +6,29 @@
 
 namespace ceres::casm
 {
+	namespace
+	{
+		// Every reserved interrupt name from interrupts.h, plus UserInterrupt0..47, seeded as
+		// ordinary constants into every unit so `interrupt UserInterrupt0: handler` needs no
+		// import. Marked global only so the "declared but never used" warning leaves them alone -
+		// see defineLinkerSymbols() for why that flag has no bearing on cross-unit linking for a
+		// constant. Reset (0) is deliberately absent: the reset vector is `main`'s job alone.
+		void defineBuiltinInterruptNames(SymbolTable& symbolTable)
+		{
+			static constexpr struct { std::string_view name; u8 number; } ReservedNames[] = {
+				{ "Trap", 1 }, { "IllegalInstruction", 2 }, { "MemoryFault", 3 },
+				{ "DivisionByZero", 4 }, { "StackOverflow", 5 }, { "AlignmentFault", 6 },
+				{ "Syscall", 15 },
+			};
+
+			for (const auto& entry : ReservedNames)
+				symbolTable.defineConstant(0, entry.name, true, LiteralValue::make(static_cast<u32>(entry.number)));
+
+			for (u32 i = 0; i < 48; ++i)
+				symbolTable.defineConstant(0, "UserInterrupt" + std::to_string(i), true, LiteralValue::make(16u + i));
+		}
+	}
+
 	void TranslationUnitBuilder::build(std::vector<Statement>&& statements)
 	{
 		if (_built)
@@ -15,6 +38,8 @@ namespace ceres::casm
 
 		AssemblerErrorHandler& errorHandler = _translationUnit.state().errorHandler();
 		_ast.reserve(statements.size());
+
+		defineBuiltinInterruptNames(_translationUnit.symbolTable());
 
 		for (auto& statement : statements)
 		{
@@ -35,6 +60,7 @@ namespace ceres::casm
 
 		_translationUnit.setAST(std::move(_ast));
 		_translationUnit.setUnresolvedSymbols(std::move(_unresolvedSymbols));
+		_translationUnit.setInterruptBindings(std::move(_interruptBindings));
 	}
 
 	// One statement. Recursive: the statements a macro expands into come back through here, with
@@ -300,6 +326,20 @@ namespace ceres::casm
 				else if (statement.isDirective())
 				{
 					processDirective(statement, sectionSizes);
+				}
+				else if (statement.isInterruptBinding())
+				{
+					// Both operands go through the same deferred-resolution path an instruction's
+					// operands do: a name not yet in scope (a label further down the file, or in
+					// another unit) is queued in _unresolvedSymbols rather than rejected outright.
+					auto& binding = statement.asInterruptBinding();
+					symbolTable.tryResolveOperand(statement.file(), statement.line(), binding.number, _lastParentLabel, _unresolvedSymbols, &_translationUnit);
+					symbolTable.tryResolveOperand(statement.file(), statement.line(), binding.target, _lastParentLabel, _unresolvedSymbols, &_translationUnit);
+
+					_interruptBindings.push_back(InterruptBindingRecord{
+						statement.file(), statement.line(), std::string(_lastParentLabel),
+						std::move(binding.number), std::move(binding.target)
+					});
 				}
 				else if (statement.isMacroCall())
 				{

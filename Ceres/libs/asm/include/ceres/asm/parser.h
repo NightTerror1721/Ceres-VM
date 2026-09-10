@@ -199,6 +199,7 @@ namespace ceres::casm
 		Statement parseMacroDeclaration(bool isGlobal);
 		Statement parseStructDeclaration(bool isGlobal);
 		Statement parseDirective();
+		Statement parseInterruptBinding();
 		// A string or a float written where an operand goes has nowhere to live in an instruction:
 		// one is a run of bytes and the other needs 32 bits. Both become an anonymous `.rodata`
 		// declaration, and the operand becomes its name - which is what a programmer would have had

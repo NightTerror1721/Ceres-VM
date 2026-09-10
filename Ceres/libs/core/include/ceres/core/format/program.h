@@ -48,7 +48,22 @@ namespace ceres::fmt
 		// bytes. The count is written here rather than inside the section so that Program can skip
 		// or capture it without knowing anything about its contents.
 		inline constexpr u16 HasDebugInfo = 1 << 0;
+		// An interrupt vector patch table follows .data (and precedes the debug section, if any):
+		// a little-endian u32 count, then that many 5-byte entries. See InterruptVectorPatch.
+		inline constexpr u16 HasInterruptVectors = 1 << 1;
 	}
+
+	// One entry of the vector patch table: overwrite the null-page vector for `interruptNumber`
+	// (1-63; 0 is the reset vector and is never patched this way) with `handlerAddress`. Applied by
+	// the loader after the BIOS installs its default stub, so an interrupt nothing bound still
+	// falls through to that stub exactly as it always has.
+	#pragma pack(push, 1)
+	struct InterruptVectorPatch
+	{
+		u8 interruptNumber;
+		u32 handlerAddress;
+	};
+	#pragma pack(pop)
 
 	class Program
 	{
@@ -60,6 +75,7 @@ namespace ceres::fmt
 		std::vector<ByteType> _text;
 		std::vector<ByteType> _rodata;
 		std::vector<ByteType> _data;
+		std::vector<InterruptVectorPatch> _interruptVectors;
 		// Opaque here on purpose: its layout belongs to ceres::debug, and the VM has no business
 		// knowing it. Program only has to carry it from one end of a file to the other.
 		std::vector<ByteType> _debugSection;
@@ -74,11 +90,13 @@ namespace ceres::fmt
 		Program& operator=(Program&&) = default;
 
 	private:
-		Program(const ProgramHeader& header, std::vector<ByteType>&& text, std::vector<ByteType>&& rodata, std::vector<ByteType>&& data, std::vector<ByteType>&& debugSection = {}) :
+		Program(const ProgramHeader& header, std::vector<ByteType>&& text, std::vector<ByteType>&& rodata, std::vector<ByteType>&& data,
+			std::vector<InterruptVectorPatch>&& interruptVectors = {}, std::vector<ByteType>&& debugSection = {}) :
 			_header(header),
 			_text(std::move(text)),
 			_rodata(std::move(rodata)),
 			_data(std::move(data)),
+			_interruptVectors(std::move(interruptVectors)),
 			_debugSection(std::move(debugSection))
 		{}
 
@@ -87,6 +105,9 @@ namespace ceres::fmt
 		std::span<const ByteType> text() const noexcept { return _text; }
 		std::span<const ByteType> rodata() const noexcept { return _rodata; }
 		std::span<const ByteType> data() const noexcept { return _data; }
+
+		bool hasInterruptVectors() const noexcept { return !_interruptVectors.empty(); }
+		std::span<const InterruptVectorPatch> interruptVectors() const noexcept { return _interruptVectors; }
 
 		bool hasDebugSection() const noexcept { return !_debugSection.empty(); }
 		std::span<const ByteType> debugSection() const noexcept { return _debugSection; }
@@ -97,6 +118,7 @@ namespace ceres::fmt
 			std::span<const ByteType> text,
 			std::span<const ByteType> rodata,
 			std::span<const ByteType> data,
+			std::span<const InterruptVectorPatch> interruptVectors = {},
 			std::span<const ByteType> debugSection = {}
 		);
 

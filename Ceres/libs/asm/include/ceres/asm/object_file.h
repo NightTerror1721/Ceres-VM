@@ -32,7 +32,9 @@ namespace ceres::casm
 		// 'CASO' in ASCII - Ceres ASsembly Object - by the same convention as ProgramHeader's
 		// 'CRES' and the debug section's 'CDBG'.
 		static inline constexpr u32 MagicNumber = 0x4341534F;
-		static inline constexpr u16 CurrentVersion = 1;
+		// 1 -> 2: added the interrupt-binding table (ObjectInterruptBinding), so a v1 reader would
+		// silently never see a program's `interrupt` declarations rather than losing them loudly.
+		static inline constexpr u16 CurrentVersion = 2;
 
 	public:
 		// Where it came from. Carried for diagnostics only: "undefined symbol" is nearly useless
@@ -46,6 +48,10 @@ namespace ceres::casm
 
 		std::vector<ObjectSymbol> symbols;
 		std::vector<Relocation> relocations;
+		// This unit's `interrupt` declarations, not yet resolved to a final address - see
+		// ObjectInterruptBinding. Empty for an object that declares none, which is what keeps such
+		// an object's serialized form unchanged from before this field existed.
+		std::vector<ObjectInterruptBinding> interruptBindings;
 
 		// The unit's own debug tables, with addresses still relative to its sections. Empty unless
 		// the object was assembled with --debug.

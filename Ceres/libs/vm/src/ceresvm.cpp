@@ -1,4 +1,5 @@
 #include <ceres/vm/ceresvm.h>
+#include <array>
 
 namespace ceres::vm
 {
@@ -55,6 +56,23 @@ namespace ceres::vm
 
 		_bios.initializeMemory(_memory);
 		_memory.writeUnchecked<u32>(0_addr, header.entryPoint); // Write the entry point to the null page so that the execution engine can read it on reset.
+
+		// Applied after the BIOS default table, so a vector nothing bound still falls through to the
+		// shared stub exactly as it always has - only the bound ones get overwritten. `writeUnchecked`
+		// is what a running program can never do for itself: the checked accessors every instruction
+		// goes through refuse this whole region, precisely so a stray pointer can't reach it.
+		std::array<bool, isa::InterruptNumberCount> patchedVectors{};
+		for (const auto& patch : program.interruptVectors())
+		{
+			if (patch.interruptNumber == 0 || patch.interruptNumber >= isa::InterruptNumberCount)
+				return std::unexpected("Invalid .cres: interrupt vector patch targets out-of-range interrupt " + std::to_string(patch.interruptNumber) + ".");
+			if (patchedVectors[patch.interruptNumber])
+				return std::unexpected("Invalid .cres: interrupt vector " + std::to_string(patch.interruptNumber) + " is patched more than once.");
+			patchedVectors[patch.interruptNumber] = true;
+
+			const Address vectorAddress = Memory::NullPageSegmentStart + Address(static_cast<Address::ValueType>(patch.interruptNumber) * Address::Size);
+			_memory.writeUnchecked<u32>(vectorAddress, patch.handlerAddress);
+		}
 
 		_engine.reset(); // Reset the execution engine to set the PC to the entry point and initialize registers/flags.
 

@@ -32,6 +32,30 @@ namespace ceres::casm
 		u32 bssSize = 0;
 	};
 
+	// One resolved `interrupt` binding. Built fresh by Linker::resolveInterruptVectors() every time
+	// it runs, so it only ever reflects the final, fully-relocated layout - never a
+	// pre-relaxation one.
+	//
+	// In a whole-program build, `address` is already final and BinaryEmitter uses it directly to
+	// build an InterruptVectorPatch for the .cres file. Assembled as an object, nothing here is
+	// final yet - `address` is only this object's own placeholder layout (relative to 0), and
+	// `external`/`section`/`symbol` are exactly what BinaryEmitter needs to record an
+	// ObjectInterruptBinding instead, the same way an ordinary address-bearing field becomes a
+	// Relocation rather than a number.
+	struct InterruptVectorBinding
+	{
+		u8 number;
+		Address address;
+		SectionType section = SectionType::Text;
+		// True when the handler is defined in a different translation unit than the one that
+		// declared the `interrupt` binding - meaningless in a whole-program build (the address is
+		// final either way), load-bearing when assembled as an object.
+		bool external = false;
+		// Kept in both cases: an error about an interrupt binding is nearly useless without saying
+		// which handler it was trying to reach.
+		std::string symbol;
+	};
+
 	class AssemblyState
 	{
 	public:
@@ -44,6 +68,7 @@ namespace ceres::casm
 		std::vector<std::string> _unitsBeingLoaded; // Import cycle guard: a unit is cached only once built
 		MemoryMap _memoryMap;
 		SymbolTable _globalSymbolTable;
+		std::vector<InterruptVectorBinding> _interruptVectors;
 		StringPool _stringPool;
 		LoadTranslationUnitFn _loadTranslationUnitFn;
 		AssemblerErrorHandler _errorHandler;
@@ -103,6 +128,9 @@ namespace ceres::casm
 
 		SymbolTable& globalSymbolTable() noexcept { return _globalSymbolTable; }
 		const SymbolTable& globalSymbolTable() const noexcept { return _globalSymbolTable; }
+
+		std::vector<InterruptVectorBinding>& interruptVectors() noexcept { return _interruptVectors; }
+		const std::vector<InterruptVectorBinding>& interruptVectors() const noexcept { return _interruptVectors; }
 
 		StringPool& stringPool() noexcept { return _stringPool; }
 		const StringPool& stringPool() const noexcept { return _stringPool; }

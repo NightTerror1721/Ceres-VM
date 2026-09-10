@@ -148,11 +148,40 @@ namespace ceres::casm
 			debugSection = _debugInfo.serialize();
 		}
 
+		// Empty for a program that declares no `interrupt` bindings, which is what keeps such a
+		// program's .cres bit-for-bit identical to what it always was.
+		std::vector<InterruptVectorPatch> interruptVectors;
+
+		if (_objectRootFile.empty())
+		{
+			// Whole-program build: every address Linker::resolveInterruptVectors() resolved is
+			// already final, `external` or not - the same reason recordRelocation() never needs to
+			// fire here either.
+			interruptVectors.reserve(_state.get().interruptVectors().size());
+			for (const auto& binding : _state.get().interruptVectors())
+				interruptVectors.push_back(InterruptVectorPatch{ binding.number, binding.address.value() });
+		}
+		else
+		{
+			// Assembled as an object: nothing is final yet. Each binding travels as a named
+			// relocation instead, exactly like an ordinary la/lui+ori would - takeInterruptBindings()
+			// hands these to the caller building the .cobj, and the .cres's own interrupt vector
+			// section stays empty until `ceres link` resolves them for real.
+			_objectInterruptBindings.reserve(_state.get().interruptVectors().size());
+			for (const auto& binding : _state.get().interruptVectors())
+			{
+				_objectInterruptBindings.push_back(ObjectInterruptBinding{
+					binding.number, binding.external, binding.section, binding.address.value(), binding.symbol
+				});
+			}
+		}
+
 		return Program::make(
 			header,
 			_textBuffer,
 			_rodataBuffer,
 			_dataBuffer,
+			interruptVectors,
 			debugSection
 		);
 	}

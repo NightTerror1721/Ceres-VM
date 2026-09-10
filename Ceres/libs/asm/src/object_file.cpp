@@ -164,6 +164,16 @@ namespace ceres::casm
 			writeString(out, relocation.symbol);
 		}
 
+		writeU32(out, static_cast<u32>(interruptBindings.size()));
+		for (const ObjectInterruptBinding& binding : interruptBindings)
+		{
+			writeU8(out, binding.interruptNumber);
+			writeU8(out, binding.external ? 1 : 0);
+			writeU8(out, static_cast<u8>(binding.section));
+			writeU32(out, binding.offset);
+			writeString(out, binding.symbol);
+		}
+
 		writeBytes(out, debugSection);
 		return out;
 	}
@@ -229,6 +239,25 @@ namespace ceres::casm
 			relocation.addend = static_cast<i32>(reader.readU32());
 			relocation.symbol = reader.readString();
 			object.relocations.push_back(std::move(relocation));
+		}
+
+		const u32 interruptBindingCount = reader.readU32();
+		if (reader.failed)
+			return std::unexpected("Object file is truncated");
+
+		object.interruptBindings.reserve(interruptBindingCount);
+		for (u32 i = 0; i < interruptBindingCount && !reader.failed; ++i)
+		{
+			ObjectInterruptBinding binding;
+			binding.interruptNumber = reader.readU8();
+			binding.external = reader.readU8() != 0;
+			const u8 section = reader.readU8();
+			if (!isValidSection(section))
+				return std::unexpected("Object file names an unknown section in an interrupt binding");
+			binding.section = static_cast<SectionType>(section);
+			binding.offset = reader.readU32();
+			binding.symbol = reader.readString();
+			object.interruptBindings.push_back(std::move(binding));
 		}
 
 		object.debugSection = reader.readBytes();

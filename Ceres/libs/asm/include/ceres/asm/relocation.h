@@ -56,4 +56,25 @@ namespace ceres::casm
 
 		bool isExternal() const noexcept { return external; }
 	};
+
+	// The `interrupt` declaration's version of a Relocation. An object assembled on its own knows a
+	// bound vector's number (a constant, so it is already final) but not the handler's final
+	// address - only where it sits in this object's own layout (local), or that some other object
+	// is expected to define it by name (external). Exactly the two cases a Relocation already
+	// models, so this borrows the same shape rather than inventing a second one.
+	struct ObjectInterruptBinding
+	{
+		u8 interruptNumber = 0;
+		bool external = false;
+		// Meaningful only when !external: the target's offset within its own section. Sections
+		// start at 0 in an object's own layout, so this is the same number the resolved operand's
+		// address already was before the object was placed anywhere real.
+		SectionType section = SectionType::Text;
+		u32 offset = 0;
+		// The handler's name, kept whether or not it is external - an error about an interrupt
+		// binding is nearly useless without saying which handler it was trying to reach.
+		std::string symbol;
+
+		bool isExternal() const noexcept { return external; }
+	};
 }

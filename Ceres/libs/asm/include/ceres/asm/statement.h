@@ -90,6 +90,16 @@ namespace ceres::casm
 		constexpr usize arity() const noexcept { return arguments.size(); }
 	};
 
+	// `interrupt <number>: <label>` - binds an interrupt number to a handler, resolved by the
+	// linker exactly like any other pair of operands (an immediate/constant and a label
+	// reference), then collected into the .cres vector patch table. Declares no storage of its
+	// own, so it needs no section and never reaches RelocatableStatement/the AST.
+	struct InterruptBindingStatement
+	{
+		Operand number;
+		Operand target;
+	};
+
 	struct InstructionStatement
 	{
 		Mnemonic mnemonic; // Instruction mnemonic (e.g., ADD, SUB, etc.)
@@ -117,7 +127,8 @@ namespace ceres::casm
 			MacroLabelStatement,
 			MacroCallStatement,
 			InstructionStatement,
-			DirectiveStatement
+			DirectiveStatement,
+			InterruptBindingStatement
 		>;
 
 	private:
@@ -179,6 +190,7 @@ namespace ceres::casm
 		constexpr bool isMacroCall() const noexcept { return std::holds_alternative<MacroCallStatement>(_value); }
 		constexpr bool isDirective() const noexcept { return std::holds_alternative<DirectiveStatement>(_value); }
 		constexpr bool isInstruction() const noexcept { return std::holds_alternative<InstructionStatement>(_value); }
+		constexpr bool isInterruptBinding() const noexcept { return std::holds_alternative<InterruptBindingStatement>(_value); }
 
 		constexpr const SectionStatement& asSection() const noexcept { return std::get<SectionStatement>(_value); }
 		constexpr const LabelStatement& asLabel() const noexcept { return std::get<LabelStatement>(_value); }
@@ -190,6 +202,7 @@ namespace ceres::casm
 		constexpr const MacroCallStatement& asMacroCall() const noexcept { return std::get<MacroCallStatement>(_value); }
 		constexpr const DirectiveStatement& asDirective() const noexcept { return std::get<DirectiveStatement>(_value); }
 		constexpr const InstructionStatement& asInstruction() const noexcept { return std::get<InstructionStatement>(_value); }
+		constexpr const InterruptBindingStatement& asInterruptBinding() const noexcept { return std::get<InterruptBindingStatement>(_value); }
 
 		constexpr SectionStatement& asSection() noexcept { return std::get<SectionStatement>(_value); }
 		constexpr LabelStatement& asLabel() noexcept { return std::get<LabelStatement>(_value); }
@@ -200,6 +213,7 @@ namespace ceres::casm
 		constexpr MacroLabelStatement& asMacroLabel() noexcept { return std::get<MacroLabelStatement>(_value); }
 		constexpr MacroCallStatement& asMacroCall() noexcept { return std::get<MacroCallStatement>(_value); }
 		constexpr InstructionStatement& asInstruction() noexcept { return std::get<InstructionStatement>(_value); }
+		constexpr InterruptBindingStatement& asInterruptBinding() noexcept { return std::get<InterruptBindingStatement>(_value); }
 
 	public:
 		static Statement makeSection(std::string_view file, u32 line, SectionType section) noexcept
@@ -255,6 +269,11 @@ namespace ceres::casm
 		static Statement makeInstruction(std::string_view file, u32 line, Mnemonic mnemonic, std::vector<Operand>&& operands) noexcept
 		{
 			return Statement{ file, line, InstructionStatement{ mnemonic, std::move(operands) } };
+		}
+
+		static Statement makeInterruptBinding(std::string_view file, u32 line, Operand&& number, Operand&& target) noexcept
+		{
+			return Statement{ file, line, InterruptBindingStatement{ std::move(number), std::move(target) } };
 		}
 	};
 }

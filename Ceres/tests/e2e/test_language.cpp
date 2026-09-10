@@ -344,6 +344,93 @@ TEST(language, cli_and_sti_assemble)
 	CHECK(Instruction(r.words()[1]).opcode() == Opcode::CLI);
 }
 
+// --- interrupt vector binding -----------------------------------------------------------------
+
+TEST(language, interrupt_binds_a_number_to_a_handler_label)
+{
+	AssembleResult r = assembleSource(
+		"interrupt UserInterrupt0: handler\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n"
+		"handler:\r\n"
+		"    iret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	auto vectors = r.program->interruptVectors();
+	CHECK_EQ(vectors.size(), usize{ 1 });
+	if (vectors.empty()) return;
+
+	CHECK_EQ(vectors[0].interruptNumber, u8{ 16 });
+	// `ret` is one word, so `handler` starts right after it.
+	CHECK_EQ(vectors[0].handlerAddress, MemoryMap::UnrestrictedSegmentStart.value() + Instruction::Size);
+}
+
+TEST(language, a_literal_interrupt_number_works_the_same_as_a_name)
+{
+	AssembleResult r = assembleSource(
+		"interrupt 17: handler\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n"
+		"handler:\r\n"
+		"    iret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	auto vectors = r.program->interruptVectors();
+	CHECK_EQ(vectors.size(), usize{ 1 });
+	if (!vectors.empty())
+		CHECK_EQ(vectors[0].interruptNumber, u8{ 17 });
+}
+
+TEST(language, interrupt_0_is_rejected_because_it_is_the_reset_vector)
+{
+	AssembleResult r = assembleSource(
+		"interrupt 0: handler\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n"
+		"handler:\r\n"
+		"    iret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("reset vector") != std::string::npos);
+}
+
+TEST(language, binding_the_same_interrupt_twice_is_rejected)
+{
+	AssembleResult r = assembleSource(
+		"interrupt UserInterrupt0: first_handler\r\n"
+		"interrupt UserInterrupt0: second_handler\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n"
+		"first_handler:\r\n"
+		"    iret\r\n"
+		"second_handler:\r\n"
+		"    iret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("already bound") != std::string::npos);
+}
+
+TEST(language, an_interrupt_target_must_be_a_label)
+{
+	AssembleResult r = assembleSource(
+		"const NOT_A_LABEL = 42\r\n"
+		"interrupt UserInterrupt0: NOT_A_LABEL\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("must be a label") != std::string::npos);
+}
+
 // Multidimensional arrays. The back end never learned about them: a i32[2][3] and a i32[6] produce
 // identical bytes, so all of this lives in the type and the parser.
 TEST(language, a_two_dimensional_array_is_stored_row_major)

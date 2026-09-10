@@ -35,6 +35,9 @@ namespace ceres::casm
 		// it imported stays a declaration instead of becoming a second copy of that file's code.
 		std::string_view _objectRootFile;
 		std::vector<Relocation> _relocations;
+		// Populated instead of a Program's interrupt vector section when _objectRootFile is set -
+		// see emit(). Empty for a whole-program build, or an object that declares no `interrupt`.
+		std::vector<ObjectInterruptBinding> _objectInterruptBindings;
 		DebugInfoBuilder _debugBuilder;
 		DebugInfo _debugInfo; // Released from the builder at the end of emit()
 
@@ -72,6 +75,10 @@ namespace ceres::casm
 		// Empty unless the emitter was put in object mode: a program has its addresses written
 		// into it and nothing left to relocate.
 		std::vector<Relocation> takeRelocations() noexcept { return std::move(_relocations); }
+
+		// Empty unless the emitter was put in object mode and the source declared at least one
+		// `interrupt` binding.
+		std::vector<ObjectInterruptBinding> takeInterruptBindings() noexcept { return std::move(_objectInterruptBindings); }
 
 	private:
 		void emitData(const RelocatableStatement& statement, bool isRodata);

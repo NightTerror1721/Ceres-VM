@@ -9,6 +9,7 @@
     { "include": "#const-declaration" },
     { "include": "#variable-declaration" },
     { "include": "#labels" },
+    { "include": "#interrupt-declaration" },
     { "include": "#keywords" },
     { "include": "#types" },
     { "include": "#mnemonics" },
@@ -71,7 +72,15 @@
     },
     "keywords": {
       "name": "keyword.control.casm",
-      "match": "\\b(const|let|global|macro|endmacro|struct|endstruct|alias|as|align|org|assert)\\b"
+      "match": "\\b(const|let|global|macro|endmacro|struct|endstruct|alias|as|align|org|assert|interrupt)\\b"
+    },
+    "interrupt-declaration": {
+      "comment": "Contextual: only the number naming an interrupt (`interrupt UserInterrupt0: handler`) gets coloured as a constant here - a bare literal (`interrupt 16: handler`) is left to #numbers, and the handler name after ':' is left to #identifier-reference like any other label reference. Must be tried before #keywords for the same reason #labels is: both start by matching the bare word 'interrupt', and the more specific rule has to win the tie.",
+      "match": "\\b(interrupt)\\b\\s+([A-Za-z_][A-Za-z0-9_]*)\\b",
+      "captures": {
+        "1": { "name": "keyword.control.casm" },
+        "2": { "name": "variable.other.constant.casm" }
+      }
     },
     "types": {
       "name": "storage.type.casm",

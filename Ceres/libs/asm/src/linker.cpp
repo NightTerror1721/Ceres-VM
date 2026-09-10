@@ -1,6 +1,7 @@
 #include <ceres/asm/linker.h>
 #include <ceres/core/format/memory_map.h>
 #include <algorithm>
+#include <unordered_map>
 
 namespace ceres::casm
 {
@@ -59,6 +60,10 @@ namespace ceres::casm
 				if (statement.isInstruction())
 					operands.push_back(statement.asInstruction().operands);
 			}
+
+			auto& interruptBindingOperands = snapshot.interruptBindingOperands.emplace_back();
+			for (const auto& binding : unit.interruptBindings())
+				interruptBindingOperands.emplace_back(binding.number, binding.target);
 		}
 		return snapshot;
 	}
@@ -87,6 +92,20 @@ namespace ceres::casm
 				// it is the one thing the second pass has to keep.
 				statement.asInstruction().operands = operands[statementIndex];
 				++statementIndex;
+			}
+
+			if (unitIndex < snapshot.interruptBindingOperands.size())
+			{
+				const auto& interruptBindingOperands = snapshot.interruptBindingOperands[unitIndex];
+				usize bindingIndex = 0;
+				for (auto& binding : unit.interruptBindings())
+				{
+					if (bindingIndex >= interruptBindingOperands.size())
+						break;
+					binding.number = interruptBindingOperands[bindingIndex].first;
+					binding.target = interruptBindingOperands[bindingIndex].second;
+					++bindingIndex;
+				}
 			}
 
 			++unitIndex;
@@ -351,7 +370,80 @@ namespace ceres::casm
 			}
 		}
 
+		resolveInterruptVectors();
+
 		return !_state.get().errorHandler().hasErrors();
+	}
+
+	// Resolves every `interrupt` declaration's two operands against the now-complete global symbol
+	// table, then validates and merges the results into one whole-program table. Recomputed from
+	// scratch on every call - resolveEverything() can run twice, once before relaxation and once
+	// after - so whichever call is last simply overwrites this with the final, correct answer.
+	void Linker::resolveInterruptVectors()
+	{
+		SymbolTable& globalSymbolTable = _state.get().globalSymbolTable();
+
+		std::vector<InterruptVectorBinding> resolved;
+		std::unordered_map<u8, std::string> boundBy; // interrupt number -> handler name, for the error message
+
+		for (auto& unit : _state.get().translationUnits())
+		{
+			for (auto& binding : unit.interruptBindings())
+			{
+				_currentFile = binding.file;
+				try
+				{
+					unit.symbolTable().resolveOperand(binding.line, binding.number, binding.parentName, globalSymbolTable, &unit);
+					unit.symbolTable().resolveOperand(binding.line, binding.target, binding.parentName, globalSymbolTable, &unit);
+				}
+				catch (const AssemblerError& ex)
+				{
+					reportError(ex.line(), "Linker error: {}", ex.what());
+					continue;
+				}
+
+				if (!binding.number.isImmediate())
+				{
+					reportError(binding.line, "Linker error: an interrupt number must be a constant expression.");
+					continue;
+				}
+
+				const u32 number = binding.number.asImmediate().value;
+				if (number == 0)
+				{
+					reportError(binding.line, "Linker error: interrupt 0 is the reset vector; declare 'global main' instead.");
+					continue;
+				}
+				if (number > 63)
+				{
+					reportError(binding.line, "Linker error: interrupt numbers range from 1 to 63, but {} was given.", number);
+					continue;
+				}
+
+				if (!binding.target.isLabel())
+				{
+					reportError(binding.line, "Linker error: an interrupt handler must be a label.");
+					continue;
+				}
+
+				const u8 interruptNumber = static_cast<u8>(number);
+				const LabelOperand& handler = binding.target.asLabel();
+
+				if (const auto existing = boundBy.find(interruptNumber); existing != boundBy.end())
+				{
+					reportError(binding.line, "Linker error: interrupt {} is already bound to '{}'; second binding to '{}'.",
+						interruptNumber, existing->second, handler.symbol.view());
+					continue;
+				}
+
+				boundBy.emplace(interruptNumber, std::string(handler.symbol.view()));
+				resolved.push_back(InterruptVectorBinding{
+					interruptNumber, handler.address, handler.section, handler.external, std::string(handler.symbol.view())
+				});
+			}
+		}
+
+		_state.get().interruptVectors() = std::move(resolved);
 	}
 
 	// Where the layout turned out to put things. A program had no way to ask any of this and no

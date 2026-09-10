@@ -310,6 +310,7 @@ namespace ceres::casm
 			object.data.assign(emitter.dataBuffer().begin(), emitter.dataBuffer().end());
 			object.bssSize = _state->memoryMap().bssSize;
 			object.relocations = emitter.takeRelocations();
+			object.interruptBindings = emitter.takeInterruptBindings();
 
 			// Only what another object could name. A private label is at a known place inside this
 			// object and the relocations that reach it already say so; publishing it would only

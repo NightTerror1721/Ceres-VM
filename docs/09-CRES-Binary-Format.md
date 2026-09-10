@@ -12,18 +12,26 @@ A `.cres` file is the header, byte-packed, followed immediately by the three sec
 back:
 
 ```
-┌─────────────────────┐
-│ ProgramHeader (32 B) │
-├─────────────────────┤
-│ .text   (textSize)   │
-├─────────────────────┤
-│ .rodata (rodataSize) │
-├─────────────────────┤
-│ .data   (dataSize)   │
-├─────────────────────┤
-│ debug section (opt.) │
-└─────────────────────┘
+┌──────────────────────────┐
+│ ProgramHeader (32 B)     │
+├──────────────────────────┤
+│ .text   (textSize)       │
+├──────────────────────────┤
+│ .rodata (rodataSize)     │
+├──────────────────────────┤
+│ .data   (dataSize)       │
+├──────────────────────────┤
+│ interrupt vectors (opt.) │
+├──────────────────────────┤
+│ debug section (opt.)     │
+└──────────────────────────┘
 ```
+
+The interrupt vector section is present only when `flags` has bit 1 set, which happens automatically
+whenever the source declares at least one `interrupt NUMBER: handler` binding. It is a little-endian
+`u32` count, then that many 5-byte `{u8 interruptNumber, u32 handlerAddress}` entries — see
+[Interrupt vector binding](26-Interrupt-Vector-Binding.md#storage-in-cres) for why it is a sparse
+patch list rather than the full 64-entry table, and how the loader applies it.
 
 The debug section is present only when `flags` has bit 0 set, which `ceres asm --debug` does. Its
 own version is 2, which added a frame table — where each function begins and ends, and whether it
@@ -65,7 +73,7 @@ struct ProgramHeader
 | --- | --- |
 | `magic` | Always `0x43524553` — the ASCII bytes `CRES`. Loading rejects any file that doesn't start with this. |
 | `version` | Format version; currently `3`. A file below `MinimumSupportedVersion` is rejected — see [Versioning](#versioning). |
-| `flags` | Bit 0 (`ProgramFlags::HasDebugInfo`) says a debug section follows the data section; every other bit is still reserved. See [Debug information](21-Debug-Information.md). |
+| `flags` | Bit 0 (`ProgramFlags::HasDebugInfo`) says a debug section follows; bit 1 (`ProgramFlags::HasInterruptVectors`) says an interrupt vector patch table does, immediately before it. Every other bit is still reserved. See [Debug information](21-Debug-Information.md) and [Interrupt vector binding](26-Interrupt-Vector-Binding.md). |
 | `entryPoint` | The absolute address execution starts at (the resolved address of the `main` label). |
 | `textSize` / `rodataSize` / `dataSize` / `bssSize` | Byte sizes of each section, as computed by the linker (each rounded up to a 4-byte boundary — see [Labels and symbols](12-Labels-and-Symbols.md)). |
 | `minimumStack` | Reserved; not currently populated with a meaningful value by the emitter. |
@@ -146,6 +154,10 @@ absolute address baked into the binary during assembly (labels, variable address
 targets) is only valid because the loader places sections at these same offsets every time. There is
 no relocation step at load time; the linker already did all address fixups once, at assembly time.
 
+Right after that, `loadProgram()` patches any bound interrupt vectors into the null page — after the
+BIOS has installed its default stub table, so a vector nothing bound still falls through to that
+stub unchanged. See [Interrupt vector binding](26-Interrupt-Vector-Binding.md).
+
 The program counter is then set to `header.entryPoint`, and the stack pointer to the top of the
 machine's memory (see [Memory](02-Memory.md#the-stack)) — note this means the *usable* stack size
 depends on how much memory the host allocated (`ceres run --memory <bytes>`), not on anything stored
@@ -157,3 +169,4 @@ in the `.cres` file itself.
 - [CLI and assembly pipeline](16-CLI-and-Assembly-Pipeline.md) — how `ceres asm`/`run`/`disasm` decide which path to take.
 - [Debug information](21-Debug-Information.md) — the optional trailing section and why it is a flag rather than a version bump.
 - [Labels and symbols](12-Labels-and-Symbols.md) — how the linker computes the sizes stored in the header.
+- [Interrupt vector binding](26-Interrupt-Vector-Binding.md) — the other optional section, and how the loader applies it.

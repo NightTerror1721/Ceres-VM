@@ -113,6 +113,11 @@ namespace ceres::casm
 					if (relocation.isExternal() && !defined.contains(relocation.symbol))
 						wanted.insert(relocation.symbol);
 				}
+				for (const ObjectInterruptBinding& binding : inputs[i].object.interruptBindings)
+				{
+					if (binding.isExternal() && !defined.contains(binding.symbol))
+						wanted.insert(binding.symbol);
+				}
 			}
 
 			if (wanted.empty())
@@ -345,6 +350,59 @@ namespace ceres::casm
 			}
 		}
 
+		// --- Interrupt vectors -------------------------------------------------------------------
+		//
+		// Each object recorded its own `interrupt` bindings as an ObjectInterruptBinding: a number
+		// (already final - it is a constant, so nothing about placement could change it) and a
+		// target that is either local (an offset in this object's own layout) or external (a name
+		// for the same `globals` table the relocations above already used). What no single object
+		// could check is a duplicate *across* objects, which is why that check lives here instead
+		// of in Linker::resolveInterruptVectors() - each object already checked everything it could
+		// see on its own.
+		std::vector<InterruptVectorPatch> interruptVectors;
+		std::unordered_map<u8, std::string> interruptBoundBy;
+
+		for (usize i = 0; i < members.size(); ++i)
+		{
+			for (const ObjectInterruptBinding& binding : members[i]->object.interruptBindings)
+			{
+				// The assembler already refuses these when it can see the whole binding; re-checked
+				// here because a hand-built or corrupted .cobj might not have come from it at all.
+				if (binding.interruptNumber == 0 || binding.interruptNumber > 63)
+				{
+					reportError(std::format("{}: interrupt numbers range from 1 to 63, but {} was given",
+						members[i]->name, binding.interruptNumber));
+					continue;
+				}
+
+				u32 target = 0;
+				if (binding.isExternal())
+				{
+					const auto found = globals.find(binding.symbol);
+					if (found == globals.end())
+					{
+						reportError(std::format("Undefined symbol '{}', wanted by '{}'", binding.symbol, members[i]->name));
+						continue;
+					}
+					target = found->second;
+				}
+				else
+				{
+					target = baseOf(placements[i], binding.section) + binding.offset;
+				}
+
+				if (const auto existing = interruptBoundBy.find(binding.interruptNumber); existing != interruptBoundBy.end())
+				{
+					reportError(std::format("interrupt {} is already bound to '{}'; second binding to '{}' in '{}'",
+						binding.interruptNumber, existing->second, binding.symbol, members[i]->name));
+					continue;
+				}
+
+				interruptBoundBy.emplace(binding.interruptNumber, binding.symbol);
+				interruptVectors.push_back(InterruptVectorPatch{ binding.interruptNumber, target });
+			}
+		}
+
 		// --- Where it starts ---------------------------------------------------------------------
 		u32 entryPoint = 0;
 		const auto main = globals.find(std::string(SymbolTable::EntryPointLabelName));
@@ -398,6 +456,6 @@ namespace ceres::casm
 			.minimumStack = 1024
 		};
 
-		return Program::make(header, text, rodata, data, debugSection);
+		return Program::make(header, text, rodata, data, interruptVectors, debugSection);
 	}
 }

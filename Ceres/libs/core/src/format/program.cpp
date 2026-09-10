@@ -55,6 +55,85 @@ namespace ceres::fmt
 
 			return std::vector<Program::ByteType>(bytes.begin() + start, bytes.begin() + start + size);
 		}
+
+		// The optional vector patch table: a u32 count, then that many 5-byte {u8, u32} entries,
+		// written by hand rather than memcpy'd as a struct so nothing here depends on host endianness
+		// or on InterruptVectorPatch staying free of padding. A truncated table is dropped exactly
+		// like a truncated debug section - nothing needs it to run the program, only to react to the
+		// interrupts it names.
+		std::vector<InterruptVectorPatch> readInterruptVectors(std::istream& stream, const ProgramHeader& header)
+		{
+			if ((header.flags & ProgramFlags::HasInterruptVectors) == 0)
+				return {};
+
+			Program::ByteType countBytes[4]{};
+			stream.read(reinterpret_cast<char*>(countBytes), sizeof(countBytes));
+			if (!stream)
+				return {};
+
+			const u32 count =
+				static_cast<u32>(countBytes[0]) |
+				(static_cast<u32>(countBytes[1]) << 8) |
+				(static_cast<u32>(countBytes[2]) << 16) |
+				(static_cast<u32>(countBytes[3]) << 24);
+
+			std::vector<InterruptVectorPatch> entries;
+			entries.reserve(count);
+			for (u32 i = 0; i < count; ++i)
+			{
+				Program::ByteType entryBytes[5]{};
+				stream.read(reinterpret_cast<char*>(entryBytes), sizeof(entryBytes));
+				if (!stream)
+					return {};
+
+				const u32 address =
+					static_cast<u32>(entryBytes[1]) |
+					(static_cast<u32>(entryBytes[2]) << 8) |
+					(static_cast<u32>(entryBytes[3]) << 16) |
+					(static_cast<u32>(entryBytes[4]) << 24);
+				entries.push_back(InterruptVectorPatch{ entryBytes[0], address });
+			}
+			return entries;
+		}
+
+		// Span-based twin of the above. `offset` is advanced past whatever was read (or left alone
+		// if the table turned out to be truncated), which is what lets the caller then read the
+		// debug section, if any, from wherever this one actually ended.
+		std::vector<InterruptVectorPatch> readInterruptVectors(std::span<const Program::ByteType> bytes, usize& offset, const ProgramHeader& header)
+		{
+			if ((header.flags & ProgramFlags::HasInterruptVectors) == 0)
+				return {};
+
+			if (offset + sizeof(u32) > bytes.size())
+				return {};
+
+			const u32 count =
+				static_cast<u32>(bytes[offset]) |
+				(static_cast<u32>(bytes[offset + 1]) << 8) |
+				(static_cast<u32>(bytes[offset + 2]) << 16) |
+				(static_cast<u32>(bytes[offset + 3]) << 24);
+			usize cursor = offset + sizeof(u32);
+
+			std::vector<InterruptVectorPatch> entries;
+			entries.reserve(count);
+			for (u32 i = 0; i < count; ++i)
+			{
+				if (cursor + 5 > bytes.size())
+					return {};
+
+				const u8 number = bytes[cursor];
+				const u32 address =
+					static_cast<u32>(bytes[cursor + 1]) |
+					(static_cast<u32>(bytes[cursor + 2]) << 8) |
+					(static_cast<u32>(bytes[cursor + 3]) << 16) |
+					(static_cast<u32>(bytes[cursor + 4]) << 24);
+				entries.push_back(InterruptVectorPatch{ number, address });
+				cursor += 5;
+			}
+
+			offset = cursor;
+			return entries;
+		}
 	}
 
 	Program Program::make(
@@ -62,22 +141,29 @@ namespace ceres::fmt
 		std::span<const ByteType> text,
 		std::span<const ByteType> rodata,
 		std::span<const ByteType> data,
+		std::span<const InterruptVectorPatch> interruptVectors,
 		std::span<const ByteType> debugSection
 	)
 	{
-		// The flag is derived from what was actually handed over rather than trusted from the
-		// caller's header, so the two can never disagree about whether a debug section is there.
+		// The flags are derived from what was actually handed over rather than trusted from the
+		// caller's header, so the two can never disagree about whether a section is there.
 		ProgramHeader adjusted = header;
 		if (debugSection.empty())
 			adjusted.flags &= static_cast<u16>(~ProgramFlags::HasDebugInfo);
 		else
 			adjusted.flags |= ProgramFlags::HasDebugInfo;
 
+		if (interruptVectors.empty())
+			adjusted.flags &= static_cast<u16>(~ProgramFlags::HasInterruptVectors);
+		else
+			adjusted.flags |= ProgramFlags::HasInterruptVectors;
+
 		return Program(
 			adjusted,
 			std::vector<ByteType>(text.begin(), text.end()),
 			std::vector<ByteType>(rodata.begin(), rodata.end()),
 			std::vector<ByteType>(data.begin(), data.end()),
+			std::vector<InterruptVectorPatch>(interruptVectors.begin(), interruptVectors.end()),
 			std::vector<ByteType>(debugSection.begin(), debugSection.end())
 		);
 	}
@@ -99,6 +185,33 @@ namespace ceres::fmt
 		writeSection(_text);
 		writeSection(_rodata);
 		writeSection(_data);
+
+		// Between .data and the debug section, behind its own count, for the same reason the debug
+		// section is behind a length prefix: a reader that does not know about it can skip straight
+		// past to whatever comes next without understanding a byte of it.
+		if (!_interruptVectors.empty())
+		{
+			const u32 count = static_cast<u32>(_interruptVectors.size());
+			const char countBytes[4] = {
+				static_cast<char>(count & 0xFF),
+				static_cast<char>((count >> 8) & 0xFF),
+				static_cast<char>((count >> 16) & 0xFF),
+				static_cast<char>((count >> 24) & 0xFF)
+			};
+			stream.write(countBytes, sizeof(countBytes));
+
+			for (const InterruptVectorPatch& patch : _interruptVectors)
+			{
+				const char entryBytes[5] = {
+					static_cast<char>(patch.interruptNumber),
+					static_cast<char>(patch.handlerAddress & 0xFF),
+					static_cast<char>((patch.handlerAddress >> 8) & 0xFF),
+					static_cast<char>((patch.handlerAddress >> 16) & 0xFF),
+					static_cast<char>((patch.handlerAddress >> 24) & 0xFF)
+				};
+				stream.write(entryBytes, sizeof(entryBytes));
+			}
+		}
 
 		// Last, and behind a length prefix, so a reader that does not care about debug information
 		// never has to look at it and a reader that does never has to guess where it ends.
@@ -162,7 +275,8 @@ namespace ceres::fmt
 		if (!file)
 			return std::unexpected("Failed to read data segment from file: " + filePath.string());
 
-		return Program(header, std::move(text), std::move(rodata), std::move(data), readDebugSection(file, header));
+		std::vector<InterruptVectorPatch> interruptVectors = readInterruptVectors(file, header);
+		return Program(header, std::move(text), std::move(rodata), std::move(data), std::move(interruptVectors), readDebugSection(file, header));
 	}
 
 	std::expected<Program, std::string> Program::loadFromBytes(std::span<const ByteType> bytes)
@@ -190,7 +304,9 @@ namespace ceres::fmt
 		std::vector<Program::ByteType> data(header->dataSize);
 		std::copy(bytes.data() + sizeof(ProgramHeader) + header->textSize + header->rodataSize, bytes.data() + expectedSize, data.begin());
 
-		return Program(*header, std::move(text), std::move(rodata), std::move(data), readDebugSection(bytes, expectedSize, *header));
+		usize offset = expectedSize;
+		std::vector<InterruptVectorPatch> interruptVectors = readInterruptVectors(bytes, offset, *header);
+		return Program(*header, std::move(text), std::move(rodata), std::move(data), std::move(interruptVectors), readDebugSection(bytes, offset, *header));
 	}
 
 	std::expected<Program, std::string> Program::loadFromStream(std::istream& stream)
@@ -227,7 +343,8 @@ namespace ceres::fmt
 		if (!stream)
 			return std::unexpected("Failed to read data segment from stream");
 
-		return Program(header, std::move(text), std::move(rodata), std::move(data), readDebugSection(stream, header));
+		std::vector<InterruptVectorPatch> interruptVectors = readInterruptVectors(stream, header);
+		return Program(header, std::move(text), std::move(rodata), std::move(data), std::move(interruptVectors), readDebugSection(stream, header));
 	}
 
 	std::expected<Program, std::string> Program::loadFromMemory(const void* memory, usize size)
@@ -257,8 +374,11 @@ namespace ceres::fmt
 		std::vector<Program::ByteType> data(header->dataSize);
 		std::copy(basePtr + sizeof(ProgramHeader) + header->textSize + header->rodataSize, basePtr + expectedSize, data.begin());
 
+		const std::span<const ByteType> allBytes(basePtr, size);
+		usize offset = expectedSize;
+		std::vector<InterruptVectorPatch> interruptVectors = readInterruptVectors(allBytes, offset, *header);
 		return Program(*header, std::move(text), std::move(rodata), std::move(data),
-			readDebugSection(std::span<const ByteType>(basePtr, size), expectedSize, *header));
+			std::move(interruptVectors), readDebugSection(allBytes, offset, *header));
 	}
 
 	std::expected<Program, std::string> Program::loadFromString(const std::string& str)

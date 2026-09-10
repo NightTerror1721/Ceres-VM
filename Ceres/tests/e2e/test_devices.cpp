@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <span>
 
 using namespace ceres;
 using namespace ceres::vm;
@@ -308,6 +309,117 @@ TEST(devices, writing_zero_disarms_the_timer)
 
 	timer.arm(0);
 	CHECK(!timer.isArmed());
+}
+
+// --- The terminal's input interrupt -------------------------------------------------------------
+
+TEST(devices, pushing_input_raises_the_terminals_interrupt)
+{
+	Machine m{ Instruction::STI(), Instruction::NOP(), Instruction::NOP() };
+
+	TerminalDevice terminal{};
+	terminal.attachTo(m.vm().io());
+
+	m.installHandler(TerminalDevice::Interrupt, Address(0x800), {
+		Instruction::LI(9, 0x51),
+		Instruction::IRET(),
+	});
+
+	terminal.pushInput('X');
+	m.step(3);
+
+	CHECK_EQ(m.reg(9), 0x51u);
+}
+
+TEST(devices, the_terminal_wakes_a_halted_machine_on_input)
+{
+	// The motivating case: HALT suspends the machine until *some* interrupt arrives, and the
+	// terminal is now one of the things that can raise one - not just the timer.
+	Machine m{
+		Instruction::STI(),
+		Instruction::HALT(),
+		Instruction::INB(1, TerminalDevice::InputPort),
+	};
+
+	TerminalDevice terminal{};
+	terminal.attachTo(m.vm().io());
+
+	m.installHandler(TerminalDevice::Interrupt, Address(0x800), {
+		Instruction::IRET(),
+	});
+
+	m.step(2);
+	CHECK(m.flags().halting());
+
+	// Nothing was pending before this: the interrupt is raised by the push itself, not by time
+	// passing, which is exactly the difference from the timer.
+	terminal.pushInput('X');
+	m.step(3);
+
+	CHECK(!m.flags().halting());
+	CHECK_EQ(m.reg(1), static_cast<u32>('X'));
+}
+
+TEST(devices, pushing_input_with_nothing_to_deliver_raises_no_interrupt)
+{
+	// An empty span (or a full ring buffer) writes no byte, so there is nothing to be woken up
+	// about - and nothing here to distinguish from the interrupt never having been requested.
+	Machine m{ Instruction::STI(), Instruction::HALT() };
+
+	TerminalDevice terminal{};
+	terminal.attachTo(m.vm().io());
+
+	m.step(2);
+	CHECK(m.flags().halting());
+
+	terminal.pushInput(std::span<const u8>{});
+	m.step(1);
+
+	CHECK(m.flags().halting());
+}
+
+TEST(devices, the_interrupt_directive_installs_a_real_handler_for_terminal_input)
+{
+	// The whole path this feature exists for: a real .casm program, assembled and loaded exactly
+	// as `ceres run` would, ends up with its own handler in the vector table instead of the BIOS's.
+	AssembleResult r = assembleSource(
+		"interrupt UserInterrupt1: term_isr\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    sti\r\n"
+		"    halt\r\n"
+		"    halt\r\n" // never reached; just gives the resume point after IRET somewhere harmless
+		"term_isr:\r\n"
+		"    inb r1, 0x02\r\n"  // TERM_IN
+		"    outb 0x01, r1\r\n" // TERM_OUT - echo it straight back
+		"    iret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	CeresVM vm{};
+	TerminalDevice terminal{};
+	terminal.attachTo(vm.io());
+
+	std::string captured;
+	terminal.setOutputSink([&captured](u8 byte) { captured.push_back(static_cast<char>(byte)); });
+
+	auto loaded = vm.loadProgram(r.program.value());
+	CHECK(loaded.has_value());
+	if (!loaded.has_value()) { Registry::instance().recordFailure(loaded.error()); return; }
+
+	vm.engine().step(); // sti
+	vm.engine().step(); // halt
+	CHECK(vm.engine().flags().halting());
+
+	terminal.pushInput('Q');
+
+	vm.engine().step(); // delivers UserInterrupt1 and, in the same step, runs `inb`
+	vm.engine().step(); // outb
+	vm.engine().step(); // iret
+
+	CHECK(!vm.engine().flags().halting());
+	CHECK_EQ(captured, std::string{ "Q" });
 }
 
 // --- The terminal's output sink ----------------------------------------------------------------

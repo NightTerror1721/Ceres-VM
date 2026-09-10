@@ -490,3 +490,154 @@ TEST(objects, the_line_table_of_a_linked_program_names_both_of_its_sources)
 	}
 	CHECK(allInside);
 }
+
+// --- Interrupt vector binding across objects --------------------------------------------------
+//
+// An `interrupt` declaration resolves to a placeholder address the moment a unit is assembled on
+// its own - it does not yet know where its own code will land, let alone another object's. It
+// travels as an ObjectInterruptBinding instead, exactly the way an ordinary address-bearing field
+// becomes a Relocation, and only `ceres link` turns it into a real InterruptVectorPatch.
+
+TEST(objects, an_interrupt_binding_reaches_a_handler_defined_in_another_object)
+{
+	ObjectWorkspace ws{ "interrupt_cross_object" };
+	ws.write("lib.casm",
+		"@text\r\n"
+		"global term_isr:\r\n"
+		"    inb r1, 0x02\r\n"  // TERM_IN
+		"    outb 0x01, r1\r\n" // TERM_OUT - echo it straight back
+		"    li r0, 1\r\n"
+		"    outb 0xFF, r0\r\n" // shut the machine down from inside the handler
+		"    iret\r\n");
+	ws.write("main.casm",
+		"import \"lib.casm\"\r\n"
+		"interrupt UserInterrupt1: term_isr\r\n"
+		"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    sti\r\n"
+		"    halt\r\n");
+
+	auto library = ws.assemble("lib.casm");
+	auto program = ws.assemble("main.casm");
+	CHECK(library.has_value() && program.has_value());
+	if (!library || !program) { Registry::instance().recordFailure(ws.firstError()); return; }
+
+	// The binding is recorded, not resolved: main.casm cannot know term_isr's address until it
+	// knows where lib.casm's .text ends up, which is a question only the link can answer.
+	CHECK_EQ(program->interruptBindings.size(), usize{ 1 });
+	if (!program->interruptBindings.empty())
+	{
+		CHECK_EQ(program->interruptBindings.front().interruptNumber, u8{ 17 });
+		CHECK(program->interruptBindings.front().isExternal());
+		CHECK_EQ(program->interruptBindings.front().symbol, std::string{ "term_isr" });
+	}
+
+	std::vector<casm::ObjectArchive::Member> inputs;
+	inputs.push_back(memberOf("main.cobj", std::move(program.value())));
+	inputs.push_back(memberOf("lib.cobj", std::move(library.value())));
+
+	casm::ObjectLinker linker;
+	auto linked = linker.link(std::move(inputs));
+
+	CHECK(linked.has_value());
+	if (!linked) { Registry::instance().recordFailure(linker.errors().front()); return; }
+	CHECK_EQ(linked->interruptVectors().size(), usize{ 1 });
+
+	CeresVM vm{};
+	SystemControlDevice sysctl{ [&vm]() { vm.shutdown(); }, [&vm]() { vm.shutdown(); } };
+	sysctl.attachTo(vm.io());
+
+	TerminalDevice terminal{};
+	terminal.attachTo(vm.io());
+	std::string captured;
+	terminal.setOutputSink([&captured](u8 byte) { captured.push_back(static_cast<char>(byte)); });
+
+	auto loaded = vm.loadProgram(linked.value());
+	CHECK(loaded.has_value());
+	if (!loaded) { Registry::instance().recordFailure(loaded.error()); return; }
+
+	// Pushed before run() starts: sti unmasks it on the very next step, so the machine never
+	// actually needs to sit halted for this to prove the vector reached the right handler.
+	terminal.pushInput('Z');
+	(void)vm.run();
+
+	CHECK_EQ(captured, std::string{ "Z" });
+}
+
+TEST(objects, the_same_interrupt_bound_in_two_objects_is_a_link_error)
+{
+	ObjectWorkspace ws{ "interrupt_duplicate" };
+	ws.write("a.casm",
+		"interrupt UserInterrupt0: handler_a\r\n"
+		"@text\r\n"
+		"global handler_a:\r\n"
+		"    iret\r\n");
+	ws.write("b.casm",
+		"interrupt UserInterrupt0: handler_b\r\n"
+		"@text\r\n"
+		"global handler_b:\r\n"
+		"    iret\r\n");
+
+	auto a = ws.assemble("a.casm");
+	auto b = ws.assemble("b.casm");
+	CHECK(a.has_value() && b.has_value());
+	if (!a || !b) { Registry::instance().recordFailure(ws.firstError()); return; }
+
+	std::vector<casm::ObjectArchive::Member> inputs;
+	inputs.push_back(memberOf("a.cobj", std::move(a.value())));
+	inputs.push_back(memberOf("b.cobj", std::move(b.value())));
+
+	casm::ObjectLinker linker;
+	auto linked = linker.link(std::move(inputs), casm::ObjectLinkOptions{ .requireEntryPoint = false });
+
+	CHECK(!linked.has_value());
+	CHECK(linker.hasErrors());
+
+	bool foundDuplicateError = false;
+	for (const std::string& error : linker.errors())
+	{
+		if (error.find("already bound") != std::string::npos)
+			foundDuplicateError = true;
+	}
+	CHECK(foundDuplicateError);
+}
+
+TEST(objects, an_interrupt_bound_to_a_handler_the_link_never_receives_is_a_link_error)
+{
+	// Mirrors a_name_nothing_defines_is_a_link_error: main.casm assembles cleanly because
+	// term_isr is visible through the import, but lib.cobj is never handed to the linker.
+	ObjectWorkspace ws{ "interrupt_undefined" };
+	ws.write("lib.casm",
+		"@text\r\n"
+		"global term_isr:\r\n"
+		"    iret\r\n");
+	ws.write("main.casm",
+		"import \"lib.casm\"\r\n"
+		"interrupt UserInterrupt1: term_isr\r\n"
+		"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	auto program = ws.assemble("main.casm");
+	CHECK(program.has_value());
+	if (!program) { Registry::instance().recordFailure(ws.firstError()); return; }
+
+	std::vector<casm::ObjectArchive::Member> inputs;
+	inputs.push_back(memberOf("main.cobj", std::move(program.value())));
+
+	casm::ObjectLinker linker;
+	auto linked = linker.link(std::move(inputs));
+
+	CHECK(!linked.has_value());
+	CHECK(linker.hasErrors());
+
+	bool foundUndefined = false;
+	for (const std::string& error : linker.errors())
+	{
+		if (error.find("'term_isr'") != std::string::npos)
+			foundUndefined = true;
+	}
+	CHECK(foundUndefined);
+}

@@ -28,6 +28,7 @@ namespace ceres::casm
 		Align, // 'align' directive: pad the current section up to a boundary.
 		Org, // 'org' directive: pad the current section up to an offset within it.
 		Assert, // 'assert' directive: a constant expression that has to hold at assembly time.
+		Interrupt, // 'interrupt' declaration: binds an interrupt number to a handler label.
 	};
 
 	enum class LabelLevel : u8

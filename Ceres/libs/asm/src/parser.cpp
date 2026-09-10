@@ -96,6 +96,8 @@ namespace ceres::casm
 					statement = parseStructDeclaration(false);
 				else if (_cursor.matchAny({ KeywordType::Align, KeywordType::Org, KeywordType::Assert }))
 					return parseDirective();
+				else if (_cursor.match(KeywordType::Interrupt))
+					statement = parseInterruptBinding();
 				else if (_cursor.match(KeywordType::Alias))
 				{
 					parseRegisterAlias(false);
@@ -279,6 +281,23 @@ namespace ceres::casm
 		}
 
 		return Statement::makeDirective(_file, line, kind, std::move(value), message);
+	}
+
+	// `interrupt <number>: <label>`. Both sides are ordinary operands - the number is usually a
+	// named constant (`UserInterrupt0`) or a literal, the target a label - so this reuses the same
+	// parseOperand() an instruction's operands go through, rather than inventing a narrower parser.
+	// Anything that resolves to something other than an immediate/label is caught later, once the
+	// symbol table can say what a name actually is.
+	Statement Parser::parseInterruptBinding()
+	{
+		const u32 line = _cursor.current().line();
+		_cursor.next(); // Consume 'interrupt'
+
+		Operand number = parseOperand();
+		_cursor.consume(TokenType::Colon, "Expected ':' after the interrupt number in an interrupt binding");
+		Operand target = parseOperand();
+
+		return Statement::makeInterruptBinding(_file, line, std::move(number), std::move(target));
 	}
 
 	void Parser::parseRegisterAlias(bool isGlobal)

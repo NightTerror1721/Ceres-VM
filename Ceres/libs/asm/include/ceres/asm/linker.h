@@ -72,6 +72,11 @@ namespace ceres::casm
 		// Shared by both: the checks and the operand resolution that follow a layout.
 		bool resolveEverything();
 
+		// The second half of resolveEverything(): resolves every `interrupt` declaration's operands
+		// and merges the results into AssemblyState::interruptVectors(), reporting a reserved vector
+		// number, a duplicate binding, or a target that isn't a label/constant as a linker error.
+		void resolveInterruptVectors();
+
 		// Rewrites every LDV/STV whose variable the one-word form can reach. Returns true when it
 		// changed something, which means the layout it was measured against is no longer true.
 		bool relaxInstructions();
@@ -85,6 +90,7 @@ namespace ceres::casm
 		{
 			std::vector<std::vector<std::pair<std::string, Address>>> symbolAddresses;
 			std::vector<std::vector<std::vector<Operand>>> operands; // per unit, per instruction, in AST order
+				std::vector<std::vector<std::pair<Operand, Operand>>> interruptBindingOperands; // per unit, per interrupt binding
 		};
 		LinkSnapshot capture() const;
 		void restore(const LinkSnapshot& snapshot);

@@ -40,6 +40,7 @@ the assembler does internally at each stage of the build.
 21. [Debug information](21-Debug-Information.md) — the line and symbol tables, `--debug`, and how they ride along in a `.cres`.
 22. [The debugger](22-Debugger.md) — `ceres debug`: breakpoints, stepping by source line, the reconstructed call stack.
 25. [Separate compilation](25-Separate-Compilation.md) — `.cobj` objects, archives and `ceres link`: building one file at a time.
+26. [Interrupt vector binding](26-Interrupt-Vector-Binding.md) — the `interrupt NUMBER: handler` declaration, and how a program gets its own handler installed instead of the BIOS's.
 
 ### Learn by doing
 
@@ -74,6 +75,11 @@ If you already knew this language, these are the parts that moved:
 - **Separate compilation.** `ceres asm -c` writes an object, `ceres link` joins objects into a
   program, and `ceres ar` makes a library that ships compiled —
   [Separate compilation](25-Separate-Compilation.md).
+- **`interrupt NUMBER: handler`** binds a vector to a label, patched into the null page by the
+  loader — the first way a program can install its own interrupt handler instead of the BIOS's
+  default stub. The terminal now raises `UserInterrupt1` when input arrives, so this is also what
+  `halt` needs to wake up on it instead of polling `TERM_STATUS` —
+  [Interrupt vector binding](26-Interrupt-Vector-Binding.md).
 
 ## Quick start
 

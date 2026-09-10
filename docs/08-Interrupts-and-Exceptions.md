@@ -31,9 +31,10 @@ enum class InterruptNumber : u8
 
 - **0–15 are reserved** (`ReservedInterruptCount = 16`) for system exceptions. These are **always
   deliverable**, regardless of the Interrupt flag (`sti`/`cli` only mask *user* interrupts).
-- **16–63 are user interrupts** (48 of them), only delivered while the Interrupt flag is set. The
-  only thing that currently raises one is the timer device, which always uses `UserInterrupt0` (16)
-  — see [I/O devices and ports](07-IO-Devices-and-Ports.md#timerdevice-ports-0x10-0x12).
+- **16–63 are user interrupts** (48 of them), only delivered while the Interrupt flag is set. Two
+  devices raise one today: the timer, always `UserInterrupt0` (16), and the terminal, always
+  `UserInterrupt1` (17) whenever `pushInput()` adds a byte to its buffer — see
+  [I/O devices and ports](07-IO-Devices-and-Ports.md#timerdevice-ports-0x10-0x12).
 
 `MemoryFault` (3) is raised by a store, or a block read, whose target overlaps the loaded program's
 `.text` — see [Memory → `.text` is read-only](02-Memory.md#text-is-read-only). Of the reserved
@@ -50,8 +51,14 @@ convention, the required entry point of every Ceres program (see
 The BIOS (see [`bios.h`](../Ceres/libs/vm/include/ceres/vm/bios.h)) initializes every vector from `Trap` through
 `UserInterrupt0` to point at its own 3-instruction stub at `0x100` (which prints `'E'` and halts), so
 an unhandled fault produces visible, if minimal, feedback instead of silently jumping through a null
-pointer. A program that wants real handling of a given interrupt overwrites that vector's 4 bytes
-with the address of its own handler.
+pointer.
+
+A running program can never overwrite this table itself — every checked memory write refuses any
+address below `0x400` (see [Memory](02-Memory.md#protected-vs-unrestricted-access)), on purpose: a
+stray pointer must not be able to corrupt interrupt dispatch. A program that wants real handling of a
+given interrupt instead declares `interrupt NUMBER: handler` (or `interrupt Name: handler`, using one
+of the names above), and the *loader* patches that one vector before the program's first instruction
+runs — see [Interrupt vector binding](26-Interrupt-Vector-Binding.md).
 
 ## Dispatch: what happens when an interrupt fires
 
@@ -109,5 +116,6 @@ destination register unchanged, without dispatching through the vector table at 
 
 - [Memory](02-Memory.md) — the vector table's location, the protected segment, the stack.
 - [Registers and flags](03-Registers-and-Flags.md) — the Interrupt/Halting/Trap flags.
-- [I/O devices and ports](07-IO-Devices-and-Ports.md) — the timer, the only device that raises a user interrupt today.
+- [I/O devices and ports](07-IO-Devices-and-Ports.md) — the timer and the terminal, the two devices that raise a user interrupt today.
 - [Instruction set → System control](05-Instruction-Set.md#system-control-0x00-0x07) — `int`, `iret`, `cli`, `sti`.
+- [Interrupt vector binding](26-Interrupt-Vector-Binding.md) — how a program points a vector at its own handler.

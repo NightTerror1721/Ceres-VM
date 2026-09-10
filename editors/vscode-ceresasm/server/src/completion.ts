@@ -1,6 +1,6 @@
 import { CompletionItem, CompletionItemKind, Position } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { KEYWORDS, LINKER_SYMBOLS, MNEMONICS, SECTIONS, TYPES } from './languageData';
+import { INTERRUPT_NUMBERS, KEYWORDS, LINKER_SYMBOLS, MNEMONICS, SECTIONS, TYPES } from './languageData';
 import {
 	findEnclosingMacro,
 	findEnclosingNonLocalLabel,
@@ -44,6 +44,10 @@ export function provideCompletion(document: TextDocument, position: Position, in
 
 	for (const [name, doc] of Object.entries(LINKER_SYMBOLS)) {
 		items.push({ label: name, kind: CompletionItemKind.Constant, detail: 'defined by the linker', documentation: doc });
+	}
+
+	for (const [name, doc] of Object.entries(INTERRUPT_NUMBERS)) {
+		items.push({ label: name, kind: CompletionItemKind.Constant, detail: 'interrupt number', documentation: doc });
 	}
 
 	for (let i = 0; i <= 15; i++) {

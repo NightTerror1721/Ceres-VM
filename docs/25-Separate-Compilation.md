@@ -35,6 +35,7 @@ difference between an object and a program.
 | Sections | The `.text`, `.rodata` and `.data` bytes this unit emits, plus how much `.bss` it needs. |
 | Symbols | The names this unit publishes — its `global` labels and variables — each with a section and an offset within it. |
 | Relocations | One per field left blank: the offset of the word, the field, the shift, whether it is PC-relative, and the target — either a section and an offset, or a name. |
+| Interrupt bindings | One per `interrupt NUMBER: handler` this unit declares: the number (already final — it's a constant) and the handler, as a target described exactly like a relocation's — a section and an offset, or a name. See [Interrupt vector binding](26-Interrupt-Vector-Binding.md). |
 | Debug tables | The line and symbol tables, addresses still relative to this unit's own sections. Only with `--debug`. |
 
 Nothing about types travels in an object. A caller learns what a symbol *is* from the source it
@@ -74,7 +75,9 @@ either way has the same shape of memory map. Then it:
    has a relocation for it, like any other name it does not define;
 3. fills in every relocated field, refusing exactly what the assembler would have refused: an
    address that does not fit its field, a branch out of range;
-4. finds the global `main`, and complains if no object has one.
+4. resolves every object's interrupt bindings the same way, then checks the one thing no single
+   object could: that two of them didn't bind the same number;
+5. finds the global `main`, and complains if no object has one.
 
 ## Archives
 
@@ -109,4 +112,5 @@ is one `ceres asm` away.
 - [Modules and `import`](15-Modules-and-Import.md) — what an import does in a whole-program build.
 - [Labels and symbols](12-Labels-and-Symbols.md) — `global`, and the symbols the linker defines.
 - [The `.cres` binary format](09-CRES-Binary-Format.md) — what a link produces.
+- [Interrupt vector binding](26-Interrupt-Vector-Binding.md) — `interrupt NUMBER: handler`, and how it survives being split across objects.
 - [Debug information](21-Debug-Information.md) — the tables an object carries and the link merges.
