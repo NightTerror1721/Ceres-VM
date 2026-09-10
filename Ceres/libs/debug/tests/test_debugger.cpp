@@ -56,12 +56,13 @@ namespace
 	//  6     call double_it
 	//  7     stv r0, total
 	//  8     li r0, 1
-	//  9     out 0xff, r0
-	// 10     ret
-	// 11
-	// 12 double_it:
-	// 13     add r0, r1, r1
-	// 14     ret
+	//  9     la r13, 0xFFFF0000   (SystemControlDevice's MMIO base)
+	// 10     strb [r13 + 0], r0
+	// 11     ret
+	// 12
+	// 13 double_it:
+	// 14     add r0, r1, r1
+	// 15     ret
 	constexpr std::string_view CallSource =
 		"@data\r\n"
 		"    let total: u32 = 0\r\n"
@@ -71,7 +72,8 @@ namespace
 		"    call double_it\r\n"
 		"    stv total, r0\r\n"
 		"    li r0, 1\r\n"
-		"    out 0xff, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n"
 		"\r\n"
 		"double_it:\r\n"
@@ -86,7 +88,8 @@ namespace
 		"    li r1, 5\r\n"
 		"    la r1, total\r\n"
 		"    li r0, 1\r\n"
-		"    out 0xff, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	std::unique_ptr<debug::DebugSession> launchOrNull(const TempSource& source, bool stopOnEntry = true)
@@ -148,8 +151,8 @@ TEST(debugger, a_line_breakpoint_stops_on_the_line_it_names)
 	CHECK(session != nullptr);
 	if (!session) return;
 
-	// Line 13 is `add r0, r1, r1`, inside double_it.
-	const auto id = session->addLineBreakpoint(source.string(), 13);
+	// Line 14 is `add r0, r1, r1`, inside double_it.
+	const auto id = session->addLineBreakpoint(source.string(), 14);
 	CHECK(id.has_value());
 	if (!id.has_value()) { Registry::instance().recordFailure(id.error()); return; }
 
@@ -162,7 +165,7 @@ TEST(debugger, a_line_breakpoint_stops_on_the_line_it_names)
 	const auto location = session->currentLocation();
 	CHECK(location.has_value());
 	if (location.has_value())
-		CHECK_EQ(location->expansionLine, 13u);
+		CHECK_EQ(location->expansionLine, 14u);
 
 	CHECK_EQ(session->breakpoints().front().hitCount, 1u);
 }
@@ -174,8 +177,8 @@ TEST(debugger, a_breakpoint_on_a_line_with_no_code_is_refused_with_a_reason)
 	CHECK(session != nullptr);
 	if (!session) return;
 
-	// Line 11 is blank, so nothing was emitted for it and there is nowhere to stop.
-	const auto id = session->addLineBreakpoint(source.string(), 11);
+	// Line 12 is blank, so nothing was emitted for it and there is nowhere to stop.
+	const auto id = session->addLineBreakpoint(source.string(), 12);
 	CHECK(!id.has_value());
 	CHECK(session->breakpoints().empty());
 }
@@ -199,7 +202,7 @@ TEST(debugger, a_symbol_breakpoint_stops_at_the_start_of_the_subroutine)
 	const auto location = session->currentLocation();
 	CHECK(location.has_value());
 	if (location.has_value())
-		CHECK_EQ(location->expansionLine, 13u);
+		CHECK_EQ(location->expansionLine, 14u);
 
 	// A variable is not a place to stop.
 	CHECK(!session->addSymbolBreakpoint("total").has_value());
@@ -269,12 +272,12 @@ TEST(debugger, stepping_into_a_call_enters_it_and_stepping_out_returns)
 
 	session->start();
 	session->stepLine(); // -> line 6
-	session->stepLine(); // -> into double_it, line 13
+	session->stepLine(); // -> into double_it, line 14
 
 	const auto inside = session->currentLocation();
 	CHECK(inside.has_value());
 	if (inside.has_value())
-		CHECK_EQ(inside->expansionLine, 13u);
+		CHECK_EQ(inside->expansionLine, 14u);
 	CHECK_EQ(session->callStack().size(), usize{ 2 });
 
 	const debug::StopEvent event = session->stepOut();
@@ -335,11 +338,13 @@ TEST(debugger, the_program_output_reaches_the_handler_byte_by_byte)
 		"@text\r\n"
 		"global main:\r\n"
 		"    li r1, 72\r\n"
-		"    outb 0x01, r1\r\n"
+		"    la r13, 0xFF000004\r\n"
+		"    strb [r13 + 0], r1\r\n"
 		"    li r1, 105\r\n"
-		"    outb 0x01, r1\r\n"
+		"    strb [r13 + 0], r1\r\n"
 		"    li r0, 1\r\n"
-		"    out 0xff, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource source{ PrintSource, "output" };
@@ -631,7 +636,8 @@ TEST(debugger, a_watch_catches_a_write_that_changes_nothing)
 		"    li r1, 7\r\n"
 		"    stv counter, r1\r\n"
 		"    li r0, 1\r\n"
-		"    out 0xff, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource source{ Source, "watchsame" };
@@ -660,7 +666,8 @@ TEST(debugger, a_read_watch_catches_a_load)
 		"global main:\r\n"
 		"    ldv r1, counter\r\n"
 		"    li r0, 1\r\n"
-		"    out 0xff, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource source{ Source, "watchread" };
@@ -703,7 +710,8 @@ TEST(debugger, a_function_with_a_frame_is_unwound_rather_than_inferred)
 		"    call level_one\r\n"
 		"    leave\r\n"
 		"    li r0, 1\r\n"
-		"    out 0xff, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n"
 		"level_one:\r\n"
 		"    enter 8\r\n"
@@ -717,7 +725,7 @@ TEST(debugger, a_function_with_a_frame_is_unwound_rather_than_inferred)
 	if (!session) return;
 
 	session->start();
-	session->addLineBreakpoint(unwindSource.string(), 11); // the nop inside level_one
+	session->addLineBreakpoint(unwindSource.string(), 12); // the nop inside level_one
 	session->resume();
 
 	const std::vector<debug::Frame> exact = session->unwindCallStack();
@@ -740,7 +748,8 @@ TEST(debugger, a_function_with_no_frame_has_nothing_to_unwind)
 		"global main:\r\n"
 		"    nop\r\n"
 		"    li r0, 1\r\n"
-		"    out 0xff, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource plainSource{ Source, "noframe" };

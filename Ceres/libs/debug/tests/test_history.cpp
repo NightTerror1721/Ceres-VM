@@ -53,8 +53,9 @@ namespace
 	//  9     cmp r3, 2000
 	// 10     jnz .loop
 	// 11     li r0, 1
-	// 12     out 0xff, r0
-	// 13     ret
+	// 12     la r13, 0xFFFF0000   (SystemControlDevice's MMIO base)
+	// 13     strb [r13 + 0], r0
+	// 14     ret
 	constexpr std::string_view LongLoop =
 		"@data\r\n"
 		"    let counter: u32 = 0\r\n"
@@ -67,7 +68,8 @@ namespace
 		"    cmp r3, 2000\r\n"
 		"    jnz .loop\r\n"
 		"    li r0, 1\r\n"
-		"    out 0xff, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	std::unique_ptr<debug::DebugSession> launchOrNull(const TempSource& source, bool record = true)
@@ -161,7 +163,8 @@ TEST(history, a_hundred_thousand_instructions_rewind_a_thousand_and_come_back_id
 		"    cmp r3, 30000\r\n"
 		"    jnz .loop\r\n"
 		"    li r0, 1\r\n"
-		"    out 0xff, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource source{ BigLoop, "hundredthousand" };
@@ -373,7 +376,8 @@ TEST(history, coverage_counts_every_word_and_reports_the_ones_never_reached)
 		"    li r2, 20\r\n"
 		".done:\r\n"
 		"    li r0, 1\r\n"
-		"    out 0xff, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource source{ BranchSource, "coverage" };

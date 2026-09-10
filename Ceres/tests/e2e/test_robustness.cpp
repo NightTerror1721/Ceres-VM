@@ -82,13 +82,8 @@ TEST(robustness, fneg_is_reachable)
 	CHECK_EQ(m.pc().value(), Memory::UnrestrictedSegmentStart.value() + 3 * Instruction::Size);
 }
 
-// --- VM-05: two factories emitted the wrong opcode -----------------------------------------
-
-TEST(robustness, the_byte_and_halfword_port_factories_emit_their_own_opcodes)
-{
-	CHECK(Instruction::INRB(1, 2).opcode() == Opcode::INRB);
-	CHECK(Instruction::INRH(1, 2).opcode() == Opcode::INRH);
-}
+// VM-05 used to live here: the byte and halfword port-read factories (INRB/INRH) emitting each
+// other's opcode. Both, and the whole port-based I/O family they belonged to, are retired.
 
 // --- Stack bounds ----------------------------------------------------------------------------
 

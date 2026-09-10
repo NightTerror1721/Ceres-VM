@@ -22,34 +22,24 @@ namespace
 	public:
 		const std::string& output() const noexcept { return _output; }
 
-		void attachTo(IOPorts& ports)
+		void attachTo(MmioBus& bus)
 		{
-			ports.attach(default_ports::TERM_STATUS, *this);
-			ports.attach(default_ports::TERM_OUT, *this);
-			ports.attach(default_ports::TERM_IN, *this);
+			bus.attach(default_mmio::Terminal, *this);
 		}
 
-		u8 readPortUnsignedByte(PortNumber) override { return 0; }
-		i8 readPortSignedByte(PortNumber) override { return 0; }
-		u16 readPortUnsignedHalfword(PortNumber) override { return 0; }
-		i16 readPortSignedHalfword(PortNumber) override { return 0; }
-		u32 readPortUnsignedWord(PortNumber) override { return 0; }
-		void readPort(PortNumber, Address, u32) override {}
+		u8 readUnsignedByte(Address) override { return 0; }
+		i8 readSignedByte(Address) override { return 0; }
+		u16 readUnsignedHalfword(Address) override { return 0; }
+		i16 readSignedHalfword(Address) override { return 0; }
+		u32 readUnsignedWord(Address) override { return 0; }
 
-		void writePortByte(PortNumber port, u8 value) override
+		void writeByte(Address offset, u8 value) override
 		{
-			if (port == default_ports::TERM_OUT)
+			if (offset == TerminalDevice::OutputRegister)
 				_output.push_back(static_cast<char>(value));
 		}
-		void writePortHalfword(PortNumber port, u16 value) override { writePortByte(port, static_cast<u8>(value)); }
-		void writePortWord(PortNumber port, u32 value) override { writePortByte(port, static_cast<u8>(value)); }
-		void writePort(PortNumber port, Address address, u32 size) override
-		{
-			if (port != default_ports::TERM_OUT || size == 0)
-				return;
-			for (u8 byte : memory().peekBytes(address, size))
-				_output.push_back(static_cast<char>(byte));
-		}
+		void writeHalfword(Address offset, u16 value) override { writeByte(offset, static_cast<u8>(value)); }
+		void writeWord(Address offset, u32 value) override { writeByte(offset, static_cast<u8>(value)); }
 	};
 
 	struct RunResult
@@ -92,7 +82,8 @@ namespace
 
 	constexpr std::string_view shutdown =
 		"    li r0, 1\r\n"
-		"    outb 0xFF, r0\r\n";
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n";
 }
 
 TEST(macros, a_macro_without_parameters_expands_in_place)
@@ -297,7 +288,8 @@ TEST(macros, an_expanded_macro_runs)
 	RunResult r = assembleAndRun(std::format(
 		"macro print_char $reg, $code\r\n"
 		"    li $reg, $code\r\n"
-		"    outb 0x01, $reg\r\n"
+		"    la r13, 0xFF000004\r\n"
+		"    strb [r13 + 0], $reg\r\n"
 		"endmacro\r\n"
 		"@text\r\n"
 		"global main:\r\n"
@@ -317,7 +309,8 @@ TEST(macros, a_hygienic_loop_inside_a_macro_runs_twice_independently)
 		"    li $reg, $from\r\n"
 		"%%loop:\r\n"
 		"    li r9, $char\r\n"
-		"    outb 0x01, r9\r\n"
+		"    la r13, 0xFF000004\r\n"
+		"    strb [r13 + 0], r9\r\n"
 		"    sub $reg, $reg, 1\r\n"
 		"    cmp $reg, 0\r\n"
 		"    jnz %%loop\r\n"

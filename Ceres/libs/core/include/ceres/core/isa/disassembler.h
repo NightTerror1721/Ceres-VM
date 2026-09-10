@@ -53,13 +53,6 @@ namespace ceres::isa
 			PCFLoad,        // FLDRP f1, [pc + 128]
 			PCStore,        // STRP [pc + 128], r1
 			PCFStore,       // FSTRP [pc + 128], f1
-			RdImm8,         // IN r1, 0x01
-			RsImm8,         // OUT 0x01, r1
-			RdRsImm8,       // INM 0x01, r1, r2
-			RsRtImm8,       // OUTM 0x01, r1, r2
-			RdRsPort,       // INR r1, r2
-			RsRtPort,       // OUTR r1, r2
-			RdRsRtPort,     // INRM / OUTRM
 		};
 
 		struct Entry
@@ -261,26 +254,6 @@ namespace ceres::isa
 				case Opcode::MTF:    return { "MTF",   Shape::FdRs };
 				case Opcode::MFF:    return { "MFF",   Shape::RdFs };
 
-				case Opcode::IN:     return { "IN",    Shape::RdImm8 };
-				case Opcode::INB:    return { "INB",   Shape::RdImm8 };
-				case Opcode::INH:    return { "INH",   Shape::RdImm8 };
-				case Opcode::INSB:   return { "INSB",  Shape::RdImm8 };
-				case Opcode::INSH:   return { "INSH",  Shape::RdImm8 };
-				case Opcode::INM:    return { "INM",   Shape::RdRsImm8 };
-				case Opcode::INR:    return { "INR",   Shape::RdRsPort };
-				case Opcode::INRB:   return { "INRB",  Shape::RdRsPort };
-				case Opcode::INRH:   return { "INRH",  Shape::RdRsPort };
-				case Opcode::INRSB:  return { "INRSB", Shape::RdRsPort };
-				case Opcode::INRSH:  return { "INRSH", Shape::RdRsPort };
-				case Opcode::INRM:   return { "INRM",  Shape::RdRsRtPort };
-				case Opcode::OUT:    return { "OUT",   Shape::RsImm8 };
-				case Opcode::OUTB:   return { "OUTB",  Shape::RsImm8 };
-				case Opcode::OUTH:   return { "OUTH",  Shape::RsImm8 };
-				case Opcode::OUTM:   return { "OUTM",  Shape::RsRtImm8 };
-				case Opcode::OUTR:   return { "OUTR",  Shape::RsRtPort };
-				case Opcode::OUTRB:  return { "OUTRB", Shape::RsRtPort };
-				case Opcode::OUTRH:  return { "OUTRH", Shape::RsRtPort };
-				case Opcode::OUTRM:  return { "OUTRM", Shape::RdRsRtPort };
 
 				default: return {};
 			}
@@ -340,13 +313,6 @@ namespace ceres::isa
 				case Shape::PCFLoad:    return std::format("{} f{}, [pc {} {}]", entry.name, rd, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)));
 				case Shape::PCStore:    return std::format("{} [pc {} {}], r{}", entry.name, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)), rs);
 				case Shape::PCFStore:   return std::format("{} [pc {} {}], f{}", entry.name, simm16 < 0 ? '-' : '+', std::abs(static_cast<int>(simm16)), rs);
-				case Shape::RdImm8:     return std::format("{} r{}, {:#04x}", entry.name, rd, imm8);
-				case Shape::RsImm8:     return std::format("{} {:#04x}, r{}", entry.name, imm8, rs);
-				case Shape::RdRsImm8:   return std::format("{} {:#04x}, r{}, r{}", entry.name, imm8, rd, rs);
-				case Shape::RsRtImm8:   return std::format("{} {:#04x}, r{}, r{}", entry.name, imm8, rs, rt);
-				case Shape::RdRsPort:   return std::format("{} r{}, r{}", entry.name, rd, rs);
-				case Shape::RsRtPort:   return std::format("{} r{}, r{}", entry.name, rt, rs);
-				case Shape::RdRsRtPort: return std::format("{} r{}, r{}, r{}", entry.name, rd, rs, rt);
 
 				default:
 					return std::format("<unknown opcode {:#04x}>", static_cast<u8>(opcode));

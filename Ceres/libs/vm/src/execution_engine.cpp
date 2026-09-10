@@ -115,7 +115,7 @@ namespace ceres::vm
 		if (_flags.get<ExecutionFlag::Halting>())
 		{
 			// Nothing to run, but devices still keep time: this is how a timer eventually fires.
-			_ioPorts.tick();
+			_mmioBus.tick();
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			return;
 		}
@@ -132,6 +132,6 @@ namespace ceres::vm
 		if (!_faulted)
 			execute(instruction);
 		++_executedInstructions;
-		_ioPorts.tick();
+		_mmioBus.tick();
 	}
 }

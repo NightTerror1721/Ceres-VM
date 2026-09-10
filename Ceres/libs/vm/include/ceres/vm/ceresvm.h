@@ -17,7 +17,7 @@ namespace ceres::vm
 	private:
 		Memory _memory;
 		InterruptController _interrupts;
-		IOPorts _ioPorts;
+		MmioBus _mmioBus;
 		BIOS _bios;
 		ExecutionEngine _engine;
 
@@ -29,8 +29,8 @@ namespace ceres::vm
 	public:
 		explicit CeresVM(usize memorySize = Memory::DefaultSize) :
 			_memory(memorySize),
-			_ioPorts(_memory, _interrupts),
-			_engine(_memory, _ioPorts, _interrupts)
+			_mmioBus(_memory, _interrupts),
+			_engine(_memory, _mmioBus, _interrupts)
 		{}
 
 		CeresVM(const CeresVM&) = delete;
@@ -55,7 +55,7 @@ namespace ceres::vm
 		bool isPoweredOn() const noexcept { return _isPoweredOn.load(std::memory_order_acquire); }
 		void shutdown() noexcept { _isPoweredOn.store(false, std::memory_order_release); }
 
-		IOPorts& io() noexcept { return _ioPorts; }
+		MmioBus& io() noexcept { return _mmioBus; }
 		InterruptController& interrupts() noexcept { return _interrupts; }
 
 		// Exposed so a test or a debugger can set up and inspect machine state directly,

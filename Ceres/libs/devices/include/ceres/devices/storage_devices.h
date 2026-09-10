@@ -1,11 +1,11 @@
 #pragma once
 
-// The two device ranges that were reserved from the start and never filled in: a block disk at
-// 0x20-0x23 and a text framebuffer at 0x30-0x33. Both are deliberately the simplest thing that
-// is actually usable rather than a sketch of a richer device: a disk is sectors of a fixed size,
-// and a framebuffer is a grid of characters that is written to and then shown.
+// The two device ranges that were reserved from the start and never filled in: a block disk and
+// a text framebuffer. Both are deliberately the simplest thing that is actually usable rather
+// than a sketch of a richer device: a disk is sectors of a fixed size, and a framebuffer is a
+// grid of characters that is written to and then shown.
 
-#include <ceres/vm/io_ports.h>
+#include <ceres/vm/mmio_bus.h>
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -21,21 +21,25 @@ namespace ceres::devices
 	using namespace vm;
 
 	// A disk of fixed-size sectors, backed by a host file when it is given one and by memory
-	// otherwise. Transfers go through `inm`/`outm` on the data port: the sector number and the
-	// command say what to move, and the block instruction says where in memory it goes.
+	// otherwise. A transfer goes through the block registers: the sector number says which one,
+	// and BLOCK_ADDR/BLOCK_LEN/BLOCK_CMD say where in memory it goes.
 	//
 	//   li   r1, 3
-	//   out  DISK_SECTOR, r1        // which sector
-	//   li   r2, 512
-	//   inm  buffer, DISK_DATA, r2  // read it into `buffer`
-	//   inb  r3, DISK_STATUS        // and check it worked
+	//   str  [r_sector + 0], r1     // which sector
+	//   str  [r_disk + BLOCK_ADDR], r_buffer
+	//   str  [r_disk + BLOCK_LEN], r2      // 512
+	//   li   r3, 1
+	//   str  [r_disk + BLOCK_CMD], r3       // 1 = read sector -> buffer
+	//   ldrb r4, [r_status]
 	class DiskDevice final : public IODevice
 	{
 	public:
-		static inline constexpr PortNumber StatusPort = default_ports::DISK_STATUS;
-		static inline constexpr PortNumber CommandPort = default_ports::DISK_CMD;
-		static inline constexpr PortNumber SectorPort = default_ports::DISK_SECTOR;
-		static inline constexpr PortNumber DataPort = default_ports::DISK_DATA;
+		static inline constexpr Address StatusRegister = Address(0x00);
+		static inline constexpr Address CommandRegister = Address(0x04);
+		static inline constexpr Address SectorRegister = Address(0x08);
+		static inline constexpr Address BlockAddressRegister = Address(0xF0);
+		static inline constexpr Address BlockLengthRegister = Address(0xF4);
+		static inline constexpr Address BlockCommandRegister = Address(0xF8);
 
 		static inline constexpr u32 SectorSize = 512;
 
@@ -44,9 +48,13 @@ namespace ceres::devices
 		static inline constexpr u32 StatusReady = 1u << 0;
 		static inline constexpr u32 StatusError = 1u << 1;
 
-		// Commands, written to the command port. A flush is only meaningful for a file-backed
+		// Commands, written to the command register. A flush is only meaningful for a file-backed
 		// disk; on a memory one it succeeds and does nothing.
 		static inline constexpr u32 CommandFlush = 1;
+
+		// Block commands: which direction BLOCK_CMD moves the selected sector.
+		static inline constexpr u32 BlockCommandRead = 1;  // sector -> RAM
+		static inline constexpr u32 BlockCommandWrite = 2; // RAM -> sector
 
 	private:
 		std::vector<u8> _image;
@@ -54,6 +62,8 @@ namespace ceres::devices
 		u32 _sector = 0;
 		u32 _status = StatusReady;
 		bool _dirty = false;
+		u32 _blockAddress = 0;
+		u32 _blockLength = 0;
 
 	public:
 		// A disk of `sectors` empty sectors, with nothing behind it.
@@ -74,20 +84,14 @@ namespace ceres::devices
 		DiskDevice& operator=(DiskDevice&&) = delete;
 
 	public:
-		void attachTo(IOPorts& ioPorts)
+		void attachTo(MmioBus& bus)
 		{
-			ioPorts.attach(StatusPort, *this);
-			ioPorts.attach(CommandPort, *this);
-			ioPorts.attach(SectorPort, *this);
-			ioPorts.attach(DataPort, *this);
+			bus.attach(default_mmio::Disk, *this);
 		}
 
-		void detachFrom(IOPorts& ioPorts)
+		void detachFrom(MmioBus& bus)
 		{
-			ioPorts.detach(StatusPort);
-			ioPorts.detach(CommandPort);
-			ioPorts.detach(SectorPort);
-			ioPorts.detach(DataPort);
+			bus.detach(default_mmio::Disk);
 		}
 
 		// Backs the disk with a host file, creating it at `sectors` sectors if it is not there.
@@ -136,26 +140,11 @@ namespace ceres::devices
 		u32 sectorCount() const noexcept { return static_cast<u32>(_image.size() / SectorSize); }
 		std::span<const u8> image() const noexcept { return _image; }
 
-	public:
-		u8 readPortUnsignedByte(PortNumber port) override { return static_cast<u8>(readPortUnsignedWord(port)); }
-		i8 readPortSignedByte(PortNumber port) override { return static_cast<i8>(readPortUnsignedWord(port)); }
-		u16 readPortUnsignedHalfword(PortNumber port) override { return static_cast<u16>(readPortUnsignedWord(port)); }
-		i16 readPortSignedHalfword(PortNumber port) override { return static_cast<i16>(readPortUnsignedWord(port)); }
-
-		u32 readPortUnsignedWord(PortNumber port) override
+	private:
+		// `size` bytes of the selected sector, into memory at `ramAddress`.
+		void blockRead(Address ramAddress, u32 size)
 		{
-			switch (port)
-			{
-				case StatusPort: return _status;
-				case SectorPort: return _sector;
-				default: return 0;
-			}
-		}
-
-		// `inm buffer, DISK_DATA, size`: the selected sector, into memory.
-		void readPort(PortNumber port, Address address, u32 size) override
-		{
-			if (port != DataPort || size == 0)
+			if (size == 0)
 				return;
 
 			const usize offset = static_cast<usize>(_sector) * SectorSize;
@@ -169,37 +158,15 @@ namespace ceres::devices
 			// next one: a sector is the unit, and silently spilling into its neighbour is how a
 			// program ends up with data it never asked for.
 			const u32 available = static_cast<u32>(std::min<usize>(size, _image.size() - offset));
-			auto buffer = memory().peekMutBytes(address, available);
+			auto buffer = memory().peekMutBytes(ramAddress, available);
 			std::copy_n(_image.begin() + static_cast<std::ptrdiff_t>(offset), available, buffer.begin());
 			_status = StatusReady;
 		}
 
-		void writePortByte(PortNumber port, u8 value) override { writePortWord(port, value); }
-		void writePortHalfword(PortNumber port, u16 value) override { writePortWord(port, value); }
-
-		void writePortWord(PortNumber port, u32 value) override
+		// `size` bytes of memory at `ramAddress`, into the selected sector.
+		void blockWrite(Address ramAddress, u32 size)
 		{
-			switch (port)
-			{
-				case SectorPort:
-					_sector = value;
-					_status = value < sectorCount() ? StatusReady : StatusError;
-					break;
-
-				case CommandPort:
-					if (value == CommandFlush)
-						_status = flush() ? StatusReady : StatusError;
-					break;
-
-				default:
-					break;
-			}
-		}
-
-		// `outm DISK_DATA, buffer, size`: memory into the selected sector.
-		void writePort(PortNumber port, Address address, u32 size) override
-		{
-			if (port != DataPort || size == 0)
+			if (size == 0)
 				return;
 
 			const usize offset = static_cast<usize>(_sector) * SectorSize;
@@ -210,39 +177,77 @@ namespace ceres::devices
 			}
 
 			const u32 available = static_cast<u32>(std::min<usize>(size, _image.size() - offset));
-			const auto bytes = memory().peekBytes(address, available);
+			const auto bytes = memory().peekBytes(ramAddress, available);
 			std::copy_n(bytes.begin(), available, _image.begin() + static_cast<std::ptrdiff_t>(offset));
 			_status = StatusReady;
 			_dirty = true;
+		}
+
+	public:
+		u8 readUnsignedByte(Address offset) override { return static_cast<u8>(readUnsignedWord(offset)); }
+		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedWord(offset)); }
+		u16 readUnsignedHalfword(Address offset) override { return static_cast<u16>(readUnsignedWord(offset)); }
+		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedWord(offset)); }
+
+		u32 readUnsignedWord(Address offset) override
+		{
+			if (offset == StatusRegister) return _status;
+			if (offset == SectorRegister) return _sector;
+			return 0;
+		}
+
+		void writeByte(Address offset, u8 value) override { writeWord(offset, value); }
+		void writeHalfword(Address offset, u16 value) override { writeWord(offset, value); }
+
+		void writeWord(Address offset, u32 value) override
+		{
+			if (offset == SectorRegister)
+			{
+				_sector = value;
+				_status = value < sectorCount() ? StatusReady : StatusError;
+				return;
+			}
+			if (offset == CommandRegister)
+			{
+				if (value == CommandFlush)
+					_status = flush() ? StatusReady : StatusError;
+				return;
+			}
+			if (offset == BlockAddressRegister) { _blockAddress = value; return; }
+			if (offset == BlockLengthRegister) { _blockLength = value; return; }
+			if (offset == BlockCommandRegister)
+			{
+				if (value == BlockCommandRead)
+					blockRead(Address(_blockAddress), _blockLength);
+				else if (value == BlockCommandWrite)
+					blockWrite(Address(_blockAddress), _blockLength);
+			}
 		}
 	};
 
 	// A grid of characters that a program draws into and then shows. Not pixels: this machine has
 	// no window to put them in, and a text framebuffer is the thing the tutorial's games actually
 	// want - a board that is redrawn whole rather than a terminal that is scrolled.
-	//
-	//   li   r1, 20
-	//   out  GPU_WIDTH, r1
-	//   li   r1, 10
-	//   out  GPU_HEIGHT, r1
-	//   li   r1, 1
-	//   out  GPU_CMD, r1            // clear
-	//   outm GPU_DATA, cells, size  // the whole grid at once
-	//   li   r1, 2
-	//   out  GPU_CMD, r1            // show it
 	class FramebufferDevice final : public IODevice
 	{
 	public:
-		static inline constexpr PortNumber CommandPort = default_ports::GPU_CMD;
-		static inline constexpr PortNumber WidthPort = default_ports::GPU_WIDTH;
-		static inline constexpr PortNumber HeightPort = default_ports::GPU_HEIGHT;
-		static inline constexpr PortNumber DataPort = default_ports::SPRITE_DATA;
+		static inline constexpr Address CommandRegister = Address(0x00);
+		static inline constexpr Address WidthRegister = Address(0x04);
+		static inline constexpr Address HeightRegister = Address(0x08);
+		static inline constexpr Address DataRegister = Address(0x0C);
+		static inline constexpr Address BlockAddressRegister = Address(0xF0);
+		static inline constexpr Address BlockLengthRegister = Address(0xF4);
+		static inline constexpr Address BlockCommandRegister = Address(0xF8);
 
 		static inline constexpr u32 CommandClear = 1;
 		static inline constexpr u32 CommandPresent = 2;
 
 		static inline constexpr u32 MaxWidth = 200;
 		static inline constexpr u32 MaxHeight = 100;
+
+		// Block commands: DataRegister writes one cell at a time; the block form (BlockCommandWrite
+		// only - a framebuffer is never read back in bulk) writes a run in one trigger.
+		static inline constexpr u32 BlockCommandWrite = 2;
 
 		using PresentSink = std::function<void(std::string_view)>;
 
@@ -252,6 +257,8 @@ namespace ceres::devices
 		std::vector<u8> _cells;
 		u32 _cursor = 0; // Where the next block write lands, in cells
 		PresentSink _sink;
+		u32 _blockAddress = 0;
+		u32 _blockLength = 0;
 
 	public:
 		FramebufferDevice() : _cells(static_cast<usize>(_width) * _height, ' ') {}
@@ -264,20 +271,14 @@ namespace ceres::devices
 		FramebufferDevice& operator=(FramebufferDevice&&) = delete;
 
 	public:
-		void attachTo(IOPorts& ioPorts)
+		void attachTo(MmioBus& bus)
 		{
-			ioPorts.attach(CommandPort, *this);
-			ioPorts.attach(WidthPort, *this);
-			ioPorts.attach(HeightPort, *this);
-			ioPorts.attach(DataPort, *this);
+			bus.attach(default_mmio::Framebuffer, *this);
 		}
 
-		void detachFrom(IOPorts& ioPorts)
+		void detachFrom(MmioBus& bus)
 		{
-			ioPorts.detach(CommandPort);
-			ioPorts.detach(WidthPort);
-			ioPorts.detach(HeightPort);
-			ioPorts.detach(DataPort);
+			bus.detach(default_mmio::Framebuffer);
 		}
 
 		// Where a presented frame goes. Without one it goes to stdout, which is what the CLI wants
@@ -310,67 +311,52 @@ namespace ceres::devices
 		}
 
 	public:
-		u8 readPortUnsignedByte(PortNumber port) override { return static_cast<u8>(readPortUnsignedWord(port)); }
-		i8 readPortSignedByte(PortNumber port) override { return static_cast<i8>(readPortUnsignedWord(port)); }
-		u16 readPortUnsignedHalfword(PortNumber port) override { return static_cast<u16>(readPortUnsignedWord(port)); }
-		i16 readPortSignedHalfword(PortNumber port) override { return static_cast<i16>(readPortUnsignedWord(port)); }
+		u8 readUnsignedByte(Address offset) override { return static_cast<u8>(readUnsignedWord(offset)); }
+		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedWord(offset)); }
+		u16 readUnsignedHalfword(Address offset) override { return static_cast<u16>(readUnsignedWord(offset)); }
+		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedWord(offset)); }
 
-		u32 readPortUnsignedWord(PortNumber port) override
+		u32 readUnsignedWord(Address offset) override
 		{
-			switch (port)
-			{
-				case WidthPort: return _width;
-				case HeightPort: return _height;
-				default: return 0;
-			}
+			if (offset == WidthRegister) return _width;
+			if (offset == HeightRegister) return _height;
+			return 0;
 		}
 
-		void readPort(PortNumber, Address, u32) override {}
+		void writeByte(Address offset, u8 value) override { writeWord(offset, value); }
+		void writeHalfword(Address offset, u16 value) override { writeWord(offset, value); }
 
-		void writePortByte(PortNumber port, u8 value) override { writePortWord(port, value); }
-		void writePortHalfword(PortNumber port, u16 value) override { writePortWord(port, value); }
-
-		void writePortWord(PortNumber port, u32 value) override
+		void writeWord(Address offset, u32 value) override
 		{
-			switch (port)
+			if (offset == WidthRegister) { resize(value, _height); return; }
+			if (offset == HeightRegister) { resize(_width, value); return; }
+
+			if (offset == CommandRegister)
 			{
-				case WidthPort: resize(value, _height); break;
-				case HeightPort: resize(_width, value); break;
-
-				case CommandPort:
-					if (value == CommandClear)
-					{
-						std::ranges::fill(_cells, static_cast<u8>(' '));
-						_cursor = 0;
-					}
-					else if (value == CommandPresent)
-					{
-						present();
-					}
-					break;
-
-				case DataPort:
-					// One cell at a time, for a program that would rather poke than blit.
-					if (_cursor < _cells.size())
-						_cells[_cursor++] = static_cast<u8>(value & 0xFFu);
-					break;
-
-				default:
-					break;
-			}
-		}
-
-		// `outm GPU_DATA, cells, size`: a run of cells starting where the last one left off, so a
-		// whole grid is one instruction and a row is one per row.
-		void writePort(PortNumber port, Address address, u32 size) override
-		{
-			if (port != DataPort || size == 0 || _cursor >= _cells.size())
+				if (value == CommandClear)
+				{
+					std::ranges::fill(_cells, static_cast<u8>(' '));
+					_cursor = 0;
+				}
+				else if (value == CommandPresent)
+				{
+					present();
+				}
 				return;
+			}
 
-			const u32 available = static_cast<u32>(std::min<usize>(size, _cells.size() - _cursor));
-			const auto bytes = memory().peekBytes(address, available);
-			std::copy_n(bytes.begin(), available, _cells.begin() + static_cast<std::ptrdiff_t>(_cursor));
-			_cursor += available;
+			if (offset == DataRegister)
+			{
+				// One cell at a time, for a program that would rather poke than blit.
+				if (_cursor < _cells.size())
+					_cells[_cursor++] = static_cast<u8>(value & 0xFFu);
+				return;
+			}
+
+			if (offset == BlockAddressRegister) { _blockAddress = value; return; }
+			if (offset == BlockLengthRegister) { _blockLength = value; return; }
+			if (offset == BlockCommandRegister && value == BlockCommandWrite)
+				blockWrite(Address(_blockAddress), _blockLength);
 		}
 
 	private:
@@ -384,6 +370,19 @@ namespace ceres::devices
 			_height = height;
 			_cells.assign(static_cast<usize>(_width) * _height, ' ');
 			_cursor = 0;
+		}
+
+		// A run of cells starting where the last write left off, so a whole grid is one trigger
+		// and a row is one per row.
+		void blockWrite(Address ramAddress, u32 size)
+		{
+			if (size == 0 || _cursor >= _cells.size())
+				return;
+
+			const u32 available = static_cast<u32>(std::min<usize>(size, _cells.size() - _cursor));
+			const auto bytes = memory().peekBytes(ramAddress, available);
+			std::copy_n(bytes.begin(), available, _cells.begin() + static_cast<std::ptrdiff_t>(_cursor));
+			_cursor += available;
 		}
 
 		void present()

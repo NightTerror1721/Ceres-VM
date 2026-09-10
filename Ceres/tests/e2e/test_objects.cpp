@@ -93,37 +93,43 @@ namespace
 	{
 	private:
 		std::string _output;
+		u32 _blockAddress = 0;
+		u32 _blockLength = 0;
 
 	public:
 		const std::string& output() const noexcept { return _output; }
 
-		void attachTo(IOPorts& ports)
+		void attachTo(MmioBus& bus)
 		{
-			ports.attach(default_ports::TERM_STATUS, *this);
-			ports.attach(default_ports::TERM_OUT, *this);
-			ports.attach(default_ports::TERM_IN, *this);
+			bus.attach(default_mmio::Terminal, *this);
 		}
 
-		u8 readPortUnsignedByte(PortNumber) override { return 0; }
-		i8 readPortSignedByte(PortNumber) override { return 0; }
-		u16 readPortUnsignedHalfword(PortNumber) override { return 0; }
-		i16 readPortSignedHalfword(PortNumber) override { return 0; }
-		u32 readPortUnsignedWord(PortNumber) override { return 0; }
-		void readPort(PortNumber, Address, u32) override {}
+		u8 readUnsignedByte(Address) override { return 0; }
+		i8 readSignedByte(Address) override { return 0; }
+		u16 readUnsignedHalfword(Address) override { return 0; }
+		i16 readSignedHalfword(Address) override { return 0; }
+		u32 readUnsignedWord(Address) override { return 0; }
 
-		void writePortByte(PortNumber port, u8 value) override
+		void writeByte(Address offset, u8 value) override
 		{
-			if (port == default_ports::TERM_OUT)
+			if (offset == TerminalDevice::OutputRegister)
 				_output.push_back(static_cast<char>(value));
 		}
-		void writePortHalfword(PortNumber port, u16 value) override { writePortByte(port, static_cast<u8>(value)); }
-		void writePortWord(PortNumber port, u32 value) override { writePortByte(port, static_cast<u8>(value)); }
-		void writePort(PortNumber port, Address address, u32 size) override
+		void writeHalfword(Address offset, u16 value) override { writeByte(offset, static_cast<u8>(value)); }
+		void writeWord(Address offset, u32 value) override
 		{
-			if (port != default_ports::TERM_OUT || size == 0)
+			if (offset == TerminalDevice::BlockAddressRegister) { _blockAddress = value; return; }
+			if (offset == TerminalDevice::BlockLengthRegister) { _blockLength = value; return; }
+			if (offset == TerminalDevice::BlockCommandRegister)
+			{
+				if (value == TerminalDevice::BlockCommandWrite)
+				{
+					for (u8 byte : memory().peekBytes(Address(_blockAddress), _blockLength))
+						_output.push_back(static_cast<char>(byte));
+				}
 				return;
-			for (u8 byte : memory().peekBytes(address, size))
-				_output.push_back(static_cast<char>(byte));
+			}
+			writeByte(offset, static_cast<u8>(value));
 		}
 	};
 
@@ -148,14 +154,22 @@ namespace
 	// make - a call across objects, an address built in two instructions, and a load of a
 	// variable another unit declared.
 	constexpr std::string_view LibrarySource =
-		"const TERM_OUT = 0x01\r\n"
+		"const TERM_BLOCK_ADDR = 0xFF0000F0\r\n"
+		"const TERM_BLOCK_LEN = 0xFF0000F4\r\n"
+		"const TERM_BLOCK_CMD = 0xFF0000F8\r\n"
 		"\r\n"
 		"@data\r\n"
 		"    global let calls: u32 = 0\r\n"
 		"\r\n"
 		"@text\r\n"
 		"global say:\r\n"
-		"    outm TERM_OUT, r1, r2\r\n"
+		"    la r13, TERM_BLOCK_ADDR\r\n"
+		"    str [r13 + 0], r1\r\n"
+		"    la r13, TERM_BLOCK_LEN\r\n"
+		"    str [r13 + 0], r2\r\n"
+		"    la r13, TERM_BLOCK_CMD\r\n"
+		"    li r12, 2\r\n"
+		"    str [r13 + 0], r12\r\n"
 		"    ldv r4, calls\r\n"
 		"    add r4, r4, 1\r\n"
 		"    stv calls, r4\r\n"
@@ -174,9 +188,11 @@ namespace
 		"    call say\r\n"
 		"    ldv r5, calls\r\n"
 		"    add r5, r5, '0'\r\n"
-		"    outb 0x01, r5\r\n"
+		"    la r13, 0xFF000004\r\n"
+		"    strb [r13 + 0], r5\r\n"
 		"    li r0, 1\r\n"
-		"    outb 0xFF, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n";
 }
 
@@ -504,10 +520,12 @@ TEST(objects, an_interrupt_binding_reaches_a_handler_defined_in_another_object)
 	ws.write("lib.casm",
 		"@text\r\n"
 		"global term_isr:\r\n"
-		"    inb r1, 0x02\r\n"  // TERM_IN
-		"    outb 0x01, r1\r\n" // TERM_OUT - echo it straight back
+		"    la r13, 0xFF000000\r\n" // Terminal's MMIO base
+		"    ldrb r1, [r13 + 8]\r\n" // InputRegister
+		"    strb [r13 + 4], r1\r\n" // OutputRegister - echo it straight back
 		"    li r0, 1\r\n"
-		"    outb 0xFF, r0\r\n" // shut the machine down from inside the handler
+		"    la r13, 0xFFFF0000\r\n" // SystemControl's MMIO base
+		"    strb [r13 + 0], r0\r\n" // shut the machine down from inside the handler
 		"    iret\r\n");
 	ws.write("main.casm",
 		"import \"lib.casm\"\r\n"

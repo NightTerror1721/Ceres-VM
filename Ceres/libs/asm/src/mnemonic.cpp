@@ -160,17 +160,6 @@ namespace ceres::casm
 		{ "FTOII", Mnemonic::FTOII },
 		{ "MTF", Mnemonic::MTF },
 		{ "MFF", Mnemonic::MFF },
-
-		{ "IN", Mnemonic::IN },
-		{ "INB", Mnemonic::INB },
-		{ "INH", Mnemonic::INH },
-		{ "INSB", Mnemonic::INSB },
-		{ "INSH", Mnemonic::INSH },
-		{ "INM", Mnemonic::INM },
-		{ "OUT", Mnemonic::OUT },
-		{ "OUTB", Mnemonic::OUTB },
-		{ "OUTH", Mnemonic::OUTH },
-		{ "OUTM", Mnemonic::OUTM }
 	};
 
 	static const std::unordered_map<std::string, Mnemonic> __StringLowerToMnemonic = __toLowerMap(__StringToMnemonic);
@@ -312,17 +301,6 @@ namespace ceres::casm
 		{ Mnemonic::FTOII, "FTOII" },
 		{ Mnemonic::MTF, "MTF" },
 		{ Mnemonic::MFF, "MFF" },
-
-		{ Mnemonic::IN, "IN" },
-		{ Mnemonic::INB, "INB" },
-		{ Mnemonic::INH, "INH" },
-		{ Mnemonic::INSB, "INSB" },
-		{ Mnemonic::INSH, "INSH" },
-		{ Mnemonic::INM, "INM" },
-		{ Mnemonic::OUT, "OUT" },
-		{ Mnemonic::OUTB, "OUTB" },
-		{ Mnemonic::OUTH, "OUTH" },
-		{ Mnemonic::OUTM, "OUTM" }
 	};
 
 	std::string_view mnemonicToString(Mnemonic mnemonic) noexcept

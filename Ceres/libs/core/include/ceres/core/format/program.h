@@ -13,15 +13,20 @@ namespace ceres::fmt
 	struct ProgramHeader
 	{
 		static inline constexpr u32 MagicNumber = 0x43524553; // 'CRES' in ASCII
-		static inline constexpr u16 CurrentVersion = 3;
-		// Two changes so far have altered what existing bytes mean, and neither can be detected from
+		static inline constexpr u16 CurrentVersion = 4;
+		// Three changes so far have altered what existing bytes mean, and none can be detected from
 		// the file itself - which is why there is a lower bound at all, not just an upper one.
 		//
 		//   1 -> 2  The comparison jumps needed sixteen opcodes where eight were free, so everything
 		//           above the control-flow block moved. A v1 PUSH (0x70) reads as v2 JAB.
 		//   2 -> 3  Memory displacements became signed. A v2 `[r1 + 65528]` was the only way to
 		//           write what is now `[r1 - 8]`, so the same sixteen bits mean different addresses.
-		static inline constexpr u16 MinimumSupportedVersion = 3;
+		//   3 -> 4  The port-based I/O family (0xA0-0xB3: in/out and every variant) was retired in
+		//           favour of memory-mapped devices reached through ordinary loads and stores - see
+		//           docs/07-IO-Devices-and-Ports.md. A v3 `outb` (0xAD) decodes as an unmapped
+		//           opcode now, not silently as something else, but running it was never going to
+		//           do what the program asked either way.
+		static inline constexpr u16 MinimumSupportedVersion = 4;
 
 		u32 magic;
 		u16 version;

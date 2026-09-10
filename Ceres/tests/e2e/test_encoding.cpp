@@ -112,30 +112,9 @@ TEST(encoding, store_displacement_does_not_collide_with_the_value_register)
 	CHECK_EQ(encoded.rd(), u8{ 1 });
 }
 
-// --- SE-05: a port held in a register must be encoded as a register ------------------------
-
-TEST(encoding, out_with_immediate_port_uses_imm8)
-{
-	AssembleResult r;
-	auto words = assembleText("    out 0x01, r5", r);
-
-	CHECK(r.ok());
-	CHECK_EQ_FMT(words[0], static_cast<u32>(Instruction::OUT(5, 0x01)), renderWord);
-}
-
-TEST(encoding, out_with_register_port_selects_outr)
-{
-	AssembleResult r;
-	auto words = assembleText("    out r8, r9", r);
-
-	CHECK(r.ok());
-	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
-
-	const Instruction encoded{ words[0] };
-	CHECK_EQ(encoded.opcode() == Opcode::OUTR, true);
-	CHECK_EQ(encoded.rt(), u8{ 8 });   // port
-	CHECK_EQ(encoded.rs(), u8{ 9 });   // value
-}
+// SE-05 used to live here: a port held in a register versus an immediate selected between OUT and
+// OUTR. Both opcodes are retired - every device address is a plain register value passed to str
+// now, so there is no longer an immediate-vs-register distinction to encode.
 
 // --- SE-02 / SE-06: LA and STV materialise a 32-bit address in two halves ------------------
 
@@ -304,37 +283,9 @@ TEST(encoding, a_float_literal_is_rejected_where_an_integer_is_declared)
 	CHECK(!r.ok());
 }
 
-// --- SE-20: INM and OUTM take their operands in the same order -----------------------------
-
-TEST(encoding, outm_takes_port_address_size_like_inm)
-{
-	AssembleResult r;
-	auto words = assembleText("    outm 0x01, r3, r2", r);
-
-	CHECK(r.ok());
-	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
-
-	const Instruction encoded{ words[0] };
-	CHECK_EQ(encoded.opcode() == Opcode::OUTM, true);
-	CHECK_EQ(encoded.imm8(), u8{ 0x01 });   // port
-	CHECK_EQ(encoded.rs(), u8{ 3 });        // address
-	CHECK_EQ(encoded.rt(), u8{ 2 });        // size
-}
-
-TEST(encoding, inm_operand_order_is_unchanged)
-{
-	AssembleResult r;
-	auto words = assembleText("    inm r3, 0x02, r2", r);
-
-	CHECK(r.ok());
-	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
-
-	const Instruction encoded{ words[0] };
-	CHECK_EQ(encoded.opcode() == Opcode::INM, true);
-	CHECK_EQ(encoded.imm8(), u8{ 0x02 });   // port
-	CHECK_EQ(encoded.rd(), u8{ 3 });        // address
-	CHECK_EQ(encoded.rs(), u8{ 2 });        // size
-}
+// SE-20 used to live here: INM and OUTM's shared operand order. Both opcodes are retired - a bulk
+// transfer is a few plain register writes to a device's block registers now, not an instruction
+// with its own operand-order convention to test.
 
 // --- SE-01: no phantom byte in front of string literals ------------------------------------
 
@@ -853,9 +804,7 @@ TEST(encoding, the_destination_is_always_the_first_operand)
 		"global main:\r\n"
 		"    str [r2 + 4], r1\r\n"
 		"    str u8[r2 + r3], r1\r\n"
-		"    stv counter, r1\r\n"
-		"    in  r1, 0x10\r\n"
-		"    out 0x01, r1\r\n");
+		"    stv counter, r1\r\n");
 	auto words = r.words();
 
 	CHECK(r.ok());
@@ -864,9 +813,6 @@ TEST(encoding, the_destination_is_always_the_first_operand)
 	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::STR, true);
 	CHECK_EQ(Instruction{ words[1] }.opcode() == Opcode::STRBX, true);
 	CHECK_EQ(Instruction{ words[2] }.opcode() == Opcode::STRP, true);
-	CHECK_EQ(Instruction{ words[3] }.opcode() == Opcode::IN, true);
-	// `out` already had it right: the port is the destination.
-	CHECK_EQ(Instruction{ words[4] }.opcode() == Opcode::OUT, true);
 }
 
 TEST(encoding, the_old_operand_order_says_what_to_swap)

@@ -2,6 +2,12 @@
 //
 // Devices used to be entirely passive, so nothing could wake a halted machine, and nothing
 // depended on alignment so AlignmentFault was never raised.
+//
+// Every device register used to be a single-byte "port" reached through in/out; now it is an
+// ordinary word at an address inside the device's own 64 KiB MMIO slot (see mmio_bus.h), reached
+// through the same ldr/str family everything else uses. AT (r13) is the scratch register these
+// tests build a device's base address into - literally the "assembler temporary" a real program
+// would use for the same job - leaving r1-r9 free for the values a test actually inspects.
 
 #include "framework.h"
 #include "assemble_helper.h"
@@ -72,6 +78,21 @@ namespace
 	};
 
 	constexpr u32 EntryPoint = Memory::UnrestrictedSegmentStart.value();
+
+	// Where AT (r13) is loaded from, every time a test below needs to reach a device: the two
+	// words - LUI then ORI - a real program would spend to build the same 32-bit address.
+	constexpr u8 Base = 13;
+	constexpr u16 Hi(Address address) noexcept { return static_cast<u16>(address.value() >> 16); }
+	constexpr u16 Lo(Address address) noexcept { return static_cast<u16>(address.value() & 0xFFFF); }
+	Instruction LoadBase(Address address) noexcept { return Instruction::LUI(Base, Hi(address)); }
+	Instruction LoadBaseLow(Address address) noexcept { return Instruction::ORI(Base, Base, Lo(address)); }
+
+	constexpr Address TimerBase = default_mmio::Timer;
+	constexpr Address TerminalBase = default_mmio::Terminal;
+	constexpr Address DiskBase = default_mmio::Disk;
+	constexpr Address FramebufferBase = default_mmio::Framebuffer;
+
+	u16 Off(Address registerOffset) noexcept { return static_cast<u16>(registerOffset.value()); }
 }
 
 // --- Alignment faults --------------------------------------------------------------------------
@@ -276,12 +297,13 @@ TEST(devices, a_periodic_timer_re_arms_itself)
 	CHECK(timer.isArmed());
 }
 
-TEST(devices, a_program_can_arm_the_timer_through_its_port)
+TEST(devices, a_program_can_arm_the_timer_through_its_register)
 {
 	Machine m{
 		Instruction::STI(),
 		Instruction::LI(1, 3),
-		Instruction::OUT(1, TimerDevice::CommandPort),
+		LoadBase(TimerBase), LoadBaseLow(TimerBase),
+		Instruction::STR(Base, 1, Off(TimerDevice::CommandRegister)),
 		Instruction::NOP(), Instruction::NOP(), Instruction::NOP(), Instruction::NOP(),
 	};
 
@@ -293,7 +315,7 @@ TEST(devices, a_program_can_arm_the_timer_through_its_port)
 		Instruction::IRET(),
 	});
 
-	m.step(10);
+	m.step(14);
 
 	CHECK_EQ(m.reg(9), 0x33u);
 }
@@ -338,7 +360,8 @@ TEST(devices, the_terminal_wakes_a_halted_machine_on_input)
 	Machine m{
 		Instruction::STI(),
 		Instruction::HALT(),
-		Instruction::INB(1, TerminalDevice::InputPort),
+		LoadBase(TerminalBase), LoadBaseLow(TerminalBase),
+		Instruction::LDRB(1, Base, Off(TerminalDevice::InputRegister)),
 	};
 
 	TerminalDevice terminal{};
@@ -354,7 +377,7 @@ TEST(devices, the_terminal_wakes_a_halted_machine_on_input)
 	// Nothing was pending before this: the interrupt is raised by the push itself, not by time
 	// passing, which is exactly the difference from the timer.
 	terminal.pushInput('X');
-	m.step(3);
+	m.step(4);
 
 	CHECK(!m.flags().halting());
 	CHECK_EQ(m.reg(1), static_cast<u32>('X'));
@@ -390,8 +413,9 @@ TEST(devices, the_interrupt_directive_installs_a_real_handler_for_terminal_input
 		"    halt\r\n"
 		"    halt\r\n" // never reached; just gives the resume point after IRET somewhere harmless
 		"term_isr:\r\n"
-		"    inb r1, 0x02\r\n"  // TERM_IN
-		"    outb 0x01, r1\r\n" // TERM_OUT - echo it straight back
+		"    la r13, 0xFF000000\r\n" // Terminal's MMIO base
+		"    ldrb r1, [r13 + 8]\r\n" // InputRegister
+		"    strb [r13 + 4], r1\r\n" // OutputRegister - echo it straight back
 		"    iret\r\n");
 
 	CHECK(r.ok());
@@ -414,8 +438,9 @@ TEST(devices, the_interrupt_directive_installs_a_real_handler_for_terminal_input
 
 	terminal.pushInput('Q');
 
-	vm.engine().step(); // delivers UserInterrupt1 and, in the same step, runs `inb`
-	vm.engine().step(); // outb
+	vm.engine().step(); // delivers UserInterrupt1 and, in the same step, runs `la`
+	vm.engine().step(); // ldrb
+	vm.engine().step(); // strb
 	vm.engine().step(); // iret
 
 	CHECK(!vm.engine().flags().halting());
@@ -426,13 +451,14 @@ TEST(devices, the_interrupt_directive_installs_a_real_handler_for_terminal_input
 
 TEST(devices, terminal_output_goes_to_the_installed_sink_instead_of_stdout)
 {
-	// OUTB writes one byte; OUT writes a whole word, low byte first. Together they cover both
-	// paths through emitByte.
+	// A byte write and a word write, low byte first: together they cover both paths through
+	// emitByte.
 	Machine m{
+		LoadBase(TerminalBase), LoadBaseLow(TerminalBase),
 		Instruction::LI(1, 'C'),
-		Instruction::OUTB(1, TerminalDevice::OutputPort),
+		Instruction::STRB(Base, 1, Off(TerminalDevice::OutputRegister)),
 		Instruction::LI(2, 0x0000'6165), // 'e', 'a', 0, 0
-		Instruction::OUT(2, TerminalDevice::OutputPort),
+		Instruction::STR(Base, 2, Off(TerminalDevice::OutputRegister)),
 	};
 
 	TerminalDevice terminal{};
@@ -441,7 +467,7 @@ TEST(devices, terminal_output_goes_to_the_installed_sink_instead_of_stdout)
 	std::string captured;
 	terminal.setOutputSink([&captured](u8 byte) { captured.push_back(static_cast<char>(byte)); });
 
-	m.step(4);
+	m.step(6);
 
 	CHECK_EQ(captured.size(), usize{ 5 });
 	CHECK(captured.starts_with("Cea"));
@@ -452,10 +478,11 @@ TEST(devices, a_multi_byte_character_reaches_the_sink_one_byte_at_a_time)
 	// 'á' is 0xC3 0xA1 in UTF-8. The device hands over bytes, not characters: a consumer that
 	// decoded each one on its own would produce two replacement characters instead of one letter.
 	Machine m{
+		LoadBase(TerminalBase), LoadBaseLow(TerminalBase),
 		Instruction::LI(1, 0xC3),
-		Instruction::OUTB(1, TerminalDevice::OutputPort),
+		Instruction::STRB(Base, 1, Off(TerminalDevice::OutputRegister)),
 		Instruction::LI(1, 0xA1),
-		Instruction::OUTB(1, TerminalDevice::OutputPort),
+		Instruction::STRB(Base, 1, Off(TerminalDevice::OutputRegister)),
 	};
 
 	TerminalDevice terminal{};
@@ -464,7 +491,7 @@ TEST(devices, a_multi_byte_character_reaches_the_sink_one_byte_at_a_time)
 	std::vector<u8> captured;
 	terminal.setOutputSink([&captured](u8 byte) { captured.push_back(byte); });
 
-	m.step(4);
+	m.step(6);
 
 	CHECK_EQ(captured.size(), usize{ 2 });
 	if (captured.size() == 2)
@@ -513,8 +540,9 @@ TEST(devices, a_debugger_can_write_the_machine_state_back)
 
 // --- The two device ranges that were reserved and empty -------------------------------------------
 //
-// Ports 0x20-0x23 and 0x30-0x33 were named in the port map from the start and answered nothing.
-// A program could read them and get 0xFF back, which is what an absent device looks like.
+// The disk and framebuffer slots were reserved in the MMIO map from the start and answered
+// nothing. A program could read an unattached device's registers and get 0xFFFFFFFF back, which
+// is what an absent device looks like.
 
 namespace
 {
@@ -541,20 +569,26 @@ namespace
 TEST(devices, a_sector_written_to_the_disk_comes_back_the_same)
 {
 	Machine m{
+		LoadBase(DiskBase), LoadBaseLow(DiskBase),
 		Instruction::LI(1, 1),
-		Instruction::OUT(1, DiskDevice::SectorPort),
+		Instruction::STR(Base, 1, Off(DiskDevice::SectorRegister)),
 		Instruction::LI(2, static_cast<u16>(SourceBuffer)),
 		Instruction::LI(3, 8),
-		Instruction::OUTM(2, 3, DiskDevice::DataPort),   // memory -> sector 1
+		Instruction::STR(Base, 2, Off(DiskDevice::BlockAddressRegister)),
+		Instruction::STR(Base, 3, Off(DiskDevice::BlockLengthRegister)),
+		Instruction::LI(5, DiskDevice::BlockCommandWrite),
+		Instruction::STR(Base, 5, Off(DiskDevice::BlockCommandRegister)), // memory -> sector 1
 		Instruction::LI(4, static_cast<u16>(DestinationBuffer)),
-		Instruction::INM(4, 3, DiskDevice::DataPort),    // sector 1 -> memory, somewhere else
+		Instruction::STR(Base, 4, Off(DiskDevice::BlockAddressRegister)),
+		Instruction::LI(5, DiskDevice::BlockCommandRead),
+		Instruction::STR(Base, 5, Off(DiskDevice::BlockCommandRegister)), // sector 1 -> memory, somewhere else
 	};
 
 	DiskDevice disk{};
 	disk.attachTo(m.vm().io());
 
 	fill(m.memory(), SourceBuffer, "ON A DISK");
-	m.step(7);
+	m.step(16);
 
 	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 8), std::string{ "ON A DIS" });
 
@@ -565,22 +599,26 @@ TEST(devices, a_sector_written_to_the_disk_comes_back_the_same)
 TEST(devices, a_sector_past_the_end_of_the_disk_is_refused_rather_than_wrapped)
 {
 	Machine m{
+		LoadBase(DiskBase), LoadBaseLow(DiskBase),
 		Instruction::LI(1, 9999),
-		Instruction::OUT(1, DiskDevice::SectorPort),
+		Instruction::STR(Base, 1, Off(DiskDevice::SectorRegister)),
 		Instruction::LI(2, static_cast<u16>(SourceBuffer)),
 		Instruction::LI(3, 8),
-		Instruction::OUTM(2, 3, DiskDevice::DataPort),
-		Instruction::INB(5, DiskDevice::StatusPort),
+		Instruction::STR(Base, 2, Off(DiskDevice::BlockAddressRegister)),
+		Instruction::STR(Base, 3, Off(DiskDevice::BlockLengthRegister)),
+		Instruction::LI(5, DiskDevice::BlockCommandWrite),
+		Instruction::STR(Base, 5, Off(DiskDevice::BlockCommandRegister)),
+		Instruction::LDRB(6, Base, Off(DiskDevice::StatusRegister)),
 	};
 
 	DiskDevice disk{ 4 }; // Four sectors, so 9999 is nowhere
 	disk.attachTo(m.vm().io());
 
 	fill(m.memory(), SourceBuffer, "NOWHERE");
-	m.step(6);
+	m.step(13);
 
-	CHECK_EQ(m.reg(5) & DiskDevice::StatusError, DiskDevice::StatusError);
-	CHECK_EQ(m.reg(5) & DiskDevice::StatusReady, 0u);
+	CHECK_EQ(m.reg(6) & DiskDevice::StatusError, DiskDevice::StatusError);
+	CHECK_EQ(m.reg(6) & DiskDevice::StatusReady, 0u);
 }
 
 TEST(devices, a_file_backed_disk_still_holds_what_was_written_after_the_machine_stops)
@@ -590,13 +628,17 @@ TEST(devices, a_file_backed_disk_still_holds_what_was_written_after_the_machine_
 
 	{
 		Machine m{
+			LoadBase(DiskBase), LoadBaseLow(DiskBase),
 			Instruction::LI(1, 2),
-			Instruction::OUT(1, DiskDevice::SectorPort),
+			Instruction::STR(Base, 1, Off(DiskDevice::SectorRegister)),
 			Instruction::LI(2, static_cast<u16>(SourceBuffer)),
 			Instruction::LI(3, 6),
-			Instruction::OUTM(2, 3, DiskDevice::DataPort),
+			Instruction::STR(Base, 2, Off(DiskDevice::BlockAddressRegister)),
+			Instruction::STR(Base, 3, Off(DiskDevice::BlockLengthRegister)),
+			Instruction::LI(5, DiskDevice::BlockCommandWrite),
+			Instruction::STR(Base, 5, Off(DiskDevice::BlockCommandRegister)),
 			Instruction::LI(4, DiskDevice::CommandFlush),
-			Instruction::OUT(4, DiskDevice::CommandPort),
+			Instruction::STR(Base, 4, Off(DiskDevice::CommandRegister)),
 		};
 
 		DiskDevice disk{};
@@ -604,22 +646,26 @@ TEST(devices, a_file_backed_disk_still_holds_what_was_written_after_the_machine_
 		disk.attachTo(m.vm().io());
 
 		fill(m.memory(), SourceBuffer, "PERSIST");
-		m.step(7);
+		m.step(14);
 	}
 
 	// A second machine, a second device, the same file.
 	Machine m{
+		LoadBase(DiskBase), LoadBaseLow(DiskBase),
 		Instruction::LI(1, 2),
-		Instruction::OUT(1, DiskDevice::SectorPort),
+		Instruction::STR(Base, 1, Off(DiskDevice::SectorRegister)),
 		Instruction::LI(2, static_cast<u16>(DestinationBuffer)),
 		Instruction::LI(3, 6),
-		Instruction::INM(2, 3, DiskDevice::DataPort),
+		Instruction::STR(Base, 2, Off(DiskDevice::BlockAddressRegister)),
+		Instruction::STR(Base, 3, Off(DiskDevice::BlockLengthRegister)),
+		Instruction::LI(5, DiskDevice::BlockCommandRead),
+		Instruction::STR(Base, 5, Off(DiskDevice::BlockCommandRegister)),
 	};
 
 	DiskDevice disk{};
 	CHECK(disk.open(path, 8));
 	disk.attachTo(m.vm().io());
-	m.step(5);
+	m.step(12);
 
 	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 6), std::string{ "PERSIS" });
 	std::filesystem::remove(path);
@@ -628,17 +674,21 @@ TEST(devices, a_file_backed_disk_still_holds_what_was_written_after_the_machine_
 TEST(devices, the_framebuffer_shows_the_grid_it_was_given)
 {
 	Machine m{
+		LoadBase(FramebufferBase), LoadBaseLow(FramebufferBase),
 		Instruction::LI(1, 4),
-		Instruction::OUT(1, FramebufferDevice::WidthPort),
+		Instruction::STR(Base, 1, Off(FramebufferDevice::WidthRegister)),
 		Instruction::LI(1, 2),
-		Instruction::OUT(1, FramebufferDevice::HeightPort),
+		Instruction::STR(Base, 1, Off(FramebufferDevice::HeightRegister)),
 		Instruction::LI(1, FramebufferDevice::CommandClear),
-		Instruction::OUT(1, FramebufferDevice::CommandPort),
+		Instruction::STR(Base, 1, Off(FramebufferDevice::CommandRegister)),
 		Instruction::LI(2, static_cast<u16>(SourceBuffer)),
 		Instruction::LI(3, 8),
-		Instruction::OUTM(2, 3, FramebufferDevice::DataPort),
+		Instruction::STR(Base, 2, Off(FramebufferDevice::BlockAddressRegister)),
+		Instruction::STR(Base, 3, Off(FramebufferDevice::BlockLengthRegister)),
+		Instruction::LI(4, FramebufferDevice::BlockCommandWrite),
+		Instruction::STR(Base, 4, Off(FramebufferDevice::BlockCommandRegister)),
 		Instruction::LI(1, FramebufferDevice::CommandPresent),
-		Instruction::OUT(1, FramebufferDevice::CommandPort),
+		Instruction::STR(Base, 1, Off(FramebufferDevice::CommandRegister)),
 	};
 
 	FramebufferDevice framebuffer{};
@@ -648,7 +698,7 @@ TEST(devices, the_framebuffer_shows_the_grid_it_was_given)
 	framebuffer.setPresentSink([&shown](std::string_view frame) { shown = frame; });
 
 	fill(m.memory(), SourceBuffer, "ab..#..#");
-	m.step(11);
+	m.step(18);
 
 	// Rows, not a stream: the second four cells are the second line.
 	CHECK_EQ(shown, std::string{ "ab..\n#..#\n" });
@@ -661,11 +711,11 @@ TEST(devices, a_cell_that_would_move_the_terminals_own_cursor_is_shown_as_a_spac
 	FramebufferDevice framebuffer{};
 	framebuffer.attachTo(m.vm().io());
 
-	framebuffer.writePortWord(FramebufferDevice::WidthPort, 3);
-	framebuffer.writePortWord(FramebufferDevice::HeightPort, 1);
-	framebuffer.writePortWord(FramebufferDevice::DataPort, 'x');
-	framebuffer.writePortWord(FramebufferDevice::DataPort, 0x07); // a bell
-	framebuffer.writePortWord(FramebufferDevice::DataPort, 'y');
+	framebuffer.writeWord(FramebufferDevice::WidthRegister, 3);
+	framebuffer.writeWord(FramebufferDevice::HeightRegister, 1);
+	framebuffer.writeWord(FramebufferDevice::DataRegister, 'x');
+	framebuffer.writeWord(FramebufferDevice::DataRegister, 0x07); // a bell
+	framebuffer.writeWord(FramebufferDevice::DataRegister, 'y');
 
 	CHECK_EQ(framebuffer.toText(), std::string{ "x y\n" });
 }
@@ -678,9 +728,9 @@ TEST(devices, a_grid_larger_than_any_terminal_is_a_typo_and_is_ignored)
 	framebuffer.attachTo(m.vm().io());
 
 	const u32 before = framebuffer.width();
-	framebuffer.writePortWord(FramebufferDevice::WidthPort, 100000);
+	framebuffer.writeWord(FramebufferDevice::WidthRegister, 100000);
 	CHECK_EQ(framebuffer.width(), before);
 
-	framebuffer.writePortWord(FramebufferDevice::HeightPort, 0);
+	framebuffer.writeWord(FramebufferDevice::HeightRegister, 0);
 	CHECK_EQ(framebuffer.height(), u32{ 20 });
 }

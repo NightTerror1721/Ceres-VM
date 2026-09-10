@@ -1,6 +1,6 @@
 #pragma once
 
-#include <ceres/vm/io_ports.h>
+#include <ceres/vm/mmio_bus.h>
 #include <print>
 #include <atomic>
 #include <span>
@@ -11,14 +11,22 @@ namespace ceres::devices
 {
 	using namespace vm;
 
+	// Every device below follows the same register layout convention: scalar registers sit at low,
+	// word-aligned offsets (0x00, 0x04, 0x08, ...) within the device's 64 KiB MMIO slot - the direct
+	// replacement for what used to be a handful of single-byte port numbers, just with room to
+	// spare. A device that also moves blocks of memory (the disk, the framebuffer) additionally
+	// claims three registers near the top of its slot - BLOCK_ADDR/BLOCK_LEN/BLOCK_CMD at
+	// 0xF0/0xF4/0xF8 - so a bulk transfer is still one MMIO write to trigger, the same shape `outm`/
+	// `inm` used to give it, just addressed like everything else now.
+
 	class SystemControlDevice : public IODevice
 	{
 	public:
 		using ShutdownCallback = std::function<void()>;
 		using ResetCallback = std::function<void()>;
 
-		// Write-only: Writing specific commands to this port triggers system control actions (e.g., shutdown).
-		static inline constexpr PortNumber SystemControlPort = default_ports::SYS_CONTROL;
+		// Write-only: writing specific commands to this register triggers system control actions.
+		static inline constexpr Address CommandRegister = Address(0x00);
 
 	private:
 		ShutdownCallback _shutdownCallback;
@@ -38,14 +46,14 @@ namespace ceres::devices
 		SystemControlDevice& operator=(SystemControlDevice&&) = delete;
 
 	public:
-		void attachTo(IOPorts& ioPorts)
+		void attachTo(MmioBus& bus)
 		{
-			ioPorts.attach(SystemControlPort, *this);
+			bus.attach(default_mmio::SystemControl, *this);
 		}
 
-		void detachFrom(IOPorts& ioPorts)
+		void detachFrom(MmioBus& bus)
 		{
-			ioPorts.detach(SystemControlPort);
+			bus.detach(default_mmio::SystemControl);
 		}
 
 		void setShutdownCallback(ShutdownCallback callback)
@@ -59,43 +67,30 @@ namespace ceres::devices
 		}
 
 	public:
-		u8 readPortUnsignedByte(PortNumber port) override { return 0xFF; /* No readable ports, return 0xFF for all ports. */ }
-		i8 readPortSignedByte(PortNumber port) override { return -1; /* No readable ports, return -1 for all ports. */ }
-		u16 readPortUnsignedHalfword(PortNumber port) override { return 0xFFFF; /* No readable ports, return 0xFFFF for all ports. */ }
-		i16 readPortSignedHalfword(PortNumber port) override { return -1; /* No readable ports, return -1 for all ports. */ }
-		u32 readPortUnsignedWord(PortNumber port) override { return 0xFFFFFFFF; /* No readable ports, return 0xFFFFFFFF for all ports. */ }
-		void readPort(PortNumber port, Address address, u32 size) override
-		{
-			memory().setBytes(address, 0xFF, size); // No readable ports, fill memory with 0xFF.
-		}
+		u8 readUnsignedByte(Address) override { return 0xFF; /* No readable registers. */ }
+		i8 readSignedByte(Address) override { return -1; }
+		u16 readUnsignedHalfword(Address) override { return 0xFFFF; }
+		i16 readSignedHalfword(Address) override { return -1; }
+		u32 readUnsignedWord(Address) override { return 0xFFFFFFFF; }
 
-		void writePortByte(PortNumber port, u8 value) override
+		void writeByte(Address offset, u8 value) override
 		{
-			if (port == SystemControlPort)
+			if (offset != CommandRegister)
+				return;
+
+			if (value == 0x01) // Shutdown command
 			{
-				if (value == 0x01) // Shutdown command
-				{
-					if (_shutdownCallback)
-						_shutdownCallback();
-				}
-				else if (value == 0x02) // Reset command
-				{
-					if (_resetCallback)
-						_resetCallback();
-				}
+				if (_shutdownCallback)
+					_shutdownCallback();
+			}
+			else if (value == 0x02) // Reset command
+			{
+				if (_resetCallback)
+					_resetCallback();
 			}
 		}
-		void writePortHalfword(PortNumber port, u16 value) override { writePortByte(port, static_cast<u8>(value)); }
-		void writePortWord(PortNumber port, u32 value) override { writePortByte(port, static_cast<u8>(value)); }
-		void writePort(PortNumber port, Address address, u32 size) override
-		{
-			if (size > 0)
-			{
-				auto bytes = memory().peekBytes(address, size);
-				for (u32 i = 0; i < bytes.size(); ++i)
-					writePortByte(port, bytes[i]);
-			}
-		}
+		void writeHalfword(Address offset, u16 value) override { writeByte(offset, static_cast<u8>(value)); }
+		void writeWord(Address offset, u32 value) override { writeByte(offset, static_cast<u8>(value)); }
 	};
 
 	// Gives the machine a sense of time, and with it the asynchronous interrupt source it never
@@ -107,9 +102,9 @@ namespace ceres::devices
 	class TimerDevice : public IODevice
 	{
 	public:
-		static inline constexpr PortNumber TicksPort = default_ports::SYS_TICKS;   // Read: instructions executed so far
-		static inline constexpr PortNumber ClockPort = default_ports::RTC_TIME;   // Read: seconds since the epoch
-		static inline constexpr PortNumber CommandPort = default_ports::TIMER_CMD; // Write: fire after N ticks, 0 disarms
+		static inline constexpr Address TicksRegister = Address(0x00);   // Read: instructions executed so far
+		static inline constexpr Address ClockRegister = Address(0x04);   // Read: seconds since the epoch
+		static inline constexpr Address CommandRegister = Address(0x08); // Write: fire after N ticks, 0 disarms
 
 		// Which interrupt the timer requests when it expires. The first user interrupt, so it needs
 		// STI to be delivered and cannot surprise a program that never asked for it.
@@ -126,7 +121,7 @@ namespace ceres::devices
 			u64 period = 0;
 		};
 
-		// Where the real-time clock port gets its answer. The default is the host's wall clock,
+		// Where the real-time clock register gets its answer. The default is the host's wall clock,
 		// which is the one thing in this machine that is not deterministic - so a debugger that
 		// replays execution replaces it with a recording.
 		using ClockSource = std::function<u32()>;
@@ -148,18 +143,14 @@ namespace ceres::devices
 		TimerDevice& operator=(TimerDevice&&) = delete;
 
 	public:
-		void attachTo(IOPorts& ioPorts)
+		void attachTo(MmioBus& bus)
 		{
-			ioPorts.attach(TicksPort, *this);
-			ioPorts.attach(ClockPort, *this);
-			ioPorts.attach(CommandPort, *this);
+			bus.attach(default_mmio::Timer, *this);
 		}
 
-		void detachFrom(IOPorts& ioPorts)
+		void detachFrom(MmioBus& bus)
 		{
-			ioPorts.detach(TicksPort);
-			ioPorts.detach(ClockPort);
-			ioPorts.detach(CommandPort);
+			bus.detach(default_mmio::Timer);
 		}
 
 		u64 ticks() const noexcept { return _ticks; }
@@ -203,39 +194,32 @@ namespace ceres::devices
 		}
 
 	public:
-		u32 readPortUnsignedWord(PortNumber port) override
+		u32 readUnsignedWord(Address offset) override
 		{
-			switch (port)
+			if (offset == TicksRegister)
+				return static_cast<u32>(_ticks);
+
+			if (offset == ClockRegister)
 			{
-				case TicksPort:
-					return static_cast<u32>(_ticks);
-
-				case ClockPort:
-					if (_clockSource)
-						return _clockSource();
-					return static_cast<u32>(std::chrono::duration_cast<std::chrono::seconds>(
-						std::chrono::system_clock::now().time_since_epoch()).count());
-
-				default:
-					return 0xFFFFFFFF;
+				if (_clockSource)
+					return _clockSource();
+				return static_cast<u32>(std::chrono::duration_cast<std::chrono::seconds>(
+					std::chrono::system_clock::now().time_since_epoch()).count());
 			}
+
+			return 0xFFFFFFFF;
 		}
 
-		u8 readPortUnsignedByte(PortNumber port) override { return static_cast<u8>(readPortUnsignedWord(port)); }
-		i8 readPortSignedByte(PortNumber port) override { return static_cast<i8>(readPortUnsignedByte(port)); }
-		u16 readPortUnsignedHalfword(PortNumber port) override { return static_cast<u16>(readPortUnsignedWord(port)); }
-		i16 readPortSignedHalfword(PortNumber port) override { return static_cast<i16>(readPortUnsignedHalfword(port)); }
-		void readPort(PortNumber port, Address address, u32 size) override
-		{
-			if (size >= sizeof(u32))
-				memory().write<u32>(address, readPortUnsignedWord(port));
-		}
+		u8 readUnsignedByte(Address offset) override { return static_cast<u8>(readUnsignedWord(offset)); }
+		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedByte(offset)); }
+		u16 readUnsignedHalfword(Address offset) override { return static_cast<u16>(readUnsignedWord(offset)); }
+		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedHalfword(offset)); }
 
-		// Writing N to the command port fires the timer N instructions later. Writing 0 disarms it.
-		// The high bit asks for a periodic timer that re-arms itself after each expiry.
-		void writePortWord(PortNumber port, u32 value) override
+		// Writing N to the command register fires the timer N instructions later. Writing 0 disarms
+		// it. The high bit asks for a periodic timer that re-arms itself after each expiry.
+		void writeWord(Address offset, u32 value) override
 		{
-			if (port != CommandPort)
+			if (offset != CommandRegister)
 				return;
 
 			const bool periodic = (value & 0x80000000u) != 0;
@@ -244,21 +228,25 @@ namespace ceres::devices
 			arm(count, periodic && count > 0);
 		}
 
-		void writePortByte(PortNumber port, u8 value) override { writePortWord(port, value); }
-		void writePortHalfword(PortNumber port, u16 value) override { writePortWord(port, value); }
-		void writePort(PortNumber port, Address address, u32 size) override
-		{
-			if (size >= sizeof(u32))
-				writePortWord(port, memory().read<u32>(address));
-		}
+		void writeByte(Address offset, u8 value) override { writeWord(offset, value); }
+		void writeHalfword(Address offset, u16 value) override { writeWord(offset, value); }
 	};
 
 	class TerminalDevice : public IODevice
 	{
 	public:
-		static inline constexpr PortNumber StatusPort = default_ports::TERM_STATUS; // Read-only: 0x01 if input is available, 0x00 otherwise.
-		static inline constexpr PortNumber OutputPort = default_ports::TERM_OUT; // Write-only: Writing a byte to this port outputs it to the terminal.
-		static inline constexpr PortNumber InputPort = default_ports::TERM_IN;  // Read-only: Reading from this port returns the next byte of input, or 0 if no input is available.
+		static inline constexpr Address StatusRegister = Address(0x00); // Read-only: 0x01 if input is available, 0x00 otherwise.
+		static inline constexpr Address OutputRegister = Address(0x04); // Write-only: writing a byte to this register outputs it to the terminal.
+		static inline constexpr Address InputRegister = Address(0x08);  // Read-only: reading from this register returns the next byte of input, or 0 if none is available.
+
+		// A bulk transfer: write the RAM address and length, then a command (1 = read from the
+		// terminal's input ring into RAM, 2 = write RAM out to the terminal) - the direct
+		// replacement for what `inm`/`outm` used to do in one instruction.
+		static inline constexpr Address BlockAddressRegister = Address(0xF0);
+		static inline constexpr Address BlockLengthRegister = Address(0xF4);
+		static inline constexpr Address BlockCommandRegister = Address(0xF8);
+		static inline constexpr u32 BlockCommandRead = 1;
+		static inline constexpr u32 BlockCommandWrite = 2;
 
 		// Which interrupt pushInput() requests once new bytes are actually sitting in the buffer.
 		// The second user interrupt (the first, UserInterrupt0, is the timer's) - so a program that
@@ -272,7 +260,7 @@ namespace ceres::devices
 		static inline constexpr usize MaxInputBufferSize = 64; // Maximum size of the input buffer.
 
 	public:
-		// Where a byte written to the output port ends up. `ceres run` leaves it empty and the
+		// Where a byte written to the output register ends up. `ceres run` leaves it empty and the
 		// bytes go to stdout, which is what a plain terminal program wants; a debugger installs
 		// one so the program's output can be forwarded to the editor instead of racing with a
 		// protocol sharing that same stream.
@@ -283,6 +271,8 @@ namespace ceres::devices
 		std::atomic<usize> _head{0};
 		std::atomic<usize> _tail{0};
 		OutputSink _outputSink;
+		u32 _blockAddress = 0;
+		u32 _blockLength = 0;
 
 	public:
 		TerminalDevice() = default;
@@ -294,18 +284,14 @@ namespace ceres::devices
 		TerminalDevice& operator=(TerminalDevice&&) = delete;
 
 	public:
-		void attachTo(IOPorts& ioPorts)
+		void attachTo(MmioBus& bus)
 		{
-			ioPorts.attach(StatusPort, *this);
-			ioPorts.attach(OutputPort, *this);
-			ioPorts.attach(InputPort, *this);
+			bus.attach(default_mmio::Terminal, *this);
 		}
 
-		void detachFrom(IOPorts& ioPorts)
+		void detachFrom(MmioBus& bus)
 		{
-			ioPorts.detach(StatusPort);
-			ioPorts.detach(OutputPort);
-			ioPorts.detach(InputPort);
+			bus.detach(default_mmio::Terminal);
 		}
 
 		void pushInput(std::span<const u8> input)
@@ -377,7 +363,7 @@ namespace ceres::devices
 	private:
 		// The single place output leaves the device. Bytes are handed over one at a time and
 		// deliberately not decoded here: a multi-byte UTF-8 sequence is written by the program as
-		// several separate port writes, so only the consumer knows where a character ends.
+		// several separate register writes, so only the consumer knows where a character ends.
 		void emitByte(u8 value)
 		{
 			if (_outputSink)
@@ -393,102 +379,190 @@ namespace ceres::devices
 			std::print("{:c}", static_cast<char>(value));
 		}
 
+		void blockRead(Address ramAddress, u32 size)
+		{
+			if (size == 0)
+				return;
+
+			auto buffer = memory().peekMutBytes(ramAddress, size);
+			usize bytesRead = 0;
+			while (bytesRead < buffer.size())
+			{
+				usize currentHead = _head.load(std::memory_order_relaxed);
+				if (currentHead == _tail.load(std::memory_order_acquire))
+					break; // No more input available.
+
+				buffer[bytesRead] = _buffer[currentHead];
+				_head.store((currentHead + 1) % MaxInputBufferSize, std::memory_order_release);
+				++bytesRead;
+			}
+		}
+
+		void blockWrite(Address ramAddress, u32 size)
+		{
+			if (size == 0)
+				return;
+
+			const auto buffer = memory().peekBytes(ramAddress, size);
+			for (u32 i = 0; i < buffer.size(); ++i)
+				emitByte(buffer[i]);
+		}
+
 	public:
-		u8 readPortUnsignedByte(PortNumber port) override
+		u8 readUnsignedByte(Address offset) override
 		{
-			switch (port)
+			if (offset == StatusRegister)
 			{
-				case StatusPort:
-				{
-					u8 status = 0;
-					if (_head.load(std::memory_order_acquire) != _tail.load(std::memory_order_acquire))
-						status |= RxReadyMask; // Set RxReady if input is available.
-					status |= TxReadyMask; // Terminal is always ready to accept output.
-					return status;
-				}
-
-				case InputPort:
-				{
-					usize currentHead = _head.load(std::memory_order_relaxed);
-					if (currentHead == _tail.load(std::memory_order_acquire))
-						return 0; // No input available, return 0.
-
-					u8 value = _buffer[currentHead];
-					_head.store((currentHead + 1) % MaxInputBufferSize, std::memory_order_release);
-					return value;
-				}
-
-				default:
-					return 0xFF; // Return 0xFF for undefined ports.
+				u8 status = 0;
+				if (_head.load(std::memory_order_acquire) != _tail.load(std::memory_order_acquire))
+					status |= RxReadyMask; // Set RxReady if input is available.
+				status |= TxReadyMask; // Terminal is always ready to accept output.
+				return status;
 			}
-		}
-		i8 readPortSignedByte(PortNumber port) override { return static_cast<i8>(readPortUnsignedByte(port)); }
-		u16 readPortUnsignedHalfword(PortNumber port) override { return static_cast<u16>(readPortUnsignedByte(port)); }
-		i16 readPortSignedHalfword(PortNumber port) override { return static_cast<i16>(readPortUnsignedHalfword(port)); }
-		u32 readPortUnsignedWord(PortNumber port) override { return static_cast<u32>(readPortUnsignedHalfword(port)); }
-		void readPort(PortNumber port, Address address, u32 size) override
-		{
-			if (size > 0)
+
+			if (offset == InputRegister)
 			{
-				if (port == InputPort)
-				{
-					auto buffer = memory().peekMutBytes(address, size);
-					usize bytesRead = 0;
-					while (bytesRead < buffer.size())
-					{
-						usize currentHead = _head.load(std::memory_order_relaxed);
-						if (currentHead == _tail.load(std::memory_order_acquire))
-							break; // No more input available.
+				usize currentHead = _head.load(std::memory_order_relaxed);
+				if (currentHead == _tail.load(std::memory_order_acquire))
+					return 0; // No input available, return 0.
 
-						buffer[bytesRead] = _buffer[currentHead];
-						_head.store((currentHead + 1) % MaxInputBufferSize, std::memory_order_release);
-						++bytesRead;
-					}
-				}
-				else if (port == StatusPort)
-				{
-					auto buffer = memory().peekMutBytes(address, size);
-					memory().write<u8>(address, readPortUnsignedByte(StatusPort));
-
-					if (size > 1)
-						memory().setBytes(address + 1_addr, 0xFF, size - 1); // Fill the rest with 0xFF for undefined ports.
-				}
+				u8 value = _buffer[currentHead];
+				_head.store((currentHead + 1) % MaxInputBufferSize, std::memory_order_release);
+				return value;
 			}
-		}
 
-		void writePortByte(PortNumber port, u8 value) override
+			return 0xFF; // Undefined register.
+		}
+		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedByte(offset)); }
+		u16 readUnsignedHalfword(Address offset) override { return static_cast<u16>(readUnsignedByte(offset)); }
+		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedHalfword(offset)); }
+		u32 readUnsignedWord(Address offset) override { return static_cast<u32>(readUnsignedHalfword(offset)); }
+
+		void writeByte(Address offset, u8 value) override
 		{
-			if (port == OutputPort)
-			{
+			if (offset == OutputRegister)
 				emitByte(value);
-			}
 		}
-		void writePortHalfword(PortNumber port, u16 value) override
+		void writeHalfword(Address offset, u16 value) override
 		{
-			if (port == OutputPort)
+			if (offset == OutputRegister)
 			{
 				emitByte(static_cast<u8>(value & 0xFF)); // Output the lower byte as a character.
 				emitByte(static_cast<u8>((value >> 8) & 0xFF)); // Output the upper byte as a character.
 			}
 		}
-		void writePortWord(PortNumber port, u32 value) override
+		void writeWord(Address offset, u32 value) override
 		{
-			if (port == OutputPort)
+			if (offset == OutputRegister)
 			{
-				emitByte(static_cast<u8>(value & 0xFF)); // Output the lowest byte as a character.
-				emitByte(static_cast<u8>((value >> 8) & 0xFF)); // Output the second byte as a character.
-				emitByte(static_cast<u8>((value >> 16) & 0xFF)); // Output the third byte as a character.
-				emitByte(static_cast<u8>((value >> 24) & 0xFF)); // Output the highest byte as a character.
+				emitByte(static_cast<u8>(value & 0xFF));
+				emitByte(static_cast<u8>((value >> 8) & 0xFF));
+				emitByte(static_cast<u8>((value >> 16) & 0xFF));
+				emitByte(static_cast<u8>((value >> 24) & 0xFF));
+				return;
+			}
+
+			// The block trio: two plain registers latched here, and a command that fires the transfer.
+			if (offset == BlockAddressRegister) { _blockAddress = value; return; }
+			if (offset == BlockLengthRegister) { _blockLength = value; return; }
+			if (offset == BlockCommandRegister)
+			{
+				if (value == BlockCommandRead)
+					blockRead(Address(_blockAddress), _blockLength);
+				else if (value == BlockCommandWrite)
+					blockWrite(Address(_blockAddress), _blockLength);
 			}
 		}
-		void writePort(PortNumber port, Address address, u32 size) override
+	};
+
+	// A real DMA engine, not the pseudo-DMA the port opcodes used to be: SRC/DST/LEN/CMD are
+	// ordinary registers, and completion is a tick later rather than instantaneous - modelled the
+	// same way TimerDevice already models a delay, so a program can either poll STATUS or wait for
+	// the interrupt. It moves memory the VM already knows how to move
+	// (Memory::copyBytesUnchecked): RAM to RAM today, and RAM to or from a device's own MMIO window
+	// once a device chooses to expose one, since both are just addresses in the same space.
+	class DmaController : public IODevice
+	{
+	public:
+		static inline constexpr Address SourceRegister = Address(0x00);      // Write: source physical address
+		static inline constexpr Address DestinationRegister = Address(0x04); // Write: destination physical address
+		static inline constexpr Address LengthRegister = Address(0x08);      // Write: bytes to move
+		static inline constexpr Address CommandRegister = Address(0x0C);     // Write: 1 starts the transfer latched above
+		static inline constexpr Address StatusRegister = Address(0x10);      // Read: Busy / Done bits
+
+		static inline constexpr u32 CommandStart = 1;
+		static inline constexpr u32 StatusBusy = 1u << 0;
+		static inline constexpr u32 StatusDone = 1u << 1;
+
+		// Third user interrupt: UserInterrupt0 is the timer's, UserInterrupt1 the terminal's.
+		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt2;
+
+	private:
+		u32 _source = 0;
+		u32 _destination = 0;
+		u32 _length = 0;
+		u32 _status = 0;
+		bool _pending = false;
+
+	public:
+		DmaController() = default;
+		DmaController(const DmaController&) = delete;
+		DmaController(DmaController&&) = delete;
+		~DmaController() override = default;
+
+		DmaController& operator=(const DmaController&) = delete;
+		DmaController& operator=(DmaController&&) = delete;
+
+	public:
+		void attachTo(MmioBus& bus)
 		{
-			if (port == OutputPort && size > 0)
+			bus.attach(default_mmio::Dma, *this);
+		}
+
+		void detachFrom(MmioBus& bus)
+		{
+			bus.detach(default_mmio::Dma);
+		}
+
+	public:
+		// Arms on the CMD write; the actual copy happens on the next tick(), one instruction later -
+		// never on the same step that requested it, so a program relying on the interrupt (rather
+		// than busy-polling STATUS) always sees a real handoff instead of an already-finished copy.
+		void tick() override
+		{
+			if (!_pending)
+				return;
+
+			memory().copyBytesUnchecked(Address(_source), Address(_destination), _length);
+			_pending = false;
+			_status = StatusDone;
+			raiseInterrupt(Interrupt);
+		}
+
+	public:
+		u32 readUnsignedWord(Address offset) override
+		{
+			if (offset == StatusRegister)
+				return _status;
+			return 0;
+		}
+		u8 readUnsignedByte(Address offset) override { return static_cast<u8>(readUnsignedWord(offset)); }
+		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedByte(offset)); }
+		u16 readUnsignedHalfword(Address offset) override { return static_cast<u16>(readUnsignedWord(offset)); }
+		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedHalfword(offset)); }
+
+		void writeWord(Address offset, u32 value) override
+		{
+			if (offset == SourceRegister) { _source = value; return; }
+			if (offset == DestinationRegister) { _destination = value; return; }
+			if (offset == LengthRegister) { _length = value; return; }
+			if (offset == CommandRegister && value == CommandStart)
 			{
-				auto buffer = memory().peekMutBytes(address, size);
-				for (u32 i = 0; i < buffer.size(); ++i)
-					emitByte(buffer[i]); // Output each byte as a character to the terminal.
+				_pending = true;
+				_status = StatusBusy;
 			}
 		}
+		void writeByte(Address offset, u8 value) override { writeWord(offset, value); }
+		void writeHalfword(Address offset, u16 value) override { writeWord(offset, value); }
 	};
 }

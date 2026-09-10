@@ -4,6 +4,7 @@
 #include <ceres/core/isa/instructions.h>
 #include <ceres/core/isa/interrupts.h>
 #include "memory.h"
+#include "mmio_bus.h"
 
 namespace ceres::vm
 {
@@ -29,9 +30,15 @@ namespace ceres::vm
 			for (InterruptNumber in = InterruptNumber::Trap; in <= InterruptNumber::UserInterrupt0; in = static_cast<InterruptNumber>(static_cast<u8>(in) + 1))
 				initVector(memory, in, 0);
 
+			// Ports are gone, so reaching the terminal takes building its MMIO address in a
+			// register first: r1 = default_mmio::Terminal + TerminalDevice::OutputRegister
+			// (0xFF000004). devices.h cannot be included from here - devices depends on vm, not
+			// the other way round - so the +0x04 is spelled out rather than named.
 			write(memory, 0, Instruction::LI(0, 'E'));
-			write(memory, 1, Instruction::OUT(0, 0x1));
-			write(memory, 2, Instruction::HALT());
+			write(memory, 1, Instruction::LUI(1, static_cast<u16>(default_mmio::Terminal.value() >> 16)));
+			write(memory, 2, Instruction::ORI(1, 1, 0x0004));
+			write(memory, 3, Instruction::STRB(1, 0, 0));
+			write(memory, 4, Instruction::HALT());
 		}
 
 	private:

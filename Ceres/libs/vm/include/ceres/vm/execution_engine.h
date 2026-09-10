@@ -1,7 +1,7 @@
 #pragma once
 
 #include "memory.h"
-#include "io_ports.h"
+#include "mmio_bus.h"
 #include "interrupt_controller.h"
 #include "mmu.h"
 #include <ceres/core/isa/address.h>
@@ -30,7 +30,7 @@ namespace ceres::vm
 		Address _pc; // Program Counter (PC)
 		FlagRegister _flags; // Flags register
 		Memory& _memory;
-		IOPorts& _ioPorts;
+		MmioBus& _mmioBus;
 		InterruptController& _interrupts;
 		Mmu _mmu;
 
@@ -82,8 +82,8 @@ namespace ceres::vm
 
 
 	public:
-		explicit ExecutionEngine(Memory& memory, IOPorts& ioPorts, InterruptController& interrupts) :
-			_memory(memory), _ioPorts(ioPorts), _interrupts(interrupts)
+		explicit ExecutionEngine(Memory& memory, MmioBus& mmioBus, InterruptController& interrupts) :
+			_memory(memory), _mmioBus(mmioBus), _interrupts(interrupts)
 		{}
 		ExecutionEngine(const ExecutionEngine&) = delete;
 		ExecutionEngine(ExecutionEngine&&) = delete;
@@ -279,6 +279,18 @@ namespace ceres::vm
 			if (!physical.has_value())
 				return T{};
 
+			// The top 16 MiB of physical address space is never backed by Memory - see MmioBus. A
+			// physical address there routes here instead, whether it arrived as-is (paging off) or
+			// as the frame a page table happened to map to (paging on): mapping a device's window
+			// into a program's own virtual space is then just an ordinary page table entry.
+			if (MmioBus::contains(*physical))
+			{
+				if constexpr (FloatingPoint<T>)
+					return std::bit_cast<T>(_mmioBus.read<u32>(*physical));
+				else
+					return _mmioBus.read<T>(*physical);
+			}
+
 			if constexpr (FloatingPoint<T>)
 				return _memory.readFloat(*physical);
 			else
@@ -307,6 +319,15 @@ namespace ceres::vm
 			const auto physical = translate(address, MmuAccess::Write);
 			if (!physical.has_value())
 				return;
+
+			if (MmioBus::contains(*physical))
+			{
+				if constexpr (FloatingPoint<T>)
+					_mmioBus.write<u32>(*physical, std::bit_cast<u32>(value));
+				else
+					_mmioBus.write<std::make_unsigned_t<T>>(*physical, static_cast<std::make_unsigned_t<T>>(value));
+				return;
+			}
 
 			if constexpr (FloatingPoint<T>)
 				_memory.writeFloat(*physical, value);
@@ -1496,131 +1517,6 @@ namespace ceres::vm
 		forceinline void MTF(const Instruction inst) noexcept { _fregisters[inst.fd()].setBitsFromRegister(_registers[inst.rs()]); advancePC(); }
 		forceinline void MFF(const Instruction inst) noexcept { _registers.set(inst.rd(), _fregisters[inst.fs()].bitsAsRegister()); advancePC(); }
 
-		forceinline void IN(const Instruction inst) noexcept
-		{
-			setReg(inst.rd(), _ioPorts.read<u32>(inst.imm8()));
-			advancePC();
-		}
-		forceinline void INB(const Instruction inst) noexcept
-		{
-			setReg(inst.rd(), _ioPorts.read<u8>(inst.imm8()));
-			advancePC();
-		}
-		forceinline void INH(const Instruction inst) noexcept
-		{
-			setReg(inst.rd(), _ioPorts.read<u16>(inst.imm8()));
-			advancePC();
-		}
-		forceinline void INSB(const Instruction inst) noexcept
-		{
-			setReg(inst.rd(), _ioPorts.read<i8>(inst.imm8()));
-			advancePC();
-		}
-		forceinline void INSH(const Instruction inst) noexcept
-		{
-			setReg(inst.rd(), _ioPorts.read<i16>(inst.imm8()));
-			advancePC();
-		}
-		forceinline void INM(const Instruction inst) noexcept
-		{
-			if (!checkWritable(Address(getReg(inst.rd())), getReg(inst.rs())))
-				return;
-			_ioPorts.readBytes(inst.imm8(), getReg(inst.rd()), getReg(inst.rs()));
-			advancePC();
-		}
-		forceinline void INR(const Instruction inst) noexcept
-		{
-			const u8 port = static_cast<u8>(getReg(inst.rs()));
-			setReg(inst.rd(), _ioPorts.read<u32>(port));
-			advancePC();
-		}
-		forceinline void INRB(const Instruction inst) noexcept
-		{
-			const u8 port = static_cast<u8>(getReg(inst.rs()));
-			setReg(inst.rd(), _ioPorts.read<u8>(port));
-			advancePC();
-		}
-		forceinline void INRH(const Instruction inst) noexcept
-		{
-			const u8 port = static_cast<u8>(getReg(inst.rs()));
-			setReg(inst.rd(), _ioPorts.read<u16>(port));
-			advancePC();
-		}
-		forceinline void INRSB(const Instruction inst) noexcept
-		{
-			const u8 port = static_cast<u8>(getReg(inst.rs()));
-			setReg(inst.rd(), static_cast<i8>(_ioPorts.read<i8>(port)));
-			advancePC();
-		}
-		forceinline void INRSH(const Instruction inst) noexcept
-		{
-			const u8 port = static_cast<u8>(getReg(inst.rs()));
-			setReg(inst.rd(), static_cast<i16>(_ioPorts.read<i16>(port)));
-			advancePC();
-		}
-		forceinline void INRM(const Instruction inst) noexcept
-		{
-			const u8 port = static_cast<u8>(getReg(inst.rs()));
-			if (!checkWritable(Address(getReg(inst.rd())), getReg(inst.rt())))
-				return;
-			_ioPorts.readBytes(port, getReg(inst.rd()), getReg(inst.rt()));
-			advancePC();
-		}
-		forceinline void OUT(const Instruction inst) noexcept
-		{
-			const u32 value = getReg(inst.rs());
-			_ioPorts.write<u32>(inst.imm8(), value);
-			advancePC();
-		}
-		forceinline void OUTB(const Instruction inst) noexcept
-		{
-			const u8 value = static_cast<u8>(getReg(inst.rs()));
-			_ioPorts.write<u8>(inst.imm8(), value);
-			advancePC();
-		}
-		forceinline void OUTH(const Instruction inst) noexcept
-		{
-			const u16 value = static_cast<u16>(getReg(inst.rs()));
-			_ioPorts.write<u16>(inst.imm8(), value);
-			advancePC();
-		}
-		forceinline void OUTM(const Instruction inst) noexcept
-		{
-			const Address address = getReg(inst.rs());
-			const u32 size = getReg(inst.rt());
-			_ioPorts.writeBytes(inst.imm8(), address, size);
-			advancePC();
-		}
-		forceinline void OUTR(const Instruction inst) noexcept
-		{
-			const u8 port = static_cast<u8>(getReg(inst.rt()));
-			const u32 value = getReg(inst.rs());
-			_ioPorts.write<u32>(port, value);
-			advancePC();
-		}
-		forceinline void OUTRB(const Instruction inst) noexcept
-		{
-			const u8 port = static_cast<u8>(getReg(inst.rt()));
-			const u8 value = static_cast<u8>(getReg(inst.rs()));
-			_ioPorts.write<u8>(port, value);
-			advancePC();
-		}
-		forceinline void OUTRH(const Instruction inst) noexcept
-		{
-			const u8 port = static_cast<u8>(getReg(inst.rt()));
-			const u16 value = static_cast<u16>(getReg(inst.rs()));
-			_ioPorts.write<u16>(port, value);
-			advancePC();
-		}
-		forceinline void OUTRM(const Instruction inst) noexcept
-		{
-			const u8 port = static_cast<u8>(getReg(inst.rt()));
-			const Address address = getReg(inst.rs());
-			const u32 size = getReg(inst.rd());
-			_ioPorts.writeBytes(port, address, size);
-			advancePC();
-		}
-
 		forceinline void INVALID(const Instruction inst) noexcept { triggerInterrupt(InterruptNumber::IllegalInstruction); }
 
 	private:
@@ -1830,28 +1726,6 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::FTOII)] = &ExecutionEngine::FTOII;
 				handlers[static_cast<u8>(Opcode::MTF)] = &ExecutionEngine::MTF;
 				handlers[static_cast<u8>(Opcode::MFF)] = &ExecutionEngine::MFF;
-
-				// I/O
-				handlers[static_cast<u8>(Opcode::IN)] = &ExecutionEngine::IN;
-				handlers[static_cast<u8>(Opcode::INB)] = &ExecutionEngine::INB;
-				handlers[static_cast<u8>(Opcode::INH)] = &ExecutionEngine::INH;
-				handlers[static_cast<u8>(Opcode::INSB)] = &ExecutionEngine::INSB;
-				handlers[static_cast<u8>(Opcode::INSH)] = &ExecutionEngine::INSH;
-				handlers[static_cast<u8>(Opcode::INM)] = &ExecutionEngine::INM;
-				handlers[static_cast<u8>(Opcode::INR)] = &ExecutionEngine::INR;
-				handlers[static_cast<u8>(Opcode::INRB)] = &ExecutionEngine::INRB;
-				handlers[static_cast<u8>(Opcode::INRH)] = &ExecutionEngine::INRH;
-				handlers[static_cast<u8>(Opcode::INRSB)] = &ExecutionEngine::INRSB;
-				handlers[static_cast<u8>(Opcode::INRSH)] = &ExecutionEngine::INRSH;
-				handlers[static_cast<u8>(Opcode::INRM)] = &ExecutionEngine::INRM;
-				handlers[static_cast<u8>(Opcode::OUT)] = &ExecutionEngine::OUT;
-				handlers[static_cast<u8>(Opcode::OUTB)] = &ExecutionEngine::OUTB;
-				handlers[static_cast<u8>(Opcode::OUTH)] = &ExecutionEngine::OUTH;
-				handlers[static_cast<u8>(Opcode::OUTM)] = &ExecutionEngine::OUTM;
-				handlers[static_cast<u8>(Opcode::OUTR)] = &ExecutionEngine::OUTR;
-				handlers[static_cast<u8>(Opcode::OUTRB)] = &ExecutionEngine::OUTRB;
-				handlers[static_cast<u8>(Opcode::OUTRH)] = &ExecutionEngine::OUTRH;
-				handlers[static_cast<u8>(Opcode::OUTRM)] = &ExecutionEngine::OUTRM;
 
 				return handlers;
 		}();

@@ -57,8 +57,9 @@ namespace
 	// 13     cmp r3, LIMIT
 	// 14     jnz .loop
 	// 15     li r0, 1
-	// 16     out 0xff, r0
-	// 17     ret
+	// 16     la r13, 0xFFFF0000   (SystemControlDevice's MMIO base)
+	// 17     strb [r13 + 0], r0
+	// 18     ret
 	constexpr std::string_view LoopSource =
 		"const LIMIT = 10\r\n"
 		"@data\r\n"
@@ -75,7 +76,8 @@ namespace
 		"    cmp r3, LIMIT\r\n"
 		"    jnz .loop\r\n"
 		"    li r0, 1\r\n"
-		"    out 0xff, r0\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	std::unique_ptr<debug::DebugSession> launchOrNull(const TempSource& source)

@@ -15,7 +15,7 @@ using namespace ceres::testing;
 namespace
 {
 	constexpr std::string_view SampleSource =
-		"const OUT = 0x01\r\n"
+		"const TERM_OUT = 0xFF000004\r\n"
 		"@rodata\r\n"
 		"    let msg: u8[4] = \"abc\"\r\n"
 		"@data\r\n"
@@ -24,7 +24,8 @@ namespace
 		"global main:\r\n"
 		"    la r1, msg\r\n"
 		"    ldv r2, counter\r\n"
-		"    outb OUT, r2\r\n"
+		"    la r13, TERM_OUT\r\n"
+		"    strb [r13 + 0], r2\r\n"
 		"    ret\r\n";
 }
 

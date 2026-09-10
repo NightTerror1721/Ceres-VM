@@ -195,27 +195,10 @@ namespace ceres::isa
 		FTRUNC = 0x9E, // [fd, fs] - fd = fs truncated toward zero
 		FCOPYSIGN = 0x9F, // [fd, fs, ft] - fd = |fs| with the sign of ft
 
-		// I/O Operations //
-		IN = 0xA0, // [rd, imm8] - Read a word from the I/O port specified by imm8 into rd.
-		INB = 0xA1, // [rd, imm8] - Read a byte from the I/O port specified by imm8 into rd.
-		INH = 0xA2, // [rd, imm8] - Read a halfword from the I/O port specified by imm8 into rd.
-		INSB = 0xA3, // [rd, imm8] - Read a signed byte from the I/O port specified by imm8 into rd.
-		INSH = 0xA4, // [rd, imm8] - Read a signed halfword from the I/O port specified by imm8 into rd.
-		INM = 0xA5, // [rd, rs, imm8] - Read an array of bytes with size specified by rs from the I/O port specified by imm8 into the memory address pointed to by rd.
-		INR = 0xA6, // [rd, rs] - Read a word from the I/O port specified by the value in rs into rd.
-		INRB = 0xA7, // [rd, rs] - Read a byte from the I/O port specified by the value in rs into rd.
-		INRH = 0xA8, // [rd, rs] - Read a halfword from the I/O port specified by the value in rs into rd.
-		INRSB = 0xA9, // [rd, rs] - Read a signed byte from the I/O port specified by the value in rs into rd.
-		INRSH = 0xAA, // [rd, rs] - Read a signed halfword from the I/O port specified by the value in rs into rd.
-		INRM = 0xAB, // [rd, rs, rt] - Read an array of bytes with size specified by rt from the I/O port specified by the value in rs into the memory address pointed to by rd.
-		OUT = 0xAC, // [rs, imm8] - Write a word from rs to the I/O port specified by imm8.
-		OUTB = 0xAD, // [rs, imm8] - Write a byte from rs to the I/O port specified by imm8.
-		OUTH = 0xAE, // [rs, imm8] - Write a halfword from rs to the I/O port specified by imm8.
-		OUTM = 0xAF, // [rs, rt, imm8] - Write an array of bytes with size specified by rt from the memory address pointed to by rs to the I/O port specified by imm8. Assembly operand order is (port, address, size), matching INM.
-		OUTR = 0xB0, // [rs, rt] - Write a word from rs to the I/O port specified by the value in rt.
-		OUTRB = 0xB1, // [rs, rt] - Write a byte from rs to the I/O port specified by the value in rt.
-		OUTRH = 0xB2, // [rs, rt] - Write a halfword from rs to the I/O port specified by the value in rt.
-		OUTRM = 0xB3, // [rd, rs, rt] - Write an array of bytes with size specified by rd from the memory address pointed to by rs to the I/O port specified by the value in rt.
+		// I/O used to live here (0xA0-0xB3): a family of 20 opcodes addressing 256 single-byte
+		// "ports", entirely separate from the 32-bit memory address space. Devices are reached
+		// through ordinary loads and stores now - the top 16 MiB of the address space is reserved
+		// for them - so none of it is needed any more. See docs/07-IO-Devices-and-Ports.md.
 
 		// Indexed addressing: the offset is a register instead of a displacement, so walking an
 		// array costs no ADD per element. They are here rather than beside 0x40-0x4E because only
@@ -267,7 +250,7 @@ namespace ceres::isa
 		FRSQRTE = 0xD5, // [fd, fs] - fd = 1 / sqrt(fs); traps on fs == 0
 		CTZ = 0xD6, // [rd, rs] - rd = trailing zero bits in rs; 32 when rs is zero
 
-		// Free: 0x0F, 0x4F, 0x7A-0x7F, 0x8A-0x8F, 0xD7-0xFF.
+		// Free: 0x0F, 0x4F, 0x7A-0x7F, 0x8A-0x8F, 0xA0-0xB3, 0xD7-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

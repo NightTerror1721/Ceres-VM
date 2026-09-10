@@ -1276,7 +1276,13 @@ TEST(pipeline_like, an_anonymous_string_prints)
 		"global main:\r\n"
 		"    la r1, \"listo\"\r\n"
 		"    li r2, 5\r\n"
-		"    outm 0x01, r1, r2\r\n"
+		"    la r13, 0xFF0000F0\r\n" // Terminal's BlockAddressRegister
+		"    str [r13 + 0], r1\r\n"
+		"    la r13, 0xFF0000F4\r\n" // BlockLengthRegister
+		"    str [r13 + 0], r2\r\n"
+		"    la r13, 0xFF0000F8\r\n" // BlockCommandRegister
+		"    li r3, 2\r\n"
+		"    str [r13 + 0], r3\r\n"
 		"    ret\r\n");
 	CHECK(r.ok());
 	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
