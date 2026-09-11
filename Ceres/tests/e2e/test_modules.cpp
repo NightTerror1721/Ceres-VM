@@ -360,6 +360,30 @@ TEST(modules, a_global_constant_travels_through_an_intermediate_module)
 	CHECK_EQ(Instruction(r.words()[0]).imm16(), u16{ 21 });
 }
 
+TEST(modules, an_imported_module_interrupt_binding_is_installed)
+{
+	Workspace ws{ "interrupt" };
+	ws.write("io.casm",
+		"interrupt UserInterrupt1: term_isr\r\n"
+		"@text\r\n"
+		"term_isr:\r\n"
+		"    iret\r\n");
+	ws.write("main.casm",
+		"import \"io.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    sti\r\n"
+		"    halt\r\n");
+
+	AssembleResult r = ws.assemble("main.casm");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(r.program->interruptVectors().size(), usize{ 1 });
+	if (r.program->interruptVectors().size() == 1)
+		CHECK_EQ(r.program->interruptVectors()[0].interruptNumber, u8{ 17 });
+}
+
 // Named imports: the escape hatch for two modules that export the same name.
 TEST(modules, a_named_import_disambiguates_a_clash)
 {
