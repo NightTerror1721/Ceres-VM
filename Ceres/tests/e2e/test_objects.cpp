@@ -311,6 +311,55 @@ TEST(objects, an_address_initializer_in_data_becomes_a_word32_relocation)
 	CHECK_EQ(ptr, rodataStart);
 }
 
+TEST(objects, an_address_initializer_in_rodata_becomes_a_word32_relocation)
+{
+	// The pointer itself lives in .rodata rather than .data, which is the other half of the
+	// feature: `patchedSection` says where the word is patched, independent of where the target is.
+	ObjectWorkspace ws{ "rodata_addr" };
+	ws.write("main.casm",
+		"@rodata\r\n"
+		"let SLOT: u32 = handler\r\n"
+		"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n"
+		"handler:\r\n"
+		"    ret\r\n");
+
+	auto object = ws.assemble("main.casm");
+	CHECK(object.has_value());
+	if (!object) { Registry::instance().recordFailure(ws.firstError()); return; }
+
+	bool found = false;
+	for (const casm::Relocation& relocation : object->relocations)
+	{
+		if (relocation.symbol != "handler")
+			continue;
+		found = true;
+		CHECK(relocation.patchedSection == casm::SectionType::Rodata);
+		CHECK(relocation.field == casm::RelocationField::Word32);
+		CHECK(!relocation.isExternal());
+		CHECK(relocation.section == casm::SectionType::Text);
+	}
+	CHECK(found);
+
+	// The word is zero until the link writes the address of `handler` into it.
+	std::vector<casm::ObjectArchive::Member> inputs;
+	inputs.push_back(memberOf("main.cobj", std::move(object.value())));
+	casm::ObjectLinker linker;
+	auto linked = linker.link(std::move(inputs));
+	CHECK(linked.has_value());
+	if (!linked) { Registry::instance().recordFailure(linker.errors().front()); return; }
+
+	// SLOT is the only .rodata; `handler` follows main's single `ret`, so it is four bytes in.
+	const u32 handlerStart = Memory::UnrestrictedSegmentStart.value() + Instruction::Size;
+	const std::span<const u8> rodata = linked->rodata();
+	CHECK(rodata.size() >= 4);
+	const u32 ptr = static_cast<u32>(rodata[0]) | (static_cast<u32>(rodata[1]) << 8) |
+		(static_cast<u32>(rodata[2]) << 16) | (static_cast<u32>(rodata[3]) << 24);
+	CHECK_EQ(ptr, handlerStart);
+}
+
 TEST(objects, an_address_initializer_reaches_a_symbol_in_another_object)
 {
 	// A pointer in one object names a string in another: the relocation is external, and only the
@@ -356,11 +405,11 @@ TEST(objects, an_address_initializer_reaches_a_symbol_in_another_object)
 	// GREETING is the only .rodata; PTR (the only .data) holds its address.
 	const u32 rodataStart = Memory::UnrestrictedSegmentStart.value() + linked->header().textSize;
 	const std::span<const u8> data = linked->data();
+	CHECK(data.size() >= 4);
 	const u32 ptr = static_cast<u32>(data[0]) | (static_cast<u32>(data[1]) << 8) |
 		(static_cast<u32>(data[2]) << 16) | (static_cast<u32>(data[3]) << 24);
 	CHECK_EQ(ptr, rodataStart);
 }
-
 
 TEST(objects, the_order_the_objects_are_given_in_does_not_change_the_program)
 {

@@ -318,10 +318,46 @@ TEST(language, a_data_initializer_address_of_a_label_defined_later_still_resolve
 	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
 
 	const auto data = r.program->data();
+	CHECK(data.size() >= 4);
 	const u32 ptr = static_cast<u32>(data[0]) | (static_cast<u32>(data[1]) << 8) |
 		(static_cast<u32>(data[2]) << 16) | (static_cast<u32>(data[3]) << 24);
 	// `handler` is the second instruction of .text (after main's ret), so it is four bytes in.
-	CHECK_EQ(ptr, Memory::UnrestrictedSegmentStart.value() + 4);
+	CHECK_EQ(ptr, Memory::UnrestrictedSegmentStart.value() + Instruction::Size);
+}
+
+TEST(language, an_address_initializer_into_a_narrow_slot_is_rejected)
+{
+	// An address is always 32 bits, so a slot narrower than that cannot hold one. The message
+	// states the rule (the slot must be a 32-bit integer) rather than claiming the address does
+	// not fit in a type that is itself 32 bits wide.
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let B: u8 = handler\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n"
+		"handler:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("cannot go in") != std::string::npos);
+}
+
+TEST(language, a_constant_defined_after_the_data_that_names_it_is_rejected)
+{
+	// A constant that is not yet defined when the initializer is read cannot fold to its value, so
+	// it is recorded as an address reference and the link then reports it is a constant, not an
+	// address - a constant must be defined before the data statement that names it.
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let P: u32 = K\r\n"
+		"const K = 5\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(!r.ok());
+	CHECK(r.joinedErrors().find("is a constant, not an address") != std::string::npos);
 }
 
 // --- Instructions that had no spelling ---------------------------------------------------------

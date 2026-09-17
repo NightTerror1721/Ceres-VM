@@ -692,7 +692,7 @@ namespace ceres::casm
 			{
 				const DataTypeScalarCode slotType = targetScalarCode.value_or(DataTypeScalarCode::U32);
 				if (slotType != DataTypeScalarCode::U32 && slotType != DataTypeScalarCode::I32)
-					error(line, "The address of '{}' does not fit in {}: a Ceres address is 32 bits",
+					error(line, "The address of '{}' cannot go in {}: an address needs a 32-bit integer slot (u32, i32, ptr or word)",
 						name, DataType::scalarCodeToString(slotType));
 
 				addresses->push_back(DataAddressReference{ elementIndex, name, line, SectionType::Text, false, Address::Null });

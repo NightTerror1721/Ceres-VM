@@ -227,8 +227,8 @@ namespace ceres::casm
 			Relocation relocation;
 			relocation.offset = reader.readU32();
 			const u8 patched = reader.readU8();
-			if (!isValidSection(patched))
-				return std::unexpected("Object file names an unknown section in a relocation");
+			if (patched > static_cast<u8>(SectionType::Data))
+				return std::unexpected("Object file names an unknown patched section in a relocation");
 			relocation.patchedSection = static_cast<SectionType>(patched);
 			const u8 field = reader.readU8();
 			if (!isValidField(field))

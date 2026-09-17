@@ -390,8 +390,12 @@ namespace ceres::casm
 			// the link to fill in (object). Both are written here as a 32-bit word, so the element's
 			// own scalar value - zero, which is what the build pass left in its slot - is ignored.
 			std::unordered_map<u32, const DataAddressReference*> addressByIndex;
-			for (const DataAddressReference& reference : data.addresses)
-				addressByIndex.emplace(reference.elementIndex, &reference);
+			if (!data.addresses.empty())
+			{
+				addressByIndex.reserve(data.addresses.size());
+				for (const DataAddressReference& reference : data.addresses)
+					addressByIndex.emplace(reference.elementIndex, &reference);
+			}
 
 			usize elementIndex = 0;
 			for (const auto& scalarValue : value.elements())

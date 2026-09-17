@@ -36,8 +36,9 @@ namespace ceres::casm
 		// Not an instruction field at all: a whole little-endian 32-bit word, patched with the
 		// address as it stands. This is what `let handler: u32 = onTimer` needs - a variable whose
 		// initial value is another symbol's address, which nothing knows until the link. It is the
-		// only field that appears outside .text, and the only one with nothing to range check: a
-		// Ceres address is 32 bits and so is the word holding it.
+		// only field that appears outside .text, and the only one with no range to check at all
+		// (Imm16Low above is merely left unchecked): a Ceres address is 32 bits and so is the word
+		// holding it.
 		Word32,
 	};
 

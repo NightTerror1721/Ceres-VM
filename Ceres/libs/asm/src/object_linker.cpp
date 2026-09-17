@@ -281,11 +281,19 @@ namespace ceres::casm
 				// word holding it.
 				if (relocation.patchedSection != SectionType::Text)
 				{
+					if (relocation.patchedSection != SectionType::Rodata && relocation.patchedSection != SectionType::Data)
+					{
+						reportError(std::format("{}: a relocation patches {}, which holds no bytes to patch",
+							members[i]->name, nameOfSection(relocation.patchedSection)));
+						continue;
+					}
+
 					const bool isRodata = relocation.patchedSection == SectionType::Rodata;
 					std::vector<u8>& section = isRodata ? rodata : data;
 					const u32 objectSectionStart = isRodata ? objectRodataStart : objectDataStart;
 					const usize position = static_cast<usize>(objectSectionStart) + relocation.offset;
-					if (position + 4 > section.size())
+					const std::vector<u8>& ownSection = isRodata ? object.rodata : object.data;
+					if (static_cast<usize>(relocation.offset) + 4 > ownSection.size())
 					{
 						reportError(std::format("{}: a relocation points past the end of its own {}",
 							members[i]->name, nameOfSection(relocation.patchedSection)));
@@ -367,8 +375,11 @@ namespace ceres::casm
 						break;
 
 					case RelocationField::Word32:
-						// Never reaches .text: a Word32 patches a whole word in .rodata or .data and
-						// is handled above. Present only so the switch stays exhaustive.
+						// A Word32 patches a whole word in .rodata or .data, which is handled above,
+						// so reaching .text means a malformed object. Present to keep the switch
+						// exhaustive, and to make that corruption loud rather than silently ignored.
+						reportError(std::format("{}: a Word32 relocation patches {} with no word to patch",
+							members[i]->name, nameOfSection(relocation.patchedSection)));
 						break;
 				}
 

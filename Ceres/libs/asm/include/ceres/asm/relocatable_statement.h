@@ -15,8 +15,9 @@ namespace ceres::casm
 	struct DataAddressReference
 	{
 		u32 elementIndex = 0; // Which scalar element of ResolvedDataStatement::value is the address
-		std::string symbol;   // The target's name, as written (plain or qualified). A constant is
-		                      // never one of these - a constant folds to its value in the build pass.
+		std::string symbol;   // The target's name, as written (plain or qualified). A constant that
+		                      // is already defined folds to its value in the build pass; one defined
+		                      // later is recorded here and rejected by the link.
 		u32 line = 0;         // Where it was written, so an unresolved name points at its use
 		// Filled by the link pass:
 		SectionType section = SectionType::Text;
