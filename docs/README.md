@@ -42,6 +42,7 @@ the assembler does internally at each stage of the build.
 25. [Separate compilation](25-Separate-Compilation.md) — `.cobj` objects, archives and `ceres link`: building one file at a time.
 26. [Interrupt vector binding](26-Interrupt-Vector-Binding.md) — the `interrupt NUMBER: handler` declaration, and how a program gets its own handler installed instead of the BIOS's.
 27. [Virtual memory and paging](27-Virtual-Memory-and-Paging.md) — the MMU: two-level page tables, the TLB, `pgon`/`pgoff`, and `PageFault`.
+28. [Roadmap educativa y retro](28-Roadmap-Educativo-y-Retro.md) — mejoras y ampliaciones para aprender arquitectura, practicar con kernels y crear pequeños juegos retro.
 
 ### Learn by doing
 
