@@ -275,6 +275,55 @@ TEST(language, the_layout_and_the_emitted_bytes_agree_after_padding)
 	CHECK_EQ(address % 4, 0u);
 }
 
+TEST(language, a_data_initializer_can_be_the_address_of_another_symbol)
+{
+	// A pointer in .data whose initializer names a string in .rodata. The address is not known
+	// until the link, so it is written as a 32-bit word after every section has been placed.
+	AssembleResult r = assembleSource(
+		"@rodata\r\n"
+		"    let MSG: u8[4] = \"abc\"\r\n"
+		"@data\r\n"
+		"    let PTR: u32 = MSG\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	// MSG is the only .rodata symbol, so it sits at the rodata base; PTR (the only .data) holds
+	// that address, little-endian.
+	const u32 rodataStart = Memory::UnrestrictedSegmentStart.value() + r.program->header().textSize;
+	const auto data = r.program->data();
+	CHECK(data.size() >= 4);
+	const u32 ptr = static_cast<u32>(data[0]) | (static_cast<u32>(data[1]) << 8) |
+		(static_cast<u32>(data[2]) << 16) | (static_cast<u32>(data[3]) << 24);
+	CHECK_EQ(ptr, rodataStart);
+}
+
+TEST(language, a_data_initializer_address_of_a_label_defined_later_still_resolves)
+{
+	// A forward reference: the pointer names a routine defined further down the file. Resolution
+	// is deferred to the link exactly like an instruction operand's is.
+	AssembleResult r = assembleSource(
+		"@data\r\n"
+		"    let HANDLER: u32 = handler\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n"
+		"handler:\r\n"
+		"    ret\r\n");
+
+	CHECK(r.ok());
+	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
+
+	const auto data = r.program->data();
+	const u32 ptr = static_cast<u32>(data[0]) | (static_cast<u32>(data[1]) << 8) |
+		(static_cast<u32>(data[2]) << 16) | (static_cast<u32>(data[3]) << 24);
+	// `handler` is the second instruction of .text (after main's ret), so it is four bytes in.
+	CHECK_EQ(ptr, Memory::UnrestrictedSegmentStart.value() + 4);
+}
+
 // --- Instructions that had no spelling ---------------------------------------------------------
 
 TEST(language, jo_and_jno_read_the_overflow_flag)

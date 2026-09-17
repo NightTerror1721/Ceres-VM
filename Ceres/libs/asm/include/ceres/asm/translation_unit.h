@@ -294,8 +294,10 @@ namespace ceres::casm
 		Identifier makeHygienicLabel(Identifier macroLabel, u32 instanceId);
 
 		DataType resolveDataType(u32 line, const DataTypeReference& dataType, bool allowUnsizedArrays) const;
-		LiteralValue resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays = false, std::optional<DataTypeScalarCode> targetScalarCode = std::nullopt) const;
-		std::pair<DataType, LiteralValue> resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const;
+		LiteralValue resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays = false, std::optional<DataTypeScalarCode> targetScalarCode = std::nullopt,
+			std::vector<DataAddressReference>* addresses = nullptr) const;
+		std::pair<DataType, LiteralValue> resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value,
+			std::vector<DataAddressReference>* addresses = nullptr) const;
 
 		// Positional struct initialisation: `let x: u8[Struct] = [v0, v1, ...]` (or
 		// `u8[N][Struct]` for N instances). Returns nullopt when the declaration is not a
@@ -316,7 +318,8 @@ namespace ceres::casm
 		ConstExprSymbolLookup symbolLookup() const;
 		void checkAliasBounds(u32 line, DataTypeAlias alias, std::span<const LiteralScalar> values) const;
 		u32 evaluateDimension(u32 line, const ConstExpr& expression) const;
-		LiteralScalar evaluateElement(u32 line, const LiteralValueReferenceElement& element, std::optional<DataTypeScalarCode> targetScalarCode) const;
+		LiteralScalar evaluateElement(u32 line, const LiteralValueReferenceElement& element, std::optional<DataTypeScalarCode> targetScalarCode,
+			std::vector<DataAddressReference>* addresses = nullptr, u32 elementIndex = 0) const;
 
 		// The lengths of every sibling group at each nesting level of a literal. Level 0 holds one
 		// entry, the length of the literal itself.
@@ -325,7 +328,8 @@ namespace ceres::casm
 
 		// Writes the literal out in row-major order, padding each level up to its declared length.
 		void flattenLiteral(u32 line, std::span<const LiteralValueReferenceElement> elements, std::span<const u32> dimensions,
-			std::optional<DataTypeScalarCode> targetScalarCode, std::vector<LiteralScalar>& out) const;
+			std::optional<DataTypeScalarCode> targetScalarCode, std::vector<LiteralScalar>& out,
+			std::vector<DataAddressReference>* addresses = nullptr) const;
 
 		std::expected<u32, std::string_view> sizeOf(u32 line, DataType dataType) const;
 		std::expected<u32, std::string_view> sizeOf(u32 line, const LiteralValue& value) const;

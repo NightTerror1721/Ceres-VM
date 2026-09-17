@@ -34,7 +34,10 @@ namespace ceres::casm
 		static inline constexpr u32 MagicNumber = 0x4341534F;
 		// 1 -> 2: added the interrupt-binding table (ObjectInterruptBinding), so a v1 reader would
 		// silently never see a program's `interrupt` declarations rather than losing them loudly.
-		static inline constexpr u16 CurrentVersion = 2;
+		// 2 -> 3: a relocation now says which SECTION holds the word it patches, because one can
+		// now patch a word in .rodata or .data (Relocation::patchedSection). A v2 reader would take
+		// that byte for the start of the field it expected next and patch something arbitrary.
+		static inline constexpr u16 CurrentVersion = 3;
 
 	public:
 		// Where it came from. Carried for diagnostics only: "undefined symbol" is nearly useless

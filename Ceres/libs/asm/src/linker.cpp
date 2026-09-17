@@ -362,6 +362,51 @@ namespace ceres::casm
 							error(statement.line(), "Invalid instruction syntax: {}", instructionStatement.signature().toString());
 						}
 					}
+					if (statement.isData())
+					{
+						// A data initializer may name a symbol's ADDRESS, which is not known until
+						// the link. Resolve each one against the unit's own table, its imports, then
+						// the global table - the same order an instruction operand resolves in.
+						for (DataAddressReference& reference : statement.asData().addresses)
+						{
+							const Symbol* found = nullptr;
+							bool external = false;
+							if (auto own = unit.symbolTable().get(reference.symbol); own.has_value())
+							{
+								found = &own.value().get();
+							}
+							else if (auto imported = unit.resolveSymbol(reference.symbol); imported.has_value())
+							{
+								found = &imported.value().get();
+								external = true;
+							}
+							else if (auto global = globalSymbolTable.get(reference.symbol); global.has_value())
+							{
+								found = &global.value().get();
+								external = true;
+							}
+
+							if (found == nullptr)
+							{
+								reportError(reference.line, "Linker error: Unresolved symbol '{}'.", reference.symbol);
+								continue;
+							}
+							if (found->isConstant())
+							{
+								reportError(reference.line, "Linker error: '{}' is a constant, not an address; a constant must be defined before the data statement that names it.", reference.symbol);
+								continue;
+							}
+							if (!found->hasAddress())
+							{
+								reportError(reference.line, "Linker error: '{}' has no address.", reference.symbol);
+								continue;
+							}
+
+							reference.section = found->section();
+							reference.external = external;
+							reference.address = found->address();
+						}
+					}
 				}
 				catch (const AssemblerError& ex)
 				{

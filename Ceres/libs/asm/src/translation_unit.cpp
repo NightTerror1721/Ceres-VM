@@ -106,6 +106,7 @@ namespace ceres::casm
 
 					DataType dataType = DataType::Invalid;
 					std::optional<LiteralValue> literalValue = std::nullopt;
+					std::vector<DataAddressReference> addresses;
 					std::expected<u32, std::string_view> size = 0;
 					if (!data.value.empty())
 					{
@@ -122,7 +123,7 @@ namespace ceres::casm
 							}
 							else
 							{
-								auto result = resolveLiteralValue(statement.line(), data.dataType, data.value);
+								auto result = resolveLiteralValue(statement.line(), data.dataType, data.value, &addresses);
 								dataType = result.first;
 								literalValue = std::move(result.second);
 								size = sizeOf(statement.line(), dataType, literalValue.value());
@@ -130,7 +131,7 @@ namespace ceres::casm
 						}
 						else
 						{
-							literalValue = resolveLiteralValue(statement.line(), data.value, false);
+							literalValue = resolveLiteralValue(statement.line(), data.value, false, std::nullopt, &addresses);
 							dataType = literalValue.value().dataType();
 							size = sizeOf(statement.line(), literalValue.value());
 						}
@@ -156,6 +157,8 @@ namespace ceres::casm
 					{
 						if (!literalValue.has_value())
 							error(statement.line(), "Constant data statement must have an initial value");
+						if (!addresses.empty())
+							error(statement.line(), "A constant cannot hold an address: a constant has no storage for the linker to patch");
 
 						symbolTable.defineConstant(statement.line(), data.name, data.isGlobal, literalValue.value());
 					}
@@ -215,7 +218,8 @@ namespace ceres::casm
 					}
 					else
 					{
-						_ast.push_back(RelocatableStatement::makeData(statement.file(), statement.line(), size.value(), currentOffset(), ResolvedDataStatement{ data.isConstant, data.isGlobal, data.name, dataType, literalValue }));
+						_ast.push_back(RelocatableStatement::makeData(statement.file(), statement.line(), size.value(), currentOffset(),
+							ResolvedDataStatement{ data.isConstant, data.isGlobal, data.name, dataType, literalValue, std::move(addresses) }));
 						currentOffset() += size.value();
 					}
 				}
@@ -670,10 +674,31 @@ namespace ceres::casm
 		return static_cast<u32>(size);
 	}
 
-	LiteralScalar TranslationUnitBuilder::evaluateElement(u32 line, const LiteralValueReferenceElement& element, std::optional<DataTypeScalarCode> targetScalarCode) const
+	LiteralScalar TranslationUnitBuilder::evaluateElement(u32 line, const LiteralValueReferenceElement& element, std::optional<DataTypeScalarCode> targetScalarCode,
+		std::vector<DataAddressReference>* addresses, u32 elementIndex) const
 	{
 		if (element.isGroup())
 			error(line, "Expected a value here, but found a nested initialiser");
+
+		// An identifier that is not a constant is an ADDRESS - `let handler: u32 = onTimer`. Nothing
+		// knows the address until the link (or a forward declaration), so it is recorded and a zero
+		// is left in the slot. Only asked for by a data statement's own initializer: a struct
+		// field's bytes are never an address, so that path passes `addresses == nullptr`.
+		if (addresses != nullptr && element.isIdentifier())
+		{
+			const std::string name{ element.identifierValue().view() };
+			const Symbol* symbol = symbolLookup()(name);
+			if (symbol == nullptr || !symbol->isConstant())
+			{
+				const DataTypeScalarCode slotType = targetScalarCode.value_or(DataTypeScalarCode::U32);
+				if (slotType != DataTypeScalarCode::U32 && slotType != DataTypeScalarCode::I32)
+					error(line, "The address of '{}' does not fit in {}: a Ceres address is 32 bits",
+						name, DataType::scalarCodeToString(slotType));
+
+				addresses->push_back(DataAddressReference{ elementIndex, name, line, SectionType::Text, false, Address::Null });
+				return LiteralScalar::makeZero(slotType);
+			}
+		}
 
 		auto value = evaluateConstExpr(element.expression(), symbolLookup());
 		if (!value.has_value())
@@ -712,7 +737,8 @@ namespace ceres::casm
 	}
 
 	void TranslationUnitBuilder::flattenLiteral(u32 line, std::span<const LiteralValueReferenceElement> elements, std::span<const u32> dimensions,
-		std::optional<DataTypeScalarCode> targetScalarCode, std::vector<LiteralScalar>& out) const
+		std::optional<DataTypeScalarCode> targetScalarCode, std::vector<LiteralScalar>& out,
+		std::vector<DataAddressReference>* addresses) const
 	{
 		const u32 expected = dimensions.front();
 		if (elements.size() > expected)
@@ -723,7 +749,10 @@ namespace ceres::casm
 		if (dimensions.size() == 1)
 		{
 			for (const auto& element : elements)
-				out.push_back(evaluateElement(line, element, targetScalarCode));
+			{
+				const u32 index = static_cast<u32>(out.size());
+				out.push_back(evaluateElement(line, element, targetScalarCode, addresses, index));
+			}
 
 			// A declared dimension longer than what was written is filled with zeroes, the same way
 			// a short string filling a longer array always has been.
@@ -739,7 +768,7 @@ namespace ceres::casm
 		{
 			if (!element.isGroup())
 				error(line, "Expected a nested initialiser here: the declared type has {} more dimension(s)", dimensions.size() - 1);
-			flattenLiteral(line, element.group(), dimensions.subspan(1), targetScalarCode, out);
+			flattenLiteral(line, element.group(), dimensions.subspan(1), targetScalarCode, out, addresses);
 		}
 
 		out.insert(out.end(), static_cast<usize>(expected - elements.size()) * innerCount, zero);
@@ -806,7 +835,8 @@ namespace ceres::casm
 		return DataType::makeArray(dataType.scalarCode(), dimensions).withAlias(dataType.alias());
 	}
 
-	LiteralValue TranslationUnitBuilder::resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays, std::optional<DataTypeScalarCode> targetScalarCode) const
+	LiteralValue TranslationUnitBuilder::resolveLiteralValue(u32 line, const LiteralValueReference& value, bool allowEmptyArrays, std::optional<DataTypeScalarCode> targetScalarCode,
+		std::vector<DataAddressReference>* addresses) const
 	{
 		if (value.empty())
 		{
@@ -836,12 +866,13 @@ namespace ceres::casm
 		}
 
 		std::vector<LiteralScalar> resolvedElements;
-		flattenLiteral(line, value.elements(), dimensions, targetScalarCode, resolvedElements);
+		flattenLiteral(line, value.elements(), dimensions, targetScalarCode, resolvedElements, addresses);
 
 		return LiteralValue::make(std::move(resolvedElements));
 	}
 
-	std::pair<DataType, LiteralValue> TranslationUnitBuilder::resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value) const
+	std::pair<DataType, LiteralValue> TranslationUnitBuilder::resolveLiteralValue(u32 line, const DataTypeReference& expectedDataType, const LiteralValueReference& value,
+		std::vector<DataAddressReference>* addresses) const
 	{
 		if (!expectedDataType.isValid())
 			error(line, "Invalid data type");
@@ -853,7 +884,7 @@ namespace ceres::casm
 			if (value.size() != 1 || value.first().isGroup())
 				error(line, "Expected a single value for a declaration of type {}", expectedDataType.toString());
 
-			std::vector<LiteralScalar> single{ evaluateElement(line, value.first(), scalarCode) };
+			std::vector<LiteralScalar> single{ evaluateElement(line, value.first(), scalarCode, addresses, 0) };
 			checkAliasBounds(line, expectedDataType.alias(), single);
 			return { DataType::makeScalar(scalarCode).withAlias(expectedDataType.alias()), LiteralValue::make(std::move(single)) };
 		}
@@ -906,11 +937,11 @@ namespace ceres::casm
 				total *= dimension;
 
 			const std::array<u32, 1> flat{ total };
-			flattenLiteral(line, value.elements(), flat, scalarCode, resolvedElements);
+			flattenLiteral(line, value.elements(), flat, scalarCode, resolvedElements, addresses);
 		}
 		else
 		{
-			flattenLiteral(line, value.elements(), dimensions, scalarCode, resolvedElements);
+			flattenLiteral(line, value.elements(), dimensions, scalarCode, resolvedElements, addresses);
 		}
 
 		checkAliasBounds(line, expectedDataType.alias(), resolvedElements);

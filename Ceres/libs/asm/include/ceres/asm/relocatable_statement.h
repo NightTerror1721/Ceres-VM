@@ -8,6 +8,22 @@ namespace ceres::casm
 {
 	using namespace isa;
 
+	// One element of a data statement's initializer whose value is the ADDRESS of a symbol rather
+	// than a literal - `let handler: u32 = onTimer`. The value slot holds zero; the link resolves
+	// the address (separate compilation) or the emitter writes it (whole-program build). Recorded in
+	// the build pass, resolved by Linker::resolveEverything(), consumed by BinaryEmitter::emitData().
+	struct DataAddressReference
+	{
+		u32 elementIndex = 0; // Which scalar element of ResolvedDataStatement::value is the address
+		std::string symbol;   // The target's name, as written (plain or qualified). A constant is
+		                      // never one of these - a constant folds to its value in the build pass.
+		u32 line = 0;         // Where it was written, so an unresolved name points at its use
+		// Filled by the link pass:
+		SectionType section = SectionType::Text;
+		bool external = false;                 // Defined in another unit; only a link knows where
+		Address address = Address::Null;       // Absolute (whole program) or section-relative (object, local)
+	};
+
 	struct ResolvedDataStatement
 	{
 		bool isConstant; // Whether the data is a constant (defined with 'const') or a variable (defined with 'let')
@@ -15,6 +31,10 @@ namespace ceres::casm
 		Identifier name; // Identifier name (e.g., variable name)
 		DataType dataType; // Resolved data type information (can be scalar, unsized array, or sized array)
 		std::optional<LiteralValue> value; // Optional initial value (can be a literal integer, float, char, bool, string, or an array of literal values)
+		// Addresses in the initializer - one per element whose value is a symbol's address rather
+		// than a literal. Empty for a data statement whose initializer is all literals, which is
+		// every data statement that existed before a `let` initializer could name a symbol.
+		std::vector<DataAddressReference> addresses;
 	};
 
 	class RelocatableStatement
@@ -101,6 +121,7 @@ namespace ceres::casm
 		const ResolvedDataStatement& asData() const noexcept { return std::get<ResolvedDataStatement>(_value); }
 		const InstructionStatement& asInstruction() const noexcept { return std::get<InstructionStatement>(_value); }
 
+		ResolvedDataStatement& asData() noexcept { return std::get<ResolvedDataStatement>(_value); }
 		InstructionStatement& asInstruction() noexcept { return std::get<InstructionStatement>(_value); }
 
 		void setAddress(Address address) noexcept { _address = address; }

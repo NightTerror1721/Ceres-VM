@@ -8,6 +8,11 @@
 // on its own, a unit knows the shape of every access and none of the addresses: its own sections
 // have not been placed yet, and a symbol from another unit has not even been seen. A relocation is
 // the difference - the field, how the value goes into it, and what the value is *of*.
+//
+// Most of them patch an instruction, which is why the fields below are named after instruction
+// encodings. One does not: RelocationField::Word32 patches a plain 32-bit word in .rodata or .data,
+// which is what an initializer like `let message: u32 = greeting` comes to. `patchedSection` is
+// what says which of the two kinds this is.
 
 #include "common_defs.h"
 #include <string>
@@ -28,12 +33,24 @@ namespace ceres::casm
 		SImm20,
 		Imm24,
 		SImm24,
+		// Not an instruction field at all: a whole little-endian 32-bit word, patched with the
+		// address as it stands. This is what `let handler: u32 = onTimer` needs - a variable whose
+		// initial value is another symbol's address, which nothing knows until the link. It is the
+		// only field that appears outside .text, and the only one with nothing to range check: a
+		// Ceres address is 32 bits and so is the word holding it.
+		Word32,
 	};
 
 	struct Relocation
 	{
-		// Where the word to patch sits in the object's own .text, in bytes.
+		// Where the word to patch sits inside `patchedSection`, in bytes.
 		u32 offset = 0;
+		// Which of THIS object's sections holds the word being patched. .text for every relocation
+		// that belongs to an instruction, which is all of them until a `let` initializer names a
+		// symbol; .rodata or .data for those. Not to be confused with `section` below, which says
+		// where the TARGET lives - the two are independent, and a pointer in .data to a string in
+		// .rodata has one of each.
+		SectionType patchedSection = SectionType::Text;
 
 		RelocationField field = RelocationField::Imm16;
 		// Applied to the resolved address before it goes into the field: 16 for the LUI half of an

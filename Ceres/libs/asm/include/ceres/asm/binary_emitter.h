@@ -95,6 +95,12 @@ namespace ceres::casm
 		// high half of a two-instruction address depends on a carry out of the low one.
 		bool recordRelocation(const Operand& operand, RelocationField field, u8 shift, bool pcRelative);
 
+		// Records a Word32 relocation for a data initializer element whose value is a symbol's
+		// address. Only when the emitter is in object mode; a whole-program build already has the
+		// final address and writes it straight in. `offset` is the byte offset of the word inside
+		// `patchedSection`.
+		void recordDataRelocation(const DataAddressReference& reference, u32 offset, SectionType patchedSection);
+
 		// A memory displacement is a signed 16-bit field. It used to be written with a plain
 		// truncation, so `[r1 + 70000]` quietly became `[r1 + 4464]` and `[r1 - 8]` became
 		// `[r1 + 65528]` - the second of which is why the field is signed now.

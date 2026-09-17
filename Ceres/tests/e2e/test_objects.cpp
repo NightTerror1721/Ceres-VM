@@ -262,6 +262,106 @@ TEST(objects, two_objects_link_into_a_program_that_runs)
 	CHECK_EQ(run(linked.value()), std::string{ "two objects1" });
 }
 
+TEST(objects, an_address_initializer_in_data_becomes_a_word32_relocation)
+{
+	ObjectWorkspace ws{ "data_addr" };
+	ws.write("main.casm",
+		"@rodata\r\n"
+		"let MSG: u8[4] = \"abc\"\r\n"
+		"\r\n"
+		"@data\r\n"
+		"let PTR: u32 = MSG\r\n"
+		"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	auto object = ws.assemble("main.casm");
+	CHECK(object.has_value());
+	if (!object) { Registry::instance().recordFailure(ws.firstError()); return; }
+
+	// The pointer is a Word32 relocation in .data, naming the string in .rodata, not an instruction
+	// patch in .text.
+	bool found = false;
+	for (const casm::Relocation& relocation : object->relocations)
+	{
+		if (relocation.symbol != "MSG")
+			continue;
+		found = true;
+		CHECK(relocation.patchedSection == casm::SectionType::Data);
+		CHECK(relocation.field == casm::RelocationField::Word32);
+		CHECK(!relocation.isExternal());
+		CHECK(relocation.section == casm::SectionType::Rodata);
+	}
+	CHECK(found);
+
+	// The word is zero until the link writes the address of MSG into it.
+	std::vector<casm::ObjectArchive::Member> inputs;
+	inputs.push_back(memberOf("main.cobj", std::move(object.value())));
+	casm::ObjectLinker linker;
+	auto linked = linker.link(std::move(inputs));
+	CHECK(linked.has_value());
+	if (!linked) { Registry::instance().recordFailure(linker.errors().front()); return; }
+
+	const u32 rodataStart = Memory::UnrestrictedSegmentStart.value() + linked->header().textSize;
+	const std::span<const u8> data = linked->data();
+	CHECK(data.size() >= 4);
+	const u32 ptr = static_cast<u32>(data[0]) | (static_cast<u32>(data[1]) << 8) |
+		(static_cast<u32>(data[2]) << 16) | (static_cast<u32>(data[3]) << 24);
+	CHECK_EQ(ptr, rodataStart);
+}
+
+TEST(objects, an_address_initializer_reaches_a_symbol_in_another_object)
+{
+	// A pointer in one object names a string in another: the relocation is external, and only the
+	// link knows the target's address.
+	ObjectWorkspace ws{ "data_addr_cross" };
+	ws.write("lib.casm",
+		"@rodata\r\n"
+		"global let GREETING: u8[3] = \"hi\"\r\n");
+	ws.write("main.casm",
+		"import \"lib.casm\"\r\n"
+		"@data\r\n"
+		"global let PTR: u32 = GREETING\r\n"
+		"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    ret\r\n");
+
+	auto library = ws.assemble("lib.casm");
+	auto program = ws.assemble("main.casm");
+	CHECK(library.has_value() && program.has_value());
+	if (!library || !program) { Registry::instance().recordFailure(ws.firstError()); return; }
+
+	bool found = false;
+	for (const casm::Relocation& relocation : program->relocations)
+	{
+		if (relocation.symbol != "GREETING")
+			continue;
+		found = true;
+		CHECK(relocation.isExternal());
+		CHECK(relocation.patchedSection == casm::SectionType::Data);
+		CHECK(relocation.field == casm::RelocationField::Word32);
+	}
+	CHECK(found);
+
+	std::vector<casm::ObjectArchive::Member> inputs;
+	inputs.push_back(memberOf("main.cobj", std::move(program.value())));
+	inputs.push_back(memberOf("lib.cobj", std::move(library.value())));
+	casm::ObjectLinker linker;
+	auto linked = linker.link(std::move(inputs));
+	CHECK(linked.has_value());
+	if (!linked) { Registry::instance().recordFailure(linker.errors().front()); return; }
+
+	// GREETING is the only .rodata; PTR (the only .data) holds its address.
+	const u32 rodataStart = Memory::UnrestrictedSegmentStart.value() + linked->header().textSize;
+	const std::span<const u8> data = linked->data();
+	const u32 ptr = static_cast<u32>(data[0]) | (static_cast<u32>(data[1]) << 8) |
+		(static_cast<u32>(data[2]) << 16) | (static_cast<u32>(data[3]) << 24);
+	CHECK_EQ(ptr, rodataStart);
+}
+
+
 TEST(objects, the_order_the_objects_are_given_in_does_not_change_the_program)
 {
 	ObjectWorkspace ws{ "order" };

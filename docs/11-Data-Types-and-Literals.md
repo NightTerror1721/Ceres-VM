@@ -92,8 +92,29 @@ let welcome: u8[]    = "Welcome to CeresVM!\n"  // unsized array, size inferred 
 - **A declaration may be longer than its initializer**; the remainder is zero. It may not be
   shorter — an initializer with more elements than the declaration holds is an error.
 - Array element literals may mix any combination the target scalar type accepts (see below), but
-  every element must resolve to that same scalar type; an identifier used as an element must itself
-  be a constant of a matching scalar type.
+  every element must resolve to that same scalar type; an identifier used as an element is either a
+  constant of a matching scalar type, or the **address of a label or variable** (see below).
+
+## An initializer can be an address
+
+A `let` variable's initial value can be the **address of a symbol** — a label or another variable —
+not just a literal. The slot must be a 32-bit integer (`u32`, `i32`, `ptr` or `word`), because a
+Ceres address is 32 bits:
+
+```casm
+@rodata
+    let greeting: u8[3] = "hi"
+
+@data
+    let p:  u32       = greeting          // p holds greeting's address
+    let ps: u32[2]    = [greeting, other] // a pointer table, one word each
+```
+
+An address is not known until the link (in a whole-program build, until every section is placed; in
+separate compilation, until `ceres link`). The assembler records a `Word32` relocation for it — see
+[Separate compilation](25-Separate-Compilation.md) — so a forward reference works exactly as it does
+for an instruction operand. A `const` cannot hold one: a constant occupies no storage for the linker
+to patch.
 
 ## Multidimensional arrays
 

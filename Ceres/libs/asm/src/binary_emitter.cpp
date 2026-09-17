@@ -1,5 +1,6 @@
 #include <ceres/asm/binary_emitter.h>
 #include <optional>
+#include <unordered_map>
 
 namespace ceres::casm
 {
@@ -385,8 +386,31 @@ namespace ceres::casm
 
 			const usize bufferStart = buffer.size();
 
+			// An address element's final value is either already known (whole program) or left for
+			// the link to fill in (object). Both are written here as a 32-bit word, so the element's
+			// own scalar value - zero, which is what the build pass left in its slot - is ignored.
+			std::unordered_map<u32, const DataAddressReference*> addressByIndex;
+			for (const DataAddressReference& reference : data.addresses)
+				addressByIndex.emplace(reference.elementIndex, &reference);
+
+			usize elementIndex = 0;
 			for (const auto& scalarValue : value.elements())
 			{
+				if (const auto found = addressByIndex.find(static_cast<u32>(elementIndex)); found != addressByIndex.end())
+				{
+					const DataAddressReference& reference = *found->second;
+					const u32 wordOffset = static_cast<u32>(buffer.size());
+					if (_objectRootFile.empty())
+						writeToBuffer(buffer, static_cast<u32>(reference.address.value()));
+					else
+					{
+						recordDataRelocation(reference, wordOffset, isRodata ? SectionType::Rodata : SectionType::Data);
+						writeToBuffer(buffer, static_cast<u32>(0));
+					}
+					++elementIndex;
+					continue;
+				}
+
 				switch (type.scalarCode())
 				{
 					case DataTypeScalarCode::U8:
@@ -421,6 +445,7 @@ namespace ceres::casm
 						reportError(statement.line(), "Unsupported data type for scalar value in data statement");
 						return;
 				}
+				++elementIndex;
 			}
 
 			// A declaration may be larger than its initialiser (`let buf: u8[64] = "hi"`). The linker
@@ -600,6 +625,24 @@ namespace ceres::casm
 
 		_relocations.push_back(std::move(relocation));
 		return true;
+	}
+
+	void BinaryEmitter::recordDataRelocation(const DataAddressReference& reference, u32 offset, SectionType patchedSection)
+	{
+		if (_objectRootFile.empty())
+			return;
+
+		Relocation relocation;
+		relocation.offset = offset;
+		relocation.patchedSection = patchedSection;
+		relocation.field = RelocationField::Word32;
+		relocation.section = reference.section;
+		relocation.external = reference.external;
+		relocation.symbol = reference.symbol;
+		if (!reference.external)
+			relocation.addend = static_cast<i32>(reference.address.value()); // Its offset within its own section
+
+		_relocations.push_back(std::move(relocation));
 	}
 
 	void BinaryEmitter::emitInstruction(const RelocatableStatement& statement)

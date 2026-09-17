@@ -248,17 +248,11 @@ namespace ceres::casm
 			const ObjectFile& object = members[i]->object;
 			const Placement& placement = placements[i];
 			const u32 objectTextStart = placement.text - textStart; // Into the merged buffer
+			const u32 objectRodataStart = placement.rodata - rodataStart;
+			const u32 objectDataStart = placement.data - dataStart;
 
 			for (const Relocation& relocation : object.relocations)
 			{
-				const usize position = static_cast<usize>(objectTextStart) + relocation.offset;
-				if (position + Instruction::Size > text.size())
-				{
-					reportError(std::format("{}: a relocation points past the end of its own code",
-						members[i]->name));
-					continue;
-				}
-
 				u32 target = 0;
 				if (relocation.isExternal())
 				{
@@ -279,6 +273,37 @@ namespace ceres::casm
 				else
 				{
 					target = baseOf(placement, relocation.section) + static_cast<u32>(relocation.addend);
+				}
+
+				// A whole 32-bit word in .rodata or .data, not an instruction: patched with the
+				// address as it stands. The only field that ever appears outside .text, and the
+				// only one with nothing to range-check - a Ceres address is 32 bits, and so is the
+				// word holding it.
+				if (relocation.patchedSection != SectionType::Text)
+				{
+					const bool isRodata = relocation.patchedSection == SectionType::Rodata;
+					std::vector<u8>& section = isRodata ? rodata : data;
+					const u32 objectSectionStart = isRodata ? objectRodataStart : objectDataStart;
+					const usize position = static_cast<usize>(objectSectionStart) + relocation.offset;
+					if (position + 4 > section.size())
+					{
+						reportError(std::format("{}: a relocation points past the end of its own {}",
+							members[i]->name, nameOfSection(relocation.patchedSection)));
+						continue;
+					}
+					section[position] = static_cast<u8>(target & 0xFF);
+					section[position + 1] = static_cast<u8>((target >> 8) & 0xFF);
+					section[position + 2] = static_cast<u8>((target >> 16) & 0xFF);
+					section[position + 3] = static_cast<u8>((target >> 24) & 0xFF);
+					continue;
+				}
+
+				const usize position = static_cast<usize>(objectTextStart) + relocation.offset;
+				if (position + Instruction::Size > text.size())
+				{
+					reportError(std::format("{}: a relocation points past the end of its own code",
+						members[i]->name));
+					continue;
 				}
 
 				const u32 here = placement.text + relocation.offset;
@@ -339,6 +364,11 @@ namespace ceres::casm
 					case RelocationField::SImm24:
 						if (!fitsInBits(static_cast<u32>(static_cast<i32>(value)), 24)) { tooFar("a 24-bit displacement"); continue; }
 						instruction.setSImm24(static_cast<i24>(static_cast<i32>(value)));
+						break;
+
+					case RelocationField::Word32:
+						// Never reaches .text: a Word32 patches a whole word in .rodata or .data and
+						// is handled above. Present only so the switch stays exhaustive.
 						break;
 				}
 

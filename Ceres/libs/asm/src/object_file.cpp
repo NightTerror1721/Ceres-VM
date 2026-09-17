@@ -103,7 +103,7 @@ namespace ceres::casm
 		}
 
 		bool isValidSection(u8 value) noexcept { return value <= static_cast<u8>(SectionType::BSS); }
-		bool isValidField(u8 value) noexcept { return value <= static_cast<u8>(RelocationField::SImm24); }
+		bool isValidField(u8 value) noexcept { return value <= static_cast<u8>(RelocationField::Word32); }
 
 		std::expected<std::vector<u8>, std::string> readWholeFile(const std::filesystem::path& path)
 		{
@@ -155,6 +155,7 @@ namespace ceres::casm
 		for (const Relocation& relocation : relocations)
 		{
 			writeU32(out, relocation.offset);
+			writeU8(out, static_cast<u8>(relocation.patchedSection));
 			writeU8(out, static_cast<u8>(relocation.field));
 			writeU8(out, relocation.shift);
 			writeU8(out, relocation.pcRelative ? 1 : 0);
@@ -225,6 +226,10 @@ namespace ceres::casm
 		{
 			Relocation relocation;
 			relocation.offset = reader.readU32();
+			const u8 patched = reader.readU8();
+			if (!isValidSection(patched))
+				return std::unexpected("Object file names an unknown section in a relocation");
+			relocation.patchedSection = static_cast<SectionType>(patched);
 			const u8 field = reader.readU8();
 			if (!isValidField(field))
 				return std::unexpected("Object file names an unknown relocation field");

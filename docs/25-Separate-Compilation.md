@@ -34,12 +34,24 @@ difference between an object and a program.
 | --- | --- |
 | Sections | The `.text`, `.rodata` and `.data` bytes this unit emits, plus how much `.bss` it needs. |
 | Symbols | The names this unit publishes — its `global` labels and variables — each with a section and an offset within it. |
-| Relocations | One per field left blank: the offset of the word, the field, the shift, whether it is PC-relative, and the target — either a section and an offset, or a name. |
+| Relocations | One per field left blank: the offset of the word, **which section holds it** (`.text`, `.rodata` or `.data`), the field, the shift, whether it is PC-relative, and the target — either a section and an offset, or a name. |
 | Interrupt bindings | One per `interrupt NUMBER: handler` this unit declares: the number (already final — it's a constant) and the handler, as a target described exactly like a relocation's — a section and an offset, or a name. See [Interrupt vector binding](26-Interrupt-Vector-Binding.md). |
 | Debug tables | The line and symbol tables, addresses still relative to this unit's own sections. Only with `--debug`. |
 
 Nothing about types travels in an object. A caller learns what a symbol *is* from the source it
 imports; the link only needs to know where it ended up.
+
+## A data initializer can be an address
+
+Most relocations patch an instruction in `.text`, which is why their fields are named after
+instruction encodings. One does not: `RelocationField::Word32` patches a plain little-endian 32-bit
+word in `.rodata` or `.data`, which is what an initializer like `let handler: u32 = onTimer` comes
+to — a variable whose initial value is another symbol's address, which nothing knows until the link.
+
+That is the whole story, in both directions. A pointer in `.data` to a string in `.rodata` is one
+relocation with two sections: `patchedSection` (`.data`, where the word is) and `section` (`.rodata`,
+where the target is). A `Word32` is never PC-relative and never range-checked, because a Ceres
+address is 32 bits and so is the word holding it.
 
 ## Imports are declarations, not copies
 
