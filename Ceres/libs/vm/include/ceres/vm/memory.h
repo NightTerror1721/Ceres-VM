@@ -4,6 +4,7 @@
 #include <ceres/core/isa/address.h>
 #include <ceres/core/isa/instructions.h>
 #include <ceres/core/format/memory_map.h>
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <stdexcept>
@@ -147,6 +148,31 @@ namespace ceres::vm
 				throw std::out_of_range("Attempt to copy bytes beyond memory bounds or into restricted segment.");
 			if (size > 0)
 				std::memmove(_data.data() + destBase, _data.data() + srcBase, size);
+		}
+
+		// How many bytes of [address, address + size) lie inside unrestricted RAM. A device's block
+		// transfer clamps to this, so a program-supplied BLOCK_ADDR/BLOCK_LEN that runs past the end
+		// of memory - or into the null page / BIOS - moves fewer bytes instead of throwing out of a
+		// store the way peekBytes/peekMutBytes would. The device's count register reports the shortfall.
+		u32 clampBlockSize(Address address, u32 size) const noexcept
+		{
+			const usize base = address.value();
+			if (base < UnrestrictedSegmentStartValue || base >= _data.size())
+				return 0;
+			const usize available = _data.size() - base;
+			return static_cast<u32>(std::min<usize>(size, available));
+		}
+
+		// The DMA engine's counterpart: it moves memory with copyBytesUnchecked, so only the upper
+		// bound matters - the null page and BIOS are addressable to it, exactly as they are to
+		// copyBytesUnchecked.
+		u32 clampBlockSizeUnchecked(Address address, u32 size) const noexcept
+		{
+			const usize base = address.value();
+			if (base >= _data.size())
+				return 0;
+			const usize available = _data.size() - base;
+			return static_cast<u32>(std::min<usize>(size, available));
 		}
 
 		void setBytesUnchecked(Address address, ByteType value, u32 size)

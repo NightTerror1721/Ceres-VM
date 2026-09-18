@@ -156,10 +156,17 @@ namespace ceres::devices
 
 			// A transfer that runs off the end of the sector is clamped rather than reading the
 			// next one: a sector is the unit, and silently spilling into its neighbour is how a
-			// program ends up with data it never asked for.
+			// program ends up with data it never asked for. So is one that runs off the end of RAM.
 			const u32 available = static_cast<u32>(std::min<usize>(size, _image.size() - offset));
-			auto buffer = memory().peekMutBytes(ramAddress, available);
-			std::copy_n(_image.begin() + static_cast<std::ptrdiff_t>(offset), available, buffer.begin());
+			const u32 clampSize = memory().clampBlockSize(ramAddress, available);
+			if (clampSize == 0)
+			{
+				_status = StatusError;
+				return;
+			}
+
+			auto buffer = memory().peekMutBytes(ramAddress, clampSize);
+			std::copy_n(_image.begin() + static_cast<std::ptrdiff_t>(offset), clampSize, buffer.begin());
 			_status = StatusReady;
 		}
 
@@ -177,8 +184,15 @@ namespace ceres::devices
 			}
 
 			const u32 available = static_cast<u32>(std::min<usize>(size, _image.size() - offset));
-			const auto bytes = memory().peekBytes(ramAddress, available);
-			std::copy_n(bytes.begin(), available, _image.begin() + static_cast<std::ptrdiff_t>(offset));
+			const u32 clampSize = memory().clampBlockSize(ramAddress, available);
+			if (clampSize == 0)
+			{
+				_status = StatusError;
+				return;
+			}
+
+			const auto bytes = memory().peekBytes(ramAddress, clampSize);
+			std::copy_n(bytes.begin(), clampSize, _image.begin() + static_cast<std::ptrdiff_t>(offset));
 			_status = StatusReady;
 			_dirty = true;
 		}
@@ -380,9 +394,13 @@ namespace ceres::devices
 				return;
 
 			const u32 available = static_cast<u32>(std::min<usize>(size, _cells.size() - _cursor));
-			const auto bytes = memory().peekBytes(ramAddress, available);
-			std::copy_n(bytes.begin(), available, _cells.begin() + static_cast<std::ptrdiff_t>(_cursor));
-			_cursor += available;
+			const u32 clampSize = memory().clampBlockSize(ramAddress, available);
+			if (clampSize == 0)
+				return;
+
+			const auto bytes = memory().peekBytes(ramAddress, clampSize);
+			std::copy_n(bytes.begin(), clampSize, _cells.begin() + static_cast<std::ptrdiff_t>(_cursor));
+			_cursor += clampSize;
 		}
 
 		void present()

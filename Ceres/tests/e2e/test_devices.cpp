@@ -460,6 +460,42 @@ TEST(devices, a_zero_length_block_read_reports_nothing_moved)
 	CHECK_EQ(terminal.availableBytes(), usize{ 1 }); // Nothing was consumed.
 }
 
+TEST(devices, a_block_read_to_an_out_of_range_address_moves_nothing_instead_of_throwing)
+{
+	// A program-supplied BLOCK_ADDR past the end of RAM must not crash the machine: the read is
+	// simply empty, and the count register says so.
+	CeresVM vm{};
+	TerminalDevice terminal{};
+	terminal.attachTo(vm.io());
+	terminal.pushInput("ABCDE");
+
+	terminal.writeWord(TerminalDevice::BlockAddressRegister, 0xF0000000u);
+	terminal.writeWord(TerminalDevice::BlockLengthRegister, 5);
+	terminal.writeWord(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
+
+	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BlockReadCountRegister), u32{ 0 });
+	CHECK_EQ(terminal.availableBytes(), usize{ 5 }); // Nothing was consumed.
+}
+
+TEST(devices, a_block_read_is_clamped_to_the_end_of_ram)
+{
+	// Four bytes of RAM left, ten bytes buffered: the transfer stops at the end of memory and the
+	// count reports the four it actually moved.
+	CeresVM vm{}; // 16 MiB default
+	TerminalDevice terminal{};
+	terminal.attachTo(vm.io());
+	terminal.pushInput("ABCDEFGHIJ");
+
+	const u32 lastWord = static_cast<u32>(vm.memory().size()) - 4u;
+	terminal.writeWord(TerminalDevice::BlockAddressRegister, lastWord);
+	terminal.writeWord(TerminalDevice::BlockLengthRegister, 100);
+	terminal.writeWord(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
+
+	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BlockReadCountRegister), u32{ 4 });
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(lastWord)), u8{ 'A' });
+	CHECK_EQ(terminal.availableBytes(), usize{ 6 });
+}
+
 TEST(devices, the_terminal_reports_dropped_input_bytes_to_the_program)
 {
 	TerminalDevice terminal{};
@@ -841,6 +877,29 @@ TEST(devices, a_dma_transfer_reports_how_many_bytes_it_moved)
 	CHECK_EQ(dma.readUnsignedWord(DmaController::StatusRegister) & DmaController::StatusDone, DmaController::StatusDone);
 	CHECK_EQ(dma.readUnsignedWord(DmaController::TransferredRegister), u32{ 5 });
 	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 5), std::string{ "HELLO" });
+}
+
+TEST(devices, a_dma_transfer_past_the_end_of_memory_is_clamped_not_fatal)
+{
+	Machine m{ Instruction::NOP() };
+
+	DmaController dma{};
+	dma.attachTo(m.vm().io());
+
+	// The source sits in the last four bytes of RAM, but 100 are asked for: the copy is clamped to 4.
+	const u32 lastBytes = static_cast<u32>(m.memory().size()) - 4u;
+	fill(m.memory(), lastBytes, "WXYZ");
+
+	dma.writeWord(DmaController::SourceRegister, lastBytes);
+	dma.writeWord(DmaController::DestinationRegister, DestinationBuffer);
+	dma.writeWord(DmaController::LengthRegister, 100);
+	dma.writeWord(DmaController::CommandRegister, DmaController::CommandStart);
+
+	m.step(1);
+
+	CHECK_EQ(dma.readUnsignedWord(DmaController::StatusRegister) & DmaController::StatusDone, DmaController::StatusDone);
+	CHECK_EQ(dma.readUnsignedWord(DmaController::TransferredRegister), u32{ 4 });
+	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 4), std::string{ "WXYZ" });
 }
 
 // --- The keyboard ------------------------------------------------------------------------------

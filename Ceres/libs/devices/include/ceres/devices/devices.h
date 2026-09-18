@@ -422,7 +422,16 @@ namespace ceres::devices
 			}
 
 			const std::lock_guard lock{_inputMutex};
-			auto buffer = memory().peekMutBytes(ramAddress, size);
+			// Clamp to RAM the store is allowed to touch: a BLOCK_ADDR/BLOCK_LEN past the end of
+			// memory (or into a protected segment) moves fewer bytes rather than throwing.
+			const u32 clampSize = memory().clampBlockSize(ramAddress, size);
+			if (clampSize == 0)
+			{
+				_blockReadCount = 0;
+				return;
+			}
+
+			auto buffer = memory().peekMutBytes(ramAddress, clampSize);
 			usize bytesRead = 0;
 			while (bytesRead < buffer.size())
 			{
@@ -445,7 +454,11 @@ namespace ceres::devices
 			if (size == 0)
 				return;
 
-			const auto buffer = memory().peekBytes(ramAddress, size);
+			const u32 clampSize = memory().clampBlockSize(ramAddress, size);
+			if (clampSize == 0)
+				return;
+
+			const auto buffer = memory().peekBytes(ramAddress, clampSize);
 			for (u32 i = 0; i < buffer.size(); ++i)
 				emitByte(buffer[i]);
 		}
@@ -593,11 +606,17 @@ namespace ceres::devices
 			if (!_pending)
 				return;
 
-			memory().copyBytesUnchecked(Address(_source), Address(_destination), _length);
+			// A SRC/DST/LEN that runs past the end of memory is clamped rather than fatal: the
+			// copy moves what fits, and TransferredRegister reports exactly how much.
+			const u32 effective = std::min(
+				memory().clampBlockSizeUnchecked(Address(_source), _length),
+				memory().clampBlockSizeUnchecked(Address(_destination), _length));
+
+			memory().copyBytesUnchecked(Address(_source), Address(_destination), effective);
 			// RAM to RAM always moves the whole length, but a source device that yields fewer
 			// bytes (a short terminal read) would land a smaller number here - which is exactly
 			// what this register exists to report.
-			_transferred = _length;
+			_transferred = effective;
 			_pending = false;
 			_status = StatusDone;
 			raiseInterrupt(Interrupt);

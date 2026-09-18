@@ -126,7 +126,14 @@ namespace ceres::devices
 			}
 
 			const std::lock_guard lock{_mutex};
-			auto buffer = memory().peekMutBytes(ramAddress, size);
+			const u32 clampSize = memory().clampBlockSize(ramAddress, size);
+			if (clampSize == 0)
+			{
+				_blockReadCount = 0;
+				return;
+			}
+
+			auto buffer = memory().peekMutBytes(ramAddress, clampSize);
 			usize count = 0;
 			// Two bytes per event: the code, then the pressed flag.
 			while (count + 2 <= buffer.size())

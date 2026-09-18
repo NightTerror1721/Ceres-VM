@@ -59,6 +59,11 @@ slot:
 This is the direct replacement for what `inm`/`outm` used to do in a single instruction: write the
 address, write the length, then write the command to fire the transfer.
 
+A transfer whose `BLOCK_ADDR`/`BLOCK_LEN` runs past the end of RAM is **clamped** rather than
+rejected: it moves what fits, and a device with a count register (the terminal's
+`BlockReadCountRegister`, the DMA controller's `TransferredRegister`) reports the shortfall. An
+address that points into the null page or the BIOS, or past the end of memory, moves nothing.
+
 ## Devices implemented today
 
 ### `SystemControlDevice` (`0xFFFF0000`, write-only)
