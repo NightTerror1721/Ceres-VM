@@ -74,6 +74,39 @@
       "cacheVariables": {
         "CERES_ENABLE_IPO": "ON"
       }
+    },
+    {
+      "name": "msvc-sdl-ipo",
+      "displayName": "MSVC (Ninja Multi-Config, SDL3 + IPO)",
+      "description": "The windowed build: SDL3 enabled and IPO/LTCG on, for the Release configuration.",
+      "inherits": "msvc",
+      "binaryDir": "${sourceDir}/build/msvc-sdl-ipo",
+      "cacheVariables": {
+        "CERES_ENABLE_SDL": "ON",
+        "CERES_ENABLE_IPO": "ON"
+      }
+    },
+    {
+      "name": "ninja-sdl-ipo",
+      "displayName": "Ninja Multi-Config (SDL3 + IPO)",
+      "description": "The windowed build with the environment's default compiler: SDL3 and IPO/LTO on.",
+      "inherits": "ninja",
+      "binaryDir": "${sourceDir}/build/ninja-sdl-ipo",
+      "cacheVariables": {
+        "CERES_ENABLE_SDL": "ON",
+        "CERES_ENABLE_IPO": "ON"
+      }
+    },
+    {
+      "name": "gcc-sdl-ipo",
+      "displayName": "GCC (Ninja Multi-Config, SDL3 + IPO)",
+      "description": "The windowed build with GCC: SDL3 and IPO/LTO on.",
+      "inherits": "gcc",
+      "binaryDir": "${sourceDir}/build/gcc-sdl-ipo",
+      "cacheVariables": {
+        "CERES_ENABLE_SDL": "ON",
+        "CERES_ENABLE_IPO": "ON"
+      }
     }
   ],
 
@@ -88,7 +121,10 @@
     { "name": "msvc-ipo-release", "configurePreset": "msvc-ipo", "configuration": "Release" },
     { "name": "clang-debug",   "configurePreset": "clang", "configuration": "Debug" },
     { "name": "clang-release", "configurePreset": "clang", "configuration": "Release" },
-    { "name": "clang-ipo-release", "configurePreset": "clang-ipo", "configuration": "Release" }
+    { "name": "clang-ipo-release", "configurePreset": "clang-ipo", "configuration": "Release" },
+    { "name": "msvc-sdl-ipo-release", "configurePreset": "msvc-sdl-ipo", "configuration": "Release" },
+    { "name": "ninja-sdl-ipo-release", "configurePreset": "ninja-sdl-ipo", "configuration": "Release" },
+    { "name": "gcc-sdl-ipo-release", "configurePreset": "gcc-sdl-ipo", "configuration": "Release" }
   ],
 
   "testPresets": [
@@ -155,6 +191,24 @@
     {
       "name": "clang-ipo-release",
       "configurePreset": "clang-ipo",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "msvc-sdl-ipo-release",
+      "configurePreset": "msvc-sdl-ipo",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "ninja-sdl-ipo-release",
+      "configurePreset": "ninja-sdl-ipo",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "gcc-sdl-ipo-release",
+      "configurePreset": "gcc-sdl-ipo",
       "configuration": "Release",
       "output": { "outputOnFailure": true }
     }
