@@ -14,6 +14,7 @@
 #include <ceres/vm/ceresvm.h>
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage_devices.h>
+#include <ceres/devices/input_devices.h>
 #include <ceres/vm/bios.h>
 #include <ceres/core/format/memory_map.h>
 #include <filesystem>
@@ -840,4 +841,128 @@ TEST(devices, a_dma_transfer_reports_how_many_bytes_it_moved)
 	CHECK_EQ(dma.readUnsignedWord(DmaController::StatusRegister) & DmaController::StatusDone, DmaController::StatusDone);
 	CHECK_EQ(dma.readUnsignedWord(DmaController::TransferredRegister), u32{ 5 });
 	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 5), std::string{ "HELLO" });
+}
+
+// --- The keyboard ------------------------------------------------------------------------------
+
+TEST(devices, the_keyboard_reports_press_and_release_events)
+{
+	KeyboardDevice keyboard{};
+
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::StatusRegister), u32{ 0 });
+
+	keyboard.pushKey('A', true);
+	keyboard.pushKey('A', false);
+
+	// Low byte is the code, bit 8 is the pressed flag.
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 'A' | KeyboardDevice::EventPressed });
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 'A' });
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 0 }); // Empty again.
+}
+
+TEST(devices, the_keyboard_reports_how_many_events_are_available)
+{
+	KeyboardDevice keyboard{};
+
+	CHECK_EQ(keyboard.availableEvents(), usize{ 0 });
+	keyboard.pushKey('a');
+	keyboard.pushKey('b');
+
+	CHECK_EQ(keyboard.availableEvents(), usize{ 2 });
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::StatusRegister) & KeyboardDevice::StatusDataReady, KeyboardDevice::StatusDataReady);
+
+	keyboard.readUnsignedWord(KeyboardDevice::EventRegister);
+	CHECK_EQ(keyboard.availableEvents(), usize{ 1 });
+}
+
+TEST(devices, a_keyboard_block_read_drains_events_and_counts_them)
+{
+	CeresVM vm{};
+	KeyboardDevice keyboard{};
+	keyboard.attachTo(vm.io());
+
+	keyboard.pushKey('a');
+	keyboard.pushKey('b');
+	keyboard.pushKey('c');
+
+	keyboard.writeWord(KeyboardDevice::BlockAddressRegister, 0x3000);
+	keyboard.writeWord(KeyboardDevice::BlockLengthRegister, 4); // room for two events
+	keyboard.writeWord(KeyboardDevice::BlockCommandRegister, KeyboardDevice::BlockCommandRead);
+
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::BlockReadCountRegister), u32{ 2 });
+	// Two bytes per event: code, then pressed flag.
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3000)), u8{ 'a' });
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3001)), u8{ 1 });
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3002)), u8{ 'b' });
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3003)), u8{ 1 });
+	CHECK_EQ(keyboard.availableEvents(), usize{ 1 }); // 'c' remains.
+}
+
+TEST(devices, pushing_a_key_raises_the_keyboards_interrupt)
+{
+	Machine m{ Instruction::STI(), Instruction::NOP(), Instruction::NOP() };
+
+	KeyboardDevice keyboard{};
+	keyboard.attachTo(m.vm().io());
+
+	m.installHandler(KeyboardDevice::Interrupt, Address(0x800), {
+		Instruction::LI(9, 0x61),
+		Instruction::IRET(),
+	});
+
+	keyboard.pushKey('X');
+	m.step(3);
+
+	CHECK_EQ(m.reg(9), 0x61u);
+}
+
+// --- The mouse ---------------------------------------------------------------------------------
+
+TEST(devices, the_mouse_reports_deltas_and_absolute_position)
+{
+	MouseDevice mouse{};
+
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::StatusRegister), u32{ 0 });
+
+	mouse.pushMotion(5, -3, MouseDevice::ButtonLeft, 0);
+
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::StatusRegister), MouseDevice::StatusDataReady);
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::DeltaXRegister), u32{ 5 });
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::DeltaYRegister), static_cast<u32>(-3));
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::XRegister), u32{ 5 });
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::YRegister), static_cast<u32>(-3));
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::ButtonsRegister), u32{ MouseDevice::ButtonLeft });
+}
+
+TEST(devices, mouse_deltas_are_consumed_on_read_but_position_is_not)
+{
+	MouseDevice mouse{};
+
+	mouse.pushMotion(2, 2);
+
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::DeltaXRegister), u32{ 2 });
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::DeltaXRegister), u32{ 0 }); // Consumed.
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::XRegister), u32{ 2 });      // Absolute persists.
+}
+
+TEST(devices, the_mouse_accumulates_motion_across_push_calls)
+{
+	MouseDevice mouse{};
+
+	mouse.pushMotion(1, 1);
+	mouse.pushMotion(2, 2);
+
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::DeltaXRegister), u32{ 3 }); // Accumulated delta.
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::XRegister), u32{ 3 });      // Accumulated position.
+}
+
+TEST(devices, the_mouse_reports_buttons_and_wheel)
+{
+	MouseDevice mouse{};
+
+	mouse.pushMotion(0, 0, MouseDevice::ButtonRight | MouseDevice::ButtonMiddle, 2);
+
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::ButtonsRegister), u32{ MouseDevice::ButtonRight | MouseDevice::ButtonMiddle });
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::WheelRegister), u32{ 2 });
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::WheelRegister), u32{ 0 }); // Consumed.
 }

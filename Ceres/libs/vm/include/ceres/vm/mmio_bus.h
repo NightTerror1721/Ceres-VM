@@ -279,7 +279,9 @@ namespace ceres::vm
 		static inline constexpr Address Disk = MmioBus::slot(2);
 		static inline constexpr Address Framebuffer = MmioBus::slot(3);
 		static inline constexpr Address Dma = MmioBus::slot(4);
-		// Slots 5-254 reserved for future default devices.
+		static inline constexpr Address Keyboard = MmioBus::slot(5);
+		static inline constexpr Address Mouse = MmioBus::slot(6);
+		// Slots 7-254 reserved for future default devices.
 		static inline constexpr Address SystemControl = MmioBus::slot(255);
 	}
 }

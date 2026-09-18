@@ -200,6 +200,15 @@ namespace ceres::debug
 
 		_framebuffer = std::make_unique<FramebufferDevice>();
 		_framebuffer->attachTo(_vm->io());
+
+		// Keyboard and mouse are host-driven, so a program under the debugger sees the same slots
+		// as one being run. Their events are not part of the time-travel recording - like the disk
+		// and the framebuffer, they are live state, not machine state to rewind.
+		_keyboard = std::make_unique<KeyboardDevice>();
+		_keyboard->attachTo(_vm->io());
+		_mouse = std::make_unique<MouseDevice>();
+		_mouse->attachTo(_vm->io());
+
 		setOutputHandler(_outputHandler); // Routes both the terminal and the screen
 
 		// Recorded rather than acted on: triggerInterrupt is noexcept and in the middle of
@@ -269,6 +278,18 @@ namespace ceres::debug
 		// keystrokes at the same points and reaches the same state.
 		_history.recordInput(currentTick(), text);
 		_terminal->pushInput(text);
+	}
+
+	void DebugSession::pushKey(u8 code, bool pressed)
+	{
+		if (_keyboard)
+			_keyboard->pushKey(code, pressed);
+	}
+
+	void DebugSession::pushMouse(i32 dx, i32 dy, u8 buttons, i8 wheel)
+	{
+		if (_mouse)
+			_mouse->pushMotion(dx, dy, buttons, wheel);
 	}
 
 	// --- Lifecycle ------------------------------------------------------------------------------

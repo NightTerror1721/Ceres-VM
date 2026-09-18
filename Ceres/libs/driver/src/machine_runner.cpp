@@ -3,6 +3,7 @@
 #include <ceres/driver/driver.h>
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage_devices.h>
+#include <ceres/devices/input_devices.h>
 #include <ceres/vm/ceresvm.h>
 
 #include <format>
@@ -25,6 +26,8 @@ namespace ceres::driver
 		TimerDevice timer;
 		DiskDevice disk;
 		FramebufferDevice framebuffer;
+		KeyboardDevice keyboard;
+		MouseDevice mouse;
 		std::string startupError;
 
 		Impl(const MachineConfig& config, const MachineHost& host) :
@@ -36,6 +39,8 @@ namespace ceres::driver
 			timer.attachTo(vm.io());
 			disk.attachTo(vm.io());
 			framebuffer.attachTo(vm.io());
+			keyboard.attachTo(vm.io());
+			mouse.attachTo(vm.io());
 
 			if (host.terminalOutput)
 				terminal.setOutputSink([sink = host.terminalOutput](u8 byte)
@@ -54,6 +59,8 @@ namespace ceres::driver
 			framebuffer.detachFrom(vm.io());
 			disk.detachFrom(vm.io());
 			timer.detachFrom(vm.io());
+			keyboard.detachFrom(vm.io());
+			mouse.detachFrom(vm.io());
 			control.detachFrom(vm.io());
 		}
 	};
@@ -81,6 +88,8 @@ namespace ceres::driver
 
 	void Machine::pushInput(std::span<const u8> bytes) { _impl->terminal.pushInput(bytes); }
 	void Machine::pushInput(std::string_view text) { _impl->terminal.pushInput(text); }
+	void Machine::pushKey(u8 code, bool pressed) { _impl->keyboard.pushKey(code, pressed); }
+	void Machine::pushMouse(i32 dx, i32 dy, u8 buttons, i8 wheel) { _impl->mouse.pushMotion(dx, dy, buttons, wheel); }
 	u64 Machine::droppedInputBytes() const noexcept { return _impl->terminal.droppedInputBytes(); }
 
 	namespace
@@ -126,9 +135,13 @@ namespace ceres::driver
 		TimerDevice timer;
 		DiskDevice disk;
 		FramebufferDevice framebuffer;
+		KeyboardDevice keyboard;
+		MouseDevice mouse;
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		timer.attachTo(vm.io());
+		keyboard.attachTo(vm.io());
+		mouse.attachTo(vm.io());
 		terminal->setOutputSink([out = services.output](u8 byte) { out->put(static_cast<char>(byte)); out->flush(); });
 		framebuffer.setPresentSink([out = services.output](std::string_view frame) { *out << frame; out->flush(); });
 		if (!diskImage.empty() && !disk.open(diskImage))

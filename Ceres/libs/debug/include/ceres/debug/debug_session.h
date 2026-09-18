@@ -13,6 +13,7 @@
 #include <ceres/vm/ceresvm.h>
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage_devices.h>
+#include <ceres/devices/input_devices.h>
 #include <ceres/core/format/program.h>
 #include <ceres/core/format/debug_info.h>
 #include <atomic>
@@ -214,6 +215,8 @@ namespace ceres::debug
 		std::unique_ptr<SystemControlDevice> _systemControl;
 		std::unique_ptr<DiskDevice> _disk;
 		std::unique_ptr<FramebufferDevice> _framebuffer;
+		std::unique_ptr<KeyboardDevice> _keyboard;
+		std::unique_ptr<MouseDevice> _mouse;
 
 		std::vector<Breakpoint> _breakpoints;
 		std::vector<DataBreakpoint> _dataBreakpoints;
@@ -361,6 +364,8 @@ namespace ceres::debug
 		void setOutputHandler(OutputHandler handler);
 		void setLogHandler(LogHandler handler) { _logHandler = std::move(handler); }
 		void pushInput(std::string_view text);
+		void pushKey(u8 code, bool pressed = true);
+		void pushMouse(i32 dx, i32 dy, u8 buttons = 0, i8 wheel = 0);
 
 		const DebugInfo& debugInfo() const noexcept { return _debugInfo; }
 		const vm::Program& program() const noexcept { return _program; }
