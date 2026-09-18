@@ -243,6 +243,9 @@ namespace ceres::devices
 		static inline constexpr Address StatusRegister = Address(0x00); // Read-only: 0x01 if input is available, 0x00 otherwise.
 		static inline constexpr Address OutputRegister = Address(0x04); // Write-only: writing a byte to this register outputs it to the terminal.
 		static inline constexpr Address InputRegister = Address(0x08);  // Read-only: reading from this register returns the next byte of input, or 0 if none is available.
+		static inline constexpr Address BytesAvailableRegister = Address(0x0C); // Read-only: bytes currently sitting unread in the input ring.
+		static inline constexpr Address BlockReadCountRegister = Address(0x10); // Read-only: bytes the most recent block-read actually moved into RAM.
+		static inline constexpr Address DroppedInputRegister = Address(0x14); // Read-only: input bytes discarded by a full ring (truncated to 32 bits).
 
 		// A bulk transfer: write the RAM address and length, then a command (1 = read from the
 		// terminal's input ring into RAM, 2 = write RAM out to the terminal) - the direct
@@ -285,6 +288,7 @@ namespace ceres::devices
 		OutputSink _outputSink;
 		u32 _blockAddress = 0;
 		u32 _blockLength = 0;
+		u32 _blockReadCount = 0;
 
 	public:
 		TerminalDevice() = default;
@@ -349,6 +353,16 @@ namespace ceres::devices
 
 		u64 droppedInputBytes() const noexcept { return _droppedInputBytes.load(std::memory_order_relaxed); }
 
+		// How many bytes are currently buffered and unread. The one number a program needs to
+		// decide whether to block-read, and how large a block to ask for, without polling the
+		// status bit and guessing.
+		usize availableBytes() const noexcept
+		{
+			const usize head = _head.load(std::memory_order_acquire);
+			const usize tail = _tail.load(std::memory_order_acquire);
+			return (tail - head + InputBufferCapacity) % InputBufferCapacity;
+		}
+
 		void setOutputSink(OutputSink sink) { _outputSink = std::move(sink); }
 		void clearOutputSink() { _outputSink = nullptr; }
 
@@ -402,7 +416,10 @@ namespace ceres::devices
 		void blockRead(Address ramAddress, u32 size)
 		{
 			if (size == 0)
+			{
+				_blockReadCount = 0;
 				return;
+			}
 
 			const std::lock_guard lock{_inputMutex};
 			auto buffer = memory().peekMutBytes(ramAddress, size);
@@ -417,6 +434,10 @@ namespace ceres::devices
 				_head.store((currentHead + 1) % InputBufferCapacity, std::memory_order_release);
 				++bytesRead;
 			}
+
+			// A short read - fewer bytes buffered than asked for - is now observable: the program
+			// reads this back afterwards and knows exactly where its input ended.
+			_blockReadCount = static_cast<u32>(bytesRead);
 		}
 
 		void blockWrite(Address ramAddress, u32 size)
@@ -458,7 +479,17 @@ namespace ceres::devices
 		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedByte(offset)); }
 		u16 readUnsignedHalfword(Address offset) override { return static_cast<u16>(readUnsignedByte(offset)); }
 		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedHalfword(offset)); }
-		u32 readUnsignedWord(Address offset) override { return static_cast<u32>(readUnsignedHalfword(offset)); }
+
+		u32 readUnsignedWord(Address offset) override
+		{
+			if (offset == BytesAvailableRegister)
+				return static_cast<u32>(availableBytes());
+			if (offset == BlockReadCountRegister)
+				return _blockReadCount;
+			if (offset == DroppedInputRegister)
+				return static_cast<u32>(_droppedInputBytes.load(std::memory_order_relaxed));
+			return static_cast<u32>(readUnsignedByte(offset));
+		}
 
 		void writeByte(Address offset, u8 value) override
 		{

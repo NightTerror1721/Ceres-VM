@@ -411,6 +411,64 @@ TEST(devices, terminal_counts_input_discarded_by_a_full_buffer)
 	CHECK_EQ(terminal.droppedInputBytes(), u64{9});
 }
 
+TEST(devices, the_terminal_reports_how_many_bytes_are_available)
+{
+	TerminalDevice terminal{};
+
+	CHECK_EQ(terminal.availableBytes(), usize{ 0 });
+
+	terminal.pushInput("AB");
+	CHECK_EQ(terminal.availableBytes(), usize{ 2 });
+	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BytesAvailableRegister), u32{ 2 });
+
+	terminal.readUnsignedByte(TerminalDevice::InputRegister);
+	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BytesAvailableRegister), u32{ 1 });
+}
+
+TEST(devices, a_block_read_reports_how_many_bytes_it_actually_moved)
+{
+	// Five bytes buffered, ten asked for: the read is short, and the count register is the only
+	// way the program can tell where its input ended.
+	CeresVM vm{};
+	TerminalDevice terminal{};
+	terminal.attachTo(vm.io());
+	terminal.pushInput("ABCDE");
+
+	terminal.writeWord(TerminalDevice::BlockAddressRegister, 0x1000);
+	terminal.writeWord(TerminalDevice::BlockLengthRegister, 10);
+	terminal.writeWord(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
+
+	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BlockReadCountRegister), u32{ 5 });
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x1000)), u8{ 'A' });
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x1004)), u8{ 'E' });
+	CHECK_EQ(terminal.availableBytes(), usize{ 0 });
+}
+
+TEST(devices, a_zero_length_block_read_reports_nothing_moved)
+{
+	CeresVM vm{};
+	TerminalDevice terminal{};
+	terminal.attachTo(vm.io());
+	terminal.pushInput("X");
+
+	terminal.writeWord(TerminalDevice::BlockAddressRegister, 0x1000);
+	terminal.writeWord(TerminalDevice::BlockLengthRegister, 0);
+	terminal.writeWord(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
+
+	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BlockReadCountRegister), u32{ 0 });
+	CHECK_EQ(terminal.availableBytes(), usize{ 1 }); // Nothing was consumed.
+}
+
+TEST(devices, the_terminal_reports_dropped_input_bytes_to_the_program)
+{
+	TerminalDevice terminal{};
+	std::vector<u8> input(TerminalDevice::InputBufferCapacity + 8, 'X');
+
+	terminal.pushInput(input);
+
+	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::DroppedInputRegister), u32{ 9 });
+}
+
 TEST(devices, terminal_snapshot_and_restore_preserve_unread_input)
 {
 	TerminalDevice terminal{};
