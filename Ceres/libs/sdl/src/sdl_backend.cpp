@@ -3,6 +3,7 @@
 #define SDL_MAIN_HANDLED
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
@@ -13,6 +14,11 @@ namespace ceres::sdl
 		class SdlBackend final : public driver::HostBackend
 		{
 		private:
+			// The window's starting size, and the largest it is allowed to grow to when it follows
+			// the display (see present()).
+			static inline constexpr int MaxWindowWidth = 1280;
+			static inline constexpr int MaxWindowHeight = 720;
+
 			SDL_Window* _window = nullptr;
 			SDL_Renderer* _renderer = nullptr;
 			SDL_Texture* _texture = nullptr;
@@ -27,7 +33,7 @@ namespace ceres::sdl
 				if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
 					throw std::runtime_error(std::string("SDL_Init failed: ") + SDL_GetError());
 
-				_window = SDL_CreateWindow("Ceres", 1280, 720, SDL_WINDOW_RESIZABLE);
+				_window = SDL_CreateWindow("Ceres", MaxWindowWidth, MaxWindowHeight, SDL_WINDOW_RESIZABLE);
 				if (!_window)
 					throw std::runtime_error(std::string("SDL_CreateWindow failed: ") + SDL_GetError());
 
@@ -136,6 +142,13 @@ namespace ceres::sdl
 					_texture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_BGRX8888, SDL_TEXTUREACCESS_STREAMING, static_cast<int>(width), static_cast<int>(height));
 					_textureWidth = width;
 					_textureHeight = height;
+
+					// Follow the display: size the window to the display's resolution at the largest
+					// integer scale that still fits, so the pixels stay crisp and the window never
+					// outgrows its starting size. A later change to the display re-sizes it again.
+					const int scale = std::max(1, std::min(MaxWindowWidth / static_cast<int>(width),
+						MaxWindowHeight / static_cast<int>(height)));
+					SDL_SetWindowSize(_window, static_cast<int>(width) * scale, static_cast<int>(height) * scale);
 				}
 
 				if (!_texture)
