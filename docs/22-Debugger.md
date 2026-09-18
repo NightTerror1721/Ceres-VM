@@ -305,6 +305,13 @@ terminal device's ring buffer instead.
   Queued 5 byte(s) of input.
 ```
 
+The machine under the debugger is the same one `ceres run` builds: every device is attached — the
+display, the keyboard, the mouse, the gamepad and the DMA controller included — so a program reads
+and writes the same slots it would under `run`. The display has no sink in the debugger (there is no
+window), so presenting is a no-op and the pixel buffer is inspected through the memory view. For the
+same reason `--window` belongs to `ceres run` only: the REPL owns stdin and steps one instruction at
+a time, two things an SDL window does not share — see the [SDL3 plan](29-SDL3-Integration-Plan.md).
+
 ## Debugging without debug information
 
 `ceres debug program.cres` on a file built without `--debug` still works, just blind: addresses,

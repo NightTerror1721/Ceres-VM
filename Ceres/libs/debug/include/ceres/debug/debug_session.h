@@ -14,6 +14,7 @@
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage_devices.h>
 #include <ceres/devices/input_devices.h>
+#include <ceres/devices/display_device.h>
 #include <ceres/core/format/program.h>
 #include <ceres/core/format/debug_info.h>
 #include <atomic>
@@ -212,11 +213,14 @@ namespace ceres::debug
 		std::unique_ptr<CeresVM> _vm;
 		std::unique_ptr<TerminalDevice> _terminal;
 		std::unique_ptr<TimerDevice> _timer;
+		std::unique_ptr<DmaController> _dma;
 		std::unique_ptr<SystemControlDevice> _systemControl;
 		std::unique_ptr<DiskDevice> _disk;
 		std::unique_ptr<FramebufferDevice> _framebuffer;
 		std::unique_ptr<KeyboardDevice> _keyboard;
 		std::unique_ptr<MouseDevice> _mouse;
+		std::unique_ptr<DisplayDevice> _display;
+		std::unique_ptr<GamepadDevice> _gamepad;
 
 		std::vector<Breakpoint> _breakpoints;
 		std::vector<DataBreakpoint> _dataBreakpoints;

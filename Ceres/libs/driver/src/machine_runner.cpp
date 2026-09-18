@@ -25,6 +25,7 @@ namespace ceres::driver
 		SystemControlDevice control;
 		TerminalDevice terminal;
 		TimerDevice timer;
+		DmaController dma;
 		DiskDevice disk;
 		FramebufferDevice framebuffer;
 		KeyboardDevice keyboard;
@@ -40,6 +41,7 @@ namespace ceres::driver
 			control.attachTo(vm.io());
 			terminal.attachTo(vm.io());
 			timer.attachTo(vm.io());
+			dma.attachTo(vm.io());
 			disk.attachTo(vm.io());
 			framebuffer.attachTo(vm.io());
 			keyboard.attachTo(vm.io());
@@ -64,6 +66,7 @@ namespace ceres::driver
 			framebuffer.detachFrom(vm.io());
 			disk.detachFrom(vm.io());
 			timer.detachFrom(vm.io());
+			dma.detachFrom(vm.io());
 			keyboard.detachFrom(vm.io());
 			mouse.detachFrom(vm.io());
 			display.detachFrom(vm.io());
@@ -140,6 +143,7 @@ namespace ceres::driver
 		SystemControlDevice control{[&vm] { vm.shutdown(); }, [&vm] { vm.shutdown(); }};
 		auto terminal = std::make_shared<TerminalDevice>();
 		TimerDevice timer;
+		DmaController dma;
 		DiskDevice disk;
 		FramebufferDevice framebuffer;
 		KeyboardDevice keyboard;
@@ -149,6 +153,7 @@ namespace ceres::driver
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		timer.attachTo(vm.io());
+		dma.attachTo(vm.io());
 		keyboard.attachTo(vm.io());
 		mouse.attachTo(vm.io());
 		display.attachTo(vm.io());

@@ -191,6 +191,9 @@ namespace ceres::debug
 		_timer = std::make_unique<TimerDevice>();
 		_timer->attachTo(_vm->io());
 
+		_dma = std::make_unique<DmaController>();
+		_dma->attachTo(_vm->io());
+
 		// A program being debugged sees the same machine as one being run, devices included.
 		// The disk is the one difference: nothing here names a host file, so it keeps its
 		// sectors for the length of the session and no further - a debugger that quietly wrote
@@ -208,6 +211,14 @@ namespace ceres::debug
 		_keyboard->attachTo(_vm->io());
 		_mouse = std::make_unique<MouseDevice>();
 		_mouse->attachTo(_vm->io());
+
+		// The display and gamepad round out the machine. The display has no sink here, so presenting
+		// is a no-op (the debugger has no window); its pixel buffer is still inspectable through the
+		// debugger's memory view, exactly like every other device's state.
+		_display = std::make_unique<DisplayDevice>();
+		_display->attachTo(_vm->io());
+		_gamepad = std::make_unique<GamepadDevice>();
+		_gamepad->attachTo(_vm->io());
 
 		setOutputHandler(_outputHandler); // Routes both the terminal and the screen
 

@@ -760,3 +760,23 @@ TEST(debugger, a_function_with_no_frame_has_nothing_to_unwind)
 	session->start();
 	CHECK(session->unwindCallStack().empty());
 }
+
+TEST(debugger, the_debugged_machine_has_every_device_attached)
+{
+	TempSource source(CallSource, "devices");
+	auto session = debug::DebugSession::launch(debug::LaunchConfig{ .sources = { source.path() } });
+	CHECK(session.has_value());
+	if (!session) return;
+
+	vm::MmioBus& io = (*session)->machine().io();
+	CHECK(io.isAttached(vm::default_mmio::Terminal));
+	CHECK(io.isAttached(vm::default_mmio::Timer));
+	CHECK(io.isAttached(vm::default_mmio::Disk));
+	CHECK(io.isAttached(vm::default_mmio::Framebuffer));
+	CHECK(io.isAttached(vm::default_mmio::Dma));
+	CHECK(io.isAttached(vm::default_mmio::Keyboard));
+	CHECK(io.isAttached(vm::default_mmio::Mouse));
+	CHECK(io.isAttached(vm::default_mmio::Display));
+	CHECK(io.isAttached(vm::default_mmio::Gamepad));
+	CHECK(io.isAttached(vm::default_mmio::SystemControl));
+}

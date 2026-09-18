@@ -24,7 +24,7 @@ elección A.
 | 1 — Dispositivos | Hecho (`c49a949`) — teclado a 32 bits y `DisplayDevice` (píxeles RGB32, slot 7). |
 | 2 — SDL backend | Hecho — `HostBackend`/`HeadlessBackend`, `libs/sdl` (`SdlBackend`), `ceres run --window`. |
 | 3 — Gamepad | Hecho — `GamepadDevice` (slot 8, `UserInterrupt5`) + mapeo `SDL_Gamepad`. |
-| 4 — Debugger + docs | Pendiente. |
+| 4 — Debugger + docs | Hecho — el debugger adjunta todos los dispositivos; SDL queda solo en `run` (ver §7). |
 
 ## 1. Objetivo
 
@@ -136,8 +136,14 @@ antes de comprometer la arquitectura.
 - ~~**Anchura del código de tecla**~~ → **decidido:** se ensancha `KeyboardDevice` a 32 bits (evento
   de 32 bits: código en bits 30:0 + flag pressed/released). Cambio de ABI del dispositivo → actualizar
   docs 07 y los tests de `input_devices.h`.
-- **`ceres debug` + SDL:** el REPL lee de stdin, que compite con la ventana. Decidir si SDL aplica
-  primero solo a `ceres run` y el debugger queda para una fase posterior.
+- **`ceres debug` + SDL** → **decidido:** SDL se queda solo en `ceres run --window`. El REPL del
+  debugger es dueño de stdin y de cada paso de instrucción, dos cosas que una ventana SDL no
+  comparte bien: no hay forma limpia de que el mismo terminal alimente a la vez al REPL y a la
+  ventana, ni de encajar `SDL_PollEvent` en el bucle `stepOnce()`. El debugger **sí** adjunta el
+  display, el teclado, el ratón, el gamepad y el DMA, de modo que un programa depurado ve la misma
+  máquina que uno ejecutado y su estado se inspecciona igual (el display no presenta nada sin sink,
+  pero su buffer de píxeles es visible por memoria). Un debugger con ventana sería un protocolo
+  distinto, fuera del alcance de este plan.
 - **Fuente para el modo texto:** aunque se va a píxeles desde el inicio, el modo texto de
   `FramebufferDevice` debe seguir funcionando en headless; si más adelante se renderiza en ventana,
   elegir entre SDL_ttf (dependencia extra) y fuente bitmap embebida.

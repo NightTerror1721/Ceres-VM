@@ -664,6 +664,12 @@ rutinas, aunque sigue pudiendo estudiar su implementación.
 
 Resultado esperado: Ceres funciona como una pequeña consola retro programable en CASM.
 
+> **Progreso:** la base ya está hecha. El `DisplayDevice` de píxeles, el teclado/ratón/gamepad
+> reales y la ventana SDL (`ceres run --window`) implementan la capa de entrada/salida que esta fase
+> asume — ver [I/O devices and ports](07-IO-Devices-and-Ports.md) y el
+> [plan de integración de SDL3](29-SDL3-Integration-Plan.md). Quedan por encima las bibliotecas de
+> dibujo, el doble buffer, los juegos de ejemplo y la documentación de la API gráfica.
+
 ### Fase 4: kernels educativos
 
 - tutorial de arranque;
