@@ -88,7 +88,7 @@ namespace ceres::driver
 
 	void Machine::pushInput(std::span<const u8> bytes) { _impl->terminal.pushInput(bytes); }
 	void Machine::pushInput(std::string_view text) { _impl->terminal.pushInput(text); }
-	void Machine::pushKey(u8 code, bool pressed) { _impl->keyboard.pushKey(code, pressed); }
+	void Machine::pushKey(u32 code, bool pressed) { _impl->keyboard.pushKey(code, pressed); }
 	void Machine::pushMouse(i32 dx, i32 dy, u8 buttons, i8 wheel) { _impl->mouse.pushMotion(dx, dy, buttons, wheel); }
 	u64 Machine::droppedInputBytes() const noexcept { return _impl->terminal.droppedInputBytes(); }
 

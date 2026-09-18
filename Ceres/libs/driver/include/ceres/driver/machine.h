@@ -43,7 +43,7 @@ namespace ceres::driver
 		std::expected<void, std::string> run();
 		void pushInput(std::span<const u8> bytes);
 		void pushInput(std::string_view text);
-		void pushKey(u8 code, bool pressed = true);
+		void pushKey(u32 code, bool pressed = true);
 		void pushMouse(i32 dx, i32 dy, u8 buttons = 0, i8 wheel = 0);
 		u64 droppedInputBytes() const noexcept;
 

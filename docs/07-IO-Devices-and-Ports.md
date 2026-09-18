@@ -30,7 +30,8 @@ collide.
 | `0xFF040000` | 4 | DMA controller |
 | `0xFF050000` | 5 | Keyboard |
 | `0xFF060000` | 6 | Mouse |
-| `0xFF070000`–`0xFFFE0000` | 7–254 | Reserved for future default devices |
+| `0xFF070000` | 7 | Display (pixel framebuffer) |
+| `0xFF080000`–`0xFFFE0000` | 8–254 | Reserved for future default devices |
 | `0xFFFF0000` | 255 | System control |
 
 Every slot is `MmioBus::SlotSize` (0x10000 = 64 KiB) wide, computed as `MmioBus::slot(index)` —
@@ -275,15 +276,15 @@ flag — so a game can tell a held key from a freshly pressed one, or stop an ac
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |
 | `0x00` | `StatusRegister` | Read | Bit 0 (`0x01`) set when an event is available. |
-| `0x04` | `EventRegister` | Read | Pops one event: low byte = key code, bit 8 (`0x0100`) = `1` if pressed, `0` if released. `0` when empty. |
+| `0x04` | `EventRegister` | Read | Pops one event: bits 30:0 = key code, bit 31 = `1` if pressed, `0` if released. `0` when empty. |
 | `0x10` | `BlockReadCountRegister` | Read | How many events the last block read drained. |
-| `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` drains the event queue into RAM as a run of two-byte entries (code, then pressed flag). |
+| `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` drains the event queue into RAM as a run of four-byte entries (one 32-bit event each, little-endian). |
 
 Events queue up in a 64-entry ring, exactly like the terminal's input. The host feeds the device one
 event at a time with `pushKey(code, pressed)` — the code is whatever the host maps a physical key to
-(a scan code, or the ASCII value of a character) — and each push that actually lands an event raises
-`UserInterrupt3` (interrupt 19). A full queue drops events; the host can read the count with
-`droppedEvents()`.
+(a scan code, or the ASCII value of a character), kept in the low 31 bits so an SDL scancode fits —
+and each push that actually lands an event raises `UserInterrupt3` (interrupt 19). A full queue drops
+events; the host can read the count with `droppedEvents()`.
 
 ```casm
 la   r13, 0xFF050000   // Keyboard's base
@@ -291,7 +292,7 @@ la   r13, 0xFF050000   // Keyboard's base
     ldr  r1, [r13 + 0]  // StatusRegister - bit 0 set when a key event is waiting
     and  r1, r1, 1
     jz   .loop
-    ldr  r1, [r13 + 4]  // EventRegister - low byte is the code, bit 8 is pressed/released
+    ldr  r1, [r13 + 4]  // EventRegister - bits 30:0 are the code, bit 31 is pressed/released
 ```
 
 ### `MouseDevice` (`0xFF060000`)
@@ -312,6 +313,38 @@ wants frame to frame) and an absolute position accumulated from every motion (wh
 The host reports movement with `pushMotion(dx, dy, buttons, wheel)`; deltas and the wheel accumulate
 until read, and each push that changes state raises `UserInterrupt4` (interrupt 20). Absolute
 position and buttons are plain state and never reset.
+
+### `DisplayDevice` (`0xFF070000`)
+
+A pixel framebuffer, the display half of the "consola retro" the roadmap wants: a grid of RGB32
+pixels (`0x00RRGGBB`, top byte ignored) that a program draws into and then presents. It is a
+different surface from the text `FramebufferDevice` above, not a replacement — text goes to the
+framebuffer, pixels to the display.
+
+| Offset | Register | Direction | Meaning |
+| --- | --- | --- | --- |
+| `0x00` | `CommandRegister` | Write | `1` clears the surface to black and rewinds the cursor; `2` presents the frame. |
+| `0x04` | `WidthRegister` | Read/write | Pixel columns, up to 1280. Zero or more than that is ignored as a typo. |
+| `0x08` | `HeightRegister` | Read/write | Pixel rows, up to 720. Resizing clears the surface. |
+| `0x0C` | `DataRegister` | Write | One pixel per word write, continuing from where the last write left off. |
+| `0xF0`/`0xF4`/`0xF8` | Block registers | Write (write only) | `2` blits a run of pixels from RAM in one trigger; `BLOCK_LEN` is bytes (a multiple of 4). |
+
+The host routes a presented frame with `setFrameSink(width, height, pixels)`; without a sink nothing
+happens, so a headless build stays silent and an SDL host (Fase 2 of the
+[SDL3 plan](29-SDL3-Integration-Plan.md)) uploads the pixels into a texture instead.
+
+```casm
+li   r1, 320
+la   r13, 0xFF070004   // DISP_WIDTH
+str  [r13 + 0], r1
+li   r1, 200
+la   r13, 0xFF070008   // DISP_HEIGHT
+str  [r13 + 0], r1
+// ... write BLOCK_ADDR/BLOCK_LEN, then 2 to BLOCK_CMD (0xFF0700F8) to blit the pixels ...
+li   r1, 2
+la   r13, 0xFF070000   // DISP_CMD
+str  [r13 + 0], r1     // present
+```
 
 ## Related pages
 

@@ -280,7 +280,7 @@ namespace ceres::debug
 		_terminal->pushInput(text);
 	}
 
-	void DebugSession::pushKey(u8 code, bool pressed)
+	void DebugSession::pushKey(u32 code, bool pressed)
 	{
 		if (_keyboard)
 			_keyboard->pushKey(code, pressed);

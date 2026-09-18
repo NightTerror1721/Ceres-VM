@@ -15,6 +15,7 @@
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage_devices.h>
 #include <ceres/devices/input_devices.h>
+#include <ceres/devices/display_device.h>
 #include <ceres/vm/bios.h>
 #include <ceres/core/format/memory_map.h>
 #include <filesystem>
@@ -913,7 +914,7 @@ TEST(devices, the_keyboard_reports_press_and_release_events)
 	keyboard.pushKey('A', true);
 	keyboard.pushKey('A', false);
 
-	// Low byte is the code, bit 8 is the pressed flag.
+	// Bits 30:0 are the code, bit 31 is the pressed flag.
 	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 'A' | KeyboardDevice::EventPressed });
 	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 'A' });
 	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 0 }); // Empty again.
@@ -945,16 +946,29 @@ TEST(devices, a_keyboard_block_read_drains_events_and_counts_them)
 	keyboard.pushKey('c');
 
 	keyboard.writeWord(KeyboardDevice::BlockAddressRegister, 0x3000);
-	keyboard.writeWord(KeyboardDevice::BlockLengthRegister, 4); // room for two events
+	keyboard.writeWord(KeyboardDevice::BlockLengthRegister, 8); // room for two 4-byte events
 	keyboard.writeWord(KeyboardDevice::BlockCommandRegister, KeyboardDevice::BlockCommandRead);
 
 	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::BlockReadCountRegister), u32{ 2 });
-	// Two bytes per event: code, then pressed flag.
-	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3000)), u8{ 'a' });
-	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3001)), u8{ 1 });
-	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3002)), u8{ 'b' });
-	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3003)), u8{ 1 });
+	// One 32-bit event per four bytes, little-endian: 'a' pressed is 0x80000061.
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3000)), u8{ 0x61 });
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3001)), u8{ 0x00 });
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3002)), u8{ 0x00 });
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3003)), u8{ 0x80 });
+	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3004)), u8{ 0x62 });
 	CHECK_EQ(keyboard.availableEvents(), usize{ 1 }); // 'c' remains.
+}
+
+TEST(devices, a_keyboard_event_keeps_a_code_wider_than_eight_bits)
+{
+	KeyboardDevice keyboard{};
+
+	// SDL scancodes go past 255; the code must survive round-trip in the low 31 bits.
+	keyboard.pushKey(0x12345678u, true);
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 0x12345678u | KeyboardDevice::EventPressed });
+
+	keyboard.pushKey(0x12345678u, false);
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 0x12345678u });
 }
 
 TEST(devices, pushing_a_key_raises_the_keyboards_interrupt)
@@ -1024,4 +1038,84 @@ TEST(devices, the_mouse_reports_buttons_and_wheel)
 	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::ButtonsRegister), u32{ MouseDevice::ButtonRight | MouseDevice::ButtonMiddle });
 	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::WheelRegister), u32{ 2 });
 	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::WheelRegister), u32{ 0 }); // Consumed.
+}
+
+// --- The pixel display -------------------------------------------------------------------------
+
+TEST(devices, the_display_shows_the_pixels_it_was_given)
+{
+	CeresVM vm{};
+	DisplayDevice display{};
+	display.attachTo(vm.io());
+
+	display.writeWord(DisplayDevice::WidthRegister, 2);
+	display.writeWord(DisplayDevice::HeightRegister, 1);
+
+	// Two pixels in RAM, 0x00RRGGBB: red then green.
+	vm.memory().writeUnchecked<u32>(Address(SourceBuffer), 0x00FF0000u);
+	vm.memory().writeUnchecked<u32>(Address(SourceBuffer + 4), 0x0000FF00u);
+
+	display.writeWord(DisplayDevice::BlockAddressRegister, SourceBuffer);
+	display.writeWord(DisplayDevice::BlockLengthRegister, 8); // two pixels
+	display.writeWord(DisplayDevice::BlockCommandRegister, DisplayDevice::BlockCommandWrite);
+
+	u32 shownWidth = 0, shownHeight = 0;
+	std::vector<u32> shown;
+	display.setFrameSink([&](u32 width, u32 height, std::span<const u32> pixels)
+	{
+		shownWidth = width;
+		shownHeight = height;
+		shown.assign(pixels.begin(), pixels.end());
+	});
+
+	display.writeWord(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
+
+	CHECK_EQ(shownWidth, u32{ 2 });
+	CHECK_EQ(shownHeight, u32{ 1 });
+	CHECK_EQ(shown.size(), usize{ 2 });
+	if (shown.size() == 2)
+	{
+		CHECK_EQ(shown[0], u32{ 0x00FF0000u });
+		CHECK_EQ(shown[1], u32{ 0x0000FF00u });
+	}
+}
+
+TEST(devices, a_display_pixel_can_be_written_one_at_a_time)
+{
+	DisplayDevice display{};
+
+	display.writeWord(DisplayDevice::WidthRegister, 3);
+	display.writeWord(DisplayDevice::HeightRegister, 1);
+
+	display.writeWord(DisplayDevice::DataRegister, 0x00112233u);
+	display.writeWord(DisplayDevice::DataRegister, 0x00445566u);
+
+	CHECK_EQ(display.pixels()[0], u32{ 0x00112233u });
+	CHECK_EQ(display.pixels()[1], u32{ 0x00445566u });
+	CHECK_EQ(display.pixels()[2], u32{ 0 }); // The third cell was never written.
+}
+
+TEST(devices, a_display_surface_larger_than_any_screen_is_a_typo_and_is_ignored)
+{
+	DisplayDevice display{};
+
+	const u32 before = display.width();
+	display.writeWord(DisplayDevice::WidthRegister, 100000);
+	CHECK_EQ(display.width(), before);
+
+	display.writeWord(DisplayDevice::HeightRegister, 0);
+	CHECK_EQ(display.height(), u32{ 200 });
+}
+
+TEST(devices, a_display_clear_fills_black)
+{
+	DisplayDevice display{};
+
+	display.writeWord(DisplayDevice::WidthRegister, 2);
+	display.writeWord(DisplayDevice::HeightRegister, 1);
+	display.writeWord(DisplayDevice::DataRegister, 0x00FFFFFFu); // white
+
+	display.writeWord(DisplayDevice::CommandRegister, DisplayDevice::CommandClear);
+
+	CHECK_EQ(display.pixels()[0], u32{ 0 });
 }

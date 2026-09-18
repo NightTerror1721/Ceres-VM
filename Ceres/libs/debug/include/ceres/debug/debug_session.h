@@ -364,7 +364,7 @@ namespace ceres::debug
 		void setOutputHandler(OutputHandler handler);
 		void setLogHandler(LogHandler handler) { _logHandler = std::move(handler); }
 		void pushInput(std::string_view text);
-		void pushKey(u8 code, bool pressed = true);
+		void pushKey(u32 code, bool pressed = true);
 		void pushMouse(i32 dx, i32 dy, u8 buttons = 0, i8 wheel = 0);
 
 		const DebugInfo& debugInfo() const noexcept { return _debugInfo; }

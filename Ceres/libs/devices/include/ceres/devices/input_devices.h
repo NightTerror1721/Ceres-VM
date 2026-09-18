@@ -24,11 +24,11 @@ namespace ceres::devices
 	{
 	public:
 		static inline constexpr Address StatusRegister = Address(0x00); // Read-only: bit 0 = an event is available.
-		static inline constexpr Address EventRegister = Address(0x04); // Read-only: pops one event; low byte = code, bit 8 = 1 if pressed, 0 if released.
+		static inline constexpr Address EventRegister = Address(0x04); // Read-only: pops one event; bits 30:0 = code, bit 31 = 1 if pressed, 0 if released.
 		static inline constexpr Address BlockReadCountRegister = Address(0x10); // Read-only: events drained by the last block read.
 
 		// The same block trio the terminal and the disk use: drain the event queue into RAM as a
-		// run of two-byte entries (code, then pressed flag).
+		// run of four-byte entries (one 32-bit event each, little-endian).
 		static inline constexpr Address BlockAddressRegister = Address(0xF0);
 		static inline constexpr Address BlockLengthRegister = Address(0xF4);
 		static inline constexpr Address BlockCommandRegister = Address(0xF8);
@@ -36,7 +36,8 @@ namespace ceres::devices
 		static inline constexpr u32 BlockCommandRead = 1;
 
 		static inline constexpr u32 StatusDataReady = 1u << 0;
-		static inline constexpr u16 EventPressed = 1u << 8;
+		static inline constexpr u32 EventPressed = 1u << 31;      // Set when the key was pressed, clear when released.
+		static inline constexpr u32 EventCodeMask = 0x7FFFFFFFu;  // The key code lives in the low 31 bits.
 
 		// Fourth user interrupt: UserInterrupt0 is the timer's, UserInterrupt1 the terminal's,
 		// UserInterrupt2 the DMA controller's.
@@ -45,7 +46,7 @@ namespace ceres::devices
 		static inline constexpr usize EventBufferCapacity = 64;
 
 	private:
-		std::array<u16, EventBufferCapacity> _events{};
+		std::array<u32, EventBufferCapacity> _events{};
 		std::atomic<usize> _head{0};
 		std::atomic<usize> _tail{0};
 		std::atomic<u64> _droppedEvents{0};
@@ -76,10 +77,10 @@ namespace ceres::devices
 
 		// A host keyboard feeds the device one event at a time. `code` is whatever the host maps a
 		// physical key to - a scan code, or the ASCII value of a character - and `pressed` false
-		// marks a release.
-		void pushKey(u8 code, bool pressed = true)
+		// marks a release. The low 31 bits of `code` are kept, so SDL scancodes fit comfortably.
+		void pushKey(u32 code, bool pressed = true)
 		{
-			const u16 event = static_cast<u16>(code) | (pressed ? EventPressed : u16{0});
+			const u32 event = (code & EventCodeMask) | (pressed ? EventPressed : 0u);
 			{
 				const std::lock_guard lock{_mutex};
 				const usize nextTail = (_tail.load(std::memory_order_relaxed) + 1) % EventBufferCapacity;
@@ -106,13 +107,13 @@ namespace ceres::devices
 
 	private:
 		// Pops one event from the ring; returns 0 when empty. The caller holds the mutex.
-		u16 popEvent()
+		u32 popEvent()
 		{
 			usize currentHead = _head.load(std::memory_order_relaxed);
 			if (currentHead == _tail.load(std::memory_order_acquire))
 				return 0;
 
-			const u16 event = _events[currentHead];
+			const u32 event = _events[currentHead];
 			_head.store((currentHead + 1) % EventBufferCapacity, std::memory_order_release);
 			return event;
 		}
@@ -135,20 +136,22 @@ namespace ceres::devices
 
 			auto buffer = memory().peekMutBytes(ramAddress, clampSize);
 			usize count = 0;
-			// Two bytes per event: the code, then the pressed flag.
-			while (count + 2 <= buffer.size())
+			// One 32-bit event per four bytes, little-endian.
+			while (count + 4 <= buffer.size())
 			{
 				usize currentHead = _head.load(std::memory_order_relaxed);
 				if (currentHead == _tail.load(std::memory_order_acquire))
 					break;
 
-				const u16 event = _events[currentHead];
+				const u32 event = _events[currentHead];
 				_head.store((currentHead + 1) % EventBufferCapacity, std::memory_order_release);
 				buffer[count] = static_cast<u8>(event & 0xFF);
 				buffer[count + 1] = static_cast<u8>((event >> 8) & 0xFF);
-				count += 2;
+				buffer[count + 2] = static_cast<u8>((event >> 16) & 0xFF);
+				buffer[count + 3] = static_cast<u8>((event >> 24) & 0xFF);
+				count += 4;
 			}
-			_blockReadCount = static_cast<u32>(count / 2);
+			_blockReadCount = static_cast<u32>(count / 4);
 		}
 
 	public:
