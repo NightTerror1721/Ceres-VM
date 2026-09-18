@@ -542,6 +542,7 @@ namespace ceres::devices
 		static inline constexpr Address LengthRegister = Address(0x08);      // Write: bytes to move
 		static inline constexpr Address CommandRegister = Address(0x0C);     // Write: 1 starts the transfer latched above
 		static inline constexpr Address StatusRegister = Address(0x10);      // Read: Busy / Done bits
+		static inline constexpr Address TransferredRegister = Address(0x14); // Read: bytes the last completed transfer actually moved
 
 		static inline constexpr u32 CommandStart = 1;
 		static inline constexpr u32 StatusBusy = 1u << 0;
@@ -555,6 +556,7 @@ namespace ceres::devices
 		u32 _destination = 0;
 		u32 _length = 0;
 		u32 _status = 0;
+		u32 _transferred = 0;
 		bool _pending = false;
 
 	public:
@@ -592,6 +594,10 @@ namespace ceres::devices
 				return;
 
 			memory().copyBytesUnchecked(Address(_source), Address(_destination), _length);
+			// RAM to RAM always moves the whole length, but a source device that yields fewer
+			// bytes (a short terminal read) would land a smaller number here - which is exactly
+			// what this register exists to report.
+			_transferred = _length;
 			_pending = false;
 			_status = StatusDone;
 			raiseInterrupt(Interrupt);
@@ -602,6 +608,8 @@ namespace ceres::devices
 		{
 			if (offset == StatusRegister)
 				return _status;
+			if (offset == TransferredRegister)
+				return _transferred;
 			return 0;
 		}
 		u8 readUnsignedByte(Address offset) override { return static_cast<u8>(readUnsignedWord(offset)); }

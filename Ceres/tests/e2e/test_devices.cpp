@@ -815,3 +815,29 @@ TEST(devices, a_grid_larger_than_any_terminal_is_a_typo_and_is_ignored)
 	framebuffer.writeWord(FramebufferDevice::HeightRegister, 0);
 	CHECK_EQ(framebuffer.height(), u32{ 20 });
 }
+
+// --- The DMA controller's transfer count -------------------------------------------------------
+
+TEST(devices, a_dma_transfer_reports_how_many_bytes_it_moved)
+{
+	Machine m{ Instruction::NOP() };
+
+	DmaController dma{};
+	dma.attachTo(m.vm().io());
+
+	fill(m.memory(), SourceBuffer, "HELLO");
+
+	dma.writeWord(DmaController::SourceRegister, SourceBuffer);
+	dma.writeWord(DmaController::DestinationRegister, DestinationBuffer);
+	dma.writeWord(DmaController::LengthRegister, 5);
+	dma.writeWord(DmaController::CommandRegister, DmaController::CommandStart);
+
+	CHECK_EQ(dma.readUnsignedWord(DmaController::StatusRegister) & DmaController::StatusBusy, DmaController::StatusBusy);
+
+	// The copy lands on the next tick, not on the arming instruction itself.
+	m.step(1);
+
+	CHECK_EQ(dma.readUnsignedWord(DmaController::StatusRegister) & DmaController::StatusDone, DmaController::StatusDone);
+	CHECK_EQ(dma.readUnsignedWord(DmaController::TransferredRegister), u32{ 5 });
+	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 5), std::string{ "HELLO" });
+}
