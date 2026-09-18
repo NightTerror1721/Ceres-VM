@@ -48,6 +48,10 @@ option(CERES_ENABLE_IPO "Enable interprocedural optimization for release builds"
 # baseline. Never turned on for a binary that gets distributed: it raises the minimum CPU the
 # result will run on, which -O2/-O3 alone never does.
 option(CERES_ENABLE_ARCH_TUNING "Enable target-CPU instruction tuning for release builds (not portable to older CPUs)" OFF)
+# SDL3 is the windowed host for the framebuffer, the keyboard and the mouse. Off by default so the
+# project keeps building with nothing but a C++23 compiler; the SDL spike/apps/spike validates the
+# integration and will grow into the real backend (see docs/29-SDL3-Integration-Plan.md).
+option(CERES_ENABLE_SDL "Build the SDL3 windowed host (fetches SDL3 if not installed)" OFF)
 
 # Profile-guided optimization, GCC/Clang only for now (see CeresSettings.cmake for why MSVC's
 # /LTCG:PGInstrument + /LTCG:PGOptimize workflow isn't wired here yet). Two builds, not one:
@@ -85,6 +89,11 @@ add_subdirectory(libs/asm)
 add_subdirectory(libs/debug)
 add_subdirectory(libs/driver)
 add_subdirectory(apps/cli)
+
+if(CERES_ENABLE_SDL)
+	include(Sdl3)
+	add_subdirectory(apps/spike)
+endif()
 
 if(CERES_BUILD_TESTS)
     add_subdirectory(tests/e2e)
