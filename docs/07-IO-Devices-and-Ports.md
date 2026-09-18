@@ -28,7 +28,9 @@ collide.
 | `0xFF020000` | 2 | Disk |
 | `0xFF030000` | 3 | Framebuffer |
 | `0xFF040000` | 4 | DMA controller |
-| `0xFF050000`–`0xFFFE0000` | 5–254 | Reserved for future default devices |
+| `0xFF050000` | 5 | Keyboard |
+| `0xFF060000` | 6 | Mouse |
+| `0xFF070000`–`0xFFFE0000` | 7–254 | Reserved for future default devices |
 | `0xFFFF0000` | 255 | System control |
 
 Every slot is `MmioBus::SlotSize` (0x10000 = 64 KiB) wide, computed as `MmioBus::slot(index)` —
@@ -120,6 +122,9 @@ A minimal character terminal.
 | `0x00` | `StatusRegister` | Read | Bit 0 (`0x01`) set when input is available to read; bit 1 (`0x02`) is always set (the terminal is always ready to accept output in this simple implementation). |
 | `0x04` | `OutputRegister` | Write | Writes a byte (or more, via the halfword/word/block forms) straight to the process's standard output as characters. |
 | `0x08` | `InputRegister` | Read | Reads the next byte from a small 64-byte input ring buffer (`pushInput()`, called by the host embedding the VM), or `0` if nothing is buffered. |
+| `0x0C` | `BytesAvailableRegister` | Read | How many bytes are currently buffered and unread. |
+| `0x10` | `BlockReadCountRegister` | Read | How many bytes the most recent block read actually moved into RAM (a short read is how a program learns its input ended early). |
+| `0x14` | `DroppedInputRegister` | Read | How many input bytes were discarded because the ring was full (truncated to 32 bits). |
 | `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` reads from the input ring into RAM; `2` writes RAM out as characters. |
 
 ```casm
@@ -232,6 +237,7 @@ memory directly, without a program copying it word by word.
 | `0x08` | `LengthRegister` | Write | Bytes to move. |
 | `0x0C` | `CommandRegister` | Write | `1` arms the transfer. |
 | `0x10` | `StatusRegister` | Read | Bit 0 `BUSY`, bit 1 `DONE`. |
+| `0x14` | `TransferredRegister` | Read | How many bytes the last completed transfer actually moved. RAM-to-RAM it is always the length; a future device source that yields fewer bytes would report less here. |
 
 The copy does not happen on the same instruction that arms it: it runs on the controller's next
 `tick()` — one instruction later — the same one-step delay `TimerDevice` already models, so a program
@@ -254,6 +260,53 @@ str  [r13 + 0], r1          // arm it - the copy lands on the next tick
 Because both endpoints are physical addresses in the same space, a device that later exposes its own
 backing buffer as an MMIO aperture (rather than through block registers) can be a DMA source or
 destination too — RAM↔RAM, RAM↔device, or device↔device all become the same operation.
+
+### `KeyboardDevice` (`0xFF050000`)
+
+A keyboard, distinct from the terminal: the terminal delivers a stream of characters with no notion
+of which key produced them, while the keyboard reports *events* — a code plus a pressed/released
+flag — so a game can tell a held key from a freshly pressed one, or stop an action on a release.
+
+| Offset | Register | Direction | Meaning |
+| --- | --- | --- | --- |
+| `0x00` | `StatusRegister` | Read | Bit 0 (`0x01`) set when an event is available. |
+| `0x04` | `EventRegister` | Read | Pops one event: low byte = key code, bit 8 (`0x0100`) = `1` if pressed, `0` if released. `0` when empty. |
+| `0x10` | `BlockReadCountRegister` | Read | How many events the last block read drained. |
+| `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` drains the event queue into RAM as a run of two-byte entries (code, then pressed flag). |
+
+Events queue up in a 64-entry ring, exactly like the terminal's input. The host feeds the device one
+event at a time with `pushKey(code, pressed)` — the code is whatever the host maps a physical key to
+(a scan code, or the ASCII value of a character) — and each push that actually lands an event raises
+`UserInterrupt3` (interrupt 19). A full queue drops events; the host can read the count with
+`droppedEvents()`.
+
+```casm
+la   r13, 0xFF050000   // Keyboard's base
+.loop:
+    ldr  r1, [r13 + 0]  // StatusRegister - bit 0 set when a key event is waiting
+    and  r1, r1, 1
+    jz   .loop
+    ldr  r1, [r13 + 4]  // EventRegister - low byte is the code, bit 8 is pressed/released
+```
+
+### `MouseDevice` (`0xFF060000`)
+
+A mouse reporting movement two ways at once: a delta since the program last read it (what a game
+wants frame to frame) and an absolute position accumulated from every motion (what an editor wants).
+
+| Offset | Register | Direction | Meaning |
+| --- | --- | --- | --- |
+| `0x00` | `StatusRegister` | Read | Bit 0 set when new motion/button data has arrived since the last status read; reading it clears the flag. |
+| `0x04` | `DeltaXRegister` | Read | Signed movement in X since the last read (consumed on read). |
+| `0x08` | `DeltaYRegister` | Read | Signed movement in Y since the last read (consumed on read). |
+| `0x0C` | `XRegister` | Read | Absolute X, accumulated from every motion. |
+| `0x10` | `YRegister` | Read | Absolute Y. |
+| `0x14` | `ButtonsRegister` | Read | Button mask: bit 0 left, bit 1 right, bit 2 middle. |
+| `0x18` | `WheelRegister` | Read | Signed wheel movement since the last read (consumed on read). |
+
+The host reports movement with `pushMotion(dx, dy, buttons, wheel)`; deltas and the wheel accumulate
+until read, and each push that changes state raises `UserInterrupt4` (interrupt 20). Absolute
+position and buttons are plain state and never reset.
 
 ## Related pages
 

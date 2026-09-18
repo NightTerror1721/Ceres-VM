@@ -18,7 +18,7 @@ the assembler does internally at each stage of the build.
 4. [Instruction format](04-Instruction-Format.md) — the 32-bit encoding, and how fields overlap.
 5. [Instruction set](05-Instruction-Set.md) — full reference for every real instruction, grouped by category.
 6. [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `ldv`, `stv`, `neg`, `ifXX`, and how they expand.
-7. [I/O devices and ports](07-IO-Devices-and-Ports.md) — the MMIO map, the terminal, the timer, the DMA controller, system control.
+7. [I/O devices and ports](07-IO-Devices-and-Ports.md) — the MMIO map, the terminal, the timer, the DMA controller, the keyboard, the mouse, system control.
 8. [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — the vector table, `INT`/`IRET`, hardware faults.
 9. [The `.cres` binary format](09-CRES-Binary-Format.md) — the executable header and the loaded program's memory layout.
 
@@ -89,6 +89,12 @@ If you already knew this language, these are the parts that moved:
   through ordinary loads and stores at an address in the top 16 MiB of the address space instead, and
   a real `DmaController` replaces the pseudo-DMA `inm`/`outm` used to be. This is a breaking version
   bump (`.cres` version 4) — [I/O devices and ports](07-IO-Devices-and-Ports.md).
+- **Keyboard and mouse devices, plus observable transfer counts.** The terminal now reports its
+  buffered-byte level, the bytes a block read actually moved, and the input it dropped to a full
+  ring; the DMA controller reports the bytes a transfer actually moved. Two new devices fill slots 5
+  and 6: a keyboard that reports press/release events (`UserInterrupt3`) and a mouse that reports
+  deltas and absolute position (`UserInterrupt4`) —
+  [I/O devices and ports](07-IO-Devices-and-Ports.md).
 
 ## Quick start
 

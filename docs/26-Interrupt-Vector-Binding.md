@@ -173,7 +173,7 @@ CPU takes its first step.
 ## Related pages
 
 - [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — the vector table, dispatch, `halt`.
-- [I/O devices and ports](07-IO-Devices-and-Ports.md) — the timer and the terminal, the two devices that raise a user interrupt today.
+- [I/O devices and ports](07-IO-Devices-and-Ports.md) — the timer, the terminal, the DMA controller, the keyboard and the mouse: the devices that raise a user interrupt today.
 - [The `.cres` binary format](09-CRES-Binary-Format.md) — where the patch table sits in the file.
 - [Labels and symbols](12-Labels-and-Symbols.md) — how a label reference resolves across files.
 - [Memory](02-Memory.md) — why the vector table is off-limits to a running program.
