@@ -246,6 +246,8 @@ namespace ceres::isa
 				case Opcode::LEAVE:  return { "LEAVE", Shape::None };
 				case Opcode::PUSHM:  return { "PUSHM", Shape::Mask16 };
 				case Opcode::POPM:   return { "POPM",  Shape::Mask16 };
+				case Opcode::FPUSHM: return { "FPUSHM", Shape::Mask16 };
+				case Opcode::FPOPM:  return { "FPOPM",  Shape::Mask16 };
 
 				case Opcode::ITOF:   return { "ITOF",  Shape::FdRs };
 				case Opcode::IITOF:  return { "IITOF", Shape::FdRs };

@@ -192,6 +192,11 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 		summary: 'Pushes every register whose bit is set in the mask - bit n means register n, so 0x0F00 is r8-r11. Stores from the highest set bit down, so `popm` with the same mask restores exactly what it saved. All or nothing: if the whole mask does not fit, nothing is pushed.'
 	},
 	popm: { operands: 'imm16', summary: 'Pops into every register whose bit is set, r0 first. The mirror of `pushm`.' },
+	fpushm: {
+		operands: 'imm16',
+		summary: 'Pushes every float register whose bit is set in the mask - bit n means f n, so 0xFF00 is f8-f15. Stores from the highest set bit down, so `fpopm` with the same mask restores exactly what it saved. All or nothing: if the whole mask does not fit, nothing is pushed.'
+	},
+	fpopm: { operands: 'imm16', summary: 'Pops into every float register whose bit is set, f0 first. The mirror of `fpushm`.' },
 
 	// Conversions - 0x80-0x85
 	itof: { operands: 'fd, rs', summary: 'Converts an unsigned 32-bit integer to a float.' },

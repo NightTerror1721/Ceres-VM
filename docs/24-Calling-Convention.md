@@ -220,6 +220,11 @@ is about to use, or a leaf spilling a couple of registers around a single comput
 function that opened a frame, `str [sp + Frame.saved_r8], r8` costs the same four bytes per register
 and keeps every offset true.
 
+The same holds for the float bank: `fpushm`/`fpopm` are the float counterpart of `pushm`/`popm`, so
+they fit the same "no frame to disturb" slots — an interrupt handler saving `f8`–`f15`, for example.
+The convention's own prologue still writes `saved_fN` fields the long way, for the same offset
+reasons.
+
 ## Where the stack is
 
 - It starts at the **top of the program's own region**, which is the end of memory minus the 1 KiB

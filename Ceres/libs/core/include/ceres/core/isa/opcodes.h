@@ -172,6 +172,11 @@ namespace ceres::isa
 		// opcode, and the one place fp is written at all.
 		ENTER = 0x88, // [imm16] - push fp; fp = sp; sp -= imm16
 		LEAVE = 0x89, // [] - sp = fp; pop fp
+		// The float-bank counterpart of PUSHM/POPM, so the callee-saved half of that bank (f8-f15)
+		// goes back in one word instead of eight. One bit per register, exactly like the integer
+		// mask: bit n means f n, and the sixteen-bit field is the whole sixteen-register bank.
+		FPUSHM = 0x8A, // [imm16] - Push every float register whose bit is set, f15 first.
+		FPOPM = 0x8B, // [imm16] - Pop into every float register whose bit is set, f0 first.
 
 		// Conversions //
 		ITOF = 0x90, // [fd, rs] - Convert the integer value in rs to a floating-point value and store it in fd.
@@ -250,7 +255,7 @@ namespace ceres::isa
 		FRSQRTE = 0xD5, // [fd, fs] - fd = 1 / sqrt(fs); traps on fs == 0
 		CTZ = 0xD6, // [rd, rs] - rd = trailing zero bits in rs; 32 when rs is zero
 
-		// Free: 0x0F, 0x4F, 0x7A-0x7F, 0x8A-0x8F, 0xA0-0xB3, 0xD7-0xFF.
+		// Free: 0x0F, 0x4F, 0x7A-0x7F, 0x8C-0x8F, 0xA0-0xB3, 0xD7-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

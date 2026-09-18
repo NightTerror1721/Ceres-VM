@@ -332,6 +332,8 @@ namespace ceres::isa
 		static constexpr Instruction PUSHM(u16 mask) noexcept { return make(Opcode::PUSHM, 0, 0, mask); }
 		static constexpr Instruction POPM(u16 mask) noexcept { return make(Opcode::POPM, 0, 0, mask); }
 		static constexpr Instruction FPOP(u8 fd) noexcept { return make(Opcode::FPOP, fd, 0); }
+		static constexpr Instruction FPUSHM(u16 mask) noexcept { return make(Opcode::FPUSHM, 0, 0, mask); }
+		static constexpr Instruction FPOPM(u16 mask) noexcept { return make(Opcode::FPOPM, 0, 0, mask); }
 
 		// Conversions
 		static constexpr Instruction ITOF(u8 fd, u8 rs) noexcept { return make(Opcode::ITOF, fd, rs); }

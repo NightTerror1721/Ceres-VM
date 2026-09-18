@@ -1510,6 +1510,52 @@ namespace ceres::vm
 		}
 		forceinline void FPUSH(const Instruction inst) noexcept { if (push<f32>(getFloatReg(inst.fs()))) advancePC(); }
 		forceinline void FPOP(const Instruction inst) noexcept { if (const auto v = pop<f32>()) { setFloatReg(inst.fd(), *v); advancePC(); } }
+		// The float counterpart of PUSHM/POPM, over the float bank. Same all-or-nothing rule: the
+		// room for the whole mask is checked before the first word goes down, and the store order
+		// (highest set bit first) is the mirror of the load order (f0 first), so a matching pair
+		// round-trips whatever the mask.
+		forceinline void FPUSHM(const Instruction inst) noexcept
+		{
+			const u16 mask = inst.imm16();
+			const u32 words = static_cast<u32>(std::popcount(mask));
+			if (!hasStackRoom(words * static_cast<u32>(sizeof(u32))))
+			{
+				triggerInterrupt(InterruptNumber::StackOverflow);
+				return;
+			}
+
+			for (u32 i = FloatingPointRegisterPool::Count; i-- > 0;)
+			{
+				if (mask & (1u << i))
+				{
+					if (!push<f32>(getFloatReg(static_cast<u8>(i))))
+						break;
+				}
+			}
+			advancePC();
+		}
+		forceinline void FPOPM(const Instruction inst) noexcept
+		{
+			const u16 mask = inst.imm16();
+			const u32 words = static_cast<u32>(std::popcount(mask));
+			if (!hasStackData(words * static_cast<u32>(sizeof(u32))))
+			{
+				triggerInterrupt(InterruptNumber::StackOverflow);
+				return;
+			}
+
+			for (u32 i = 0; i < FloatingPointRegisterPool::Count; ++i)
+			{
+				if (mask & (1u << i))
+				{
+					const auto value = pop<f32>();
+					if (!value.has_value())
+						break;
+					setFloatReg(static_cast<u8>(i), *value);
+				}
+			}
+			advancePC();
+		}
 
 		forceinline void ITOF(const Instruction inst) noexcept { setFloatReg(inst.fd(), static_cast<f32>(getReg(inst.rs()))); advancePC(); }
 		forceinline void IITOF(const Instruction inst) noexcept { setFloatReg(inst.fd(), static_cast<f32>(static_cast<i32>(getReg(inst.rs())))); advancePC(); }
@@ -1719,6 +1765,8 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::POPM)] = &ExecutionEngine::POPM;
 				handlers[static_cast<u8>(Opcode::FPUSH)] = &ExecutionEngine::FPUSH;
 				handlers[static_cast<u8>(Opcode::FPOP)] = &ExecutionEngine::FPOP;
+				handlers[static_cast<u8>(Opcode::FPUSHM)] = &ExecutionEngine::FPUSHM;
+				handlers[static_cast<u8>(Opcode::FPOPM)] = &ExecutionEngine::FPOPM;
 
 				// Conversions
 				handlers[static_cast<u8>(Opcode::ITOF)] = &ExecutionEngine::ITOF;

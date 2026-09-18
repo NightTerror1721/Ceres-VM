@@ -420,7 +420,7 @@ a register some other way — from a port, from an unpacked field — had to be 
 shifts, which is two instructions and a magic number for something the machine already knows how
 to do.
 
-## Stack operations · `0x80`–`0x89`
+## Stack operations · `0x80`–`0x8B`
 
 | Assembly | Opcode | Semantics |
 | --- | --- | --- |
@@ -434,6 +434,8 @@ to do.
 | `popm imm16` | `POPM` `0x87` | Pops into every register whose bit is set, `r0` first. |
 | `enter imm16` | `ENTER` `0x88` | `push fp; fp = sp; sp -= imm16` — a whole prologue. |
 | `leave` | `LEAVE` `0x89` | `sp = fp; pop fp` — and the whole epilogue. |
+| `fpushm imm16` | `FPUSHM` `0x8A` | Pushes every float register whose bit is set, `f15` first. |
+| `fpopm imm16` | `FPOPM` `0x8B` | Pops into every float register whose bit is set, `f0` first. |
 
 ### `enter` and `leave`
 
@@ -483,6 +485,12 @@ raises `StackOverflow` without touching the stack if it does not fit — a parti
 would be restored as though it were whole, which is worse than not starting. `popm` checks the
 same way against the data actually on the stack.
 
+`fpushm`/`fpopm` are the same pair over the float bank: bit *n* of the mask means `f`*n*, the
+sixteen-bit field covers the whole sixteen-register bank, `fpushm` stores from the highest set bit
+down, and `fpopm` reads back up from `f0`. They exist so the callee-saved half of the float bank
+(`f8`–`f15`) goes back in one word instead of eight `fpush`/`fpop` pairs, and they carry the same
+all-or-nothing rule.
+
 There is no register-list syntax: the mask is written as a number, and the constant expression
 grammar has `+` but no `|`, so disjoint bits add up the way you would expect — `pushm 256 + 512`
 is `r8` and `r9`.
@@ -525,7 +533,7 @@ Adding the comparison jumps left only eight free slots where sixteen were needed
 block grew to `0x77` and pushed the families above it up: stack `0x70`→`0x80`, conversions
 `0x80`→`0x90`, I/O `0x90`→`0xA0`. Retiring I/O entirely freed `0xA0`–`0xB3` outright rather than
 moving anything into it. Free today: `0x0F`, `0x29`–`0x2F`, `0x3D`–`0x3F`, `0x4F`, `0x78`–`0x7F`,
-`0x86`–`0x8F`, `0x96`–`0x9F`, `0xA0`–`0xB3`, `0xD7`–`0xFF` (the memory-management block, `0x08`–`0x0E`,
+`0x8C`–`0x8F`, `0x96`–`0x9F`, `0xA0`–`0xB3`, `0xD7`–`0xFF` (the memory-management block, `0x08`–`0x0E`,
 took the first eight of what a version ago was `0x08`–`0x0F` — see
 [Virtual memory and paging](27-Virtual-Memory-and-Paging.md)).
 

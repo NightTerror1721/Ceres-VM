@@ -900,6 +900,8 @@ namespace ceres::casm
 		inst(Opcode::POP, Mnemonic::POP, OpcodeParameterType::RD),
 		inst(Opcode::PUSHM, Mnemonic::PUSHM, OpcodeParameterType::IMM16),
 		inst(Opcode::POPM, Mnemonic::POPM, OpcodeParameterType::IMM16),
+		inst(Opcode::FPUSHM, Mnemonic::FPUSHM, OpcodeParameterType::IMM16),
+		inst(Opcode::FPOPM, Mnemonic::FPOPM, OpcodeParameterType::IMM16),
 		// No operands, which no other overload of PUSH/POP has, so the signature tells them apart.
 		inst(Opcode::PUSHF, Mnemonic::PUSH),
 		inst(Opcode::POPF, Mnemonic::POP),

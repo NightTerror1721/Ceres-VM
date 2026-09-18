@@ -151,6 +151,8 @@ namespace ceres::casm
 		{ "BL", Mnemonic::BL },
 		{ "PUSHM", Mnemonic::PUSHM },
 		{ "POPM", Mnemonic::POPM },
+		{ "FPUSHM", Mnemonic::FPUSHM },
+		{ "FPOPM", Mnemonic::FPOPM },
 		{ "PUSHF", Mnemonic::PUSH }, // `push` with no operand means the same thing.
 		{ "POPF", Mnemonic::POP },
 
@@ -294,6 +296,8 @@ namespace ceres::casm
 		{ Mnemonic::BL, "BL" },
 		{ Mnemonic::PUSHM, "PUSHM" },
 		{ Mnemonic::POPM, "POPM" },
+		{ Mnemonic::FPUSHM, "FPUSHM" },
+		{ Mnemonic::FPOPM, "FPOPM" },
 
 		{ Mnemonic::ITOF, "ITOF" },
 		{ Mnemonic::IITOF, "IITOF" },

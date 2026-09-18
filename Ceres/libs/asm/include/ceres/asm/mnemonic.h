@@ -134,6 +134,8 @@ namespace ceres::casm
 		// a register-mask push if the immediate form shared the name.
 		PUSHM, // PUSHM
 		POPM, // POPM
+		FPUSHM, // FPUSHM - the float-bank counterpart of PUSHM
+		FPOPM, // FPOPM - the float-bank counterpart of POPM
 		ENTER, // Pseudo-instruction // PUSH fp + MOV fp, sp
 		LEAVE, // Pseudo-instruction // MOV sp, fp + POP fp
 

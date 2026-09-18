@@ -350,6 +350,7 @@ TEST(vm, the_disassembler_names_every_mapped_opcode)
 		Opcode::FTOI, Opcode::MTF, Opcode::MFF,
 		Opcode::MTP, Opcode::MFP, Opcode::PGON, Opcode::PGOFF, Opcode::INVLPG, Opcode::FLPG, Opcode::MFPF,
 		Opcode::PUSHM, Opcode::POPM,
+		Opcode::FPUSHM, Opcode::FPOPM,
 		Opcode::ENTER, Opcode::LEAVE, Opcode::BL, Opcode::BLR,
 		Opcode::MULH, Opcode::IMULH, Opcode::ABS, Opcode::MIN, Opcode::IMIN, Opcode::MAX,
 		Opcode::IMAX, Opcode::MINI, Opcode::IMINI, Opcode::MAXI, Opcode::IMAXI, Opcode::CLZ,
@@ -570,6 +571,49 @@ TEST(vm, an_empty_mask_touches_nothing)
 	const u32 spBefore = m.reg(15);
 	m.step(2);
 	CHECK_EQ(m.reg(15), spBefore);
+}
+
+TEST(vm, fpushm_and_fpopm_round_trip_whatever_the_mask)
+{
+	// f8-f11, the callee-saved half of the float bank.
+	constexpr u16 mask = (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11);
+
+	Machine m{
+		Instruction::FPUSHM(mask),
+		Instruction::FADD(8, 8, 8), Instruction::FADD(9, 9, 9),
+		Instruction::FADD(10, 10, 10), Instruction::FADD(11, 11, 11),
+		Instruction::FPOPM(mask),
+	};
+
+	for (u8 f = 8; f <= 11; ++f)
+		m.engine().setFloatRegister(f, static_cast<f32>(f) + 0.5f);
+
+	const u32 spBefore = m.reg(15);
+
+	m.step();
+	CHECK_EQ(m.reg(15), spBefore - 4 * 4); // four words, and no more
+
+	m.step(4);
+	CHECK_EQ(m.freg(8), 17.0f); // 2 * 8.5: the clobber landed on the saved copy, not the register
+
+	m.step();
+	CHECK_EQ(m.reg(15), spBefore);
+	for (u8 f = 8; f <= 11; ++f)
+		CHECK_EQ(m.freg(f), static_cast<f32>(f) + 0.5f);
+}
+
+TEST(vm, fpushm_stores_in_the_order_fpopm_reads)
+{
+	constexpr u16 mask = (1u << 2) | (1u << 5);
+	Machine m{ Instruction::FPUSHM(mask) };
+
+	m.engine().setFloatRegister(2, 2.0f);
+	m.engine().setFloatRegister(5, 5.0f);
+	m.step();
+
+	const Address top = Address(m.reg(15));
+	CHECK_EQ(std::bit_cast<u32>(m.memory().readFloat(top)), std::bit_cast<u32>(2.0f));
+	CHECK_EQ(std::bit_cast<u32>(m.memory().readFloat(top + Address(4))), std::bit_cast<u32>(5.0f));
 }
 
 TEST(vm, pushm_saves_nothing_when_the_whole_mask_does_not_fit)
