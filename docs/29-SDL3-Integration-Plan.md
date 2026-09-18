@@ -23,7 +23,7 @@ elección A.
 | 0 — Spike | Hecho (`8c7c06c`) — bucle cooperativo y mapeo de entrada validados. |
 | 1 — Dispositivos | Hecho (`c49a949`) — teclado a 32 bits y `DisplayDevice` (píxeles RGB32, slot 7). |
 | 2 — SDL backend | Hecho — `HostBackend`/`HeadlessBackend`, `libs/sdl` (`SdlBackend`), `ceres run --window`. |
-| 3 — Gamepad | Pendiente. |
+| 3 — Gamepad | Hecho — `GamepadDevice` (slot 8, `UserInterrupt5`) + mapeo `SDL_Gamepad`. |
 | 4 — Debugger + docs | Pendiente. |
 
 ## 1. Objetivo
@@ -52,7 +52,7 @@ Sin SDL, Ceres debe seguir compilando y pasando los tests exactamente igual que 
 - **Build**: CMake, `ceres_add_library()`, C++23, presets `msvc`/`ninja`/`gcc`/`clang`. **Cero
   dependencias externas** (ni FetchContent ni find_package ni vcpkg).
 
-Interrupciones libres para el gamepad: `UserInterrupt5` (21). Slot MMIO libre: `7`.
+Interrupciones libres para el gamepad: `UserInterrupt5` (21). Slot MMIO libre: `8`.
 
 ## 3. Decisiones transversales (independientes de A/B)
 
@@ -141,7 +141,7 @@ antes de comprometer la arquitectura.
 - **Fuente para el modo texto:** aunque se va a píxeles desde el inicio, el modo texto de
   `FramebufferDevice` debe seguir funcionando en headless; si más adelante se renderiza en ventana,
   elegir entre SDL_ttf (dependencia extra) y fuente bitmap embebida.
-- **Gamepad:** nuevo `GamepadDevice` (slot 7, `UserInterrupt5`) mapeando `SDL_Gamepad` → botones/ejes.
+- **Gamepad:** nuevo `GamepadDevice` (slot 8, `UserInterrupt5`) mapeando `SDL_Gamepad` → botones/ejes.
   Solo esbozar la interfaz ahora; implementarlo en una fase posterior.
 - **Determinismo:** con SDL activo, la entrada deja de ser reproducible (igual que `stdin` hoy). No
   afecta a los tests, que inyectan eventos directamente en los dispositivos.
@@ -160,7 +160,7 @@ Cada fase es un commit (o varios) autosuficiente y con sus tests.
    interfaz `HostBackend` en `libs/driver` con `HeadlessBackend` y `SdlBackend`; `ceres run --window`
    con bucle cooperativo (step N + `SDL_PollEvent` + present), teclado/ratón reales y framebuffer
    píxel bliteado como textura.
-3. **Fase 3 — Gamepad:** `GamepadDevice` (slot 7, `UserInterrupt5`) + mapeo `SDL_Gamepad`.
+3. **Fase 3 — Gamepad:** `GamepadDevice` (slot 8, `UserInterrupt5`) + mapeo `SDL_Gamepad`.
 4. **Fase 4 — Debugger + docs:** SDL en `ceres debug` (o documentar por qué no) y cerrar la
    documentación (07, 19, README, roadmap 28).
 

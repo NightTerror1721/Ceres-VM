@@ -31,7 +31,8 @@ collide.
 | `0xFF050000` | 5 | Keyboard |
 | `0xFF060000` | 6 | Mouse |
 | `0xFF070000` | 7 | Display (pixel framebuffer) |
-| `0xFF080000`–`0xFFFE0000` | 8–254 | Reserved for future default devices |
+| `0xFF080000` | 8 | Gamepad |
+| `0xFF090000`–`0xFFFE0000` | 9–254 | Reserved for future default devices |
 | `0xFFFF0000` | 255 | System control |
 
 Every slot is `MmioBus::SlotSize` (0x10000 = 64 KiB) wide, computed as `MmioBus::slot(index)` —
@@ -344,6 +345,29 @@ str  [r13 + 0], r1
 li   r1, 2
 la   r13, 0xFF070000   // DISP_CMD
 str  [r13 + 0], r1     // present
+```
+
+### `GamepadDevice` (`0xFF080000`)
+
+A gamepad, **polled rather than event-driven**: a game loop reads the button mask and the axes every
+frame instead of draining a queue. The host reports the whole current state with
+`pushState(...)`, and a state that actually changed raises `UserInterrupt5` (interrupt 21) — so a
+program can either poll the registers or `sti`/`halt` and wake on input.
+
+| Offset | Register | Direction | Meaning |
+| --- | --- | --- | --- |
+| `0x00` | `StatusRegister` | Read | Bit 0 set when the state changed since the last status read; reading it clears the flag. |
+| `0x04` | `ButtonsRegister` | Read | Button bitmask: bit 0 south (A), 1 east (B), 2 west (X), 3 north (Y), 4 back, 5 guide, 6 start, 7/8 stick presses, 9/10 shoulders, 11–14 the D-pad. |
+| `0x08`/`0x0C` | `LeftXRegister` / `LeftYRegister` | Read | Signed left stick (−32768…32767). |
+| `0x10`/`0x14` | `RightXRegister` / `RightYRegister` | Read | Signed right stick. |
+| `0x18`/`0x1C` | `LeftTriggerRegister` / `RightTriggerRegister` | Read | Triggers (0…32767). |
+
+```casm
+la   r13, 0xFF080000   // Gamepad's base
+.loop:
+    ldr  r1, [r13 + 4]  // ButtonsRegister - bit 0 is the south/A button
+    and  r1, r1, 1
+    jz   .loop          // wait until A is held
 ```
 
 ## Related pages

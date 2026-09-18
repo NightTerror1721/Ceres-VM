@@ -48,9 +48,9 @@ two drift apart, the link resolves names that no longer mean what the caller thi
 
 ## Most I/O devices are stubs
 
-Of the 256 MMIO slots [`mmio_bus.h`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h) allows, nine are backed by a
+Of the 256 MMIO slots [`mmio_bus.h`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h) allows, ten are backed by a
 working device today: the terminal, the timer, the disk, the framebuffer, the DMA controller, the
-keyboard, the mouse, the display, and system control (see [`default_mmio`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h)
+keyboard, the mouse, the display, the gamepad, and system control (see [`default_mmio`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h)
 for their slots). Audio and network have no device attached and no slot reserved for them yet —
 reading an unattached slot returns all-ones and writing one does nothing, exactly like an
 unattached port used to. The framebuffer draws characters rather than pixels; the display draws

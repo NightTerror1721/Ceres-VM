@@ -21,7 +21,7 @@ namespace
 		int pumps = 0;
 		int presents = 0;
 
-		bool pump(devices::KeyboardDevice&, devices::MouseDevice&) override
+		bool pump(devices::KeyboardDevice&, devices::MouseDevice&, devices::GamepadDevice&) override
 		{
 			++pumps;
 			return true;

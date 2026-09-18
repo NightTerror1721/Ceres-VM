@@ -17,9 +17,9 @@ namespace ceres::driver
 	public:
 		virtual ~HostBackend() = default;
 
-		// Pump pending host input into the keyboard and mouse. Returns false when the host wants
-		// the machine to stop (for example, the window was closed).
-		virtual bool pump(KeyboardDevice& keyboard, MouseDevice& mouse) = 0;
+		// Pump pending host input into the keyboard, mouse and gamepad. Returns false when the host
+		// wants the machine to stop (for example, the window was closed).
+		virtual bool pump(KeyboardDevice& keyboard, MouseDevice& mouse, GamepadDevice& gamepad) = 0;
 
 		// Show the display's current pixels.
 		virtual void present(const DisplayDevice& display) = 0;
@@ -34,7 +34,7 @@ namespace ceres::driver
 	class HeadlessBackend final : public HostBackend
 	{
 	public:
-		bool pump(KeyboardDevice&, MouseDevice&) override { return true; }
+		bool pump(KeyboardDevice&, MouseDevice&, GamepadDevice&) override { return true; }
 		void present(const DisplayDevice&) override {}
 	};
 }

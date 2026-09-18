@@ -19,11 +19,12 @@ namespace ceres::sdl
 			u32 _textureWidth = 0;
 			u32 _textureHeight = 0;
 			u8 _buttons = 0; // Wheel events carry no button mask, so the last known one is kept.
+			SDL_Gamepad* _gamepad = nullptr;
 
 		public:
 			SdlBackend()
 			{
-				if (!SDL_Init(SDL_INIT_VIDEO))
+				if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
 					throw std::runtime_error(std::string("SDL_Init failed: ") + SDL_GetError());
 
 				_window = SDL_CreateWindow("Ceres", 1280, 720, SDL_WINDOW_RESIZABLE);
@@ -40,6 +41,8 @@ namespace ceres::sdl
 
 			~SdlBackend() override
 			{
+				if (_gamepad)
+					SDL_CloseGamepad(_gamepad);
 				if (_texture)
 					SDL_DestroyTexture(_texture);
 				if (_renderer)
@@ -49,7 +52,7 @@ namespace ceres::sdl
 				SDL_Quit();
 			}
 
-			bool pump(devices::KeyboardDevice& keyboard, devices::MouseDevice& mouse) override
+			bool pump(devices::KeyboardDevice& keyboard, devices::MouseDevice& mouse, devices::GamepadDevice& gamepad) override
 			{
 				SDL_Event event;
 				while (SDL_PollEvent(&event))
@@ -83,10 +86,37 @@ namespace ceres::sdl
 							mouse.pushMotion(0, 0, _buttons, static_cast<i8>(event.wheel.y));
 							break;
 
+						case SDL_EVENT_GAMEPAD_ADDED:
+							if (!_gamepad)
+								_gamepad = SDL_OpenGamepad(event.gdevice.which);
+							break;
+
+						case SDL_EVENT_GAMEPAD_REMOVED:
+							if (_gamepad && SDL_GetGamepadID(_gamepad) == event.gdevice.which)
+							{
+								SDL_CloseGamepad(_gamepad);
+								_gamepad = nullptr;
+							}
+							break;
+
 						default:
 							break;
 					}
 				}
+
+				// A gamepad is state, not a queue of events, so it is polled every pump. pushState
+				// only raises the interrupt when something actually changed.
+				if (_gamepad)
+				{
+					gamepad.pushState(toGamepadButtons(_gamepad),
+						SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_LEFTX),
+						SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_LEFTY),
+						SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_RIGHTX),
+						SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_RIGHTY),
+						static_cast<u16>(SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER)),
+						static_cast<u16>(SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)));
+				}
+
 				return true;
 			}
 
@@ -126,6 +156,27 @@ namespace ceres::sdl
 				if (sdlState & SDL_BUTTON_LMASK) buttons |= devices::MouseDevice::ButtonLeft;
 				if (sdlState & SDL_BUTTON_RMASK) buttons |= devices::MouseDevice::ButtonRight;
 				if (sdlState & SDL_BUTTON_MMASK) buttons |= devices::MouseDevice::ButtonMiddle;
+				return buttons;
+			}
+
+			static u16 toGamepadButtons(SDL_Gamepad* gamepad)
+			{
+				u16 buttons = 0;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_SOUTH)) buttons |= devices::GamepadDevice::ButtonSouth;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_EAST)) buttons |= devices::GamepadDevice::ButtonEast;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_WEST)) buttons |= devices::GamepadDevice::ButtonWest;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_NORTH)) buttons |= devices::GamepadDevice::ButtonNorth;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_BACK)) buttons |= devices::GamepadDevice::ButtonBack;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_GUIDE)) buttons |= devices::GamepadDevice::ButtonGuide;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_START)) buttons |= devices::GamepadDevice::ButtonStart;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_LEFT_STICK)) buttons |= devices::GamepadDevice::ButtonLeftStick;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_RIGHT_STICK)) buttons |= devices::GamepadDevice::ButtonRightStick;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER)) buttons |= devices::GamepadDevice::ButtonLeftShoulder;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)) buttons |= devices::GamepadDevice::ButtonRightShoulder;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_UP)) buttons |= devices::GamepadDevice::ButtonDpadUp;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_DOWN)) buttons |= devices::GamepadDevice::ButtonDpadDown;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) buttons |= devices::GamepadDevice::ButtonDpadLeft;
+				if (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) buttons |= devices::GamepadDevice::ButtonDpadRight;
 				return buttons;
 			}
 		};

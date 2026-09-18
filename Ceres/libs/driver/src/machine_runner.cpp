@@ -30,6 +30,7 @@ namespace ceres::driver
 		KeyboardDevice keyboard;
 		MouseDevice mouse;
 		DisplayDevice display;
+		GamepadDevice gamepad;
 		std::string startupError;
 
 		Impl(const MachineConfig& config, const MachineHost& host) :
@@ -44,6 +45,7 @@ namespace ceres::driver
 			keyboard.attachTo(vm.io());
 			mouse.attachTo(vm.io());
 			display.attachTo(vm.io());
+			gamepad.attachTo(vm.io());
 
 			if (host.terminalOutput)
 				terminal.setOutputSink([sink = host.terminalOutput](u8 byte)
@@ -65,6 +67,7 @@ namespace ceres::driver
 			keyboard.detachFrom(vm.io());
 			mouse.detachFrom(vm.io());
 			display.detachFrom(vm.io());
+			gamepad.detachFrom(vm.io());
 			control.detachFrom(vm.io());
 		}
 	};
@@ -142,12 +145,14 @@ namespace ceres::driver
 		KeyboardDevice keyboard;
 		MouseDevice mouse;
 		DisplayDevice display;
+		GamepadDevice gamepad;
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		timer.attachTo(vm.io());
 		keyboard.attachTo(vm.io());
 		mouse.attachTo(vm.io());
 		display.attachTo(vm.io());
+		gamepad.attachTo(vm.io());
 		terminal->setOutputSink([out = services.output](u8 byte) { out->put(static_cast<char>(byte)); out->flush(); });
 		framebuffer.setPresentSink([out = services.output](std::string_view frame) { *out << frame; out->flush(); });
 		if (!diskImage.empty() && !disk.open(diskImage))
@@ -190,7 +195,7 @@ namespace ceres::driver
 				return 1;
 			}
 
-			while (vm.isPoweredOn() && backend->pump(keyboard, mouse))
+			while (vm.isPoweredOn() && backend->pump(keyboard, mouse, gamepad))
 			{
 				const u64 slice = backend->instructionsPerFrame();
 				for (u64 i = 0; i < slice && vm.isPoweredOn(); ++i)

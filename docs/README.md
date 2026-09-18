@@ -18,7 +18,7 @@ the assembler does internally at each stage of the build.
 4. [Instruction format](04-Instruction-Format.md) — the 32-bit encoding, and how fields overlap.
 5. [Instruction set](05-Instruction-Set.md) — full reference for every real instruction, grouped by category.
 6. [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `ldv`, `stv`, `neg`, `ifXX`, and how they expand.
-7. [I/O devices and ports](07-IO-Devices-and-Ports.md) — the MMIO map, the terminal, the timer, the DMA controller, the keyboard, the mouse, the display, system control.
+7. [I/O devices and ports](07-IO-Devices-and-Ports.md) — the MMIO map, the terminal, the timer, the DMA controller, the keyboard, the mouse, the display, the gamepad, system control.
 8. [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — the vector table, `INT`/`IRET`, hardware faults.
 9. [The `.cres` binary format](09-CRES-Binary-Format.md) — the executable header and the loaded program's memory layout.
 
@@ -104,6 +104,9 @@ If you already knew this language, these are the parts that moved:
   window and read real keyboard and mouse input, behind a `HostBackend` interface — the headless
   default is untouched and SDL3 stays an opt-in build (`CERES_ENABLE_SDL`) —
   [SDL3 integration plan](29-SDL3-Integration-Plan.md).
+- **A gamepad.** A polled `GamepadDevice` (slot 8, `UserInterrupt5`) reports a button mask, two
+  sticks and two triggers, and `ceres run --window` feeds it from a real SDL3 gamepad —
+  [I/O devices and ports](07-IO-Devices-and-Ports.md).
 
 ## Quick start
 
