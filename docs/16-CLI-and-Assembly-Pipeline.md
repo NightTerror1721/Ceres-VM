@@ -21,7 +21,7 @@ detects by asking the linker.) The tests run with `ctest --preset gcc-debug`.
 | `ceres asm <source.casm> [-o <output.cres>] [--listing] [--json] [--debug] [--emit-debug-json]` | Assembles a source file. Without `-o`, the source is only checked (parsed, translated, linked, emitted in memory) and discarded — useful as a pure syntax/semantics check. |
 | `ceres link <file.cobj\|file.car> [...] -o <out.cres>` | Places, resolves and finishes separately assembled objects — see [Separate compilation](25-Separate-Compilation.md). |
 | `ceres ar <out.car> <file.cobj> [...]` | Collects objects into an archive: a library that ships compiled. |
-| `ceres run <file.casm\|file.cres> [--memory <bytes>] [--disk <image>]` | Runs a program, assembling it first if given a `.casm` source file. |
+| `ceres run <file.casm\|file.cres> [--memory <bytes>] [--disk <image>] [--window]` | Runs a program, assembling it first if given a `.casm` source file. |
 | `ceres disasm <file.casm\|file.cres> [--debug]` | Prints the `.text` section as address, encoded word, and disassembled instruction, one per line. |
 | `ceres debug <file.casm\|file.cres> [<source2.casm> ...]` | Runs a program under the interactive debugger. See [The debugger](22-Debugger.md). |
 | *(bare path)* | Shorthand for `run` — `ceres program.casm` is exactly `ceres run program.casm`. |
@@ -38,6 +38,7 @@ Global flags:
 | `--memory <bytes>` | `run`, `debug` | Overrides the VM's memory size (default 16 MiB — see [Memory](02-Memory.md)). |
 | `-c` | `asm` | Assembles one file on its own into a `.cobj` object instead of linking a program. Takes a single source file, since an object is one unit. |
 | `--disk <image>` | `run` | Backs the disk ports with a host file, created if it is not there. Without it the disk keeps its sectors only while the machine runs — see [I/O devices and ports](07-IO-Devices-and-Ports.md). |
+| `--window` | `run` | Shows the machine in an SDL3 window: the pixel display is blitted into it and real keyboard/mouse events feed the keyboard and mouse devices. Only present in builds with `CERES_ENABLE_SDL`; without it, `run --window` reports an error — see [SDL3 integration plan](29-SDL3-Integration-Plan.md). |
 | `--no-stop-on-entry` | `debug` | Start running immediately instead of stopping before the first instruction. |
 | `-h` / `--help` | any | Prints usage and exits. |
 

@@ -4,6 +4,7 @@
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage_devices.h>
 #include <ceres/devices/input_devices.h>
+#include <ceres/devices/display_device.h>
 #include <ceres/vm/ceresvm.h>
 
 #include <format>
@@ -28,6 +29,7 @@ namespace ceres::driver
 		FramebufferDevice framebuffer;
 		KeyboardDevice keyboard;
 		MouseDevice mouse;
+		DisplayDevice display;
 		std::string startupError;
 
 		Impl(const MachineConfig& config, const MachineHost& host) :
@@ -41,6 +43,7 @@ namespace ceres::driver
 			framebuffer.attachTo(vm.io());
 			keyboard.attachTo(vm.io());
 			mouse.attachTo(vm.io());
+			display.attachTo(vm.io());
 
 			if (host.terminalOutput)
 				terminal.setOutputSink([sink = host.terminalOutput](u8 byte)
@@ -61,6 +64,7 @@ namespace ceres::driver
 			timer.detachFrom(vm.io());
 			keyboard.detachFrom(vm.io());
 			mouse.detachFrom(vm.io());
+			display.detachFrom(vm.io());
 			control.detachFrom(vm.io());
 		}
 	};
@@ -127,7 +131,7 @@ namespace ceres::driver
 	}
 
 	int runMachine(const Program& program, usize memorySize, const DebugInfo* profileInfo,
-		const std::filesystem::path& diskImage, HostServices services)
+		const std::filesystem::path& diskImage, HostServices services, HostBackend* backend)
 	{
 		CeresVM vm{memorySize};
 		SystemControlDevice control{[&vm] { vm.shutdown(); }, [&vm] { vm.shutdown(); }};
@@ -137,11 +141,13 @@ namespace ceres::driver
 		FramebufferDevice framebuffer;
 		KeyboardDevice keyboard;
 		MouseDevice mouse;
+		DisplayDevice display;
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		timer.attachTo(vm.io());
 		keyboard.attachTo(vm.io());
 		mouse.attachTo(vm.io());
+		display.attachTo(vm.io());
 		terminal->setOutputSink([out = services.output](u8 byte) { out->put(static_cast<char>(byte)); out->flush(); });
 		framebuffer.setPresentSink([out = services.output](std::string_view frame) { *out << frame; out->flush(); });
 		if (!diskImage.empty() && !disk.open(diskImage))
@@ -172,12 +178,33 @@ namespace ceres::driver
 		}
 		if (profileInfo)
 			vm.engine().enableProfiling();
-		if (auto result = vm.run(); !result)
+
+		if (backend)
+		{
+			// A windowed host needs to pump its events and present its frame between slices of
+			// instructions, so the machine cannot simply run to completion.
+			if (auto powered = vm.powerOn(); !powered)
+			{
+				terminal->detachFrom(vm.io());
+				*services.diagnostics << "Failed to power on: " << powered.error() << '\n';
+				return 1;
+			}
+
+			while (vm.isPoweredOn() && backend->pump(keyboard, mouse))
+			{
+				const u64 slice = backend->instructionsPerFrame();
+				for (u64 i = 0; i < slice && vm.isPoweredOn(); ++i)
+					vm.engine().step();
+				backend->present(display);
+			}
+		}
+		else if (auto result = vm.run(); !result)
 		{
 			terminal->detachFrom(vm.io());
 			*services.diagnostics << "Failed to run program: " << result.error() << '\n';
 			return 1;
 		}
+
 		if (profileInfo)
 			printProfile(vm, *profileInfo, *services.diagnostics);
 		terminal->detachFrom(vm.io());

@@ -7,6 +7,7 @@
 #include <ceres/core/isa/disassembler.h>
 #include <ceres/debug/debug_cli.h>
 #include <ceres/debug/debug_server.h>
+#include <exception>
 #include <iostream>
 #include <format>
 #include <span>
@@ -197,13 +198,36 @@ namespace ceres::driver
 			return cli.run();
 		}
 
-		int executeRun(const RunCommand& command, HostServices services)
+		int executeRun(const RunCommand& command, HostServices services, const HostBackendFactory& windowBackend)
 		{
+			// A window asked for without a windowed host to provide one is reported before any
+			// work is done: assembling the program would only waste time on the way to the same error.
+			if (command.window && !windowBackend)
+			{
+				*services.diagnostics << "This build has no windowed host: rebuild with CERES_ENABLE_SDL to use 'run --window'.\n";
+				return 1;
+			}
+
 			if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
 			auto loaded = loadProgram(command.input, command.debugInfo, *services.diagnostics);
 			if (!loaded) return 1;
 			if (command.listing) printListing(loaded->program, command.input, loaded->debugInfo, *services.output);
-			return runMachine(loaded->program, command.memorySize, nullptr, command.diskImage, services);
+
+			std::unique_ptr<HostBackend> backend;
+			if (command.window)
+			{
+				try
+				{
+					backend = windowBackend();
+				}
+				catch (const std::exception& error)
+				{
+					*services.diagnostics << "Failed to open a window: " << error.what() << '\n';
+					return 1;
+				}
+			}
+
+			return runMachine(loaded->program, command.memorySize, nullptr, command.diskImage, services, backend.get());
 		}
 
 		int executeProfile(const ProfileCommand& command, HostServices services)
@@ -231,7 +255,7 @@ namespace ceres::driver
 		}
 	}
 
-	int execute(const Command& command, HostServices services)
+	int execute(const Command& command, HostServices services, HostBackendFactory windowBackend)
 	{
 		auto& out = *services.output;
 		auto& err = *services.diagnostics;
@@ -239,12 +263,12 @@ namespace ceres::driver
 		if (const auto* value = std::get_if<LinkCommand>(&command)) return executeLink(*value, out, err);
 		if (const auto* value = std::get_if<ArchiveCommand>(&command)) return executeArchive(*value, err);
 		if (const auto* value = std::get_if<DebugCommand>(&command)) return executeDebug(*value, err);
-		if (const auto* value = std::get_if<RunCommand>(&command)) return executeRun(*value, services);
+		if (const auto* value = std::get_if<RunCommand>(&command)) return executeRun(*value, services, windowBackend);
 		if (const auto* value = std::get_if<ProfileCommand>(&command)) return executeProfile(*value, services);
 		return executeDisassemble(std::get<DisassembleCommand>(command), services);
 	}
 
-	int runCommandLine(int argc, char* const argv[], HostServices services)
+	int runCommandLine(int argc, char* const argv[], HostServices services, HostBackendFactory windowBackend)
 	{
 		auto command = parseCommandLine(argc, argv);
 		if (!command)
@@ -253,6 +277,6 @@ namespace ceres::driver
 			*services.diagnostics << usageText();
 			return 2;
 		}
-		return execute(*command, services);
+		return execute(*command, services, std::move(windowBackend));
 	}
 }

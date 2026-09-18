@@ -330,8 +330,8 @@ framebuffer, pixels to the display.
 | `0xF0`/`0xF4`/`0xF8` | Block registers | Write (write only) | `2` blits a run of pixels from RAM in one trigger; `BLOCK_LEN` is bytes (a multiple of 4). |
 
 The host routes a presented frame with `setFrameSink(width, height, pixels)`; without a sink nothing
-happens, so a headless build stays silent and an SDL host (Fase 2 of the
-[SDL3 plan](29-SDL3-Integration-Plan.md)) uploads the pixels into a texture instead.
+happens, so a headless build stays silent and `ceres run --window` uploads the pixels into an SDL
+texture instead (see the [SDL3 plan](29-SDL3-Integration-Plan.md)).
 
 ```casm
 li   r1, 320

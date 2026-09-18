@@ -41,6 +41,7 @@ namespace ceres::driver
 		std::filesystem::path diskImage;
 		bool listing = false;
 		bool debugInfo = false;
+		bool window = false;
 	};
 
 	struct ProfileCommand

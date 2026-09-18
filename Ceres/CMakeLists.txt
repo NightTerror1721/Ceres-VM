@@ -92,7 +92,7 @@ add_subdirectory(apps/cli)
 
 if(CERES_ENABLE_SDL)
 	include(Sdl3)
-	add_subdirectory(apps/spike)
+	add_subdirectory(libs/sdl)
 endif()
 
 if(CERES_BUILD_TESTS)

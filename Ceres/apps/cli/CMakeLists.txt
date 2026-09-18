@@ -19,5 +19,12 @@ target_link_libraries(ceres
 		ceres::driver
 		ceres::warnings)
 
+# The windowed host is optional: when it is present, the CLI links it and advertises the fact so
+# main.cpp can register the backend factory; without it, `run --window` reports a clean error.
+if(CERES_ENABLE_SDL)
+	target_link_libraries(ceres PRIVATE ceres::sdl)
+	target_compile_definitions(ceres PRIVATE CERES_HAS_SDL)
+endif()
+
 set_target_properties(ceres PROPERTIES FOLDER "apps")
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" FILES ${sources})

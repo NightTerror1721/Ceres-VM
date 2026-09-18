@@ -100,6 +100,10 @@ If you already knew this language, these are the parts that moved:
   (slot 7) is a pixel framebuffer — a grid of RGB32 pixels drawn by the program and presented to the
   host — the surface the SDL3 host will blit into a window —
   [I/O devices and ports](07-IO-Devices-and-Ports.md).
+- **A windowed host (`ceres run --window`).** The machine can now show its pixel display in an SDL3
+  window and read real keyboard and mouse input, behind a `HostBackend` interface — the headless
+  default is untouched and SDL3 stays an opt-in build (`CERES_ENABLE_SDL`) —
+  [SDL3 integration plan](29-SDL3-Integration-Plan.md).
 
 ## Quick start
 

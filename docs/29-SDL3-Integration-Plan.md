@@ -16,6 +16,16 @@
 Las propuestas A y B siguen descritas abajo por referencia; el plan de fases de §8 refleja ya la
 elección A.
 
+## Progreso
+
+| Fase | Estado |
+| --- | --- |
+| 0 — Spike | Hecho (`8c7c06c`) — bucle cooperativo y mapeo de entrada validados. |
+| 1 — Dispositivos | Hecho (`c49a949`) — teclado a 32 bits y `DisplayDevice` (píxeles RGB32, slot 7). |
+| 2 — SDL backend | Hecho — `HostBackend`/`HeadlessBackend`, `libs/sdl` (`SdlBackend`), `ceres run --window`. |
+| 3 — Gamepad | Pendiente. |
+| 4 — Debugger + docs | Pendiente. |
+
 ## 1. Objetivo
 
 Integrar [SDL3](https://libsdl.org/) como capa de presentación y de entrada real para Ceres, de modo

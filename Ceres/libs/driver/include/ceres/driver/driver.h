@@ -1,7 +1,10 @@
 #pragma once
 
 #include "command.h"
+#include "host_backend.h"
+#include <functional>
 #include <iosfwd>
+#include <memory>
 
 namespace ceres::driver
 {
@@ -14,6 +17,11 @@ namespace ceres::driver
 		std::ostream* diagnostics = nullptr;
 	};
 
-	int execute(const Command& command, HostServices services);
-	int runCommandLine(int argc, char* const argv[], HostServices services);
+	// The driver never links SDL itself. A windowed host (the CLI) registers a factory that the
+	// driver calls when `run --window` is asked for; empty (the default) means "built without a
+	// windowed host", and `--window` then reports an error instead of doing nothing.
+	using HostBackendFactory = std::function<std::unique_ptr<HostBackend>()>;
+
+	int execute(const Command& command, HostServices services, HostBackendFactory windowBackend = {});
+	int runCommandLine(int argc, char* const argv[], HostServices services, HostBackendFactory windowBackend = {});
 }
