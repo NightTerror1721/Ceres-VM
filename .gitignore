@@ -422,6 +422,7 @@ FodyWeavers.xsd
 # under Ceres/build/, which is ignored wholesale further down.
 /ceres
 /ceres.exe
+/SDL3.dll
 
 # ...but on Windows git compares ignore patterns case-insensitively, so "/ceres" above also
 # matches the Ceres/ source directory - and git never looks inside a directory it has excluded,
