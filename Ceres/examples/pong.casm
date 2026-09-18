@@ -1,0 +1,254 @@
+// ============================================================
+//  PONG — a one-player "keep the ball alive" for the window
+// ============================================================
+//
+// Run it with the windowed host (requires a build with SDL3):
+//
+//     ceres run examples/pong.casm --window
+//
+// Controls:
+//     Left / Right arrow    move the paddle
+//     ESC (or close)        quit — the window host handles this
+//
+// The machine draws the whole frame into a pixel buffer in RAM, blits it to the
+// DisplayDevice (slot 7) and presents it, once per loop. The ball bounces off
+// the top and side walls and off the paddle; let it slip past the paddle and it
+// resets to the centre. The keyboard (slot 5) reports physical SDL scancodes,
+// not ASCII — see the I/O devices page for the full table.
+//
+// The game's speed is instruction-based, not wall-clock: raise FRAME_DELAY to
+// slow it down, lower it to speed it up.
+//
+// TRY IT YOURSELF:
+//   1. Recolour the game by changing PAD_* / BALL_HI.
+//   2. Change PADDLE_W for a wider or narrower paddle.
+//   3. Add a score: count bounces and draw them as a bar of pixels at the top.
+
+// The pixel display (slot 7) and the keyboard (slot 5).
+const DISP            = 0xFF070000
+const DISP_CMD        = 0x00
+const DISP_WIDTH      = 0x04
+const DISP_HEIGHT     = 0x08
+const DISP_BLOCK_ADDR = 0xF0
+const DISP_BLOCK_LEN  = 0xF4
+const DISP_BLOCK_CMD  = 0xF8
+const BLOCK_WRITE     = 2
+const CMD_PRESENT     = 2
+
+const KEY_STATUS      = 0xFF050000
+const KEY_EVENT       = 0xFF050004
+
+// Grid size and geometry. The window scales these pixels up, so the picture is
+// deliberately chunky.
+const WIDTH    = 48
+const HEIGHT   = 32
+const PIXELS   = WIDTH * HEIGHT
+const BYTES    = PIXELS * 4
+
+const PADDLE_W = 10
+const PADDLE_Y = HEIGHT - 2       // the paddle's row
+const PADDLE_R = WIDTH - PADDLE_W // rightmost legal paddle column
+
+// SDL scancodes (physical keys), exactly what the keyboard device reports.
+const SC_LEFT  = 80
+const SC_RIGHT = 79
+
+// Colours, 0x00RRGGBB. `li` only reaches 16 bits, so a 32-bit colour is built
+// with `lui` (+ `ori` when the low half is non-zero). Background is black, a
+// single `xor`.
+const PAD_HI  = 0x00FF
+const PAD_LO  = 0xFFFF      // 0x00FFFFFF = white
+const BALL_HI = 0x00FF       // 0x00FF0000 = red (low half is 0, so no `ori`)
+
+// How long to spin between frames, in loop iterations. Bigger = slower.
+const FRAME_DELAY = 2000
+
+@bss
+    let fb: u32[PIXELS]
+
+@data
+    let paddle_x: u32 = (WIDTH - PADDLE_W) / 2
+    let ball_x:   u32 = WIDTH / 2
+    let ball_y:   u32 = HEIGHT / 2
+    let ball_dx:  u32 = 1
+    let ball_dy:  u32 = 1
+
+@text
+global main:
+    li r1, WIDTH
+    la r13, DISP
+    str [r13 + DISP_WIDTH], r1
+    li r1, HEIGHT
+    str [r13 + DISP_HEIGHT], r1
+
+.frame:
+    call read_keys
+    call update_ball
+    call draw_frame
+    call delay
+    jp .frame
+
+// ---------------------------------------------------------------------------
+// Subroutines
+// ---------------------------------------------------------------------------
+
+// plot(x = r1, y = r2, colour = r3) — set fb[y*WIDTH + x]. Clobbers r4, r5.
+plot:
+    mul r4, r2, WIDTH       // y * WIDTH
+    add r4, r4, r1          // + x
+    mul r4, r4, 4           // * 4 bytes per pixel
+    la r5, fb
+    add r5, r5, r4
+    str [r5 + 0], r3
+    ret
+
+// fill_fb(colour = r1) — paint the whole buffer one colour. Clobbers r2, r3.
+fill_fb:
+    la r2, fb
+    li r3, PIXELS
+.f_loop:
+    str [r2 + 0], r1
+    add r2, r2, 4
+    sub r3, r3, 1
+    jnz .f_loop
+    ret
+
+// draw_frame() — repaint the buffer and blit it to the display.
+draw_frame:
+    xor r1, r1, r1          // black background
+    call fill_fb
+
+    // The paddle: PADDLE_W white pixels in a row.
+    ldv r8, paddle_x
+    xor r9, r9, r9          // column within the paddle
+    lui r10, PAD_HI
+    or r10, r10, PAD_LO     // white; r10 survives the plot calls
+.pad:
+    mov r1, r8
+    add r1, r1, r9          // x = paddle_x + column
+    li r2, PADDLE_Y
+    mov r3, r10
+    call plot
+    add r9, r9, 1
+    li r4, PADDLE_W
+    cmp r9, r4
+    jbl .pad
+
+    // The ball: one red pixel.
+    ldv r1, ball_x
+    ldv r2, ball_y
+    lui r3, BALL_HI
+    call plot
+
+    // Blit the buffer into the display, then present.
+    la r13, DISP
+    la r1, fb
+    str [r13 + DISP_BLOCK_ADDR], r1
+    li r1, BYTES
+    str [r13 + DISP_BLOCK_LEN], r1
+    li r1, BLOCK_WRITE
+    str [r13 + DISP_BLOCK_CMD], r1
+    li r1, CMD_PRESENT
+    str [r13 + DISP_CMD], r1
+    ret
+
+// update_ball() — move the ball, bounce off walls and the paddle, reset on miss.
+update_ball:
+    ldv r8,  ball_x
+    ldv r9,  ball_y
+    ldv r10, ball_dx
+    ldv r11, ball_dy
+
+    add r8, r8, r10         // x += dx
+    add r9, r9, r11         // y += dy
+
+    // Side walls.
+    cmp r8, 0
+    jz .bounce_x
+    li r4, WIDTH - 1
+    cmp r8, r4
+    jz .bounce_x
+
+    // Top wall.
+    cmp r9, 0
+    jz .bounce_y
+
+    // At the paddle row?
+    li r4, PADDLE_Y
+    cmp r9, r4
+    jnz .store              // not there: done
+
+    // Over the paddle?
+    ldv r4, paddle_x
+    cmp r8, r4
+    jbl .miss               // left of the paddle
+    li r5, PADDLE_W
+    add r5, r4, r5
+    cmp r8, r5
+    jbl .bounce_y           // over the paddle: bounce
+    jp .miss
+
+.bounce_x:
+    xor r4, r4, r4
+    sub r10, r4, r10        // dx = -dx
+    jp .store
+
+.bounce_y:
+    xor r4, r4, r4
+    sub r11, r4, r11        // dy = -dy
+    jp .store
+
+.miss:
+    li r8, WIDTH / 2        // reset to the centre
+    li r9, HEIGHT / 2
+
+.store:
+    stv ball_x,  r8
+    stv ball_y,  r9
+    stv ball_dx, r10
+    stv ball_dy, r11
+    ret
+
+// read_keys() — drain the keyboard queue and move the paddle.
+read_keys:
+    lui r8, 0x7FFF
+    or r8, r8, 0xFFFF       // r8 = 0x7FFFFFFF (the code mask)
+    lui r9, 0x8000          // r9 = 0x80000000 (the pressed bit)
+.poll:
+    la r13, KEY_STATUS
+    ldr r4, [r13 + 0]
+    and r4, r4, 1
+    jz .done                // no more events
+    la r13, KEY_EVENT
+    ldr r5, [r13 + 0]       // bits 30:0 = scancode, bit 31 = pressed
+    and r6, r5, r9
+    cmp r6, 0
+    jz .poll                // a release: ignore
+    and r5, r5, r8          // the scancode
+    ldv r6, paddle_x
+    cmp r5, SC_LEFT
+    jnz .right
+    cmp r6, 0
+    jz .poll                // already at the left edge
+    sub r6, r6, 2
+    stv paddle_x, r6
+    jp .poll
+.right:
+    cmp r5, SC_RIGHT
+    jnz .poll               // some other key: ignore
+    li r7, PADDLE_R
+    cmp r6, r7
+    jae .poll               // already at the right edge
+    add r6, r6, 2
+    stv paddle_x, r6
+    jp .poll
+.done:
+    ret
+
+// delay() — spin so the game does not run flat out. Clobbers r1.
+delay:
+    li r1, FRAME_DELAY
+.d:
+    sub r1, r1, 1
+    jnz .d
+    ret
