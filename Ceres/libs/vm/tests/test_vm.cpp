@@ -429,6 +429,65 @@ TEST(vm, ordering_jumps_agree_with_plain_greater_and_less)
 	CHECK_EQ(compareAndJump(9, 4, Instruction::JLS(i24(12))), u32{ 100 });
 }
 
+namespace
+{
+	// CMPI with a sign-extended 16-bit immediate, then the jump under test.
+	u32 compareImmediateAndJump(u32 a, i16 imm, Instruction jump)
+	{
+		Machine m{
+			Instruction::LUI(1, static_cast<u16>(a >> 16)),
+			Instruction::ORI(1, 1, static_cast<u16>(a & 0xFFFF)),
+			Instruction::CMPI(1, imm),
+			jump,                            // +12, jumps 12 bytes to the "taken" arm
+			Instruction::LI(3, 100),         // +16: not taken
+			Instruction::JP(i24(8)),
+			Instruction::LI(3, 200),         // +24: taken
+		};
+		m.step(5);
+		return m.reg(3);
+	}
+}
+
+// Sign is bit 31 of the WRAPPED difference and Overflow says whether that wrapped: signed order is
+// Sign != Overflow. CMP used to compute Sign as an i32 subtraction compared with 0, which overflows
+// (undefined behaviour) and is folded into a plain a < b - so Sign was already the true answer and
+// XOR-ing it with Overflow turned it upside down exactly when the subtraction overflowed.
+TEST(vm, signed_ordering_survives_a_difference_that_overflows)
+{
+	constexpr u32 intMax = 0x7FFFFFFFu;
+	constexpr u32 intMin = 0x80000000u;
+	constexpr u32 bigPositive = 2147483547u;   // 0x7FFFFF9B
+	constexpr u32 bigNegative = 0x8000009Eu;   // -2147483490
+
+	// INT_MAX > INT_MIN, and the difference (2^32 - 1) wraps to -1.
+	CHECK_EQ(compareAndJump(intMax, intMin, Instruction::JGR(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(intMax, intMin, Instruction::JGE(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(intMax, intMin, Instruction::JLS(i24(12))), u32{ 100 });
+	CHECK_EQ(compareAndJump(intMax, intMin, Instruction::JLE(i24(12))), u32{ 100 });
+	// ... and the other way round.
+	CHECK_EQ(compareAndJump(intMin, intMax, Instruction::JLS(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(intMin, intMax, Instruction::JLE(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(intMin, intMax, Instruction::JGR(i24(12))), u32{ 100 });
+	CHECK_EQ(compareAndJump(intMin, intMax, Instruction::JGE(i24(12))), u32{ 100 });
+	// A large positive against a large negative, as a sort of values near the extremes compares them.
+	CHECK_EQ(compareAndJump(bigPositive, bigNegative, Instruction::JGR(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(bigNegative, bigPositive, Instruction::JLS(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(bigNegative, bigPositive, Instruction::JGR(i24(12))), u32{ 100 });
+
+	// The unsigned ordering never depended on Sign, and must not have moved.
+	CHECK_EQ(compareAndJump(intMin, intMax, Instruction::JAB(i24(12))), u32{ 200 });
+	CHECK_EQ(compareAndJump(intMax, intMin, Instruction::JBL(i24(12))), u32{ 200 });
+
+	// CMPI has the same computation: INT_MAX against -1 (0xFFFFFFFF) overflows, INT_MIN against 1 too.
+	CHECK_EQ(compareImmediateAndJump(intMax, -1, Instruction::JGR(i24(12))), u32{ 200 });
+	CHECK_EQ(compareImmediateAndJump(intMax, -1, Instruction::JLS(i24(12))), u32{ 100 });
+	CHECK_EQ(compareImmediateAndJump(intMin, 1, Instruction::JLS(i24(12))), u32{ 200 });
+	CHECK_EQ(compareImmediateAndJump(intMin, 1, Instruction::JGE(i24(12))), u32{ 100 });
+	// Nothing overflows here: the ordinary cases keep working.
+	CHECK_EQ(compareImmediateAndJump(5, -1, Instruction::JGR(i24(12))), u32{ 200 });
+	CHECK_EQ(compareImmediateAndJump(0xFFFFFFFFu, 1, Instruction::JLS(i24(12))), u32{ 200 });
+}
+
 // --- The stack stops where the program ends ------------------------------------------------
 
 TEST(vm, a_push_below_the_stack_limit_faults_instead_of_writing)

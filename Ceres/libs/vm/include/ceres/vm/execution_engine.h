@@ -1329,7 +1329,7 @@ namespace ceres::vm
 			const u32 b = getReg(inst.rt());
 
 			zero(a == b);
-			sign((static_cast<i32>(a) - static_cast<i32>(b)) < 0);
+			sign(((a - b) & 0x80000000u) != 0); // bit 31 of the wrapped difference; Overflow (below) says if it wrapped
 			carry(a < b);
 			overflow(((a ^ b) & (a ^ (a - b))) & 0x80000000);
 
@@ -1341,7 +1341,7 @@ namespace ceres::vm
 			const u32 b = static_cast<u32>(inst.simm16());
 
 			zero(a == b);
-			sign((static_cast<i32>(a) - static_cast<i32>(b)) < 0);
+			sign(((a - b) & 0x80000000u) != 0); // bit 31 of the wrapped difference; Overflow (below) says if it wrapped
 			carry(a < b);
 			overflow(((a ^ b) & (a ^ (a - b))) & 0x80000000);
 
