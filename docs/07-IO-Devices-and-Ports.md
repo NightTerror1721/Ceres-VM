@@ -151,6 +151,14 @@ strb [r13 + 0], r0
 .print_end:
 ```
 
+`ceres run` feeds the ring from its own standard input, and does so with flow control: the reader
+holds a byte back while the ring is full and pushes it when the program has taken enough, so a
+piped file longer than 63 bytes arrives whole however busy the program is. (The ring keeps one slot
+free, so it holds at most 63 bytes.) Only a host that calls `pushInput()` itself — a debugger, an
+embedding — can overflow it, and for that source dropping is still the behaviour:
+`DroppedInputRegister` counts what was lost. When the program ends, a reader still waiting for room
+gives up.
+
 Each `pushInput()` call that actually adds a byte to the ring buffer also raises `UserInterrupt1` —
 so a program need not poll `StatusRegister` in a busy loop to notice input; it can `sti`/`halt` instead
 and be woken the instant a byte arrives, the same wake-up pattern the timer uses above. See

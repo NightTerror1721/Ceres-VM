@@ -7,6 +7,8 @@
 #include <ceres/devices/display_device.h>
 #include <ceres/vm/ceresvm.h>
 
+#include <atomic>
+#include <chrono>
 #include <format>
 #include <map>
 #include <memory>
@@ -168,15 +170,38 @@ namespace ceres::driver
 		disk.attachTo(vm.io());
 		framebuffer.attachTo(vm.io());
 
+		// Raised when the machine is done, so a reader parked on a full ring stops waiting for a
+		// program that will never read it.
+		const auto machineDone = std::make_shared<std::atomic<bool>>(false);
+		struct DoneOnExit
+		{
+			std::shared_ptr<std::atomic<bool>> flag;
+			~DoneOnExit() { flag->store(true, std::memory_order_release); }
+		} doneOnExit{machineDone};
+
 		if (services.input != nullptr)
 		{
 			// A blocked console read cannot be cancelled portably. Shared ownership prevents a stale
 			// reader from touching a destroyed device; detachFrom clears its VM connection on return.
-			std::thread([input = services.input, terminal]
+			//
+			// The ring holds 64 bytes and drops what does not fit, which is right for a keystroke
+			// source but wrong for a pipe: a program that is busy for a moment would lose the tail of
+			// a piped file. So this reader is the flow control - it holds the byte back until the
+			// program has taken enough. It is the ring's only producer, so room seen here cannot be
+			// taken by anyone else before the push.
+			std::thread([input = services.input, terminal, machineDone]
 			{
 				char c;
 				while (input->get(c))
+				{
+					while (terminal->availableBytes() >= TerminalDevice::InputBufferCapacity - 1)
+					{
+						if (machineDone->load(std::memory_order_acquire))
+							return;
+						std::this_thread::sleep_for(std::chrono::microseconds(200));
+					}
 					terminal->pushInput(c);
+				}
 			}).detach();
 		}
 

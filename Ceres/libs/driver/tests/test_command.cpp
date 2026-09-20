@@ -124,6 +124,80 @@ TEST(driver_machine, host_receives_terminal_output)
 	CHECK_EQ(machine.droppedInputBytes(), ceres::u64{0});
 }
 
+TEST(driver_run, piped_input_longer_than_the_ring_is_held_back_not_dropped)
+{
+	// The program is busy for a while before it reads anything. The terminal's ring holds 63 bytes,
+	// so an input reader that only pushed would have thrown most of the 300 bytes away by then; it has
+	// to wait for the program instead. Each byte is echoed as it arrives.
+	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_flow_test.casm";
+	{
+		std::ofstream file{source};
+		file << "@text\n"
+			"global main:\n"
+			"    la   r6, 0xFF000000\n"
+			"    la   r7, 0xFFFF0000\n"
+			"    la   r2, 300000\n"
+			".spin:\n"
+			"    sub  r2, r2, 1\n"
+			"    ifne r2, 0, .spin\n"
+			"    la   r3, 300\n"
+			".next:\n"
+			"    la   r4, 3000000\n"          // patience per byte, so a lost byte ends the run
+			".poll:\n"
+			"    ldr  r5, [r6 + 0]\n"
+			"    ifne r5, 0, .got\n"
+			"    sub  r4, r4, 1\n"
+			"    ifne r4, 0, .poll\n"
+			"    jp   .done\n"
+			".got:\n"
+			"    ldr  r5, [r6 + 8]\n"
+			"    strb [r6 + 4], r5\n"
+			"    sub  r3, r3, 1\n"
+			"    ifne r3, 0, .next\n"
+			".done:\n"
+			"    li   r0, 1\n"
+			"    strb [r7 + 0], r0\n";
+	}
+
+	std::string sent;
+	for (int i = 0; i < 300; ++i)
+		sent.push_back(static_cast<char>('!' + (i * 7) % 90));
+
+	std::istringstream input{sent};
+	std::ostringstream output;
+	std::ostringstream diagnostics;
+	const int result = execute(RunCommand{.input = source}, {&input, &output, &diagnostics});
+	std::filesystem::remove(source);
+
+	CHECK_EQ(result, 0);
+	CHECK_EQ(output.str().size(), sent.size());
+	CHECK_EQ(output.str(), sent);
+}
+
+TEST(driver_run, unread_input_does_not_keep_the_run_from_ending)
+{
+	// The reader parks when the ring is full. A program that never reads must still end, and the
+	// reader must notice that it did rather than wait for room that will never come.
+	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_unread_test.casm";
+	{
+		std::ofstream file{source};
+		file << "@text\n"
+			"global main:\n"
+			"    la   r7, 0xFFFF0000\n"
+			"    li   r0, 1\n"
+			"    strb [r7 + 0], r0\n";
+	}
+
+	std::istringstream input{std::string(5000, 'x')};
+	std::ostringstream output;
+	std::ostringstream diagnostics;
+	const int result = execute(RunCommand{.input = source}, {&input, &output, &diagnostics});
+	std::filesystem::remove(source);
+
+	CHECK_EQ(result, 0);
+	CHECK(output.str().empty());
+}
+
 TEST(driver_machine, host_receives_presented_frames)
 {
 	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_frame_test.casm";
