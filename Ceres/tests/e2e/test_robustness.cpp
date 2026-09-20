@@ -139,6 +139,83 @@ TEST(robustness, a_push_that_still_fits_is_not_faulted)
 	CHECK_EQ(m.reg(15), 0x400u);
 }
 
+// --- Stores below the unrestricted segment -------------------------------------------------
+//
+// Memory has always refused these, but silently: the store "succeeded" and changed nothing, so a
+// null pointer written through looked like a working program. It is a MemoryFault now, taken
+// instead of the store, the same way a store into the program's text is.
+
+namespace
+{
+	// Runs `store` (which stores r1 through r2) with r2 = address, and reports whether the machine
+	// took the fault: the pc is in the BIOS and the target word is exactly what it was.
+	bool storeIsRefusedWithAFault(u32 address, Instruction store)
+	{
+		Machine m({
+			Instruction::LI(1, 0x5A),
+			Instruction::LUI(2, static_cast<u16>(address >> 16)),
+			Instruction::ORI(2, 2, static_cast<u16>(address & 0xFFFF)),
+			store,
+		});
+		const u32 before = m.memory().readUnchecked<u32>(Address(address & ~3u));
+		m.step(4);
+		const bool inBios = m.pc().value() >= Memory::BiosSegmentStart.value() &&
+			m.pc().value() < Memory::UnrestrictedSegmentStart.value();
+		return inBios && m.memory().readUnchecked<u32>(Address(address & ~3u)) == before;
+	}
+}
+
+TEST(robustness, a_word_store_into_the_vector_table_or_bios_faults)
+{
+	for (u32 address : { 0x0u, 0x4u, 0x40u, 0xFCu, 0x100u, 0x2A0u, 0x3FCu })
+		CHECK(storeIsRefusedWithAFault(address, Instruction::STR(2, 1, 0)));
+}
+
+TEST(robustness, a_byte_or_halfword_store_into_the_vector_table_or_bios_faults)
+{
+	for (u32 address : { 0x0u, 0x3u, 0x41u, 0xFFu, 0x100u, 0x3FEu, 0x3FFu })
+		CHECK(storeIsRefusedWithAFault(address, Instruction::STRB(2, 1, 0)));
+	for (u32 address : { 0x0u, 0x42u, 0xFEu, 0x100u, 0x3FEu })
+		CHECK(storeIsRefusedWithAFault(address, Instruction::STRH(2, 1, 0)));
+}
+
+TEST(robustness, a_float_store_into_the_vector_table_or_bios_faults)
+{
+	for (u32 address : { 0x0u, 0x80u, 0x3FCu })
+		CHECK(storeIsRefusedWithAFault(address, Instruction::FSTR(2, 1, 0)));
+}
+
+TEST(robustness, a_displacement_that_lands_in_the_vector_table_faults_too)
+{
+	// The base register is well clear of the table; the displacement is what walks into it.
+	Machine m({
+		Instruction::LI(2, 0x408),
+		Instruction::LI(1, 1),
+		Instruction::STR(2, 1, static_cast<u16>(-0x408)),   // 0x408 - 0x408 = address 0
+	});
+	m.step(3);
+
+	CHECK(m.pc().value() >= Memory::BiosSegmentStart.value());
+	CHECK(m.pc().value() < Memory::UnrestrictedSegmentStart.value());
+	CHECK_EQ(m.memory().readUnchecked<u32>(0_addr), Memory::UnrestrictedSegmentStart.value());
+}
+
+TEST(robustness, a_store_just_above_the_bios_still_works)
+{
+	// The guard ends exactly where the unrestricted segment begins: no off-by-one on this side.
+	Machine m({
+		Instruction::LI(1, 0x5A),
+		Instruction::LI(2, 0x800),
+		Instruction::STR(2, 1, 0),
+		Instruction::STRB(2, 1, 4),
+	});
+	m.step(4);
+
+	CHECK(m.pc().value() >= Memory::UnrestrictedSegmentStart.value());
+	CHECK_EQ(m.memory().readUnchecked<u32>(Address(0x800u)), 0x5Au);
+	CHECK_EQ(m.memory().readUnchecked<u8>(Address(0x804u)), u8{0x5A});
+}
+
 // --- SE-16: immediates that do not fit are rejected, not truncated -------------------------
 
 TEST(robustness, an_immediate_too_wide_for_its_field_is_rejected)

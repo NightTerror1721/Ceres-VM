@@ -298,12 +298,15 @@ namespace ceres::vm
 				return _memory.read<T>(*physical);
 		}
 
-		// Returns false when the write would land in the program's own text, having already raised
-		// MemoryFault. The caller must abort the instruction, exactly as for a misaligned access.
+		// Returns false when the write would land in the program's own text, or in the vector table
+		// or BIOS below it, having already raised MemoryFault. The caller must abort the instruction,
+		// exactly as for a misaligned access. Memory refuses those low stores by itself, but it does so
+		// silently: without the fault a stray pointer to the null page looks like a store that worked.
 		forceinline bool checkWritable(Address address, u32 size) noexcept
 		{
 			const u64 base = address.value();
-			if (_textEnd > _textStart && base < _textEnd && base + size > _textStart)
+			if (base < Memory::UnrestrictedSegmentStartValue ||
+				(_textEnd > _textStart && base < _textEnd && base + size > _textStart))
 			{
 				triggerInterrupt(InterruptNumber::MemoryFault);
 				return false;

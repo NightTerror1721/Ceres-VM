@@ -39,8 +39,10 @@ enum class InterruptNumber : u8
   (20), when an event or motion arrives — see
   [I/O devices and ports](07-IO-Devices-and-Ports.md#timerdevice-ports-0x10-0x12).
 
-`MemoryFault` (3) is raised by a store, or a block read, whose target overlaps the loaded program's
-`.text` — see [Memory → `.text` is read-only](02-Memory.md#text-is-read-only). `PageFault` (7) is
+`MemoryFault` (3) is raised by a store whose target overlaps the loaded program's `.text` or lies in
+the vector table or the BIOS (below `0x400`) — see
+[Memory → `.text` is read-only](02-Memory.md#text-is-read-only) and
+[Memory → the vector table and the BIOS are read-only](02-Memory.md#the-vector-table-and-the-bios-are-read-only). `PageFault` (7) is
 raised by the MMU on a not-present or permission-violating translation, and only ever fires once a
 program has turned paging on — see [Virtual memory and paging](27-Virtual-Memory-and-Paging.md). Of
 the reserved numbers, `Syscall` (15) is defined but nothing raises it yet.
@@ -58,9 +60,9 @@ The BIOS (see [`bios.h`](../Ceres/libs/vm/include/ceres/vm/bios.h)) initializes 
 an unhandled fault produces visible, if minimal, feedback instead of silently jumping through a null
 pointer.
 
-A running program can never overwrite this table itself — every checked memory write refuses any
-address below `0x400` (see [Memory](02-Memory.md#protected-vs-unrestricted-access)), on purpose: a
-stray pointer must not be able to corrupt interrupt dispatch. A program that wants real handling of a
+A running program can never overwrite this table itself — every store to an address below `0x400`
+raises `MemoryFault` and does nothing (see [Memory](02-Memory.md#protected-vs-unrestricted-access)),
+on purpose: a stray pointer must not be able to corrupt interrupt dispatch. A program that wants real handling of a
 given interrupt instead declares `interrupt NUMBER: handler` (or `interrupt Name: handler`, using one
 of the names above), and the *loader* patches that one vector before the program's first instruction
 runs — see [Interrupt vector binding](26-Interrupt-Vector-Binding.md).

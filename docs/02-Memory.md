@@ -48,11 +48,25 @@ static inline constexpr Address UnrestrictedSegmentStart   = NullPageSegmentStar
 - **Checked** (`read`, `write`, `readBytes`, `writeBytes`, `peekBytes`, `peekMutBytes`, `setBytes`,
   `copyBytes`): reject any address below `UnrestrictedSegmentStart` (`0x400`). This is what every
   instruction that a `.casm` program can execute goes through, so **a running program cannot
-  overwrite the vector table or the BIOS**.
+  overwrite the vector table or the BIOS**. The store instructions also check the target before
+  they get that far, and raise `MemoryFault` instead of letting the write be silently discarded —
+  see [The vector table and the BIOS are read-only](#the-vector-table-and-the-bios-are-read-only).
 - **Unchecked** (`readUnchecked`, `writeUnchecked`, `readBytesUnchecked`, …): allow the full address
   range, including the null page. Only internal code uses these — instruction *fetch* (`readInstruction`
   reads through `readUnchecked`), the BIOS initializer, and the interrupt dispatcher, which needs to
   read vector table entries.
+
+### The vector table and the BIOS are read-only
+
+A store whose target overlaps `0x00000000`–`0x000003FF` — `str`, `strb`, `strh`, the float `str`, in
+every addressing form — raises `MemoryFault` and is abandoned before it takes effect, exactly as a
+store into `.text` is (below). The checked accessors have always refused those addresses, but they
+did it by doing nothing, so a program that wrote through a null pointer saw its store "succeed":
+the bug surfaced later, somewhere unrelated, or never. A store that straddles the boundary (a word
+at `0x3FE`) faults too; one that starts at `0x400` is ordinary memory.
+
+Device block transfers are unchanged: they clamp to unrestricted RAM and report the shortfall in
+their count register rather than faulting. A debugger still writes through the unchecked accessors.
 
 ### `.text` is read-only
 
