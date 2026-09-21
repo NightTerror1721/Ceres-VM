@@ -178,6 +178,7 @@ namespace ceres::driver
 		AudioDevice audio;
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
+		framebuffer.setWindowHost(backend != nullptr && backend->showsText());
 		timer.attachTo(vm.io());
 		dma.attachTo(vm.io());
 		keyboard->attachTo(vm.io());
@@ -331,6 +332,12 @@ namespace ceres::driver
 				for (u64 i = 0; i < slice && vm.isPoweredOn(); ++i)
 					vm.engine().step();
 				backend->present(display);
+
+				// A frame of the text framebuffer that the program presented for the window. Taken here, between
+				// slices, rather than drawn from inside the instruction that presented it.
+				FramebufferDevice::Frame frame;
+				if (framebuffer.takeWindowFrame(frame) && !backend->presentText(frame))
+					framebuffer.fallBackToTerminal();
 			}
 		}
 		else if (auto result = vm.run(); !result)

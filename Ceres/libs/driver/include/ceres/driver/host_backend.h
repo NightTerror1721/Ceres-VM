@@ -7,6 +7,7 @@
 
 #include <ceres/devices/input_devices.h>
 #include <ceres/devices/display_device.h>
+#include <ceres/devices/storage_devices.h>
 #include <ceres/devices/audio_device.h>
 
 namespace ceres::driver
@@ -24,6 +25,18 @@ namespace ceres::driver
 
 		// Show the display's current pixels.
 		virtual void present(const DisplayDevice& display) = 0;
+
+		// Does this host show the text framebuffer in a window? A host that says no (the default) leaves every
+		// frame to the terminal. One that says yes is given the frames the program presents while its output is
+		// the window, and opens its window when it gets the first.
+		virtual bool showsText() const noexcept { return false; }
+
+		// Show one frame of the text framebuffer. Returns false if it cannot - no display to open a window on -
+		// and the machine then sends that frame and all later ones to the terminal instead.
+		virtual bool presentText(const FramebufferDevice::Frame&) { return false; }
+
+		// Open the window now, rather than when the first frame comes. False if it cannot be opened.
+		virtual bool openWindow() { return true; }
 
 		// Give the host the audio device to play, by installing a sink on it. Called once before the
 		// machine runs; a host without speakers ignores it, and the machine is silent.

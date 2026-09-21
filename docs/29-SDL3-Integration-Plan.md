@@ -25,6 +25,7 @@ elección A.
 | 2 — SDL backend | Hecho — `HostBackend`/`HeadlessBackend`, `libs/sdl` (`SdlBackend`), `ceres run --window`. |
 | 3 — Gamepad | Hecho — `GamepadDevice` (slot 8, `UserInterrupt5`) + mapeo `SDL_Gamepad`. |
 | 4 — Debugger + docs | Hecho — el debugger adjunta todos los dispositivos; SDL queda solo en `run` (ver §7). |
+| 5 — Texto en la ventana | Hecho — el framebuffer de texto se dibuja en la ventana por defecto (`TextRenderer`, fuente 5x7 en celdas de 8x16); la ventana se abre con el primer fotograma (no antes) y `--terminal`/`CERES_HEADLESS` la evitan; el modo se elige en ejecución con `ModeRegister`. Ver [07](07-IO-Devices-and-Ports.md#framebufferdevice-0xff030000). Corrige de paso el formato de píxel: las texturas eran `BGRX8888` y ahora `XRGB8888`, que es lo que la pantalla de píxeles guarda (rojo y verde salían cambiados). |
 
 ## 1. Objetivo
 

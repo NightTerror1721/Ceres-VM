@@ -259,9 +259,9 @@ keeps its data.
 
 ### `FramebufferDevice` (`0xFF030000`)
 
-A grid of characters that a program draws into and then shows. Not pixels: this machine has no
-window to put them in, and a grid redrawn whole is what a game on this VM actually wants — the
-terminal's own output is a stream that only ever moves forward.
+A grid of characters that a program draws into and then shows. Not pixels: a grid redrawn whole is what a
+text game or interface on this VM actually wants — the terminal's own output is a stream that only ever
+moves forward. Shown in the host's **window** (see below) or as text on the terminal.
 
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |
@@ -269,7 +269,31 @@ terminal's own output is a stream that only ever moves forward.
 | `0x04` | `WidthRegister` | Read/write | Columns, up to 200. Zero or more than that is ignored as a typo. |
 | `0x08` | `HeightRegister` | Read/write | Rows, up to 100. Resizing clears the grid. |
 | `0x0C` | `DataRegister` | Write | One cell per word write, continuing from where the last write left off. |
-| `0xF0`/`0xF4`/`0xF8` | Block registers | Write (write only) | `2` writes a run of cells from RAM in one trigger. |
+| `0x10` | `ModeRegister` | Read/write | Where a frame should go: `0` `ModeAuto` (the default), `1` `ModeTerminal`, `2` `ModeWindow`. Anything else is ignored. |
+| `0x14` | `OutputRegister` | Read | Where a frame goes now: `1` `OutputTerminal` or `2` `OutputWindow`. |
+| `0xF0`/`0xF4`/`0xF8` | Block registers | Write (write only) | `2` writes a run of cells from RAM in one trigger; `3` a run of attributes. |
+
+**Where a frame goes.** A machine has a screen, so by default (`ModeAuto`) presenting a frame shows it in the
+host's window; the window opens when the first frame arrives, so a program that never shows one opens none.
+`ModeTerminal` prints the frame as text on the terminal instead (one line per row, with SGR escape sequences if
+any cell has a colour), even where there is a window. `ModeWindow` asks for the window explicitly and is the
+same as `ModeAuto` where there is one. Where the host has **no window** - a build without SDL, `ceres run
+--terminal`, or `CERES_HEADLESS` set in the environment to anything but `""`, `0` or `false` - every mode ends up on
+the terminal, so a program that asks for the window still shows something; `OutputRegister` reads what
+actually happens. A host that finds it cannot open a window after all (no display) says so once on standard
+error and gives that frame and every later one to the terminal.
+
+The frame the window draws is the grid **as it was when the program presented it**, not as it is when the host
+gets round to drawing it (between slices of instructions), so a program that starts on its next frame does not tear
+this one; presenting twice in a slice shows the later. In the window each cell is 8 x 16 pixels of a bitmap font
+(the standard library's 5x7 dot-matrix shapes, `text_font.h`) in the 16-colour palette the attribute picks
+(attribute 0 is light grey on black); the strokes of `| - _ =` run to the edge of their cell and a `+` reaches only
+toward the strokes it can join, so a box drawn with them is a box. The window's size follows the grid, at the
+largest whole scale that fits 1280 x 720, and stays crisp when resized. `TextRenderer` (`text_renderer.h`) does the
+drawing and needs no window, which is how it is tested.
+
+The window closes when the machine stops, like the terminal's output stays: a program that wants its last
+frame looked at waits for a key first.
 
 ```casm
 li   r1, 20

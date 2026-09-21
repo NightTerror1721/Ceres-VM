@@ -7,6 +7,7 @@
 #include <ceres/core/isa/disassembler.h>
 #include <ceres/debug/debug_cli.h>
 #include <ceres/debug/debug_server.h>
+#include <cstdlib>
 #include <exception>
 #include <iostream>
 #include <format>
@@ -198,6 +199,20 @@ namespace ceres::driver
 			return cli.run();
 		}
 
+		// --terminal, or CERES_HEADLESS set to something other than "", "0" or "false": scripts and tests set the
+		// variable so that programs which draw into the text framebuffer print their frames to the terminal
+		// instead of opening a window. An explicit --window still wins.
+		bool terminalRequested(const RunCommand& command)
+		{
+			if (command.terminal)
+				return true;
+			const char* value = std::getenv("CERES_HEADLESS");
+			if (value == nullptr)
+				return false;
+			const std::string_view text = value;
+			return !text.empty() && text != "0" && text != "false";
+		}
+
 		int executeRun(const RunCommand& command, HostServices services, const HostBackendFactory& windowBackend)
 		{
 			// A window asked for without a windowed host to provide one is reported before any
@@ -216,6 +231,7 @@ namespace ceres::driver
 			std::unique_ptr<HostBackend> backend;
 			if (command.window)
 			{
+				// Asked for by name: open it now, and say so if that cannot be done.
 				try
 				{
 					backend = windowBackend();
@@ -224,6 +240,24 @@ namespace ceres::driver
 				{
 					*services.diagnostics << "Failed to open a window: " << error.what() << '\n';
 					return 1;
+				}
+				if (!backend->openWindow())
+				{
+					*services.diagnostics << "Failed to open a window.\n";
+					return 1;
+				}
+			}
+			else if (windowBackend && !terminalRequested(command))
+			{
+				// A machine with a screen: the window opens when the program first shows a frame, so a program
+				// that never does opens none. If there turns out to be no display, its text goes to the terminal.
+				try
+				{
+					backend = windowBackend();
+				}
+				catch (const std::exception&)
+				{
+					backend.reset();
 				}
 			}
 

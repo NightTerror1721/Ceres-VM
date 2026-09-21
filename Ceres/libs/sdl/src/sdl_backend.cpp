@@ -1,10 +1,13 @@
 #include <ceres/sdl/sdl_backend.h>
 
+#include <ceres/devices/text_renderer.h>
+
 #define SDL_MAIN_HANDLED
 #include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -24,11 +27,29 @@ namespace ceres::sdl
 			static inline constexpr int MaxWindowWidth = 1280;
 			static inline constexpr int MaxWindowHeight = 720;
 
+			// Nothing of SDL is started until it is needed: a machine with a screen opens its window when the
+			// program first shows a frame, and a program that never does opens none (see ensureVideo()).
+			bool _videoStarted = false;
+			bool _videoFailed = false;
 			SDL_Window* _window = nullptr;
 			SDL_Renderer* _renderer = nullptr;
-			SDL_Texture* _texture = nullptr;
+			SDL_Texture* _texture = nullptr;      // the pixel display
 			u32 _textureWidth = 0;
 			u32 _textureHeight = 0;
+			SDL_Texture* _textTexture = nullptr;  // the text framebuffer, drawn by devices::TextRenderer
+			u32 _textWidth = 0;
+			u32 _textHeight = 0;
+			std::vector<u32> _textPixels;
+
+			// Which of the two the window shows: the one the program presented most recently. The pixel display
+			// is shown live (every slice, from its buffer) once it is in use: from its first presented frame, or
+			// from the start when the window was asked for by name, as it always has been.
+			enum class Shown { Nothing, Text, Pixels };
+			Shown _shown = Shown::Nothing;
+			bool _displayLive = false;
+			u64 _displayPresents = 0;
+			bool _mouseCaptured = false;
+			bool _needsRedraw = false;
 			u8 _buttons = 0; // Wheel events carry no button mask, so the last known one is kept.
 			SDL_Gamepad* _gamepad = nullptr;
 
@@ -37,6 +58,8 @@ namespace ceres::sdl
 			// device pointer, so detachAudio() can be sure the audio thread is done with it.
 			static inline constexpr int SampleRate = 44100;
 			SDL_AudioStream* _audioStream = nullptr;
+			bool _audioStarted = false;
+			bool _audioFailed = false;
 			std::mutex _audioMutex;
 			devices::AudioDevice* _audio = nullptr;
 			devices::AudioDevice::Tone _tone{};
@@ -46,25 +69,7 @@ namespace ceres::sdl
 			u32 _noise = 0x1234567u;
 
 		public:
-			SdlBackend()
-			{
-				if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_AUDIO))
-					throw std::runtime_error(std::string("SDL_Init failed: ") + SDL_GetError());
-
-				_window = SDL_CreateWindow("Ceres", MaxWindowWidth, MaxWindowHeight, SDL_WINDOW_RESIZABLE);
-				if (!_window)
-					throw std::runtime_error(std::string("SDL_CreateWindow failed: ") + SDL_GetError());
-
-				_renderer = SDL_CreateRenderer(_window, nullptr);
-				if (!_renderer)
-					throw std::runtime_error(std::string("SDL_CreateRenderer failed: ") + SDL_GetError());
-
-				// A game wants unbounded deltas, not a cursor that stops at the window edge.
-				SDL_SetWindowRelativeMouseMode(_window, true);
-
-				// Typed characters, as the layout made them, for the keyboard's text queue.
-				SDL_StartTextInput(_window);
-			}
+			SdlBackend() = default;
 
 			~SdlBackend() override
 			{
@@ -73,15 +78,30 @@ namespace ceres::sdl
 					SDL_CloseGamepad(_gamepad);
 				if (_texture)
 					SDL_DestroyTexture(_texture);
+				if (_textTexture)
+					SDL_DestroyTexture(_textTexture);
 				if (_renderer)
 					SDL_DestroyRenderer(_renderer);
 				if (_window)
 					SDL_DestroyWindow(_window);
-				SDL_Quit();
+				if (_videoStarted || _audioStarted)
+					SDL_Quit();
+			}
+
+			bool showsText() const noexcept override { return true; }
+
+			bool openWindow() override
+			{
+				// Asked for by name: the pixel display shows from the start, and the window is the size it always was.
+				_displayLive = true;
+				return ensureVideo(MaxWindowWidth, MaxWindowHeight);
 			}
 
 			bool pump(devices::KeyboardDevice& keyboard, devices::MouseDevice& mouse, devices::GamepadDevice& gamepad) override
 			{
+				if (!_videoStarted)
+					return true;   // no window yet, so nothing can have happened to it
+
 				SDL_Event event;
 				while (SDL_PollEvent(&event))
 				{
@@ -120,6 +140,11 @@ namespace ceres::sdl
 							mouse.pushMotion(0, 0, _buttons, static_cast<i8>(event.wheel.y));
 							break;
 
+						case SDL_EVENT_WINDOW_EXPOSED:
+						case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+							_needsRedraw = true;   // what the window shows is gone or the wrong size
+							break;
+
 						case SDL_EVENT_GAMEPAD_ADDED:
 							if (!_gamepad)
 								_gamepad = SDL_OpenGamepad(event.gdevice.which);
@@ -151,26 +176,32 @@ namespace ceres::sdl
 						static_cast<u16>(SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)));
 				}
 
+				if (_needsRedraw && _shown == Shown::Text)
+					drawText();
+				_needsRedraw = false;
+
 				return true;
 			}
 
 			void attachAudio(devices::AudioDevice& audio) override
 			{
-				// No sound card is not an error: the machine just stays silent.
-				const SDL_AudioSpec spec{ SDL_AUDIO_F32, 1, SampleRate };
-				SDL_AudioStream* stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &SdlBackend::audioCallback, this);
-				if (!stream)
-					return;
-
 				{
 					const std::lock_guard lock{ _audioMutex };
 					_audio = &audio;
-					_audioStream = stream;
 					_toneActive = false;
 				}
 
+				// The sound card is opened when the first tone is asked for, not for every run of a program that
+				// never makes a sound. No sound card is not an error: the machine just stays silent, and every
+				// tone is over as soon as it is asked for.
 				audio.setToneSink([this](const std::optional<devices::AudioDevice::Tone>& tone)
 				{
+					if (tone && !ensureAudio())
+					{
+						if (_audio)
+							_audio->toneFinished();
+						return;
+					}
 					const std::lock_guard lock{ _audioMutex };
 					if (!tone)
 					{
@@ -182,7 +213,6 @@ namespace ceres::sdl
 					_samplesLeft = tone->durationMs == 0 ? -1 : static_cast<i64>(tone->durationMs) * SampleRate / 1000;
 					_toneActive = true;
 				});
-				SDL_ResumeAudioStreamDevice(stream);
 			}
 
 			void detachAudio() override
@@ -204,18 +234,40 @@ namespace ceres::sdl
 
 			void present(const devices::DisplayDevice& display) override
 			{
+				// The display is in use from the moment the program presents a frame of it - and then it is the
+				// one shown, until a frame of text is presented after it.
+				if (display.presentCount() != _displayPresents)
+				{
+					_displayPresents = display.presentCount();
+					_displayLive = true;
+					_shown = Shown::Pixels;
+				}
+				if (!_displayLive || _shown == Shown::Text)
+					return;
+
 				const u32 width = display.width();
 				const u32 height = display.height();
 				const auto pixels = display.pixels();
 
 				if (width == 0 || height == 0 || pixels.empty())
 					return;
+				if (!ensureVideo(MaxWindowWidth, MaxWindowHeight))
+					return;
+
+				// A game wants unbounded deltas, not a cursor that stops at the window edge. Only a program that
+				// draws pixels is taken to be one: a text interface needs its pointer to close the window with.
+				if (!_mouseCaptured)
+				{
+					SDL_SetWindowRelativeMouseMode(_window, true);
+					_mouseCaptured = true;
+				}
+				_shown = Shown::Pixels;
 
 				if (width != _textureWidth || height != _textureHeight)
 				{
 					if (_texture)
 						SDL_DestroyTexture(_texture);
-					_texture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_BGRX8888, SDL_TEXTUREACCESS_STREAMING, static_cast<int>(width), static_cast<int>(height));
+					_texture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, static_cast<int>(width), static_cast<int>(height));
 					_textureWidth = width;
 					_textureHeight = height;
 
@@ -229,16 +281,133 @@ namespace ceres::sdl
 
 				if (!_texture)
 					return;
+				SDL_SetRenderLogicalPresentation(_renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
 
-				// The display stores 0x00RRGGBB per pixel, which in memory is B,G,R,0 - exactly
-				// SDL_PIXELFORMAT_BGRX8888.
+				// The display stores 0x00RRGGBB per pixel: SDL calls that packed order
+				// SDL_PIXELFORMAT_XRGB8888.
 				SDL_UpdateTexture(_texture, nullptr, pixels.data(), static_cast<int>(width * sizeof(u32)));
 				SDL_RenderClear(_renderer);
 				SDL_RenderTexture(_renderer, _texture, nullptr, nullptr);
 				SDL_RenderPresent(_renderer);
 			}
 
+			bool presentText(const devices::FramebufferDevice::Frame& frame) override
+			{
+				const u32 width = devices::TextRenderer::imageWidth(frame);
+				const u32 height = devices::TextRenderer::imageHeight(frame);
+				if (width == 0 || height == 0)
+					return true;   // nothing to show is shown
+				if (!ensureVideo(static_cast<int>(width), static_cast<int>(height)))
+					return false;
+
+				devices::TextRenderer::render(frame, _textPixels);
+
+				if (width != _textWidth || height != _textHeight)
+				{
+					if (_textTexture)
+						SDL_DestroyTexture(_textTexture);
+					_textTexture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, static_cast<int>(width), static_cast<int>(height));
+					if (_textTexture)
+						SDL_SetTextureScaleMode(_textTexture, SDL_SCALEMODE_NEAREST);   // crisp cells, at any window size
+					_textWidth = width;
+					_textHeight = height;
+					fitWindow(width, height);
+				}
+				if (!_textTexture)
+					return false;
+
+				SDL_UpdateTexture(_textTexture, nullptr, _textPixels.data(), static_cast<int>(width * sizeof(u32)));
+				_shown = Shown::Text;
+				drawText();
+				return true;
+			}
+
 		private:
+			// Starts SDL and opens the window, once. `width` and `height` are what the window will show, so it
+			// opens at the size it will have. If that cannot be done (no display: a server, a terminal session)
+			// it says so once on standard error and never tries again, and the text goes to the terminal.
+			bool ensureVideo(int width, int height)
+			{
+				if (_window)
+					return true;
+				if (_videoFailed)
+					return false;
+
+				auto fail = [this](const char* what)
+				{
+					std::fprintf(stderr, "ceres: no window (%s: %s); showing text on the terminal instead\n", what, SDL_GetError());
+					_videoFailed = true;
+					if (_renderer) { SDL_DestroyRenderer(_renderer); _renderer = nullptr; }
+					if (_window) { SDL_DestroyWindow(_window); _window = nullptr; }
+					return false;
+				};
+
+				if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
+					return fail("SDL_Init");
+				_videoStarted = true;
+
+				const int scale = std::max(1, std::min(MaxWindowWidth / std::max(width, 1), MaxWindowHeight / std::max(height, 1)));
+				_window = SDL_CreateWindow("Ceres", width * scale, height * scale, SDL_WINDOW_RESIZABLE);
+				if (!_window)
+					return fail("SDL_CreateWindow");
+				_renderer = SDL_CreateRenderer(_window, nullptr);
+				if (!_renderer)
+					return fail("SDL_CreateRenderer");
+
+				// Typed characters, as the layout made them, for the keyboard's text queue.
+				SDL_StartTextInput(_window);
+				return true;
+			}
+
+			// The window is the text's size at the largest whole scale that fits, as it is for the pixel display.
+			void fitWindow(u32 width, u32 height)
+			{
+				const int scale = std::max(1, std::min(MaxWindowWidth / static_cast<int>(width),
+					MaxWindowHeight / static_cast<int>(height)));
+				SDL_SetWindowSize(_window, static_cast<int>(width) * scale, static_cast<int>(height) * scale);
+			}
+
+			// Draws the text texture as it is, letterboxed at whatever size the window has.
+			void drawText()
+			{
+				if (!_textTexture || !_renderer)
+					return;
+				SDL_SetRenderLogicalPresentation(_renderer, static_cast<int>(_textWidth), static_cast<int>(_textHeight), SDL_LOGICAL_PRESENTATION_LETTERBOX);
+				SDL_SetRenderDrawColor(_renderer, 0, 0, 0, 255);
+				SDL_RenderClear(_renderer);
+				SDL_RenderTexture(_renderer, _textTexture, nullptr, nullptr);
+				SDL_RenderPresent(_renderer);
+			}
+
+			// Opens the sound card for the first tone; false if there is none.
+			bool ensureAudio()
+			{
+				if (_audioStream)
+					return true;
+				if (_audioFailed)
+					return false;
+				if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
+				{
+					_audioFailed = true;
+					return false;
+				}
+				_audioStarted = true;
+
+				const SDL_AudioSpec spec{ SDL_AUDIO_F32, 1, SampleRate };
+				SDL_AudioStream* stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &SdlBackend::audioCallback, this);
+				if (!stream)
+				{
+					_audioFailed = true;
+					return false;
+				}
+				{
+					const std::lock_guard lock{ _audioMutex };
+					_audioStream = stream;
+				}
+				SDL_ResumeAudioStreamDevice(stream);
+				return true;
+			}
+
 			static void SDLCALL audioCallback(void* userdata, SDL_AudioStream* stream, int additionalAmount, int)
 			{
 				static_cast<SdlBackend*>(userdata)->synthesize(stream, additionalAmount);

@@ -14,13 +14,17 @@ namespace ceres::driver
 			"                          [--debug] [--emit-debug-json] [-c]\n"
 			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
-			"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>] [--window]\n"
+			"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>] [--window | --terminal]\n"
 			"  ceres profile <file.casm|file.cres> [--memory <bytes>]\n"
 			"  ceres disasm <file.casm|file.cres> [--debug]\n"
 			"  ceres debug <file.casm|file.cres> [<source2.casm> ...] [--memory <bytes>]\n"
 			"                                    [--no-stop-on-entry] [--server] [--no-history]\n"
 			"\n"
-			"A bare path is shorthand for 'run'.\n";
+			"A bare path is shorthand for 'run'.\n"
+			"\n"
+			"With a window (an SDL build), 'run' opens it when the program first shows a frame - of the text\n"
+			"framebuffer or of the pixel display - so a program that never does opens none. --window opens it at\n"
+			"once; --terminal (or CERES_HEADLESS in the environment) never does, and text frames go to the terminal.\n";
 
 		struct RawOptions
 		{
@@ -48,6 +52,8 @@ namespace ceres::driver
 			bool usedDisk = false;
 			bool window = false;
 			bool usedWindow = false;
+			bool terminal = false;
+			bool usedTerminal = false;
 		};
 
 		std::expected<usize, ParseError> parseMemorySize(std::string_view text)
@@ -108,6 +114,7 @@ namespace ceres::driver
 				raw.disk = *value; raw.usedDisk = true;
 			}
 			else if (argument == "--window") { raw.window = true; raw.usedWindow = true; }
+			else if (argument == "--terminal") { raw.terminal = true; raw.usedTerminal = true; }
 			else if (argument == "--memory")
 			{
 				auto value = nextValue(argument);
@@ -140,14 +147,14 @@ namespace ceres::driver
 		std::vector<std::filesystem::path> inputs(raw.positional.begin() + static_cast<std::ptrdiff_t>(firstInput), raw.positional.end());
 		if (command == "asm")
 		{
-			if (raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+			if (raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			return AssembleCommand{ std::move(inputs), std::move(raw.output), raw.compileOnly, raw.listing,
 				raw.json, raw.debugInfo, raw.debugJson };
 		}
 		if (command == "link")
 		{
-			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (raw.output.empty()) return std::unexpected(ParseError{ "'ceres link' needs -o <output.cres>" });
 			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson };
@@ -155,7 +162,7 @@ namespace ceres::driver
 		if (command == "ar")
 		{
 			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk ||
-				raw.usedMemory || raw.usedWindow || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory || raw.usedOutput)
+				raw.usedMemory || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory || raw.usedOutput)
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (inputs.size() < 2) return std::unexpected(ParseError{ "'ceres ar' needs an output and at least one object" });
 			ArchiveCommand archive{ std::move(inputs.front()), {} };
@@ -168,21 +175,23 @@ namespace ceres::driver
 		{
 			if (raw.compileOnly || raw.usedOutput || raw.usedJson || raw.usedDebugJson || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
-			return RunCommand{ std::move(inputs.front()), raw.memorySize, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window };
+			if (raw.window && raw.terminal)
+				return std::unexpected(ParseError{ "'--window' and '--terminal' are opposites: pick one" });
+			return RunCommand{ std::move(inputs.front()), raw.memorySize, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal };
 		}
 		if (command == "profile")
 		{
-			if (raw.compileOnly || raw.usedOutput || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+			if (raw.compileOnly || raw.usedOutput || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			return ProfileCommand{ std::move(inputs.front()), raw.memorySize, raw.listing };
 		}
 		if (command == "disasm")
 		{
-			if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+			if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			return DisassembleCommand{ std::move(inputs.front()), raw.debugInfo, raw.debugJson };
 		}
-		if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow)
+		if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedTerminal)
 			return std::unexpected(invalidOption("a supplied option", command));
 		return DebugCommand{ std::move(inputs), raw.memorySize, raw.stopOnEntry, raw.server, raw.recordHistory };
 	}

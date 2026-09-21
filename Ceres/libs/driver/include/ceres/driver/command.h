@@ -41,7 +41,8 @@ namespace ceres::driver
 		std::filesystem::path diskImage;
 		bool listing = false;
 		bool debugInfo = false;
-		bool window = false;
+		bool window = false;     // --window: open the window at once
+		bool terminal = false;   // --terminal: no window; the text framebuffer goes to the terminal
 	};
 
 	struct ProfileCommand

@@ -251,12 +251,24 @@ namespace ceres::devices
 		static inline constexpr Address WidthRegister = Address(0x04);
 		static inline constexpr Address HeightRegister = Address(0x08);
 		static inline constexpr Address DataRegister = Address(0x0C);
+		static inline constexpr Address ModeRegister = Address(0x10);   // Read/write: where a presented frame goes - ModeAuto, ModeTerminal or ModeWindow.
+		static inline constexpr Address OutputRegister = Address(0x14); // Read-only: where it goes right now - OutputTerminal or OutputWindow.
 		static inline constexpr Address BlockAddressRegister = Address(0xF0);
 		static inline constexpr Address BlockLengthRegister = Address(0xF4);
 		static inline constexpr Address BlockCommandRegister = Address(0xF8);
 
 		static inline constexpr u32 CommandClear = 1;
 		static inline constexpr u32 CommandPresent = 2;
+
+		// A frame is shown in the host's window when it has one (the default, ModeAuto: this is a machine with
+		// a screen), or as text on the terminal (ModeTerminal). ModeWindow asks for the window explicitly and
+		// is the same as ModeAuto where there is one; where there is none, both fall back to the terminal, so a
+		// program that asks for the window still shows something. OutputRegister says which it is.
+		static inline constexpr u32 ModeAuto = 0;
+		static inline constexpr u32 ModeTerminal = 1;
+		static inline constexpr u32 ModeWindow = 2;
+		static inline constexpr u32 OutputTerminal = 1;
+		static inline constexpr u32 OutputWindow = 2;
 
 		// A cell is a character and an attribute. The DataRegister word holds the character in bits
 		// 7:0 and the attribute in bits 15:8. Attribute 0 means the terminal's own colours;
@@ -277,7 +289,21 @@ namespace ceres::devices
 
 		using PresentSink = std::function<void(std::string_view)>;
 
+		// A frame as it was when the program presented it: what a window draws from, so the program can go on
+		// changing the grid without tearing what is shown.
+		struct Frame
+		{
+			u32 width = 0;
+			u32 height = 0;
+			std::vector<u8> cells;
+			std::vector<u8> attributes;
+		};
+
 	private:
+		u32 _mode = ModeAuto;
+		bool _windowHost = false;
+		bool _hasWindowFrame = false;
+		Frame _windowFrame;
 		u32 _width = 40;
 		u32 _height = 20;
 		std::vector<u8> _cells;
@@ -312,6 +338,35 @@ namespace ceres::devices
 		// Where a presented frame goes. Without one it goes to stdout, which is what the CLI wants
 		// and what a test does not.
 		void setPresentSink(PresentSink sink) { _sink = std::move(sink); }
+
+		// The host has a window that shows frames. Without one every frame goes to the terminal, whatever the
+		// mode; with one it goes there unless the program asked for the terminal.
+		void setWindowHost(bool hasWindow) noexcept { _windowHost = hasWindow; }
+		bool hasWindowHost() const noexcept { return _windowHost; }
+		u32 mode() const noexcept { return _mode; }
+		u32 output() const noexcept { return (_mode != ModeTerminal && _windowHost) ? OutputWindow : OutputTerminal; }
+
+		// The grid as it is now.
+		Frame snapshot() const { return Frame{ _width, _height, _cells, _attributes }; }
+
+		// The frame the program presented for the window, if there is one the host has not taken yet. The host
+		// calls this between slices of instructions; a program that presents twice in a slice shows the last.
+		bool takeWindowFrame(Frame& out)
+		{
+			if (!_hasWindowFrame)
+				return false;
+			out = std::move(_windowFrame);
+			_hasWindowFrame = false;
+			return true;
+		}
+
+		// The host could not show a frame in a window after all (no display, say): give this one and every
+		// later one to the terminal.
+		void fallBackToTerminal()
+		{
+			_windowHost = false;
+			presentToTerminal();
+		}
 
 		u32 width() const noexcept { return _width; }
 		u32 height() const noexcept { return _height; }
@@ -398,6 +453,8 @@ namespace ceres::devices
 		{
 			if (offset == WidthRegister) return _width;
 			if (offset == HeightRegister) return _height;
+			if (offset == ModeRegister) return _mode;
+			if (offset == OutputRegister) return output();
 			return 0;
 		}
 
@@ -408,6 +465,7 @@ namespace ceres::devices
 		{
 			if (offset == WidthRegister) { resize(value, _height); return; }
 			if (offset == HeightRegister) { resize(_width, value); return; }
+			if (offset == ModeRegister) { if (value <= ModeWindow) _mode = value; return; }
 
 			if (offset == CommandRegister)
 			{
@@ -481,6 +539,19 @@ namespace ceres::devices
 		}
 
 		void present()
+		{
+			if (output() == OutputWindow)
+			{
+				_windowFrame = snapshot();
+				_hasWindowFrame = true;
+				_cursor = 0;
+				_attributeCursor = 0;
+				return;
+			}
+			presentToTerminal();
+		}
+
+		void presentToTerminal()
 		{
 			const std::string text = hasAttributes() ? toAnsiText() : toText();
 			_cursor = 0;

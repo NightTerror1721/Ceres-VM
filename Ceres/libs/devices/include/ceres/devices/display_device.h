@@ -47,6 +47,7 @@ namespace ceres::devices
 		FrameSink _sink;
 		u32 _blockAddress = 0;
 		u32 _blockLength = 0;
+		u64 _presentCount = 0;
 
 	public:
 		DisplayDevice() : _pixels(static_cast<usize>(_width) * _height, 0) {}
@@ -75,6 +76,10 @@ namespace ceres::devices
 		u32 width() const noexcept { return _width; }
 		u32 height() const noexcept { return _height; }
 		std::span<const u32> pixels() const noexcept { return _pixels; }
+
+		// How many frames the program has presented. A window that also shows the text framebuffer compares
+		// it with what it saw last, to tell that the pixels are what the program showed most recently.
+		u64 presentCount() const noexcept { return _presentCount; }
 
 	public:
 		u32 readUnsignedWord(Address offset) override
@@ -160,6 +165,7 @@ namespace ceres::devices
 		void present()
 		{
 			_cursor = 0;
+			++_presentCount;
 
 			if (_sink)
 				_sink(_width, _height, std::span<const u32>(_pixels));
