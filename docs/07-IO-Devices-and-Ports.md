@@ -120,6 +120,19 @@ machine forever, since nothing could ever wake it back up.
 | `0x04` | `ClockRegister` | Read | Wall-clock seconds since the Unix epoch. **This is the one value in the entire VM that is not deterministic** — everything else (including the tick count) behaves identically on every run. |
 | `0x08` | `CommandRegister` | Write | Arms or disarms the timer. |
 | `0x0C` | `MillisRegister` | Read | Milliseconds since the machine started, from the host's steady clock (wraps after 49 days). Like `ClockRegister`, **not deterministic**: the debugger records and replays it. |
+| `0x10` | `NanosLowRegister` | Read | The low word of the **nanoseconds** since the machine started, from the host's steady clock. Reading it also **latches** the high word. Not deterministic; recorded and replayed. |
+| `0x14` | `NanosHighRegister` | Read | The high word latched by the last read of `NanosLowRegister` (`0` before the first). Reading it does not look at the clock. |
+| `0x18` | `NanosResolutionRegister` | Read | The smallest step, in nanoseconds, that the host clock is seen to take between two reads. |
+
+The nanosecond count is 64 bits, so it takes two reads: **low first, then high**. The low read
+takes the instant and keeps its high half, so the pair is one moment however much time passes
+between the reads - reading the high word first, or after another low read, gives a different
+moment. A 32-bit count of nanoseconds would wrap every 4.29 seconds; the 64-bit one lasts 584 years.
+
+Resolution is what a program can rely on to tell apart, not what the register can express. The
+usual Windows clock advances in steps of 100 ns, so two reads a few instructions apart often return
+the same count; a clock that reads every nanosecond reports about what one read costs. The debugger
+records both words of a read at the tick it happened and serves them back on a replay.
 
 Writing to the command register:
 

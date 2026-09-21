@@ -441,6 +441,106 @@ TEST(device_extras, the_millisecond_clock_can_be_replaced_for_a_replay)
 	CHECK(timer.readUnsignedWord(TimerDevice::MillisRegister) != 1234u);
 }
 
+// --- A nanosecond clock ------------------------------------------------------------------------
+
+namespace
+{
+	// Reads the pair the way a program does: the low word first, which latches the high word.
+	u64 readNanos(TimerDevice& timer)
+	{
+		const u32 low = timer.readUnsignedWord(TimerDevice::NanosLowRegister);
+		const u32 high = timer.readUnsignedWord(TimerDevice::NanosHighRegister);
+		return (static_cast<u64>(high) << 32) | low;
+	}
+}
+
+TEST(device_extras, the_nanosecond_pair_counts_from_the_start_and_never_goes_backwards)
+{
+	TimerDevice timer{};
+	u64 last = readNanos(timer);
+	CHECK(last < 4000000000ull); // Under four seconds after the timer was made, so the high word is still 0
+
+	for (int i = 0; i < 1000; ++i)
+	{
+		const u64 now = readNanos(timer);
+		CHECK(now >= last);
+		last = now;
+	}
+}
+
+TEST(device_extras, the_high_word_stays_with_the_low_word_it_was_latched_by)
+{
+	// A clock that has moved past a carry between the two reads: the high word read now must still
+	// be the one that went with the low word, or the pair is 4.29 seconds out.
+	u64 now = 0x00000001FFFFFFF0ull;
+	TimerDevice timer{};
+	timer.setNanosSource([&now] { return now; });
+
+	const u32 low = timer.readUnsignedWord(TimerDevice::NanosLowRegister);
+	now = 0x0000000200000010ull; // The next instant carries into the high word
+	const u32 high = timer.readUnsignedWord(TimerDevice::NanosHighRegister);
+
+	CHECK_EQ(low, 0xFFFFFFF0u);
+	CHECK_EQ(high, 1u);
+
+	// The next low read latches the new instant.
+	const u32 nextLow = timer.readUnsignedWord(TimerDevice::NanosLowRegister);
+	const u32 nextHigh = timer.readUnsignedWord(TimerDevice::NanosHighRegister);
+	CHECK_EQ(nextLow, 0x10u);
+	CHECK_EQ(nextHigh, 2u);
+}
+
+TEST(device_extras, reading_the_high_word_alone_does_not_look_at_the_clock)
+{
+	int asked = 0;
+	TimerDevice timer{};
+	timer.setNanosSource([&asked] { ++asked; return u64{ 7 }; });
+
+	CHECK_EQ(timer.readUnsignedWord(TimerDevice::NanosHighRegister), 0u); // Nothing latched yet
+	CHECK_EQ(asked, 0);
+
+	timer.readUnsignedWord(TimerDevice::NanosLowRegister);
+	CHECK_EQ(asked, 1);
+	timer.readUnsignedWord(TimerDevice::NanosHighRegister);
+	CHECK_EQ(asked, 1);
+}
+
+TEST(device_extras, a_snapshot_of_the_timer_keeps_the_latched_high_word)
+{
+	// Read the low word, snapshot, and read the high word from another timer: the debugger does
+	// exactly this when it puts a machine back between the two reads of a pair.
+	TimerDevice timer{};
+	timer.setNanosSource([] { return 0x0000000500000009ull; });
+	timer.readUnsignedWord(TimerDevice::NanosLowRegister);
+	const auto state = timer.captureState();
+
+	TimerDevice other{};
+	other.restoreState(state);
+	CHECK_EQ(other.readUnsignedWord(TimerDevice::NanosHighRegister), 5u);
+}
+
+TEST(device_extras, the_resolution_is_a_real_step_of_the_host_clock)
+{
+	TimerDevice timer{};
+	const u32 resolution = timer.readUnsignedWord(TimerDevice::NanosResolutionRegister);
+	CHECK(resolution >= 1u);
+	CHECK(resolution <= 1000000u); // A clock coarser than a millisecond would not be worth a nanosecond register
+	CHECK_EQ(timer.readUnsignedWord(TimerDevice::NanosResolutionRegister), resolution); // Measured once
+
+	timer.setNanosResolution(100);
+	CHECK_EQ(timer.readUnsignedWord(TimerDevice::NanosResolutionRegister), 100u);
+}
+
+TEST(device_extras, writing_to_the_nanosecond_registers_changes_nothing)
+{
+	TimerDevice timer{};
+	timer.writeWord(TimerDevice::NanosLowRegister, 5);
+	timer.writeWord(TimerDevice::NanosHighRegister, 5);
+	timer.writeWord(TimerDevice::NanosResolutionRegister, 5);
+	CHECK(!timer.isArmed());
+	CHECK(readNanos(timer) < 4000000000ull);
+}
+
 // --- Colour in the text grid -------------------------------------------------------------------
 
 TEST(device_extras, a_grid_without_colour_is_shown_as_plain_text)

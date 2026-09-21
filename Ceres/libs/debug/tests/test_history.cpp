@@ -116,6 +116,60 @@ namespace
 	}
 }
 
+// Reads the nanosecond clock in a loop, keeping what it read in memory and in a running sum, so a
+// replay that read the clock afresh instead of from the recording would land on a different machine.
+constexpr std::string_view ClockReader =
+	"@data\r\n"
+	"    let low: u32 = 0\r\n"
+	"    let high: u32 = 0\r\n"
+	"    let sum: u32 = 0\r\n"
+	"@text\r\n"
+	"global main:\r\n"
+	"    la r10, 0xFF010000\r\n"
+	"    li r3, 0\r\n"
+	"    li r6, 0\r\n"
+	".loop:\r\n"
+	"    ldr r4, [r10 + 0x10]\r\n"
+	"    ldr r5, [r10 + 0x14]\r\n"
+	"    add r6, r6, r4\r\n"
+	"    stv low, r4\r\n"
+	"    stv high, r5\r\n"
+	"    stv sum, r6\r\n"
+	"    add r3, r3, 1\r\n"
+	"    cmp r3, 3000\r\n"
+	"    jnz .loop\r\n"
+	"    li r0, 1\r\n"
+	"    la r13, 0xFFFF0000\r\n"
+	"    strb [r13 + 0], r0\r\n"
+	"    ret\r\n";
+
+TEST(history, the_nanosecond_clock_reads_the_same_on_the_way_through_again)
+{
+	TempSource source{ ClockReader, "nanos" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+
+	session->start();
+	session->resume(5077);
+
+	// The moment the clock was first read over: the machine as it was then, live.
+	const u64 moment = session->currentTick();
+	const Fingerprint first = fingerprint(*session);
+	CHECK(first.registers[6] != 0); // It read something
+
+	session->resume(4000);
+	CHECK(session->currentTick() > moment);
+	CHECK(!(fingerprint(*session) == first));
+
+	// Back to that moment by re-executing from a snapshot: the clock has moved on by now, so only
+	// a read served from the recording lands on the same registers and memory.
+	const debug::StopEvent back = session->runToTick(moment);
+	CHECK(back.reason == debug::StopReason::Step);
+	CHECK_EQ(session->currentTick(), moment);
+	CHECK(fingerprint(*session) == first);
+}
+
 TEST(history, going_back_and_forward_again_restores_the_machine_byte_for_byte)
 {
 	TempSource source{ LongLoop, "roundtrip" };

@@ -361,6 +361,17 @@ namespace ceres::debug
 					std::chrono::steady_clock::now() - _millisEpoch).count());
 				return _history.clockValue(currentTick(), live);
 			});
+			// The nanosecond count is 64 bits, so it goes into the recording as two words at the same
+			// tick, and comes back out in the same order: the low word first, then the high one.
+			_timer->setNanosSource([this]() -> u64
+			{
+				const u64 live = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+					std::chrono::steady_clock::now() - _millisEpoch).count());
+				const u64 tick = currentTick();
+				const u32 low = _history.clockValue(tick, static_cast<u32>(live));
+				const u32 high = _history.clockValue(tick, static_cast<u32>(live >> 32));
+				return (static_cast<u64>(high) << 32) | low;
+			});
 		}
 
 		if (_config.stopOnEntry)

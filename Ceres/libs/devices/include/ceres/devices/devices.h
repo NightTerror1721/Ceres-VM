@@ -169,6 +169,9 @@ namespace ceres::devices
 		static inline constexpr Address ClockRegister = Address(0x04);   // Read: seconds since the epoch
 		static inline constexpr Address CommandRegister = Address(0x08); // Write: fire after N ticks, 0 disarms
 		static inline constexpr Address MillisRegister = Address(0x0C);  // Read: milliseconds since the machine started (wraps every 49 days)
+		static inline constexpr Address NanosLowRegister = Address(0x10);  // Read: the low word of the nanoseconds since the machine started; also latches the high word
+		static inline constexpr Address NanosHighRegister = Address(0x14); // Read: the high word latched by the last read of NanosLowRegister
+		static inline constexpr Address NanosResolutionRegister = Address(0x18); // Read: the smallest step the nanosecond clock is seen to take, in nanoseconds
 
 		// Which interrupt the timer requests when it expires. The first user interrupt, so it needs
 		// STI to be delivered and cannot surprise a program that never asked for it.
@@ -183,12 +186,16 @@ namespace ceres::devices
 			u64 remaining = 0;
 			bool periodic = false;
 			u64 period = 0;
+			u32 nanosHigh = 0;   // the half of the nanosecond count that the last low read latched
 		};
 
 		// Where the real-time clock register gets its answer. The default is the host's wall clock,
 		// which is the one thing in this machine that is not deterministic - so a debugger that
 		// replays execution replaces it with a recording.
 		using ClockSource = std::function<u32()>;
+
+		// The same for the nanosecond counter, which does not fit a word: the whole 64-bit count.
+		using NanosSource = std::function<u64()>;
 
 	private:
 		u64 _ticks = 0;
@@ -197,6 +204,9 @@ namespace ceres::devices
 		u64 _period = 0;
 		ClockSource _clockSource;
 		ClockSource _millisSource;
+		NanosSource _nanosSource;
+		u32 _nanosHigh = 0;                 // latched by a read of the low word, so the pair is one instant
+		u32 _nanosResolution = 0;           // measured on first use, 0 until then
 		std::chrono::steady_clock::time_point _started = std::chrono::steady_clock::now();
 
 	public:
@@ -230,7 +240,7 @@ namespace ceres::devices
 			_period = ticksFromNow;
 		}
 
-		State captureState() const noexcept { return State{ _ticks, _remaining, _periodic, _period }; }
+		State captureState() const noexcept { return State{ _ticks, _remaining, _periodic, _period, _nanosHigh }; }
 
 		void restoreState(const State& state) noexcept
 		{
@@ -238,6 +248,7 @@ namespace ceres::devices
 			_remaining = state.remaining;
 			_periodic = state.periodic;
 			_period = state.period;
+			_nanosHigh = state.nanosHigh;
 		}
 
 		void setClockSource(ClockSource source) { _clockSource = std::move(source); }
@@ -247,6 +258,40 @@ namespace ceres::devices
 		// as the seconds register, and a debugger replaces it in the same way.
 		void setMillisSource(ClockSource source) { _millisSource = std::move(source); }
 		void clearMillisSource() { _millisSource = nullptr; }
+
+		// The nanosecond counter is a 64-bit count of the host's steady clock since the machine started.
+		// It is read in two halves: reading the low word latches the high word, so the two reads give
+		// one instant however much time passes between them. A debugger replaces the source with a
+		// recording, as it does for the others.
+		void setNanosSource(NanosSource source) { _nanosSource = std::move(source); }
+		void clearNanosSource() { _nanosSource = nullptr; }
+
+		// What NanosResolutionRegister answers. Left to itself the device looks at how far apart two
+		// reads of the host clock ever are; a test or a debugger that fakes the clock says what it fakes.
+		void setNanosResolution(u32 nanoseconds) noexcept { _nanosResolution = nanoseconds; }
+
+	private:
+		// The smallest step the host clock is seen to take between two reads, in nanoseconds. A clock
+		// that advances in 100 ns steps (the usual one on Windows) shows a run of equal readings and
+		// then a jump of 100; one that reads every nanosecond shows whatever a read costs. Either way
+		// this is what a program can rely on as the least it can tell apart. Never 0.
+		static u32 measureNanosResolution() noexcept
+		{
+			using Clock = std::chrono::steady_clock;
+			u64 least = ~u64{ 0 };
+			auto last = Clock::now();
+			for (int i = 0; i < 20000; ++i)
+			{
+				const auto now = Clock::now();
+				const u64 step = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(now - last).count());
+				if (step != 0 && step < least)
+					least = step;
+				last = now;
+			}
+			if (least == ~u64{ 0 })
+				return 1000000;   // it never moved: nothing better than a millisecond can be claimed
+			return least > 0xFFFFFFFFu ? 0xFFFFFFFFu : static_cast<u32>(least);
+		}
 
 	public:
 		// The one device every program that arms it relies on advancing every instruction, whether
@@ -288,6 +333,26 @@ namespace ceres::devices
 					return _millisSource();
 				return static_cast<u32>(std::chrono::duration_cast<std::chrono::milliseconds>(
 					std::chrono::steady_clock::now() - _started).count());
+			}
+
+			if (offset == NanosLowRegister)
+			{
+				const u64 now = _nanosSource
+					? _nanosSource()
+					: static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+						std::chrono::steady_clock::now() - _started).count());
+				_nanosHigh = static_cast<u32>(now >> 32);
+				return static_cast<u32>(now);
+			}
+
+			if (offset == NanosHighRegister)
+				return _nanosHigh;
+
+			if (offset == NanosResolutionRegister)
+			{
+				if (_nanosResolution == 0)
+					_nanosResolution = measureNanosResolution();
+				return _nanosResolution;
 			}
 
 			return 0xFFFFFFFF;
