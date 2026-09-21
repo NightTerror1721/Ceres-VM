@@ -10,6 +10,9 @@
 #include <ceres/devices/storage_devices.h>
 #include <ceres/devices/audio_device.h>
 
+#include <filesystem>
+#include <functional>
+
 namespace ceres::driver
 {
 	using namespace devices;
@@ -44,6 +47,11 @@ namespace ceres::driver
 
 		// The machine is done with the audio device: stop making sound and never touch it again.
 		virtual void detachAudio() {}
+
+		// A file was dropped on the host's window: plug it in. The machine installs the handler before it runs and
+		// removes it (an empty function) when it is done, and the host calls it from pump(), on the machine's own
+		// thread, so a host without a window to drop on never calls it.
+		virtual void setFileDropHandler(std::function<void(const std::filesystem::path&)>) {}
 
 		// How many instructions to execute between pump/present calls. A windowed host runs a few
 		// thousand per frame; a headless one can simply run to completion without ever calling this.

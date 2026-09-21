@@ -11,6 +11,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace ceres::driver
 {
@@ -26,6 +27,14 @@ namespace ceres::driver
 	{
 		usize memorySize = vm::Memory::DefaultSize;
 		std::filesystem::path diskImage;
+		// Media already plugged into the peripheral ports when the machine starts: {port, file, cartridge}.
+		struct Port
+		{
+			unsigned port = 0;
+			std::filesystem::path path;
+			bool cartridge = false;
+		};
+		std::vector<Port> ports;
 	};
 
 	class Machine
@@ -52,6 +61,13 @@ namespace ceres::driver
 		void pushText(std::string_view utf8);
 		void pushMouse(i32 dx, i32 dy, u8 buttons = 0, i8 wheel = 0);
 		u64 droppedInputBytes() const noexcept;
+
+		// Plugs a host file into a peripheral port while the machine runs, or pulls it out again; the program is told
+		// by an event and an interrupt. A cartridge is read only and has to exist. False, with `error` saying why,
+		// when the port does not exist, is taken, or the file will not open.
+		bool attachPeripheral(unsigned port, const std::filesystem::path& path, bool cartridge, std::string* error = nullptr);
+		bool detachPeripheral(unsigned port);
+		std::string describePeripheral(unsigned port) const;
 
 	private:
 		class Impl;

@@ -16,6 +16,7 @@
 #include <ceres/devices/input_devices.h>
 #include <ceres/devices/display_device.h>
 #include <ceres/devices/audio_device.h>
+#include <ceres/devices/peripheral_device.h>
 #include <ceres/core/format/program.h>
 #include <ceres/core/format/debug_info.h>
 #include <atomic>
@@ -224,6 +225,7 @@ namespace ceres::debug
 		std::unique_ptr<DisplayDevice> _display;
 		std::unique_ptr<GamepadDevice> _gamepad;
 		std::unique_ptr<AudioDevice> _audio;
+		std::unique_ptr<PeripheralDevice> _peripherals;
 		// What the millisecond register counts from, so a fresh session starts at zero.
 		std::chrono::steady_clock::time_point _millisEpoch = std::chrono::steady_clock::now();
 
@@ -373,6 +375,13 @@ namespace ceres::debug
 		void setOutputHandler(OutputHandler handler);
 		void setLogHandler(LogHandler handler) { _logHandler = std::move(handler); }
 		void pushInput(std::string_view text);
+
+		// Media in the peripheral ports, plugged in and pulled out while the program is stopped or running. A restart
+		// gives the program a fresh machine, and the ports are empty again. Recording does not include them: stepping
+		// back over a connection leaves the medium as it is.
+		bool attachPeripheral(u32 port, const std::filesystem::path& path, bool cartridge, std::string* error = nullptr);
+		bool detachPeripheral(u32 port);
+		std::string describePeripheral(u32 port) const;
 		void pushKey(u32 code, bool pressed = true);
 		void pushMouse(i32 dx, i32 dy, u8 buttons = 0, i8 wheel = 0);
 

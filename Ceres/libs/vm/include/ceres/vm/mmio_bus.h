@@ -284,7 +284,8 @@ namespace ceres::vm
 		static inline constexpr Address Display = MmioBus::slot(7);
 		static inline constexpr Address Gamepad = MmioBus::slot(8);
 		static inline constexpr Address Audio = MmioBus::slot(9);
-		// Slots 10-254 reserved for future default devices.
+		static inline constexpr Address Peripherals = MmioBus::slot(10);
+		// Slots 11-254 reserved for future default devices.
 		static inline constexpr Address SystemControl = MmioBus::slot(255);
 	}
 }

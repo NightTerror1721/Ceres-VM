@@ -7,6 +7,7 @@
 #include <ceres/devices/input_devices.h>
 #include <ceres/devices/display_device.h>
 #include <ceres/devices/audio_device.h>
+#include <ceres/devices/peripheral_device.h>
 #include <ceres/vm/ceresvm.h>
 
 #include <atomic>
@@ -38,6 +39,7 @@ namespace ceres::driver
 		DisplayDevice display;
 		GamepadDevice gamepad;
 		AudioDevice audio;
+		PeripheralDevice peripherals;
 		std::string startupError;
 
 		Impl(const MachineConfig& config, const MachineHost& host) :
@@ -63,6 +65,7 @@ namespace ceres::driver
 			display.attachTo(vm.io());
 			gamepad.attachTo(vm.io());
 			audio.attachTo(vm.io());
+			peripherals.attachTo(vm.io());
 
 			if (host.terminalOutput)
 				terminal.setOutputSink([sink = host.terminalOutput](u8 byte)
@@ -73,6 +76,12 @@ namespace ceres::driver
 				framebuffer.setPresentSink(std::move(host.framePresented));
 			if (!config.diskImage.empty() && !disk.open(config.diskImage))
 				startupError = "Failed to open disk image: " + config.diskImage.string();
+			for (const MachineConfig::Port& port : config.ports)
+			{
+				std::string error;
+				if (!peripherals.attachFile(port.port, port.path, port.cartridge ? PeripheralDevice::Kind::Cartridge : PeripheralDevice::Kind::Storage, &error))
+					startupError = "Failed to plug in " + port.path.string() + ": " + error;
+			}
 		}
 
 		~Impl()
@@ -87,6 +96,7 @@ namespace ceres::driver
 			display.detachFrom(vm.io());
 			gamepad.detachFrom(vm.io());
 			audio.detachFrom(vm.io());
+			peripherals.detachFrom(vm.io());
 			control.detachFrom(vm.io());
 		}
 	};
@@ -120,6 +130,14 @@ namespace ceres::driver
 	void Machine::pushText(std::string_view utf8) { _impl->keyboard.pushText(utf8); }
 	void Machine::pushMouse(i32 dx, i32 dy, u8 buttons, i8 wheel) { _impl->mouse.pushMotion(dx, dy, buttons, wheel); }
 	u64 Machine::droppedInputBytes() const noexcept { return _impl->terminal.droppedInputBytes(); }
+
+	bool Machine::attachPeripheral(unsigned port, const std::filesystem::path& path, bool cartridge, std::string* error)
+	{
+		return _impl->peripherals.attachFile(port, path, cartridge ? PeripheralDevice::Kind::Cartridge : PeripheralDevice::Kind::Storage, error);
+	}
+
+	bool Machine::detachPeripheral(unsigned port) { return _impl->peripherals.detach(port); }
+	std::string Machine::describePeripheral(unsigned port) const { return _impl->peripherals.describe(port); }
 
 	namespace
 	{
@@ -156,7 +174,7 @@ namespace ceres::driver
 	}
 
 	int runMachine(const Program& program, usize memorySize, const DebugInfo* profileInfo,
-		const std::filesystem::path& diskImage, HostServices services, HostBackend* backend)
+		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, HostServices services, HostBackend* backend)
 	{
 		CeresVM vm{memorySize};
 		SystemControlDevice control{[&vm] { vm.shutdown(); }, [&vm] { vm.shutdown(); }};
@@ -176,6 +194,7 @@ namespace ceres::driver
 		DisplayDevice display;
 		GamepadDevice gamepad;
 		AudioDevice audio;
+		PeripheralDevice peripherals;
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		framebuffer.setWindowHost(backend != nullptr && backend->showsText());
@@ -201,6 +220,16 @@ namespace ceres::driver
 		}
 		disk.attachTo(vm.io());
 		framebuffer.attachTo(vm.io());
+		peripherals.attachTo(vm.io());
+		for (const PortAttachment& port : ports)
+		{
+			std::string error;
+			if (!peripherals.attachFile(port.port, port.path, port.cartridge ? PeripheralDevice::Kind::Cartridge : PeripheralDevice::Kind::Storage, &error))
+			{
+				*services.diagnostics << "Failed to plug in " << port.path.string() << ": " << error << '\n';
+				return 1;
+			}
+		}
 
 		// Raised when the machine is done, so a reader parked on a full ring stops waiting for a
 		// program that will never read it.
@@ -220,6 +249,23 @@ namespace ceres::driver
 		} audioHost{backend};
 		if (backend)
 			backend->attachAudio(audio);
+
+		// A file dropped on the window is plugged into the first free port: a cartridge when it is called *.cart,
+		// a storage stick otherwise. Removed again before the device goes away.
+		struct DropHandler
+		{
+			HostBackend* backend;
+			~DropHandler() { if (backend) backend->setFileDropHandler({}); }
+		} dropHandler{backend};
+		if (backend)
+			backend->setFileDropHandler([&peripherals, diagnostics = services.diagnostics](const std::filesystem::path& path)
+			{
+				const bool cartridge = path.extension() == ".cart";
+				std::string error;
+				const int port = peripherals.attachToFreePort(path, cartridge ? PeripheralDevice::Kind::Cartridge : PeripheralDevice::Kind::Storage, &error);
+				if (port < 0)
+					*diagnostics << "Could not plug in " << path.string() << ": " << error << '\n';
+			});
 
 		// When standard input is a console, it can give the program more than lines. The program asks through
 		// the terminal's ModeRegister for keys as they are pressed; a window already has them.

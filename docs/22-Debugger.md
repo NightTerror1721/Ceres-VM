@@ -53,6 +53,9 @@ does. `DebugCLI` is one front end over it; the editor integration is another.
 | `p <expr>` | Evaluate an expression |
 | `set <reg> <value>` | Write a register |
 | `input <text>` | Feed a line to the program's terminal input |
+| `attach <n> <file> [cart]` | Plug a file into peripheral port `n` (a cartridge is read only) |
+| `detach <n>` | Pull the medium out of port `n` |
+| `ports` | What each peripheral port holds |
 | `q` | Quit |
 
 ## A session

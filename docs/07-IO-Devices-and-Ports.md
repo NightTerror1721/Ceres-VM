@@ -33,7 +33,8 @@ collide.
 | `0xFF070000` | 7 | Display (pixel framebuffer) |
 | `0xFF080000` | 8 | Gamepad |
 | `0xFF090000` | 9 | Audio (tone generator) |
-| `0xFF0A0000`–`0xFFFE0000` | 10–254 | Reserved for future default devices |
+| `0xFF0A0000` | 10 | Peripheral ports (plug-in media) |
+| `0xFF0B0000`–`0xFFFE0000` | 11–254 | Reserved for future default devices |
 | `0xFFFF0000` | 255 | System control |
 
 Every slot is `MmioBus::SlotSize` (0x10000 = 64 KiB) wide, computed as `MmioBus::slot(index)` —
@@ -520,6 +521,43 @@ str  [r13 + 8], r1     // 200 ms
 li   r1, 1
 str  [r13 + 0x14], r1  // play
 ```
+
+### `PeripheralDevice` (`0xFF0A0000`)
+
+Things plugged in while the machine runs: four ports where the host connects and disconnects media - a memory
+stick, a game cartridge - and the program is told when it happens. The disk in slot 2 stays the machine's own
+internal drive, fixed for the run; this is the other thing, what a person plugs in. A port is empty, holds a
+**storage** medium (512-byte sectors that can be read and written, like the disk) or a **cartridge** (sectors that can
+only be read). Raises `UserInterrupt7` (23) for every connection or disconnection.
+
+| Offset | Register | Direction | Meaning |
+| --- | --- | --- | --- |
+| `0x00` | `StatusRegister` | Read | Bit 0 an event is pending; bit 1 the last operation went through; bit 2 it did not. |
+| `0x04` | `PortCountRegister` | Read | How many ports there are (4). |
+| `0x08` | `PortSelectRegister` | Read/write | The port the registers from `0x20` on are about. A port that does not exist sets the error bit and leaves the selection alone. |
+| `0x0C` | `EventRegister` | Read | Takes the next event off the queue: bit 31 set, bits 15:8 `1` connected or `2` disconnected, bits 7:0 the port. `0` when there is none. |
+| `0x10` | `CommandRegister` | Write | `1` ejects the selected port's medium (as if pulled out: the file is written back and an event queued); `2` writes the medium's changes back to its file. |
+| `0x20` | `PortStatusRegister` | Read | Bit 0 something is plugged in; bit 1 it is write protected; bit 3 the last operation failed. |
+| `0x24` | `PortTypeRegister` | Read | `0` nothing, `1` storage, `2` cartridge. |
+| `0x28` | `PortIdRegister` | Read | An identifier of the medium: the same file gives the same one every time, 0 when the port is empty. |
+| `0x2C` | `PortSectorsRegister` | Read | How many sectors the medium has. |
+| `0x30` | `SectorRegister` | Read/write | The sector a transfer is about. |
+| `0xF0`/`0xF4`/`0xF8` | `BlockAddress`/`BlockLength`/`BlockCommand` | Write | As on the disk: `1` copies `BlockLength` bytes of the sector to RAM at `BlockAddress`, `2` copies them from RAM into the sector. |
+
+A transfer fails (error bit set, nothing moved) for an empty port, a sector past the end, a length of more than a
+sector, or a write to a cartridge or to a stick the host has write protected. One that runs off the end of RAM is
+clamped, as on the disk. Connecting to a port that already holds a medium is refused by the host side; it is not
+replaced.
+
+**The host's side.** `ceres run prog.cres --port 0=stick.img --cart 1=game.cart` plugs files in before the program
+starts (a stick's file is created with 64 sectors if it is not there; a cartridge has to exist). Events for them are
+already queued when the program starts, so a program that polls sees them; the interrupt itself needs `sti`, as for
+every user interrupt. In a window, a file dropped on it is plugged into the first free port - a cartridge if it ends
+in `.cart`, a stick otherwise. `Machine::attachPeripheral` / `detachPeripheral` do the same for an embedding host, and the
+debugger has `attach`, `detach` and `ports`. A stick's changes reach its file when it is pulled out, ejected, flushed,
+or the machine ends.
+
+The debugger's time travel does not record connections: stepping back over one leaves the medium as it is.
 
 ## Related pages
 

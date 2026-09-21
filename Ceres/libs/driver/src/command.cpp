@@ -15,6 +15,7 @@ namespace ceres::driver
 			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
 			"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>] [--window | --terminal]\n"
+			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
 			"  ceres profile <file.casm|file.cres> [--memory <bytes>]\n"
 			"  ceres disasm <file.casm|file.cres> [--debug]\n"
 			"  ceres debug <file.casm|file.cres> [<source2.casm> ...] [--memory <bytes>]\n"
@@ -49,7 +50,8 @@ namespace ceres::driver
 			usize memorySize = vm::Memory::DefaultSize;
 			bool usedMemory = false;
 			std::filesystem::path disk;
-			bool usedDisk = false;
+			bool usedDisk = false;            // also set by --port and --cart: none of them belongs to any command but run
+			std::vector<PortAttachment> ports;
 			bool window = false;
 			bool usedWindow = false;
 			bool terminal = false;
@@ -112,6 +114,25 @@ namespace ceres::driver
 				auto value = nextValue(argument);
 				if (!value) return std::unexpected(value.error());
 				raw.disk = *value; raw.usedDisk = true;
+			}
+			else if (argument == "--port" || argument == "--cart")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				// <port>=<file>: the port is a number, and the file is everything after the first '='
+				const std::string_view text = *value;
+				const usize equals = text.find('=');
+				unsigned port = 0;
+				bool numeric = equals != std::string_view::npos && equals > 0 && equals <= 3;
+				for (usize i = 0; numeric && i < equals; ++i)
+				{
+					numeric = text[i] >= '0' && text[i] <= '9';
+					port = port * 10 + static_cast<unsigned>(text[i] - '0');
+				}
+				if (!numeric || equals + 1 >= text.size())
+					return std::unexpected(ParseError{ "'" + std::string(argument) + "' takes <port>=<file>, for example " + std::string(argument) + " 0=stick.img" });
+				raw.ports.push_back(PortAttachment{ port, std::string(text.substr(equals + 1)), argument == "--cart" });
+				raw.usedDisk = true;
 			}
 			else if (argument == "--window") { raw.window = true; raw.usedWindow = true; }
 			else if (argument == "--terminal") { raw.terminal = true; raw.usedTerminal = true; }
@@ -177,7 +198,7 @@ namespace ceres::driver
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (raw.window && raw.terminal)
 				return std::unexpected(ParseError{ "'--window' and '--terminal' are opposites: pick one" });
-			return RunCommand{ std::move(inputs.front()), raw.memorySize, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal };
+			return RunCommand{ std::move(inputs.front()), raw.memorySize, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal, std::move(raw.ports) };
 		}
 		if (command == "profile")
 		{

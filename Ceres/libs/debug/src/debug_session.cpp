@@ -176,6 +176,15 @@ namespace ceres::debug
 		return session;
 	}
 
+	bool DebugSession::attachPeripheral(u32 port, const std::filesystem::path& path, bool cartridge, std::string* error)
+	{
+		return _peripherals && _peripherals->attachFile(port, path, cartridge ? PeripheralDevice::Kind::Cartridge : PeripheralDevice::Kind::Storage, error);
+	}
+
+	bool DebugSession::detachPeripheral(u32 port) { return _peripherals && _peripherals->detach(port); }
+
+	std::string DebugSession::describePeripheral(u32 port) const { return _peripherals ? _peripherals->describe(port) : "no such port"; }
+
 	void DebugSession::attachDevices()
 	{
 		// Both control commands end the session: a program asking for a reset while under a
@@ -227,6 +236,8 @@ namespace ceres::debug
 		// tone generator sees the registers it expects.
 		_audio = std::make_unique<AudioDevice>();
 		_audio->attachTo(_vm->io());
+		_peripherals = std::make_unique<PeripheralDevice>();
+		_peripherals->attachTo(_vm->io());
 
 		setOutputHandler(_outputHandler); // Routes both the terminal and the screen
 

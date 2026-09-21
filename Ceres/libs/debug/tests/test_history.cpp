@@ -474,3 +474,32 @@ TEST(history, coverage_counts_every_word_and_reports_the_ones_never_reached)
 	if (first != entries.end())
 		CHECK_EQ(first->count, u64{ 1 });
 }
+
+TEST(peripherals, a_debugged_program_has_the_ports_and_the_debugger_can_plug_media_in)
+{
+	TempSource source{ LongLoop, "ports" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+
+	const auto stick = std::filesystem::temp_directory_path() / "ceres_debug_stick.img";
+	{
+		std::ofstream file(stick, std::ios::binary | std::ios::trunc);
+		file << std::string(1024, 'k');
+	}
+
+	CHECK_EQ(session->describePeripheral(0), std::string{ "empty" });
+	std::string error;
+	CHECK(session->attachPeripheral(0, stick, false, &error));
+	CHECK_EQ(session->describePeripheral(0), std::string{ "storage ceres_debug_stick.img (2 sectors)" });
+	CHECK(!session->attachPeripheral(0, stick, false, &error));    // taken
+	CHECK(!error.empty());
+	CHECK(session->attachPeripheral(1, stick, true, &error));      // the same file as a cartridge, on another port
+	CHECK_EQ(session->describePeripheral(1), std::string{ "cartridge ceres_debug_stick.img (2 sectors, write protected)" });
+	CHECK(session->detachPeripheral(0));
+	CHECK(!session->detachPeripheral(0));
+	CHECK(session->detachPeripheral(1));
+
+	std::error_code ignored;
+	std::filesystem::remove(stick, ignored);
+}

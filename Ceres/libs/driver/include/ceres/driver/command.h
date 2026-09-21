@@ -34,6 +34,14 @@ namespace ceres::driver
 		std::vector<std::filesystem::path> inputs;
 	};
 
+	// `--port 0=stick.img` and `--cart 1=game.cart`: a medium plugged into one of the peripheral ports before the program starts.
+	struct PortAttachment
+	{
+		unsigned port = 0;
+		std::filesystem::path path;
+		bool cartridge = false;   // read only, and has to exist
+	};
+
 	struct RunCommand
 	{
 		std::filesystem::path input;
@@ -43,6 +51,7 @@ namespace ceres::driver
 		bool debugInfo = false;
 		bool window = false;     // --window: open the window at once
 		bool terminal = false;   // --terminal: no window; the text framebuffer goes to the terminal
+		std::vector<PortAttachment> ports;
 	};
 
 	struct ProfileCommand

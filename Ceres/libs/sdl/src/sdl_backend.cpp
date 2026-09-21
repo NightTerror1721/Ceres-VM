@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -62,6 +63,7 @@ namespace ceres::sdl
 			bool _audioFailed = false;
 			std::mutex _audioMutex;
 			devices::AudioDevice* _audio = nullptr;
+			std::function<void(const std::filesystem::path&)> _dropHandler;
 			devices::AudioDevice::Tone _tone{};
 			bool _toneActive = false;
 			i64 _samplesLeft = -1; // -1: play until stopped
@@ -90,6 +92,8 @@ namespace ceres::sdl
 
 			bool showsText() const noexcept override { return true; }
 
+			void setFileDropHandler(std::function<void(const std::filesystem::path&)> handler) override { _dropHandler = std::move(handler); }
+
 			bool openWindow() override
 			{
 				// Asked for by name: the pixel display shows from the start, and the window is the size it always was.
@@ -109,6 +113,15 @@ namespace ceres::sdl
 					{
 						case SDL_EVENT_QUIT:
 							return false;
+
+						case SDL_EVENT_DROP_FILE:
+							// A file dropped on the window is a medium plugged in. The path is UTF-8.
+							if (_dropHandler && event.drop.data != nullptr)
+							{
+								const char* utf8 = event.drop.data;
+								_dropHandler(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(utf8), reinterpret_cast<const char8_t*>(utf8) + std::strlen(utf8))));
+							}
+							break;
 
 						case SDL_EVENT_KEY_DOWN:
 							// Ctrl+Q closes the machine, and the window's own close button does too. Escape is

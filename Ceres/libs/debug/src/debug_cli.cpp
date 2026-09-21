@@ -146,6 +146,9 @@ namespace ceres::debug
 			"  Changing things\n"
 			"    set <reg> <value>   write a register (r0-r15, f0-f15, sp, fp, at, pc)\n"
 			"    input <text>        feed a line to the program's terminal input\n"
+			"    attach <n> <file> [cart]  plug a file into peripheral port n (a cartridge is read only)\n"
+			"    detach <n>          pull the medium out of port n\n"
+			"    ports               what each peripheral port holds\n"
 			"\n"
 			"    q            quit\n";
 	}
@@ -980,6 +983,41 @@ namespace ceres::debug
 			text += '\n';
 			_session.pushInput(text);
 			std::cout << std::format("  Queued {} byte(s) of input.\n", text.size());
+			return true;
+		}
+
+		if (command == "attach")
+		{
+			const auto port = parseNumber(argument(1));
+			if (!port || argument(2).empty())
+			{
+				std::cout << "  Usage: attach <port> <file> [cart]\n";
+				return true;
+			}
+			std::string error;
+			if (_session.attachPeripheral(*port, std::string(argument(2)), argument(3) == "cart", &error))
+				std::cout << std::format("  Port {}: {}\n", *port, _session.describePeripheral(*port));
+			else
+				std::cout << "  Cannot plug it in: " << error << ".\n";
+			return true;
+		}
+
+		if (command == "detach")
+		{
+			const auto port = parseNumber(argument(1));
+			if (!port)
+				std::cout << "  Usage: detach <port>\n";
+			else if (_session.detachPeripheral(*port))
+				std::cout << std::format("  Port {} is empty now.\n", *port);
+			else
+				std::cout << std::format("  Nothing to pull out of port {}.\n", *port);
+			return true;
+		}
+
+		if (command == "ports")
+		{
+			for (u32 port = 0; port < PeripheralDevice::PortCount; ++port)
+				std::cout << std::format("  {}: {}\n", port, _session.describePeripheral(port));
 			return true;
 		}
 
