@@ -183,6 +183,10 @@ namespace ceres::debug
 		_systemControl = std::make_unique<SystemControlDevice>(
 			[this]() { _vm->shutdown(); },
 			[this]() { _vm->shutdown(); });
+		_systemControl->setFeaturesCallback([this](u32 features)
+		{
+			_vm->engine().setDivisionFaults((features & SystemControlDevice::FeatureDivisionFault) != 0);
+		});
 		_systemControl->attachTo(_vm->io());
 
 		_terminal = std::make_unique<TerminalDevice>();
@@ -219,6 +223,10 @@ namespace ceres::debug
 		_display->attachTo(_vm->io());
 		_gamepad = std::make_unique<GamepadDevice>();
 		_gamepad->attachTo(_vm->io());
+		// Silent, like the display: the debugger has no speakers, but a program that programs the
+		// tone generator sees the registers it expects.
+		_audio = std::make_unique<AudioDevice>();
+		_audio->attachTo(_vm->io());
 
 		setOutputHandler(_outputHandler); // Routes both the terminal and the screen
 
@@ -343,6 +351,14 @@ namespace ceres::debug
 			{
 				const u32 live = static_cast<u32>(std::chrono::duration_cast<std::chrono::seconds>(
 					std::chrono::system_clock::now().time_since_epoch()).count());
+				return _history.clockValue(currentTick(), live);
+			});
+			// The millisecond counter is just as non-deterministic, and is recorded the same way:
+			// one instruction reads one register, so a tick never holds two values.
+			_timer->setMillisSource([this]() -> u32
+			{
+				const u32 live = static_cast<u32>(std::chrono::duration_cast<std::chrono::milliseconds>(
+					std::chrono::steady_clock::now() - _millisEpoch).count());
 				return _history.clockValue(currentTick(), live);
 			});
 		}

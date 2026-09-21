@@ -11,6 +11,7 @@
 #include <atomic>
 #include <mutex>
 #include <span>
+#include <string_view>
 
 namespace ceres::devices
 {
@@ -25,6 +26,7 @@ namespace ceres::devices
 	public:
 		static inline constexpr Address StatusRegister = Address(0x00); // Read-only: bit 0 = an event is available.
 		static inline constexpr Address EventRegister = Address(0x04); // Read-only: pops one event; bits 30:0 = code, bit 31 = 1 if pressed, 0 if released.
+		static inline constexpr Address TextRegister = Address(0x08); // Read-only: pops one typed character as a Unicode code point; 0 when empty.
 		static inline constexpr Address BlockReadCountRegister = Address(0x10); // Read-only: events drained by the last block read.
 
 		// The same block trio the terminal and the disk use: drain the event queue into RAM as a
@@ -36,6 +38,7 @@ namespace ceres::devices
 		static inline constexpr u32 BlockCommandRead = 1;
 
 		static inline constexpr u32 StatusDataReady = 1u << 0;
+		static inline constexpr u32 StatusTextReady = 1u << 1;    // A typed character is waiting in the text queue.
 		static inline constexpr u32 EventPressed = 1u << 31;      // Set when the key was pressed, clear when released.
 		static inline constexpr u32 EventCodeMask = 0x7FFFFFFFu;  // The key code lives in the low 31 bits.
 
@@ -50,6 +53,12 @@ namespace ceres::devices
 		std::atomic<usize> _head{0};
 		std::atomic<usize> _tail{0};
 		std::atomic<u64> _droppedEvents{0};
+		// Typed characters, kept apart from the key events: the events say which physical key moved,
+		// the text says what the layout made of it - capitals, accents, dead keys, IME input - which
+		// a program cannot rebuild from the scan codes.
+		std::array<u32, EventBufferCapacity> _text{};
+		usize _textHead = 0;
+		usize _textTail = 0;
 		mutable std::mutex _mutex;
 		u32 _blockAddress = 0;
 		u32 _blockLength = 0;
@@ -96,7 +105,63 @@ namespace ceres::devices
 			raiseInterrupt(Interrupt);
 		}
 
+		// A typed character, as the Unicode code point the host's layout produced. It raises the
+		// keyboard's interrupt like a key event does, and a full queue drops it.
+		void pushText(u32 codePoint)
+		{
+			{
+				const std::lock_guard lock{_mutex};
+				const usize nextTail = (_textTail + 1) % EventBufferCapacity;
+				if (nextTail == _textHead)
+				{
+					_droppedEvents.fetch_add(1, std::memory_order_relaxed);
+					return;
+				}
+
+				_text[_textTail] = codePoint;
+				_textTail = nextTail;
+			}
+			raiseInterrupt(Interrupt);
+		}
+
+		// The same, for a host that hands over a UTF-8 string (SDL's text input event does). A
+		// malformed sequence is skipped a byte at a time rather than guessed at.
+		void pushText(std::string_view utf8)
+		{
+			for (usize i = 0; i < utf8.size();)
+			{
+				const u8 lead = static_cast<u8>(utf8[i]);
+				u32 length = 1;
+				u32 codePoint = lead;
+				if (lead >= 0xF0 && lead < 0xF8) { length = 4; codePoint = lead & 0x07u; }
+				else if (lead >= 0xE0) { length = 3; codePoint = lead & 0x0Fu; }
+				else if (lead >= 0xC0) { length = 2; codePoint = lead & 0x1Fu; }
+				else if (lead >= 0x80) { ++i; continue; }
+
+				if (length > 1)
+				{
+					bool valid = i + length <= utf8.size();
+					for (u32 k = 1; valid && k < length; ++k)
+					{
+						const u8 next = static_cast<u8>(utf8[i + k]);
+						valid = (next & 0xC0) == 0x80;
+						codePoint = (codePoint << 6) | (next & 0x3Fu);
+					}
+					if (!valid) { ++i; continue; }
+				}
+
+				pushText(codePoint);
+				i += length;
+			}
+		}
+
 		u64 droppedEvents() const noexcept { return _droppedEvents.load(std::memory_order_relaxed); }
+
+		usize availableText() const noexcept
+		{
+			const std::lock_guard lock{_mutex};
+			return (_textTail - _textHead + EventBufferCapacity) % EventBufferCapacity;
+		}
 
 		usize availableEvents() const noexcept
 		{
@@ -158,11 +223,20 @@ namespace ceres::devices
 		u32 readUnsignedWord(Address offset) override
 		{
 			if (offset == StatusRegister)
-				return availableEvents() > 0 ? StatusDataReady : 0;
+				return (availableEvents() > 0 ? StatusDataReady : 0) | (availableText() > 0 ? StatusTextReady : 0);
 			if (offset == EventRegister)
 			{
 				const std::lock_guard lock{_mutex};
 				return popEvent();
+			}
+			if (offset == TextRegister)
+			{
+				const std::lock_guard lock{_mutex};
+				if (_textHead == _textTail)
+					return 0;
+				const u32 codePoint = _text[_textHead];
+				_textHead = (_textHead + 1) % EventBufferCapacity;
+				return codePoint;
 			}
 			if (offset == BlockReadCountRegister)
 				return _blockReadCount;

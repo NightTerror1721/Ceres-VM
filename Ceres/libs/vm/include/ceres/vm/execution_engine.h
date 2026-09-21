@@ -59,6 +59,17 @@ namespace ceres::vm
 		u32 _interruptDepth = 0;
 		u32 _savedStackPointer = 0;
 
+		// STI takes effect one instruction late: the instruction right after it runs before any
+		// user interrupt can be delivered. That is what makes "sti; halt" a single indivisible
+		// step - an interrupt that arrives between the two used to be serviced before the halt ran,
+		// so the machine then slept with nothing left to wake it. Set by STI, spent by the next step().
+		bool _interruptShadow = false;
+
+		// Whether a division by zero raises the DivisionByZero interrupt. Off unless the program
+		// switches it on through the system control device, so a program written without it keeps
+		// the old behaviour: the Trap flag is set and the destination is left alone.
+		bool _divisionFaults = false;
+
 		// The loaded program's own text, which nothing a correct program does ever writes to. An
 		// empty range means no program is loaded and there is nothing to protect. A store into it
 		// used to simply take effect, so a lost pointer rewrote an instruction that had not run
@@ -165,6 +176,8 @@ namespace ceres::vm
 		}
 
 		void setFlags(FlagRegister flags) noexcept { _flags = flags; }
+		void setDivisionFaults(bool enabled) noexcept { _divisionFaults = enabled; }
+		constexpr bool divisionFaults() const noexcept { return _divisionFaults; }
 		void setProgramCounter(Address address) noexcept { _pc = address; }
 		// Only for restoring a snapshot: the machine's clock has to go back with the rest of it,
 		// or a restored timer would fire against a count that never rewound.
@@ -593,12 +606,26 @@ namespace ceres::vm
 			advancePC();
 		}
 
+		// What every division-shaped instruction does when the divisor is zero. The destination is
+		// left as it was either way. It advances first, like TRAP, so a handler that returns lands
+		// on the instruction after the division rather than repeating it forever.
+		forceinline void divisionByZero() noexcept
+		{
+			if (_divisionFaults)
+			{
+				advancePC();
+				triggerInterrupt(InterruptNumber::DivisionByZero);
+				return;
+			}
+			trap(true);
+			advancePC();
+		}
+
 		forceinline void executeSignedDiv(const u8 regDest, const i32 a, const i32 b) noexcept
 		{
 			if (b == 0)
 			{
-				trap(true);
-				advancePC();
+				divisionByZero();
 				return;
 			}
 
@@ -620,8 +647,7 @@ namespace ceres::vm
 		{
 			if (b == 0)
 			{
-				trap(true);
-				advancePC();
+				divisionByZero();
 				return;
 			}
 
@@ -640,8 +666,7 @@ namespace ceres::vm
 		{
 			if (b == 0.0f)
 			{
-				trap(true);
-				advancePC();
+				divisionByZero();
 				return;
 			}
 
@@ -664,8 +689,7 @@ namespace ceres::vm
 		{
 			if (b == 0.0f)
 			{
-				trap(true);
-				advancePC();
+				divisionByZero();
 				return;
 			}
 
@@ -685,8 +709,7 @@ namespace ceres::vm
 		{
 			if (b == 0)
 			{
-				trap(true);
-				advancePC();
+				divisionByZero();
 				return;
 			}
 
@@ -707,8 +730,7 @@ namespace ceres::vm
 		{
 			if (b == 0)
 			{
-				trap(true);
-				advancePC();
+				divisionByZero();
 				return;
 			}
 
@@ -927,7 +949,7 @@ namespace ceres::vm
 		// Without these the interrupt flag could never be set, so every user interrupt was
 		// unreachable: triggerInterrupt drops numbers >= 16 while the flag is clear.
 		forceinline void CLI(const Instruction inst) noexcept { _flags.clear<ExecutionFlag::Interrupt>(); advancePC(); }
-		forceinline void STI(const Instruction inst) noexcept { _flags.set<ExecutionFlag::Interrupt>(); advancePC(); }
+		forceinline void STI(const Instruction inst) noexcept { _flags.set<ExecutionFlag::Interrupt>(); _interruptShadow = true; advancePC(); }
 
 		// Memory Management Unit. See docs/27-Virtual-Memory-and-Paging.md.
 		forceinline void MTP(const Instruction inst) noexcept { _mmu.setPtbr(getReg(inst.rs())); advancePC(); }
@@ -1066,8 +1088,7 @@ namespace ceres::vm
 			const f32 value = getFloatReg(inst.fs());
 			if (value == 0.0f)
 			{
-				trap(true);
-				advancePC();
+				divisionByZero();
 				return;
 			}
 			setFloatReg(inst.fd(), 1.0f / value);
@@ -1078,8 +1099,7 @@ namespace ceres::vm
 			const f32 value = getFloatReg(inst.fs());
 			if (value == 0.0f)
 			{
-				trap(true);
-				advancePC();
+				divisionByZero();
 				return;
 			}
 			setFloatReg(inst.fd(), 1.0f / std::sqrt(value));

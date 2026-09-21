@@ -33,7 +33,7 @@ the rest), see [Pseudo-instructions](06-Pseudo-Instructions.md).
 | `int imm8` | `INT` (`0x04`) | `imm8`: interrupt number 0–255 | Advances the PC, then raises the given interrupt number (cast to `InterruptNumber`). | — |
 | `iret` | `IRET` (`0x05`) | none | Pops the saved PC and flags (pushed by the interrupt dispatcher, PC on top) and restores them, resuming exactly where the interrupt preempted execution. Does **not** advance the PC afterward — the popped value already points at the correct next instruction. | Fully restored from the stack (except Halting, see below) |
 | `cli` | `CLI` (`0x06`) | none | Clears the Interrupt flag, masking interrupts 16–63. | Interrupt = 0 |
-| `sti` | `STI` (`0x07`) | none | Sets the Interrupt flag, allowing interrupts 16–63 to be delivered. | Interrupt = 1 |
+| `sti` | `STI` (`0x07`) | none | Sets the Interrupt flag, allowing interrupts 16–63 to be delivered — from the instruction *after* the next one on, so `sti; halt` cannot lose a wake-up. | Interrupt = 1 |
 
 `iret` never restores the Halting bit even if it was set when the interrupt fired — see
 [Registers and flags](03-Registers-and-Flags.md#flags-register) for why.
@@ -85,7 +85,9 @@ repeating because they diverge from what most CPUs do: **the machine does not fa
 sets the Trap flag, advances the PC, and leaves the destination register at whatever it already
 held. Nothing currently reads the Trap flag automatically (see
 [Registers and flags](03-Registers-and-Flags.md)), so a division by zero is silently survivable
-unless the program itself checks for it beforehand.
+unless the program itself checks for it beforehand — or asks for the `DivisionByZero` interrupt, an
+opt-in switch on the [system control device](07-IO-Devices-and-Ports.md#systemcontroldevice-0xffff0000)
+(see [Interrupts and exceptions](08-Interrupts-and-Exceptions.md)).
 
 ## Logic and shifts · `0x30`–`0x3C`
 

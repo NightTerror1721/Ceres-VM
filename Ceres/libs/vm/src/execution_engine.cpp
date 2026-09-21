@@ -12,6 +12,7 @@ namespace ceres::vm
 		_registers.sp() = static_cast<Register::ValueType>(_memory.size() - Memory::SystemStackSize);
 		_interruptDepth = 0;
 		_savedStackPointer = 0;
+		_interruptShadow = false;
 		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
 		_mmu.reset(); // No program has had the chance to point PTBR at garbage yet; leave none behind either
 	}
@@ -99,10 +100,15 @@ namespace ceres::vm
 	{
 		// Pending requests are delivered before anything else, and this is what lets a device
 		// wake a halted machine: triggerInterrupt clears the halting flag.
+		// The instruction after an STI runs before user interrupts can be delivered (see
+		// _interruptShadow). The reserved ones are faults and traps, which no mask ever held back.
+		const bool shadowed = _interruptShadow;
+		_interruptShadow = false;
+
 		if (const auto pending = _interrupts.peek(); pending.has_value())
 		{
 			// A masked interrupt stays queued rather than being thrown away.
-			const bool deliverable = _flags.get<ExecutionFlag::Interrupt>() ||
+			const bool deliverable = (_flags.get<ExecutionFlag::Interrupt>() && !shadowed) ||
 				static_cast<u8>(pending.value()) < ReservedInterruptCount;
 
 			if (deliverable)

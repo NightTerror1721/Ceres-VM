@@ -15,9 +15,11 @@
 #include <ceres/devices/storage_devices.h>
 #include <ceres/devices/input_devices.h>
 #include <ceres/devices/display_device.h>
+#include <ceres/devices/audio_device.h>
 #include <ceres/core/format/program.h>
 #include <ceres/core/format/debug_info.h>
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <expected>
 #include <filesystem>
@@ -221,6 +223,9 @@ namespace ceres::debug
 		std::unique_ptr<MouseDevice> _mouse;
 		std::unique_ptr<DisplayDevice> _display;
 		std::unique_ptr<GamepadDevice> _gamepad;
+		std::unique_ptr<AudioDevice> _audio;
+		// What the millisecond register counts from, so a fresh session starts at zero.
+		std::chrono::steady_clock::time_point _millisEpoch = std::chrono::steady_clock::now();
 
 		std::vector<Breakpoint> _breakpoints;
 		std::vector<DataBreakpoint> _dataBreakpoints;

@@ -32,7 +32,8 @@ collide.
 | `0xFF060000` | 6 | Mouse |
 | `0xFF070000` | 7 | Display (pixel framebuffer) |
 | `0xFF080000` | 8 | Gamepad |
-| `0xFF090000`–`0xFFFE0000` | 9–254 | Reserved for future default devices |
+| `0xFF090000` | 9 | Audio (tone generator) |
+| `0xFF0A0000`–`0xFFFE0000` | 10–254 | Reserved for future default devices |
 | `0xFFFF0000` | 255 | System control |
 
 Every slot is `MmioBus::SlotSize` (0x10000 = 64 KiB) wide, computed as `MmioBus::slot(index)` —
@@ -68,16 +69,37 @@ address that points into the null page or the BIOS, or past the end of memory, m
 
 ## Devices implemented today
 
-### `SystemControlDevice` (`0xFFFF0000`, write-only)
+### `SystemControlDevice` (`0xFFFF0000`)
 
 The only way to stop the VM cleanly. There is no `exit`/`quit` instruction — a program terminates by
-writing a command byte to its one register:
+writing a command to its command register:
 
-| Value written | Effect |
+| Offset | Register | Direction | Meaning |
+| --- | --- | --- | --- |
+| `0x00` | `CommandRegister` | Write | The command in the low byte; for a shutdown, the exit status in the next byte. |
+| `0x04` | `MemorySizeRegister` | Read | How many bytes of RAM the machine has. |
+| `0x08` | `FeaturesRegister` | Read/write | Switches for behaviour that is off by default (below). |
+
+| Command (low byte) | Effect |
 | --- | --- |
 | `0x01` | Shuts the machine down (invokes the shutdown callback the host registered — `ceres run` uses this to stop its run loop). |
 | `0x02` | Resets the machine (invokes the reset callback). |
 | anything else | Ignored. |
+
+**Exit status.** A halfword or word write carries a status in bits 15:8 — `(status << 8) | 1` — and
+`ceres run` exits with it as the process status. A plain byte write, which is what every program
+written before this existed does, means status 0.
+
+```casm
+li  r0, 0x0701        // status 7, shut down
+la  r13, 0xFFFF0000
+str [r13 + 0], r0
+```
+
+**Features.** Reading `FeaturesRegister` returns what was last written (0 at reset). Bit 0,
+`FeatureDivisionFault`, makes a division or modulo by zero raise the `DivisionByZero` interrupt (4)
+instead of only setting the Trap flag — see [Interrupts and exceptions](08-Interrupts-and-Exceptions.md).
+Every other offset, and the command register itself, reads all-ones.
 
 ```casm
 li  r0, 0x01
@@ -85,7 +107,7 @@ la  r13, 0xFFFF0000
 strb [r13 + 0], r0    // halt the VM cleanly
 ```
 
-Reading from this register returns all-ones like any other write-only device would if read.
+Reading the command register returns all-ones like any other write-only register would.
 
 ### `TimerDevice` (`0xFF010000`)
 
@@ -97,6 +119,7 @@ machine forever, since nothing could ever wake it back up.
 | `0x00` | `TicksRegister` | Read | Number of instructions executed so far (a `u64` counter, truncated to 32 bits on read). |
 | `0x04` | `ClockRegister` | Read | Wall-clock seconds since the Unix epoch. **This is the one value in the entire VM that is not deterministic** — everything else (including the tick count) behaves identically on every run. |
 | `0x08` | `CommandRegister` | Write | Arms or disarms the timer. |
+| `0x0C` | `MillisRegister` | Read | Milliseconds since the machine started, from the host's steady clock (wraps after 49 days). Like `ClockRegister`, **not deterministic**: the debugger records and replays it. |
 
 Writing to the command register:
 
@@ -126,7 +149,7 @@ A minimal character terminal.
 
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |
-| `0x00` | `StatusRegister` | Read | Bit 0 (`0x01`) set when input is available to read; bit 1 (`0x02`) is always set (the terminal is always ready to accept output in this simple implementation). |
+| `0x00` | `StatusRegister` | Read | Bit 0 (`0x01`) set when input is available to read; bit 1 (`0x02`) is always set (the terminal is always ready to accept output in this simple implementation); bit 2 (`0x04`) set at **end of input**: the host closed the input and every byte it sent has been read. |
 | `0x04` | `OutputRegister` | Write | Writes a byte (or more, via the halfword/word/block forms) straight to the process's standard output as characters. |
 | `0x08` | `InputRegister` | Read | Reads the next byte from a small 64-byte input ring buffer (`pushInput()`, called by the host embedding the VM), or `0` if nothing is buffered. |
 | `0x0C` | `BytesAvailableRegister` | Read | How many bytes are currently buffered and unread. |
@@ -150,6 +173,13 @@ strb [r13 + 0], r0
     jp .print_loop
 .print_end:
 ```
+
+**End of input.** Bit 2 of the status register is what tells "no data yet" from "no data ever": it is
+set only once the host has closed the input *and* the ring is empty, so a reader checks bit 0 first and
+bit 2 second. `ceres run` closes the input when its standard input ends (a pipe running dry, or Ctrl-Z /
+Ctrl-D at a console), and closing raises the terminal's interrupt so a program halted waiting for a byte
+wakes up to see it. A host embedding the machine calls `closeInput()`. The bit never sets on a terminal
+nobody closed.
 
 `ceres run` feeds the ring from its own standard input, and does so with flow control: the reader
 holds a byte back while the ring is full and pushes it when the program has taken enough, so a
@@ -181,6 +211,7 @@ sector register selects which, and the block registers move it.
 | `0x00` | `StatusRegister` | Read | Bit 0 `READY`, bit 1 `ERROR`. Set by whatever the last operation did. |
 | `0x04` | `CommandRegister` | Write | `1` flushes to the host file. Anything else is ignored. |
 | `0x08` | `SectorRegister` | Read/write | Which sector the next transfer uses. Selecting one past the end of the disk sets `ERROR`. |
+| `0x0C` | `SectorCountRegister` | Read | How many sectors the disk has (a 64-sector default without `--disk`; the image's size with one). |
 | `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` reads the selected sector into RAM, `2` writes RAM into it. |
 
 ```casm
@@ -236,7 +267,16 @@ str  [r13 + 0], r1         // show it
 ```
 
 A cell holds one printable ASCII byte; anything below `0x20` or above `0x7E` is shown as a space,
-so a stray control byte cannot move the host terminal's own cursor. A presented frame goes to
+so a stray control byte cannot move the host terminal's own cursor.
+
+**Colour.** Each cell also has an attribute byte. A word written to `DataRegister` holds the character
+in bits 7:0 and the attribute in bits 15:8, so one store sets both. Attribute `0` means the terminal's
+own colours; otherwise the low nibble is the foreground and the high nibble the background, numbered like
+the ANSI palette — 0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 white, and 8–15 the
+bright versions. A frame with any coloured cell is presented with SGR escape sequences (each row ends back
+on the default colours); a frame with none is the plain text it always was. Block command `3` writes a
+run of attribute bytes, one per cell in the same row-major order, with a cursor of its own; clearing the
+grid resets the attributes too. A presented frame goes to
 stdout by default, and a host that would rather route it elsewhere — an editor, a test —
 installs a sink with `setPresentSink`.
 
@@ -284,10 +324,17 @@ flag — so a game can tell a held key from a freshly pressed one, or stop an ac
 
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |
-| `0x00` | `StatusRegister` | Read | Bit 0 (`0x01`) set when an event is available. |
+| `0x00` | `StatusRegister` | Read | Bit 0 (`0x01`) set when an event is available; bit 1 (`0x02`) set when a typed character is waiting. |
 | `0x04` | `EventRegister` | Read | Pops one event: bits 30:0 = key code, bit 31 = `1` if pressed, `0` if released. `0` when empty. |
+| `0x08` | `TextRegister` | Read | Pops one typed character as a Unicode code point. `0` when empty. |
 | `0x10` | `BlockReadCountRegister` | Read | How many events the last block read drained. |
 | `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` drains the event queue into RAM as a run of four-byte entries (one 32-bit event each, little-endian). |
+
+**Typed text.** The key events say which physical key moved (a scancode); they do not say what the
+layout made of it — capitals, accents, dead keys, an input method. A separate 64-entry queue carries that:
+the host calls `pushText(codePoint)` (or `pushText(utf8)`, which decodes and skips malformed bytes) and a
+program pops code points from `TextRegister`. Pushing text raises the same interrupt as a key event, and a
+full queue drops the character. `ceres run --window` feeds it from SDL's text input.
 
 Events queue up in a 64-entry ring, exactly like the terminal's input. The host feeds the device one
 event at a time with `pushKey(code, pressed)` — the code is whatever the host maps a physical key to
@@ -376,6 +423,37 @@ la   r13, 0xFF080000   // Gamepad's base
     ldr  r1, [r13 + 4]  // ButtonsRegister - bit 0 is the south/A button
     and  r1, r1, 1
     jz   .loop          // wait until A is held
+```
+
+### `AudioDevice` (`0xFF090000`)
+
+A tone generator: one voice, a note at a time. Not a sample player — a beeper with a choice of timbre,
+the audio half of the retro console. The device holds what the program asked for; a host with speakers
+installs a sink (`setToneSink`) that plays it, and `ceres run --window` does so through SDL. Without a
+host to play it the machine is silent and never busy.
+
+| Offset | Register | Direction | Meaning |
+| --- | --- | --- | --- |
+| `0x00` | `StatusRegister` | Read | Bit 0 set while a tone is playing. |
+| `0x04` | `FrequencyRegister` | Read/write | Hertz, clamped to 20–20000. |
+| `0x08` | `DurationRegister` | Read/write | Milliseconds; `0` plays until stopped. |
+| `0x0C` | `VolumeRegister` | Read/write | 0–255. |
+| `0x10` | `WaveformRegister` | Read/write | 0 square, 1 triangle, 2 sawtooth, 3 sine, 4 noise. Any other value is ignored. |
+| `0x14` | `CommandRegister` | Write | `1` plays a tone with the registers above (replacing one already playing), `2` stops. |
+
+When a tone runs its whole duration the host reports it (`toneFinished()`): the busy bit clears and
+`UserInterrupt6` (22) is raised, so a program can wait with `sti`/`halt`. A tone that is stopped or
+replaced raises nothing. An unattached slot reads all-ones, which is how a program tells this machine has
+no audio at all.
+
+```casm
+la   r13, 0xFF090000
+li   r1, 440
+str  [r13 + 4], r1     // frequency
+li   r1, 200
+str  [r13 + 8], r1     // 200 ms
+li   r1, 1
+str  [r13 + 0x14], r1  // play
 ```
 
 ## Related pages

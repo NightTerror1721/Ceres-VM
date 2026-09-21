@@ -5,6 +5,7 @@
 #include <ceres/devices/storage_devices.h>
 #include <ceres/devices/input_devices.h>
 #include <ceres/devices/display_device.h>
+#include <ceres/devices/audio_device.h>
 #include <ceres/vm/ceresvm.h>
 
 #include <atomic>
@@ -34,12 +35,17 @@ namespace ceres::driver
 		MouseDevice mouse;
 		DisplayDevice display;
 		GamepadDevice gamepad;
+		AudioDevice audio;
 		std::string startupError;
 
 		Impl(const MachineConfig& config, const MachineHost& host) :
 			vm(config.memorySize),
 			control([this] { vm.shutdown(); }, [this] { vm.shutdown(); })
 		{
+			control.setFeaturesCallback([this](u32 features)
+			{
+				vm.engine().setDivisionFaults((features & SystemControlDevice::FeatureDivisionFault) != 0);
+			});
 			control.attachTo(vm.io());
 			terminal.attachTo(vm.io());
 			timer.attachTo(vm.io());
@@ -50,6 +56,7 @@ namespace ceres::driver
 			mouse.attachTo(vm.io());
 			display.attachTo(vm.io());
 			gamepad.attachTo(vm.io());
+			audio.attachTo(vm.io());
 
 			if (host.terminalOutput)
 				terminal.setOutputSink([sink = host.terminalOutput](u8 byte)
@@ -73,6 +80,7 @@ namespace ceres::driver
 			mouse.detachFrom(vm.io());
 			display.detachFrom(vm.io());
 			gamepad.detachFrom(vm.io());
+			audio.detachFrom(vm.io());
 			control.detachFrom(vm.io());
 		}
 	};
@@ -100,7 +108,10 @@ namespace ceres::driver
 
 	void Machine::pushInput(std::span<const u8> bytes) { _impl->terminal.pushInput(bytes); }
 	void Machine::pushInput(std::string_view text) { _impl->terminal.pushInput(text); }
+	void Machine::closeInput() { _impl->terminal.closeInput(); }
+	int Machine::exitCode() const noexcept { return _impl->control.exitCode(); }
 	void Machine::pushKey(u32 code, bool pressed) { _impl->keyboard.pushKey(code, pressed); }
+	void Machine::pushText(std::string_view utf8) { _impl->keyboard.pushText(utf8); }
 	void Machine::pushMouse(i32 dx, i32 dy, u8 buttons, i8 wheel) { _impl->mouse.pushMotion(dx, dy, buttons, wheel); }
 	u64 Machine::droppedInputBytes() const noexcept { return _impl->terminal.droppedInputBytes(); }
 
@@ -143,6 +154,10 @@ namespace ceres::driver
 	{
 		CeresVM vm{memorySize};
 		SystemControlDevice control{[&vm] { vm.shutdown(); }, [&vm] { vm.shutdown(); }};
+		control.setFeaturesCallback([&vm](u32 features)
+		{
+			vm.engine().setDivisionFaults((features & SystemControlDevice::FeatureDivisionFault) != 0);
+		});
 		auto terminal = std::make_shared<TerminalDevice>();
 		TimerDevice timer;
 		DmaController dma;
@@ -152,6 +167,7 @@ namespace ceres::driver
 		MouseDevice mouse;
 		DisplayDevice display;
 		GamepadDevice gamepad;
+		AudioDevice audio;
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		timer.attachTo(vm.io());
@@ -160,6 +176,7 @@ namespace ceres::driver
 		mouse.attachTo(vm.io());
 		display.attachTo(vm.io());
 		gamepad.attachTo(vm.io());
+		audio.attachTo(vm.io());
 		terminal->setOutputSink([out = services.output](u8 byte) { out->put(static_cast<char>(byte)); out->flush(); });
 		framebuffer.setPresentSink([out = services.output](std::string_view frame) { *out << frame; out->flush(); });
 		if (!diskImage.empty() && !disk.open(diskImage))
@@ -178,6 +195,16 @@ namespace ceres::driver
 			std::shared_ptr<std::atomic<bool>> flag;
 			~DoneOnExit() { flag->store(true, std::memory_order_release); }
 		} doneOnExit{machineDone};
+
+		// The host's speakers, if it has any, play what the audio device is asked for. Taken off
+		// again before the device goes away, since the sound is made on another thread.
+		struct AudioHost
+		{
+			HostBackend* backend;
+			~AudioHost() { if (backend) backend->detachAudio(); }
+		} audioHost{backend};
+		if (backend)
+			backend->attachAudio(audio);
 
 		if (services.input != nullptr)
 		{
@@ -202,6 +229,9 @@ namespace ceres::driver
 					}
 					terminal->pushInput(c);
 				}
+				// The stream ended (a pipe ran dry, or the user closed stdin): say so, so a program
+				// waiting for more can stop waiting.
+				terminal->closeInput();
 			}).detach();
 		}
 
@@ -243,6 +273,6 @@ namespace ceres::driver
 		if (profileInfo)
 			printProfile(vm, *profileInfo, *services.diagnostics);
 		terminal->detachFrom(vm.io());
-		return 0;
+		return control.exitCode();
 	}
 }

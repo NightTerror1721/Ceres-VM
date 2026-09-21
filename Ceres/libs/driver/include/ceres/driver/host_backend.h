@@ -7,6 +7,7 @@
 
 #include <ceres/devices/input_devices.h>
 #include <ceres/devices/display_device.h>
+#include <ceres/devices/audio_device.h>
 
 namespace ceres::driver
 {
@@ -23,6 +24,13 @@ namespace ceres::driver
 
 		// Show the display's current pixels.
 		virtual void present(const DisplayDevice& display) = 0;
+
+		// Give the host the audio device to play, by installing a sink on it. Called once before the
+		// machine runs; a host without speakers ignores it, and the machine is silent.
+		virtual void attachAudio(AudioDevice&) {}
+
+		// The machine is done with the audio device: stop making sound and never touch it again.
+		virtual void detachAudio() {}
 
 		// How many instructions to execute between pump/present calls. A windowed host runs a few
 		// thousand per frame; a headless one can simply run to completion without ever calling this.

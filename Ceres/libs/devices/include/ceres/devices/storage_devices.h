@@ -37,6 +37,7 @@ namespace ceres::devices
 		static inline constexpr Address StatusRegister = Address(0x00);
 		static inline constexpr Address CommandRegister = Address(0x04);
 		static inline constexpr Address SectorRegister = Address(0x08);
+		static inline constexpr Address SectorCountRegister = Address(0x0C); // Read-only: how many sectors the disk has.
 		static inline constexpr Address BlockAddressRegister = Address(0xF0);
 		static inline constexpr Address BlockLengthRegister = Address(0xF4);
 		static inline constexpr Address BlockCommandRegister = Address(0xF8);
@@ -207,6 +208,7 @@ namespace ceres::devices
 		{
 			if (offset == StatusRegister) return _status;
 			if (offset == SectorRegister) return _sector;
+			if (offset == SectorCountRegister) return sectorCount();
 			return 0;
 		}
 
@@ -256,12 +258,22 @@ namespace ceres::devices
 		static inline constexpr u32 CommandClear = 1;
 		static inline constexpr u32 CommandPresent = 2;
 
+		// A cell is a character and an attribute. The DataRegister word holds the character in bits
+		// 7:0 and the attribute in bits 15:8. Attribute 0 means the terminal's own colours;
+		// otherwise the low nibble is the foreground and the high nibble the background, in the
+		// order of the ANSI palette: 0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta, 6 cyan,
+		// 7 white, and 8-15 the bright versions of the same.
+		static inline constexpr u32 AttributeShift = 8;
+
 		static inline constexpr u32 MaxWidth = 200;
 		static inline constexpr u32 MaxHeight = 100;
 
 		// Block commands: DataRegister writes one cell at a time; the block form (BlockCommandWrite
 		// only - a framebuffer is never read back in bulk) writes a run in one trigger.
 		static inline constexpr u32 BlockCommandWrite = 2;
+		// The same run-in-one-trigger for the attribute plane, which has a cursor of its own: one
+		// byte per cell, in the same row-major order as the characters.
+		static inline constexpr u32 BlockCommandWriteAttributes = 3;
 
 		using PresentSink = std::function<void(std::string_view)>;
 
@@ -269,13 +281,15 @@ namespace ceres::devices
 		u32 _width = 40;
 		u32 _height = 20;
 		std::vector<u8> _cells;
+		std::vector<u8> _attributes;
 		u32 _cursor = 0; // Where the next block write lands, in cells
+		u32 _attributeCursor = 0;
 		PresentSink _sink;
 		u32 _blockAddress = 0;
 		u32 _blockLength = 0;
 
 	public:
-		FramebufferDevice() : _cells(static_cast<usize>(_width) * _height, ' ') {}
+		FramebufferDevice() : _cells(static_cast<usize>(_width) * _height, ' '), _attributes(_cells.size(), 0) {}
 
 		FramebufferDevice(const FramebufferDevice&) = delete;
 		FramebufferDevice(FramebufferDevice&&) = delete;
@@ -302,6 +316,7 @@ namespace ceres::devices
 		u32 width() const noexcept { return _width; }
 		u32 height() const noexcept { return _height; }
 		std::span<const u8> cells() const noexcept { return _cells; }
+		std::span<const u8> attributes() const noexcept { return _attributes; }
 
 		// The grid as text, rows separated by newlines. What `present` sends, and what a test can
 		// compare against without going through a terminal.
@@ -322,6 +337,55 @@ namespace ceres::devices
 				out.push_back('\n');
 			}
 			return out;
+		}
+
+	public:
+		// The grid with its colours, as the escape sequences a terminal understands. A cell with
+		// attribute 0 uses the terminal's own colours, and every row ends back on them, so a frame
+		// never leaves the terminal painted.
+		std::string toAnsiText() const
+		{
+			std::string out;
+			out.reserve(static_cast<usize>(_height) * (_width + 1));
+			for (u32 row = 0; row < _height; ++row)
+			{
+				const usize start = static_cast<usize>(row) * _width;
+				u8 current = 0;
+				for (u32 column = 0; column < _width; ++column)
+				{
+					const u8 attribute = _attributes[start + column];
+					if (attribute != current)
+					{
+						appendSgr(out, attribute);
+						current = attribute;
+					}
+					const u8 cell = _cells[start + column];
+					out.push_back(cell >= 0x20 && cell < 0x7F ? static_cast<char>(cell) : ' ');
+				}
+				if (current != 0)
+					out += "\x1b[0m";
+				out.push_back('\n');
+			}
+			return out;
+		}
+
+		bool hasAttributes() const noexcept
+		{
+			return std::ranges::any_of(_attributes, [](u8 attribute) { return attribute != 0; });
+		}
+
+	private:
+		static void appendSgr(std::string& out, u8 attribute)
+		{
+			if (attribute == 0)
+			{
+				out += "\x1b[0m";
+				return;
+			}
+			const u32 fg = attribute & 0x0F;
+			const u32 bg = attribute >> 4;
+			out += "\x1b[" + std::to_string(fg < 8 ? 30 + fg : 90 + (fg - 8)) + ';' +
+				std::to_string(bg < 8 ? 40 + bg : 100 + (bg - 8)) + 'm';
 		}
 
 	public:
@@ -350,7 +414,9 @@ namespace ceres::devices
 				if (value == CommandClear)
 				{
 					std::ranges::fill(_cells, static_cast<u8>(' '));
+					std::ranges::fill(_attributes, static_cast<u8>(0));
 					_cursor = 0;
+					_attributeCursor = 0;
 				}
 				else if (value == CommandPresent)
 				{
@@ -363,14 +429,23 @@ namespace ceres::devices
 			{
 				// One cell at a time, for a program that would rather poke than blit.
 				if (_cursor < _cells.size())
-					_cells[_cursor++] = static_cast<u8>(value & 0xFFu);
+				{
+					_cells[_cursor] = static_cast<u8>(value & 0xFFu);
+					_attributes[_cursor] = static_cast<u8>((value >> AttributeShift) & 0xFFu);
+					++_cursor;
+				}
 				return;
 			}
 
 			if (offset == BlockAddressRegister) { _blockAddress = value; return; }
 			if (offset == BlockLengthRegister) { _blockLength = value; return; }
-			if (offset == BlockCommandRegister && value == BlockCommandWrite)
-				blockWrite(Address(_blockAddress), _blockLength);
+			if (offset == BlockCommandRegister)
+			{
+				if (value == BlockCommandWrite)
+					blockWrite(Address(_blockAddress), _blockLength, _cells, _cursor);
+				else if (value == BlockCommandWriteAttributes)
+					blockWrite(Address(_blockAddress), _blockLength, _attributes, _attributeCursor);
+			}
 		}
 
 	private:
@@ -383,30 +458,33 @@ namespace ceres::devices
 			_width = width;
 			_height = height;
 			_cells.assign(static_cast<usize>(_width) * _height, ' ');
+			_attributes.assign(_cells.size(), 0);
 			_cursor = 0;
+			_attributeCursor = 0;
 		}
 
 		// A run of cells starting where the last write left off, so a whole grid is one trigger
 		// and a row is one per row.
-		void blockWrite(Address ramAddress, u32 size)
+		void blockWrite(Address ramAddress, u32 size, std::vector<u8>& plane, u32& cursor)
 		{
-			if (size == 0 || _cursor >= _cells.size())
+			if (size == 0 || cursor >= plane.size())
 				return;
 
-			const u32 available = static_cast<u32>(std::min<usize>(size, _cells.size() - _cursor));
+			const u32 available = static_cast<u32>(std::min<usize>(size, plane.size() - cursor));
 			const u32 clampSize = memory().clampBlockSize(ramAddress, available);
 			if (clampSize == 0)
 				return;
 
 			const auto bytes = memory().peekBytes(ramAddress, clampSize);
-			std::copy_n(bytes.begin(), clampSize, _cells.begin() + static_cast<std::ptrdiff_t>(_cursor));
-			_cursor += clampSize;
+			std::copy_n(bytes.begin(), clampSize, plane.begin() + static_cast<std::ptrdiff_t>(cursor));
+			cursor += clampSize;
 		}
 
 		void present()
 		{
-			const std::string text = toText();
+			const std::string text = hasAttributes() ? toAnsiText() : toText();
 			_cursor = 0;
+			_attributeCursor = 0;
 
 			if (_sink)
 			{

@@ -74,7 +74,7 @@ By the time anything downstream sees the operand it is an ordinary register, so 
 | Sign (`SF`) | `1<<1` | Arithmetic, logic, `cmp` | `js`, `jns` |
 | Carry (`CF`) | `1<<2` | Arithmetic, shifts, `cmp` | `jc`, `jnc`, `adc`, `sbc` |
 | Overflow (`OF`) | `1<<3` | Signed arithmetic | `jo`, `jno` |
-| Interrupt (`IF`) | `1<<4` | `sti` / `cli` | Interrupt dispatch: interrupts 16–63 (user interrupts) are dropped while it's clear; interrupts 0–15 (reserved/system) are always deliverable regardless of this flag. |
+| Interrupt (`IF`) | `1<<4` | `sti` / `cli` | Interrupt dispatch: interrupts 16–63 (user interrupts) are dropped while it's clear; interrupts 0–15 (reserved/system) are always deliverable regardless of this flag. `sti` takes effect after the next instruction. |
 | Halting (`HF`) | `1<<5` | `halt` | The `step()` loop, to decide whether to actually fetch/execute or just tick devices and sleep. |
 | Trap (`TF`) | `1<<6` | Division/modulo by zero, an unrecoverable stack fault during interrupt dispatch | Nothing reads it today — it's informational, there's no `jt`/`jnt`. |
 | Paging (`PF`) | `1<<7` | `pgon` / `pgoff` | `ExecutionEngine::translate()`, once per load, store and instruction fetch: while set, every address (outside the regions that always stay physical) goes through the MMU — see [Virtual memory and paging](27-Virtual-Memory-and-Paging.md). |
@@ -103,7 +103,8 @@ go straight back to sleep the moment the handler returned, and nothing could eve
   falls outside `[INT32_MIN, INT32_MAX]`.
 - **`DIV`/`IDIV`/`MOD`/`IMOD`** (and their immediate forms): division/modulo **by zero does not
   throw or crash** — it sets the Trap flag, advances the program counter, and **leaves the
-  destination register unchanged**. Signed division additionally sets Overflow only for the one
+  destination register unchanged** (unless the program asked for the `DivisionByZero` interrupt through
+  the [system control device](07-IO-Devices-and-Ports.md#systemcontroldevice-0xffff0000)). Signed division additionally sets Overflow only for the one
   case that can't be represented (`INT32_MIN / -1`).
 - **Logic (`AND`/`OR`/`XOR`/`NOT`)**: Carry and Overflow are always cleared; only Zero/Sign are
   meaningful.

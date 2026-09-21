@@ -35,8 +35,10 @@ enum class InterruptNumber : u8
 - **16–63 are user interrupts** (48 of them), only delivered while the Interrupt flag is set. Four
   devices raise one today: the timer, always `UserInterrupt0` (16); the terminal, `UserInterrupt1`
   (17) whenever `pushInput()` adds a byte to its buffer; the DMA controller, `UserInterrupt2` (18)
-  when a transfer completes; and the keyboard and mouse, `UserInterrupt3` (19) and `UserInterrupt4`
-  (20), when an event or motion arrives — see
+  when a transfer completes; the keyboard and mouse, `UserInterrupt3` (19) and `UserInterrupt4`
+  (20), when an event, a typed character or a motion arrives; the gamepad, `UserInterrupt5` (21); and
+  the audio device, `UserInterrupt6` (22), when a tone has finished. The terminal also raises its
+  interrupt when its input is closed — see
   [I/O devices and ports](07-IO-Devices-and-Ports.md#timerdevice-ports-0x10-0x12).
 
 `MemoryFault` (3) is raised by a store whose target overlaps the loaded program's `.text` or lies in
@@ -107,9 +109,19 @@ These are triggered by `ExecutionEngine` itself, not by any explicit `int`/`trap
 | `IllegalInstruction` (2) | The fetched opcode byte doesn't map to any known instruction — the 256-entry dispatch table defaults every unused slot to an internal `INVALID` handler that raises this. |
 | `PageFault` (7) | Paging is on (`pgon`) and a load, store or instruction fetch translates to a directory or table entry that isn't Present, or to one that is but doesn't grant the access (a write without the Writable bit, a fetch without Executable). `mfpf` reads back the address that faulted. See [Virtual memory and paging → Faults](27-Virtual-Memory-and-Paging.md#faults). |
 
-Division and modulo by zero (`div`/`idiv`/`mod`/`imod`) are a deliberate **exception** to "faults go
-through the interrupt mechanism": they set the Trap flag directly and continue execution with the
-destination register unchanged, without dispatching through the vector table at all. See
+Division and modulo by zero (`div`/`idiv`/`mod`/`imod`, and the float divisions) are, **by default**, a deliberate
+exception to "faults go through the interrupt mechanism": they set the Trap flag directly and continue
+execution with the destination register unchanged, without dispatching through the vector table at all.
+A program that would rather be told writes `FeatureDivisionFault` to the features register of the
+[system control device](07-IO-Devices-and-Ports.md#systemcontroldevice-0xffff0000): a division by zero
+then raises `DivisionByZero` (4) instead, always deliverable like any reserved interrupt. It advances the
+program counter first, like `trap`, so a handler that returns lands on the instruction after the division
+(whose destination was left as it was) rather than repeating it forever; the Trap flag is not set.
+
+**`sti` takes effect one instruction late.** The instruction right after an `sti` runs before any user
+interrupt can be delivered, as on x86. That makes `sti; halt` a single indivisible step: an interrupt that
+arrives between the two is delivered after the `halt` has run, and wakes it, rather than being serviced
+first and leaving the machine to sleep with nothing left to wake it. See
 [Instruction set → Arithmetic](05-Instruction-Set.md#arithmetic-0x10-0x28).
 
 ## Software-triggered interrupts

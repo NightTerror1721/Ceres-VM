@@ -230,3 +230,63 @@ TEST(driver_machine, host_receives_presented_frames)
 	CHECK(machine.run().has_value());
 	CHECK_EQ(frame, std::string{"X \n"});
 }
+
+TEST(driver_run, the_exit_status_a_program_writes_becomes_the_run_status)
+{
+	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_exit_status_test.casm";
+	{
+		std::ofstream file{source};
+		file << "@text\n"
+			"global main:\n"
+			"    la   r7, 0xFFFF0000\n"
+			"    li   r0, 0x0701\n"
+			"    str  [r7 + 0], r0\n";
+	}
+
+	std::istringstream input;
+	std::ostringstream output;
+	std::ostringstream diagnostics;
+	const int result = execute(RunCommand{.input = source}, {&input, &output, &diagnostics});
+	std::filesystem::remove(source);
+
+	CHECK_EQ(result, 7);
+}
+
+TEST(driver_run, a_program_can_read_until_the_end_of_its_input)
+{
+	// Echo stdin until the terminal says the input is over, then leave with status 3. Before the
+	// end-of-input bit a program could only spin on "no data yet", which is also what a slow pipe
+	// looks like.
+	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_eof_test.casm";
+	{
+		std::ofstream file{source};
+		file << "@text\n"
+			"global main:\n"
+			"    la   r13, 0xFF000000\n"
+			".wait:\n"
+			"    ldrb r1, [r13 + 0]\n"
+			"    and  r2, r1, 1\n"
+			"    cmp  r2, 0\n"
+			"    jz   .check_end\n"
+			"    ldrb r3, [r13 + 8]\n"
+			"    strb [r13 + 4], r3\n"
+			"    jp   .wait\n"
+			".check_end:\n"
+			"    and  r2, r1, 4\n"
+			"    cmp  r2, 0\n"
+			"    jz   .wait\n"
+			"    la   r7, 0xFFFF0000\n"
+			"    li   r0, 0x0301\n"
+			"    str  [r7 + 0], r0\n";
+	}
+
+	const std::string sent = std::string(300, 'q') + "\nlast\n";
+	std::istringstream input{sent};
+	std::ostringstream output;
+	std::ostringstream diagnostics;
+	const int result = execute(RunCommand{.input = source}, {&input, &output, &diagnostics});
+	std::filesystem::remove(source);
+
+	CHECK_EQ(result, 3);
+	CHECK_EQ(output.str(), sent);
+}

@@ -48,10 +48,11 @@ two drift apart, the link resolves names that no longer mean what the caller thi
 
 ## Most I/O devices are stubs
 
-Of the 256 MMIO slots [`mmio_bus.h`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h) allows, ten are backed by a
+Of the 256 MMIO slots [`mmio_bus.h`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h) allows, eleven are backed by a
 working device today: the terminal, the timer, the disk, the framebuffer, the DMA controller, the
-keyboard, the mouse, the display, the gamepad, and system control (see [`default_mmio`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h)
-for their slots). Audio and network have no device attached and no slot reserved for them yet —
+keyboard, the mouse, the display, the gamepad, audio (a single-voice tone generator) and system control
+(see [`default_mmio`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h) for their slots). The network has no
+device attached and no slot reserved for it yet —
 reading an unattached slot returns all-ones and writing one does nothing, exactly like an
 unattached port used to. The framebuffer draws characters rather than pixels; the display draws
 pixels rather than characters, and neither opens a window of its own. See
@@ -137,7 +138,7 @@ because a reader coming from a more conventional ISA might otherwise assume they
 
 | Behaviour | Why | See |
 | --- | --- | --- |
-| Division/modulo by zero doesn't fault | Sets the Trap flag and continues, leaving the destination unchanged | [Instruction set → Arithmetic](05-Instruction-Set.md#arithmetic-0x10-0x28) |
+| Division/modulo by zero doesn't fault (by default) | Sets the Trap flag and continues, leaving the destination unchanged; a program can switch on the `DivisionByZero` interrupt | [Instruction set → Arithmetic](05-Instruction-Set.md#arithmetic-0x10-0x28) |
 | `str [rd + imm16], rs` puts the base *before* the value | `imm16` occupies the same bits as `rt`, so there's no room for a third register | [Instruction format](04-Instruction-Format.md#the-critical-overlap-imm16-and-rt) |
 | A far `stv` silently clobbers `at` (`r13`) | Out of PC-relative reach it needs a base register for the address that is not the one holding the value | [Pseudo-instructions](06-Pseudo-Instructions.md#the-at-clobber) |
 | `iret` never restores the Halting flag | `halt` means "wait for an interrupt"; restoring it would put the machine straight back to sleep with no way to wake it | [Registers and flags](03-Registers-and-Flags.md#flags-register) |

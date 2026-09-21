@@ -43,7 +43,13 @@ namespace ceres::driver
 		std::expected<void, std::string> run();
 		void pushInput(std::span<const u8> bytes);
 		void pushInput(std::string_view text);
+		// The host has nothing more to send on the terminal: a program reading it sees end of input
+		// once it has taken what was buffered.
+		void closeInput();
+		// The status the program shut the machine down with (0 unless it asked for another).
+		int exitCode() const noexcept;
 		void pushKey(u32 code, bool pressed = true);
+		void pushText(std::string_view utf8);
 		void pushMouse(i32 dx, i32 dy, u8 buttons = 0, i8 wheel = 0);
 		u64 droppedInputBytes() const noexcept;
 

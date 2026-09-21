@@ -25,13 +25,33 @@ namespace ceres::devices
 	public:
 		using ShutdownCallback = std::function<void()>;
 		using ResetCallback = std::function<void()>;
+		// Told the new value of the features register whenever a program writes it, so the host can
+		// pass on to the engine the settings the engine itself has to act on.
+		using FeaturesCallback = std::function<void(u32)>;
 
 		// Write-only: writing specific commands to this register triggers system control actions.
+		// The low byte is the command; the next byte is the exit status a shutdown reports.
 		static inline constexpr Address CommandRegister = Address(0x00);
+		// Read-only: how many bytes of RAM the machine has.
+		static inline constexpr Address MemorySizeRegister = Address(0x04);
+		// Read/write: switches for behaviour that is off by default, so a program that never asks
+		// keeps the machine it always had.
+		static inline constexpr Address FeaturesRegister = Address(0x08);
+
+		static inline constexpr u32 CommandShutdown = 0x01;
+		static inline constexpr u32 CommandReset = 0x02;
+
+		// Division by zero raises the DivisionByZero interrupt (number 4) instead of only setting
+		// the Trap flag. The handler returns to the instruction after the division, whose
+		// destination was left as it was.
+		static inline constexpr u32 FeatureDivisionFault = 1u << 0;
 
 	private:
 		ShutdownCallback _shutdownCallback;
 		ResetCallback _resetCallback;
+		FeaturesCallback _featuresCallback;
+		u32 _features = 0;
+		std::atomic<u8> _exitCode{ 0 };
 
 	public:
 		explicit SystemControlDevice(ShutdownCallback shutdownCallback = {}, ResetCallback resetCallback = {}) :
@@ -67,31 +87,73 @@ namespace ceres::devices
 			_resetCallback = std::move(callback);
 		}
 
-	public:
-		u8 readUnsignedByte(Address) override { return 0xFF; /* No readable registers. */ }
-		i8 readSignedByte(Address) override { return -1; }
-		u16 readUnsignedHalfword(Address) override { return 0xFFFF; }
-		i16 readSignedHalfword(Address) override { return -1; }
-		u32 readUnsignedWord(Address) override { return 0xFFFFFFFF; }
-
-		void writeByte(Address offset, u8 value) override
+		void setFeaturesCallback(FeaturesCallback callback)
 		{
-			if (offset != CommandRegister)
-				return;
+			_featuresCallback = std::move(callback);
+		}
 
-			if (value == 0x01) // Shutdown command
+		// The status the program shut the machine down with: the second byte of the word it wrote
+		// (0 for a plain byte write, which is what every program written before this existed does).
+		u8 exitCode() const noexcept { return _exitCode.load(std::memory_order_relaxed); }
+
+		u32 features() const noexcept { return _features; }
+
+	private:
+		// A byte write carries only the command; a halfword or a word carries the exit status
+		// above it.
+		void command(u32 value)
+		{
+			const u32 code = value & 0xFF;
+			if (code == CommandShutdown)
 			{
+				_exitCode.store(static_cast<u8>((value >> 8) & 0xFF), std::memory_order_relaxed);
 				if (_shutdownCallback)
 					_shutdownCallback();
 			}
-			else if (value == 0x02) // Reset command
+			else if (code == CommandReset)
 			{
 				if (_resetCallback)
 					_resetCallback();
 			}
 		}
-		void writeHalfword(Address offset, u16 value) override { writeByte(offset, static_cast<u8>(value)); }
-		void writeWord(Address offset, u32 value) override { writeByte(offset, static_cast<u8>(value)); }
+
+		bool readable(Address offset, u32& value) const
+		{
+			if (offset == MemorySizeRegister)
+			{
+				value = static_cast<u32>(memory().size());
+				return true;
+			}
+			if (offset == FeaturesRegister)
+			{
+				value = _features;
+				return true;
+			}
+			return false;
+		}
+
+	public:
+		u8 readUnsignedByte(Address offset) override { u32 v; return readable(offset, v) ? static_cast<u8>(v) : 0xFF; }
+		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedByte(offset)); }
+		u16 readUnsignedHalfword(Address offset) override { u32 v; return readable(offset, v) ? static_cast<u16>(v) : 0xFFFF; }
+		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedHalfword(offset)); }
+		u32 readUnsignedWord(Address offset) override { u32 v; return readable(offset, v) ? v : 0xFFFFFFFF; }
+
+		void writeByte(Address offset, u8 value) override { writeWord(offset, value); }
+		void writeHalfword(Address offset, u16 value) override { writeWord(offset, value); }
+		void writeWord(Address offset, u32 value) override
+		{
+			if (offset == CommandRegister)
+			{
+				command(value);
+			}
+			else if (offset == FeaturesRegister)
+			{
+				_features = value;
+				if (_featuresCallback)
+					_featuresCallback(value);
+			}
+		}
 	};
 
 	// Gives the machine a sense of time, and with it the asynchronous interrupt source it never
@@ -106,6 +168,7 @@ namespace ceres::devices
 		static inline constexpr Address TicksRegister = Address(0x00);   // Read: instructions executed so far
 		static inline constexpr Address ClockRegister = Address(0x04);   // Read: seconds since the epoch
 		static inline constexpr Address CommandRegister = Address(0x08); // Write: fire after N ticks, 0 disarms
+		static inline constexpr Address MillisRegister = Address(0x0C);  // Read: milliseconds since the machine started (wraps every 49 days)
 
 		// Which interrupt the timer requests when it expires. The first user interrupt, so it needs
 		// STI to be delivered and cannot surprise a program that never asked for it.
@@ -133,6 +196,8 @@ namespace ceres::devices
 		bool _periodic = false;
 		u64 _period = 0;
 		ClockSource _clockSource;
+		ClockSource _millisSource;
+		std::chrono::steady_clock::time_point _started = std::chrono::steady_clock::now();
 
 	public:
 		TimerDevice() = default;
@@ -178,6 +243,11 @@ namespace ceres::devices
 		void setClockSource(ClockSource source) { _clockSource = std::move(source); }
 		void clearClockSource() { _clockSource = nullptr; }
 
+		// The millisecond counter reads the host's steady clock, which makes it as non-deterministic
+		// as the seconds register, and a debugger replaces it in the same way.
+		void setMillisSource(ClockSource source) { _millisSource = std::move(source); }
+		void clearMillisSource() { _millisSource = nullptr; }
+
 	public:
 		// The one device every program that arms it relies on advancing every instruction, whether
 		// or not it is armed - TicksRegister reads instructions executed even while disarmed.
@@ -212,6 +282,14 @@ namespace ceres::devices
 					std::chrono::system_clock::now().time_since_epoch()).count());
 			}
 
+			if (offset == MillisRegister)
+			{
+				if (_millisSource)
+					return _millisSource();
+				return static_cast<u32>(std::chrono::duration_cast<std::chrono::milliseconds>(
+					std::chrono::steady_clock::now() - _started).count());
+			}
+
 			return 0xFFFFFFFF;
 		}
 
@@ -240,7 +318,7 @@ namespace ceres::devices
 	class TerminalDevice : public IODevice
 	{
 	public:
-		static inline constexpr Address StatusRegister = Address(0x00); // Read-only: 0x01 if input is available, 0x00 otherwise.
+		static inline constexpr Address StatusRegister = Address(0x00); // Read-only: bit 0 input available, bit 1 ready for output, bit 2 end of input.
 		static inline constexpr Address OutputRegister = Address(0x04); // Write-only: writing a byte to this register outputs it to the terminal.
 		static inline constexpr Address InputRegister = Address(0x08);  // Read-only: reading from this register returns the next byte of input, or 0 if none is available.
 		static inline constexpr Address BytesAvailableRegister = Address(0x0C); // Read-only: bytes currently sitting unread in the input ring.
@@ -269,6 +347,15 @@ namespace ceres::devices
 	private:
 		static inline constexpr u8 RxReadyMask = 0x01; // Bit 0 indicates if input is available.
 		static inline constexpr u8 TxReadyMask = 0x02; // Bit 1 indicates if the terminal is ready to accept output (always ready in this simple implementation).
+		static inline constexpr u8 EofMask = 0x04;     // Bit 2: the host closed the input and every byte it sent has been read - nothing more will ever arrive.
+
+	public:
+		// The bits of StatusRegister, for the code that reads them.
+		static inline constexpr u32 StatusInputAvailable = RxReadyMask;
+		static inline constexpr u32 StatusOutputReady = TxReadyMask;
+		static inline constexpr u32 StatusEndOfInput = EofMask;
+
+	private:
 
 	public:
 		// Where a byte written to the output register ends up. `ceres run` leaves it empty and the
@@ -282,6 +369,7 @@ namespace ceres::devices
 		std::atomic<usize> _head{0};
 		std::atomic<usize> _tail{0};
 		std::atomic<u64> _droppedInputBytes{0};
+		std::atomic<bool> _inputClosed{false};
 		// Protects the byte array while a debugger snapshots it. Head/tail remain atomic so the
 		// single-producer/single-consumer fast path still has a minimal synchronization surface.
 		mutable std::mutex _inputMutex;
@@ -351,6 +439,18 @@ namespace ceres::devices
 			pushInput(std::string_view(&input, 1));
 		}
 
+		// The host has nothing more to send: stdin was closed, or the pipe ran dry. The status
+		// register reports end of input once the program has also read what is still buffered, so a
+		// reader can tell "no data yet" from "no data ever". The interrupt is raised so a program
+		// halted waiting for input wakes up to notice.
+		void closeInput()
+		{
+			_inputClosed.store(true, std::memory_order_release);
+			raiseInterrupt(Interrupt);
+		}
+
+		bool isInputClosed() const noexcept { return _inputClosed.load(std::memory_order_acquire); }
+
 		u64 droppedInputBytes() const noexcept { return _droppedInputBytes.load(std::memory_order_relaxed); }
 
 		// How many bytes are currently buffered and unread. The one number a program needs to
@@ -374,6 +474,7 @@ namespace ceres::devices
 			std::array<u8, InputBufferCapacity> buffer{};
 			usize head = 0;
 			usize tail = 0;
+			bool closed = false;
 		};
 
 		State captureState() const noexcept
@@ -383,6 +484,7 @@ namespace ceres::devices
 			state.buffer = _buffer;
 			state.head = _head.load(std::memory_order_acquire);
 			state.tail = _tail.load(std::memory_order_acquire);
+			state.closed = _inputClosed.load(std::memory_order_acquire);
 			return state;
 		}
 
@@ -392,6 +494,7 @@ namespace ceres::devices
 			_buffer = state.buffer;
 			_head.store(state.head, std::memory_order_release);
 			_tail.store(state.tail, std::memory_order_release);
+			_inputClosed.store(state.closed, std::memory_order_release);
 		}
 
 	private:
@@ -471,6 +574,8 @@ namespace ceres::devices
 				u8 status = 0;
 				if (_head.load(std::memory_order_acquire) != _tail.load(std::memory_order_acquire))
 					status |= RxReadyMask; // Set RxReady if input is available.
+				else if (_inputClosed.load(std::memory_order_acquire))
+					status |= EofMask; // Closed and drained: nothing more will ever arrive.
 				status |= TxReadyMask; // Terminal is always ready to accept output.
 				return status;
 			}
