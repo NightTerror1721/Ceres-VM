@@ -155,6 +155,7 @@ A minimal character terminal.
 | `0x0C` | `BytesAvailableRegister` | Read | How many bytes are currently buffered and unread. |
 | `0x10` | `BlockReadCountRegister` | Read | How many bytes the most recent block read actually moved into RAM (a short read is how a program learns its input ended early). |
 | `0x14` | `DroppedInputRegister` | Read | How many input bytes were discarded because the ring was full (truncated to 32 bits). |
+| `0x18` | `ModeRegister` | Read/write | Write `1` (`ModeRaw`) to ask the host for keys as they are pressed; read what the host granted: bit 0 raw, bit 1 (`ModeKeystrokes`) the keys arrive on the keyboard's `KeyRegister`. Reads `0` when the host cannot. |
 | `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` reads from the input ring into RAM; `2` writes RAM out as characters. |
 
 ```casm
@@ -173,6 +174,25 @@ strb [r13 + 0], r0
     jp .print_loop
 .print_end:
 ```
+
+**Raw keys.** A console hands a program whole lines, and only once Enter is pressed: the keys before it
+are held back by the console's own line editor, and an arrow or Home never arrives, because that editor
+uses it. That suits `scanf`; it does not suit a menu. A program that wants each key as it is pressed writes
+`ModeRaw` to `ModeRegister` and reads back what it was given:
+
+- `ModeRaw | ModeKeystrokes` (`3`): the host took the console out of line mode, or has a window with a keyboard.
+  The keys arrive on the [keyboard's](#keyboarddevice-0xff050000) `KeyRegister`, in the order they were typed,
+  with no echo (the program draws what it wants shown). Writing `0` puts the console back.
+- `0`: nothing changed. The input is a pipe or a file, so the program keeps reading the terminal's bytes -
+  a menu can still be driven from a file that spells an arrow key the way a terminal sends it (`ESC [ A`).
+
+The host switches the console on the thread that reads it, restores it when the machine stops (a
+program that exits while raw included), and leaves Ctrl-C alone. In a window the keys already come from
+the window's keyboard, so the console stays as it is and a program is granted `3` straight away. When the
+program has not asked for raw keys, a window's keystrokes are also written to the terminal's input ring as
+bytes (a character as UTF-8, Enter as `\n`, Backspace as `\b`, an arrow as `ESC [ A` and so on), so a program
+reading its input as a stream sees what was typed; once it has asked for raw keys they are not, because they
+would only pile up unread.
 
 **End of input.** Bit 2 of the status register is what tells "no data yet" from "no data ever": it is
 set only once the host has closed the input *and* the ring is empty, so a reader checks bit 0 first and
@@ -324,9 +344,10 @@ flag — so a game can tell a held key from a freshly pressed one, or stop an ac
 
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |
-| `0x00` | `StatusRegister` | Read | Bit 0 (`0x01`) set when an event is available; bit 1 (`0x02`) set when a typed character is waiting. |
+| `0x00` | `StatusRegister` | Read | Bit 0 (`0x01`) set when an event is available; bit 1 (`0x02`) set when a typed character is waiting; bit 2 (`0x04`) set when a keystroke is waiting. |
 | `0x04` | `EventRegister` | Read | Pops one event: bits 30:0 = key code, bit 31 = `1` if pressed, `0` if released. `0` when empty. |
 | `0x08` | `TextRegister` | Read | Pops one typed character as a Unicode code point. `0` when empty. |
+| `0x0C` | `KeyRegister` | Read | Pops the next **keystroke**, in typing order. A character is its code point; a key with no character (Enter, Escape, Backspace, Tab, the arrows, Home/End, PageUp/PageDown, Insert/Delete, F1-F12) is `0x80000000 \| scancode`. `0` when empty. |
 | `0x10` | `BlockReadCountRegister` | Read | How many events the last block read drained. |
 | `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` drains the event queue into RAM as a run of four-byte entries (one 32-bit event each, little-endian). |
 
@@ -335,6 +356,13 @@ layout made of it — capitals, accents, dead keys, an input method. A separate 
 the host calls `pushText(codePoint)` (or `pushText(utf8)`, which decodes and skips malformed bytes) and a
 program pops code points from `TextRegister`. Pushing text raises the same interrupt as a key event, and a
 full queue drops the character. `ceres run --window` feeds it from SDL's text input.
+
+**Keystrokes.** The event queue and the text queue are separate, so a program reading both cannot tell
+whether the `a` or the Enter came first, and Enter, Escape and the arrows type no text at all. The
+`KeyRegister` merges them into one ordered stream: the device itself queues each typed character, and each
+*press* of a named key (a release, and a key that types a character, add nothing here), so any host that
+feeds `pushText` and `pushKey` gets it - a window, a raw console, an embedding, a test. It holds 64 entries
+like the others and raises the same interrupt. This is what a menu or a text field reads.
 
 Events queue up in a 64-entry ring, exactly like the terminal's input. The host feeds the device one
 event at a time with `pushKey(code, pressed)` — the code is whatever the host maps a physical key to

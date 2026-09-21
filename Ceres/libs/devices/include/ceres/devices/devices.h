@@ -324,6 +324,7 @@ namespace ceres::devices
 		static inline constexpr Address BytesAvailableRegister = Address(0x0C); // Read-only: bytes currently sitting unread in the input ring.
 		static inline constexpr Address BlockReadCountRegister = Address(0x10); // Read-only: bytes the most recent block-read actually moved into RAM.
 		static inline constexpr Address DroppedInputRegister = Address(0x14); // Read-only: input bytes discarded by a full ring (truncated to 32 bits).
+		static inline constexpr Address ModeRegister = Address(0x18); // Read/write: write ModeRaw to ask the host for keys as they are pressed (no line editing, no echo); read what the host granted.
 
 		// A bulk transfer: write the RAM address and length, then a command (1 = read from the
 		// terminal's input ring into RAM, 2 = write RAM out to the terminal) - the direct
@@ -355,6 +356,15 @@ namespace ceres::devices
 		static inline constexpr u32 StatusOutputReady = TxReadyMask;
 		static inline constexpr u32 StatusEndOfInput = EofMask;
 
+		// The bits of ModeRegister. A write is a request; a read is the answer. A host that cannot give
+		// raw keys (input from a pipe, a file) answers 0, and the program keeps reading the terminal.
+		static inline constexpr u32 ModeRaw = 1u << 0;        // Keys arrive as they are pressed: no line buffering, no echo.
+		static inline constexpr u32 ModeKeystrokes = 1u << 1; // Read-only: they arrive on the keyboard device's KeyRegister.
+
+		// Decides what a write to ModeRegister gets: it is handed the requested bits and returns the granted
+		// ones. The host switches its console in there. Empty means nothing is ever granted.
+		using ModeHandler = std::function<u32(u32)>;
+
 	private:
 
 	public:
@@ -377,6 +387,9 @@ namespace ceres::devices
 		u32 _blockAddress = 0;
 		u32 _blockLength = 0;
 		u32 _blockReadCount = 0;
+		ModeHandler _modeHandler;
+		std::atomic<u32> _modeRequested{0};
+		std::atomic<u32> _modeGranted{0};
 
 	public:
 		TerminalDevice() = default;
@@ -462,6 +475,11 @@ namespace ceres::devices
 			const usize tail = _tail.load(std::memory_order_acquire);
 			return (tail - head + InputBufferCapacity) % InputBufferCapacity;
 		}
+
+		void setModeHandler(ModeHandler handler) { _modeHandler = std::move(handler); }
+
+		// Whether the program asked for raw keys, so a host can tell whether to also type into the terminal.
+		bool rawRequested() const noexcept { return (_modeRequested.load(std::memory_order_acquire) & ModeRaw) != 0; }
 
 		void setOutputSink(OutputSink sink) { _outputSink = std::move(sink); }
 		void clearOutputSink() { _outputSink = nullptr; }
@@ -606,6 +624,8 @@ namespace ceres::devices
 				return _blockReadCount;
 			if (offset == DroppedInputRegister)
 				return static_cast<u32>(_droppedInputBytes.load(std::memory_order_relaxed));
+			if (offset == ModeRegister)
+				return _modeGranted.load(std::memory_order_acquire);
 			return static_cast<u32>(readUnsignedByte(offset));
 		}
 
@@ -630,6 +650,14 @@ namespace ceres::devices
 				emitByte(static_cast<u8>((value >> 8) & 0xFF));
 				emitByte(static_cast<u8>((value >> 16) & 0xFF));
 				emitByte(static_cast<u8>((value >> 24) & 0xFF));
+				return;
+			}
+
+			if (offset == ModeRegister)
+			{
+				const u32 requested = value & ModeRaw;
+				_modeRequested.store(requested, std::memory_order_release);
+				_modeGranted.store(_modeHandler ? _modeHandler(requested) : 0u, std::memory_order_release);
 				return;
 			}
 

@@ -91,9 +91,11 @@ namespace ceres::sdl
 							return false;
 
 						case SDL_EVENT_KEY_DOWN:
-							keyboard.pushKey(static_cast<u32>(event.key.scancode), true);
-							if (event.key.scancode == SDL_SCANCODE_ESCAPE)
+							// Ctrl+Q closes the machine, and the window's own close button does too. Escape is
+							// the program's: a menu cancels with it, so it must not end the run.
+							if (event.key.scancode == SDL_SCANCODE_Q && (event.key.mod & SDL_KMOD_CTRL) != 0)
 								return false;
+							keyboard.pushKey(static_cast<u32>(event.key.scancode), true);
 							break;
 
 						case SDL_EVENT_KEY_UP:

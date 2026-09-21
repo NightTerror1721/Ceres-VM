@@ -1,4 +1,5 @@
 #include "machine_runner.h"
+#include "console_input.h"
 
 #include <ceres/driver/driver.h>
 #include <ceres/devices/devices.h>
@@ -11,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <format>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <thread>
@@ -48,6 +50,10 @@ namespace ceres::driver
 			});
 			control.attachTo(vm.io());
 			terminal.attachTo(vm.io());
+			terminal.setModeHandler([](u32 requested)
+			{
+				return (requested & TerminalDevice::ModeRaw) ? (TerminalDevice::ModeRaw | TerminalDevice::ModeKeystrokes) : 0u;
+			});
 			timer.attachTo(vm.io());
 			dma.attachTo(vm.io());
 			disk.attachTo(vm.io());
@@ -163,7 +169,9 @@ namespace ceres::driver
 		DmaController dma;
 		DiskDevice disk;
 		FramebufferDevice framebuffer;
-		KeyboardDevice keyboard;
+		// Shared, like the terminal: the console's reader thread may outlive this function and must find the
+		// device there, detached, rather than gone.
+		auto keyboard = std::make_shared<KeyboardDevice>();
 		MouseDevice mouse;
 		DisplayDevice display;
 		GamepadDevice gamepad;
@@ -172,7 +180,13 @@ namespace ceres::driver
 		terminal->attachTo(vm.io());
 		timer.attachTo(vm.io());
 		dma.attachTo(vm.io());
-		keyboard.attachTo(vm.io());
+		keyboard->attachTo(vm.io());
+		struct DetachKeyboard
+		{
+			KeyboardDevice& device;
+			CeresVM& machine;
+			~DetachKeyboard() { device.detachFrom(machine.io()); }
+		} detachKeyboard{*keyboard, vm};
 		mouse.attachTo(vm.io());
 		display.attachTo(vm.io());
 		gamepad.attachTo(vm.io());
@@ -206,7 +220,63 @@ namespace ceres::driver
 		if (backend)
 			backend->attachAudio(audio);
 
-		if (services.input != nullptr)
+		// When standard input is a console, it can give the program more than lines. The program asks through
+		// the terminal's ModeRegister for keys as they are pressed; a window already has them.
+		std::shared_ptr<ConsoleInput> console;
+		if (services.input == &std::cin)
+			console = ConsoleInput::open();
+		struct RestoreConsole
+		{
+			std::shared_ptr<ConsoleInput> console;
+			~RestoreConsole() { if (console) console->restore(); }
+		} restoreConsole{console};
+		terminal->setModeHandler([console, windowed = backend != nullptr](u32 requested) -> u32
+		{
+			const bool raw = (requested & TerminalDevice::ModeRaw) != 0;
+			const u32 granted = raw ? (TerminalDevice::ModeRaw | TerminalDevice::ModeKeystrokes) : 0u;
+			if (windowed)
+				return granted;   // the window's keyboard is already the source; the console stays as it is
+			if (!console)
+				return 0;         // input from a pipe or a file: nothing to switch
+			console->setRaw(raw);
+			return granted;
+		});
+		// A window's keystrokes also go to the terminal as bytes - unless the program asked for raw keys, in
+		// which case it reads them from the keyboard and the bytes would only pile up unread.
+		if (backend)
+			keyboard->setKeystrokeSink([terminal](u32 keystroke)
+			{
+				if (!terminal->rawRequested())
+					terminal->pushInput(keystrokeToTerminalBytes(keystroke));
+			});
+
+		if (console)
+		{
+			// The ring holds 64 bytes, so the cooked path is flow-controlled exactly as the stream one below.
+			std::thread([console, terminal, keyboard, machineDone]
+			{
+				ConsoleInput::Sink sink;
+				sink.bytes = [&](std::span<const u8> bytes)
+				{
+					for (const u8 byte : bytes)
+					{
+						while (terminal->availableBytes() >= TerminalDevice::InputBufferCapacity - 1)
+						{
+							if (machineDone->load(std::memory_order_acquire))
+								return;
+							std::this_thread::sleep_for(std::chrono::microseconds(200));
+						}
+						terminal->pushInput(static_cast<char>(byte));
+					}
+				};
+				sink.key = [&](u32 code, bool pressed) { keyboard->pushKey(code, pressed); };
+				sink.text = [&](u32 codePoint) { keyboard->pushText(codePoint); };
+				sink.endOfInput = [&] { terminal->closeInput(); };
+				sink.stopped = [&] { return machineDone->load(std::memory_order_acquire); };
+				console->run(sink);
+			}).detach();
+		}
+		else if (services.input != nullptr)
 		{
 			// A blocked console read cannot be cancelled portably. Shared ownership prevents a stale
 			// reader from touching a destroyed device; detachFrom clears its VM connection on return.
@@ -255,7 +325,7 @@ namespace ceres::driver
 				return 1;
 			}
 
-			while (vm.isPoweredOn() && backend->pump(keyboard, mouse, gamepad))
+			while (vm.isPoweredOn() && backend->pump(*keyboard, mouse, gamepad))
 			{
 				const u64 slice = backend->instructionsPerFrame();
 				for (u64 i = 0; i < slice && vm.isPoweredOn(); ++i)

@@ -707,3 +707,121 @@ TEST(device_extras, an_audio_slot_nobody_attached_reads_all_ones_so_a_program_ca
 	attached.step(3);
 	CHECK_EQ(attached.reg(1), 0u);
 }
+
+// --- Keystrokes, in the order they were typed --------------------------------------------------
+
+TEST(device_extras, keystrokes_keep_the_order_the_text_and_the_named_keys_were_typed_in)
+{
+	KeyboardDevice keyboard{};
+	keyboard.pushText(u32{ 'a' });
+	keyboard.pushKey(scancode::Return, true);
+	keyboard.pushText(u32{ 'b' });
+	keyboard.pushKey(scancode::Up, true);
+
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::StatusRegister) & KeyboardDevice::StatusKeyReady, KeyboardDevice::StatusKeyReady);
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), u32{ 'a' });
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Return);
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), u32{ 'b' });
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Up);
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::StatusRegister) & KeyboardDevice::StatusKeyReady, 0u);
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), 0u);   // empty reads 0
+}
+
+TEST(device_extras, only_a_press_of_a_key_with_no_character_is_a_keystroke)
+{
+	KeyboardDevice keyboard{};
+	keyboard.pushKey(4, true);                    // the A key: its character comes as text, not from here
+	keyboard.pushKey(4, false);
+	keyboard.pushKey(scancode::Escape, false);    // a release is not a keystroke
+	CHECK_EQ(keyboard.availableKeys(), usize{ 0 });
+
+	keyboard.pushKey(scancode::Escape, true);
+	keyboard.pushKey(scancode::F1, true);
+	keyboard.pushKey(scancode::F12, true);
+	keyboard.pushKey(scancode::Delete, true);
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Escape);
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::F1);
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::F12);
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Delete);
+}
+
+TEST(device_extras, a_control_code_typed_as_text_is_not_a_keystroke)
+{
+	KeyboardDevice keyboard{};
+	keyboard.pushText(u32{ 7 });
+	keyboard.pushText(u32{ 127 });
+	CHECK_EQ(keyboard.availableKeys(), usize{ 0 });
+	keyboard.pushText(u32{ 0x20AC });
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), 0x20ACu);
+}
+
+TEST(device_extras, the_keystroke_sink_hears_each_keystroke_and_a_full_queue_drops_but_still_reports)
+{
+	KeyboardDevice keyboard{};
+	std::string heard;
+	keyboard.setKeystrokeSink([&](u32 keystroke) { heard += keystrokeToTerminalBytes(keystroke); });
+	keyboard.pushText(std::string_view{ "hi" });
+	keyboard.pushKey(scancode::Return, true);
+	CHECK_EQ(heard, std::string{ "hi\n" });
+
+	for (usize i = 0; i < KeyboardDevice::EventBufferCapacity + 10; ++i)
+		keyboard.pushText(u32{ 'z' });
+	CHECK_EQ(keyboard.availableKeys(), KeyboardDevice::EventBufferCapacity - 1);
+	CHECK_EQ(heard.size(), usize{ 3 + KeyboardDevice::EventBufferCapacity + 10 });
+}
+
+TEST(device_extras, keystrokes_as_terminal_bytes)
+{
+	CHECK_EQ(keystrokeToTerminalBytes(u32{ 'x' }), std::string{ "x" });
+	CHECK_EQ(keystrokeToTerminalBytes(0xE9u), std::string{ "\xC3\xA9" });
+	CHECK_EQ(keystrokeToTerminalBytes(0x20ACu), std::string{ "\xE2\x82\xAC" });
+	CHECK_EQ(keystrokeToTerminalBytes(0x1F600u), std::string{ "\xF0\x9F\x98\x80" });
+	const auto named = [](u32 code) { return keystrokeToTerminalBytes(KeyboardDevice::KeyNamed | code); };
+	CHECK_EQ(named(scancode::Return), std::string{ "\n" });
+	CHECK_EQ(named(scancode::Escape), std::string{ "\x1b" });
+	CHECK_EQ(named(scancode::Backspace), std::string{ "\b" });
+	CHECK_EQ(named(scancode::Up), std::string{ "\x1b[A" });
+	CHECK_EQ(named(scancode::Left), std::string{ "\x1b[D" });
+	CHECK_EQ(named(scancode::PageDown), std::string{ "\x1b[6~" });
+	CHECK_EQ(named(scancode::F1), std::string{});     // no byte form
+}
+
+// --- The terminal's raw-keys request -----------------------------------------------------------
+
+TEST(device_extras, a_terminal_with_no_host_behind_it_grants_no_raw_keys)
+{
+	TerminalDevice terminal{};
+	terminal.writeWord(TerminalDevice::ModeRegister, TerminalDevice::ModeRaw);
+	CHECK(terminal.rawRequested());
+	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::ModeRegister), 0u);   // asked, and not given
+}
+
+TEST(device_extras, the_host_decides_what_a_raw_request_is_granted)
+{
+	TerminalDevice terminal{};
+	u32 asked = 99;
+	terminal.setModeHandler([&](u32 requested)
+	{
+		asked = requested;
+		return requested ? (TerminalDevice::ModeRaw | TerminalDevice::ModeKeystrokes) : 0u;
+	});
+
+	terminal.writeWord(TerminalDevice::ModeRegister, TerminalDevice::ModeRaw);
+	CHECK_EQ(asked, TerminalDevice::ModeRaw);
+	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::ModeRegister), TerminalDevice::ModeRaw | TerminalDevice::ModeKeystrokes);
+	CHECK(terminal.rawRequested());
+
+	terminal.writeWord(TerminalDevice::ModeRegister, 0);
+	CHECK_EQ(asked, 0u);
+	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::ModeRegister), 0u);
+	CHECK(!terminal.rawRequested());
+}
+
+TEST(device_extras, only_the_raw_bit_of_a_mode_write_is_a_request)
+{
+	TerminalDevice terminal{};
+	u32 asked = 99;
+	terminal.setModeHandler([&](u32 requested) { asked = requested; return requested; });
+	terminal.writeWord(TerminalDevice::ModeRegister, 0xFFFFFFFEu);   // the keystrokes bit is the host's to set
+	CHECK_EQ(asked, 0u);
+}

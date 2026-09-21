@@ -9,13 +9,33 @@
 #include <ceres/vm/mmio_bus.h>
 #include <array>
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace ceres::devices
 {
 	using namespace vm;
+
+	// The key codes the keyboard reports are SDL's scancodes. These are the ones with no character of
+	// their own - the keys a program has to be told about by name.
+	namespace scancode
+	{
+		inline constexpr u32 Return = 40, Escape = 41, Backspace = 42, Tab = 43, Space = 44;
+		inline constexpr u32 F1 = 58, F12 = 69;
+		inline constexpr u32 Insert = 73, Home = 74, PageUp = 75, Delete = 76, End = 77, PageDown = 78;
+		inline constexpr u32 Right = 79, Left = 80, Down = 81, Up = 82;
+		inline constexpr u32 KeypadEnter = 88;
+
+		// True for a key that types no character: it reaches a program as a named keystroke.
+		constexpr bool isNamedKey(u32 code) noexcept
+		{
+			return (code >= Return && code <= Tab) || (code >= F1 && code <= F12) ||
+				(code >= Insert && code <= Up) || code == KeypadEnter;
+		}
+	}
 
 	// A keyboard, distinct from the terminal: the terminal delivers a stream of characters with no
 	// notion of which key produced them, while this device reports events - a code plus a
@@ -27,6 +47,7 @@ namespace ceres::devices
 		static inline constexpr Address StatusRegister = Address(0x00); // Read-only: bit 0 = an event is available.
 		static inline constexpr Address EventRegister = Address(0x04); // Read-only: pops one event; bits 30:0 = code, bit 31 = 1 if pressed, 0 if released.
 		static inline constexpr Address TextRegister = Address(0x08); // Read-only: pops one typed character as a Unicode code point; 0 when empty.
+		static inline constexpr Address KeyRegister = Address(0x0C); // Read-only: pops the next keystroke, in the order it was typed; 0 when empty. A character is its code point; a key with no character (Enter, Esc, the arrows...) is KeyNamed | its scancode.
 		static inline constexpr Address BlockReadCountRegister = Address(0x10); // Read-only: events drained by the last block read.
 
 		// The same block trio the terminal and the disk use: drain the event queue into RAM as a
@@ -39,6 +60,8 @@ namespace ceres::devices
 
 		static inline constexpr u32 StatusDataReady = 1u << 0;
 		static inline constexpr u32 StatusTextReady = 1u << 1;    // A typed character is waiting in the text queue.
+		static inline constexpr u32 StatusKeyReady = 1u << 2;     // A keystroke is waiting in the ordered keystroke queue.
+		static inline constexpr u32 KeyNamed = 1u << 31;          // In a keystroke: the low bits are the scancode of a key with no character.
 		static inline constexpr u32 EventPressed = 1u << 31;      // Set when the key was pressed, clear when released.
 		static inline constexpr u32 EventCodeMask = 0x7FFFFFFFu;  // The key code lives in the low 31 bits.
 
@@ -59,6 +82,13 @@ namespace ceres::devices
 		std::array<u32, EventBufferCapacity> _text{};
 		usize _textHead = 0;
 		usize _textTail = 0;
+		// Keystrokes: what a person typed, in the order they typed it. The two queues above cannot say
+		// whether the letter or the Enter came first, because they are separate; this one merges them - a
+		// typed character, or a key that has no character - so a text field or a menu reads one stream.
+		std::array<u32, EventBufferCapacity> _keys{};
+		usize _keyHead = 0;
+		usize _keyTail = 0;
+		std::function<void(u32)> _keystrokeSink;
 		mutable std::mutex _mutex;
 		u32 _blockAddress = 0;
 		u32 _blockLength = 0;
@@ -89,6 +119,8 @@ namespace ceres::devices
 		// marks a release. The low 31 bits of `code` are kept, so SDL scancodes fit comfortably.
 		void pushKey(u32 code, bool pressed = true)
 		{
+			if (pressed && scancode::isNamedKey(code & EventCodeMask))
+				pushKeystroke(KeyNamed | (code & EventCodeMask));
 			const u32 event = (code & EventCodeMask) | (pressed ? EventPressed : 0u);
 			{
 				const std::lock_guard lock{_mutex};
@@ -109,6 +141,8 @@ namespace ceres::devices
 		// keyboard's interrupt like a key event does, and a full queue drops it.
 		void pushText(u32 codePoint)
 		{
+			if (codePoint >= 32 && codePoint != 127)
+				pushKeystroke(codePoint);
 			{
 				const std::lock_guard lock{_mutex};
 				const usize nextTail = (_textTail + 1) % EventBufferCapacity;
@@ -155,7 +189,17 @@ namespace ceres::devices
 			}
 		}
 
+		// Called with each keystroke as it is queued, from the host's thread. A windowed host uses it to hand
+		// the keystrokes to the terminal as bytes as well, for a program that reads its input that way.
+		void setKeystrokeSink(std::function<void(u32)> sink) { _keystrokeSink = std::move(sink); }
+
 		u64 droppedEvents() const noexcept { return _droppedEvents.load(std::memory_order_relaxed); }
+
+		usize availableKeys() const noexcept
+		{
+			const std::lock_guard lock{_mutex};
+			return (_keyTail - _keyHead + EventBufferCapacity) % EventBufferCapacity;
+		}
 
 		usize availableText() const noexcept
 		{
@@ -171,6 +215,24 @@ namespace ceres::devices
 		}
 
 	private:
+		void pushKeystroke(u32 keystroke)
+		{
+			{
+				const std::lock_guard lock{_mutex};
+				const usize nextTail = (_keyTail + 1) % EventBufferCapacity;
+				if (nextTail != _keyHead)
+				{
+					_keys[_keyTail] = keystroke;
+					_keyTail = nextTail;
+				}
+				else
+					_droppedEvents.fetch_add(1, std::memory_order_relaxed);
+			}
+			if (_keystrokeSink)
+				_keystrokeSink(keystroke);
+			raiseInterrupt(Interrupt);
+		}
+
 		// Pops one event from the ring; returns 0 when empty. The caller holds the mutex.
 		u32 popEvent()
 		{
@@ -223,7 +285,8 @@ namespace ceres::devices
 		u32 readUnsignedWord(Address offset) override
 		{
 			if (offset == StatusRegister)
-				return (availableEvents() > 0 ? StatusDataReady : 0) | (availableText() > 0 ? StatusTextReady : 0);
+				return (availableEvents() > 0 ? StatusDataReady : 0) | (availableText() > 0 ? StatusTextReady : 0) |
+					(availableKeys() > 0 ? StatusKeyReady : 0);
 			if (offset == EventRegister)
 			{
 				const std::lock_guard lock{_mutex};
@@ -237,6 +300,15 @@ namespace ceres::devices
 				const u32 codePoint = _text[_textHead];
 				_textHead = (_textHead + 1) % EventBufferCapacity;
 				return codePoint;
+			}
+			if (offset == KeyRegister)
+			{
+				const std::lock_guard lock{_mutex};
+				if (_keyHead == _keyTail)
+					return 0;
+				const u32 keystroke = _keys[_keyHead];
+				_keyHead = (_keyHead + 1) % EventBufferCapacity;
+				return keystroke;
 			}
 			if (offset == BlockReadCountRegister)
 				return _blockReadCount;
@@ -257,6 +329,51 @@ namespace ceres::devices
 		void writeByte(Address offset, u8 value) override { writeWord(offset, value); }
 		void writeHalfword(Address offset, u16 value) override { writeWord(offset, value); }
 	};
+
+	// What a keystroke is as bytes on a terminal: a character as UTF-8, and each named key as the byte or the
+	// escape sequence a terminal sends for it. A windowed host feeds these to the terminal so a program that
+	// reads its input as a stream still sees what was typed.
+	inline std::string keystrokeToTerminalBytes(u32 keystroke)
+	{
+		if ((keystroke & KeyboardDevice::KeyNamed) == 0)
+		{
+			std::string out;
+			if (keystroke < 0x80) out += static_cast<char>(keystroke);
+			else if (keystroke < 0x800) { out += static_cast<char>(0xC0 | (keystroke >> 6)); out += static_cast<char>(0x80 | (keystroke & 0x3F)); }
+			else if (keystroke < 0x10000)
+			{
+				out += static_cast<char>(0xE0 | (keystroke >> 12));
+				out += static_cast<char>(0x80 | ((keystroke >> 6) & 0x3F));
+				out += static_cast<char>(0x80 | (keystroke & 0x3F));
+			}
+			else
+			{
+				out += static_cast<char>(0xF0 | (keystroke >> 18));
+				out += static_cast<char>(0x80 | ((keystroke >> 12) & 0x3F));
+				out += static_cast<char>(0x80 | ((keystroke >> 6) & 0x3F));
+				out += static_cast<char>(0x80 | (keystroke & 0x3F));
+			}
+			return out;
+		}
+		switch (keystroke & ~KeyboardDevice::KeyNamed)
+		{
+			case scancode::Return: case scancode::KeypadEnter: return "\n";
+			case scancode::Escape: return "\x1b";
+			case scancode::Backspace: return "\b";
+			case scancode::Tab: return "\t";
+			case scancode::Up: return "\x1b[A";
+			case scancode::Down: return "\x1b[B";
+			case scancode::Right: return "\x1b[C";
+			case scancode::Left: return "\x1b[D";
+			case scancode::Home: return "\x1b[H";
+			case scancode::End: return "\x1b[F";
+			case scancode::Insert: return "\x1b[2~";
+			case scancode::Delete: return "\x1b[3~";
+			case scancode::PageUp: return "\x1b[5~";
+			case scancode::PageDown: return "\x1b[6~";
+			default: return {};
+		}
+	}
 
 	// A mouse, reporting movement two ways at once: a delta since the program last read it (the
 	// thing a game wants frame to frame) and an absolute position accumulated from every motion
