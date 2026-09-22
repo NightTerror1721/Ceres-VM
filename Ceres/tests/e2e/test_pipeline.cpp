@@ -184,11 +184,26 @@ TEST(pipeline, a_hand_written_jump_table_dispatches_through_rodata_and_defaults_
 	if (!inRange.assembled) { Registry::instance().recordFailure(inRange.errors); return; }
 	CHECK_EQ(inRange.output, std::string{ "C" });
 
-	// 9 is past the end of the table, so the unsigned bounds check sends it to `default`.
+	// Value 4 -> index 3 -> 'D': the last entry, which pins the top of the range against the table
+	// length and the `4` in the bounds check drifting apart.
+	RunResult top = assembleAndRun(program("4"));
+	CHECK(top.assembled);
+	if (!top.assembled) { Registry::instance().recordFailure(top.errors); return; }
+	CHECK_EQ(top.output, std::string{ "D" });
+
+	// 9 is past the end of the table, so the bounds check sends it to `default`.
 	RunResult outOfRange = assembleAndRun(program("9"));
 	CHECK(outOfRange.assembled);
 	if (!outOfRange.assembled) { Registry::instance().recordFailure(outOfRange.errors); return; }
 	CHECK_EQ(outOfRange.output, std::string{ "?" });
+
+	// 0 -> index 0xFFFFFFFF: below the range, and the case that actually proves the check is
+	// UNSIGNED. A signed comparison would read 0xFFFFFFFF as -1, consider it in range, and index
+	// table[-1] instead of falling through to `default`.
+	RunResult belowRange = assembleAndRun(program("0"));
+	CHECK(belowRange.assembled);
+	if (!belowRange.assembled) { Registry::instance().recordFailure(belowRange.errors); return; }
+	CHECK_EQ(belowRange.output, std::string{ "?" });
 }
 
 TEST(pipeline, a_loop_counts_down_and_terminates)
