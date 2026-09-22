@@ -137,6 +137,60 @@ TEST(pipeline, a_program_prints_a_string_and_shuts_down)
 	CHECK_EQ(r.output, std::string{ "Hola!" });
 }
 
+TEST(pipeline, a_hand_written_jump_table_dispatches_through_rodata_and_defaults_out_of_range)
+{
+	// The exact shape Ceres-C lowers a dense `switch` to now (Ceres-C docs/13-Switch-Jump-Table-Plan.md):
+	// a `.rodata` table of case-label addresses, an unsigned bounds check, an indexed load and an
+	// indirect jump. The table's entries are `Word32` relocations against `@text` labels, so this
+	// pins the whole contract the compiler depends on - including the forward reference from the
+	// table (assembled after the code) back to the labels it names.
+	auto program = [](std::string_view index)
+	{
+		return std::format(
+			"@text\r\n"
+			"global main:\r\n"
+			"    li r1, {}\r\n"
+			"    sub r1, r1, 1\r\n"      // normalize to a zero-based index (low = 1)
+			"    ifae r1, 4, c_def\r\n"  // out of [0, 4) -> default
+			"    la r3, table\r\n"
+			"    shl r1, r1, 2\r\n"
+			"    ldr r3, [r3 + r1]\r\n"
+			"    jp r3\r\n"
+			"c0:\r\n"
+			"    li r0, 65\r\n"          // 'A'
+			"    jp out\r\n"
+			"c1:\r\n"
+			"    li r0, 66\r\n"          // 'B'
+			"    jp out\r\n"
+			"c2:\r\n"
+			"    li r0, 67\r\n"          // 'C'
+			"    jp out\r\n"
+			"c3:\r\n"
+			"    li r0, 68\r\n"          // 'D'
+			"    jp out\r\n"
+			"c_def:\r\n"
+			"    li r0, 63\r\n"          // '?'
+			"out:\r\n"
+			"    la r13, 0xFF000004\r\n" // Terminal's OutputRegister
+			"    strb [r13 + 0], r0\r\n"
+			"{}"
+			"@rodata\r\n"
+			"    let table: u32[4] = [c0, c1, c2, c3]\r\n", index, shutdown);
+	};
+
+	// Value 3 -> index 2 -> 'C'.
+	RunResult inRange = assembleAndRun(program("3"));
+	CHECK(inRange.assembled);
+	if (!inRange.assembled) { Registry::instance().recordFailure(inRange.errors); return; }
+	CHECK_EQ(inRange.output, std::string{ "C" });
+
+	// 9 is past the end of the table, so the unsigned bounds check sends it to `default`.
+	RunResult outOfRange = assembleAndRun(program("9"));
+	CHECK(outOfRange.assembled);
+	if (!outOfRange.assembled) { Registry::instance().recordFailure(outOfRange.errors); return; }
+	CHECK_EQ(outOfRange.output, std::string{ "?" });
+}
+
 TEST(pipeline, a_loop_counts_down_and_terminates)
 {
 	RunResult r = assembleAndRun(std::format(
