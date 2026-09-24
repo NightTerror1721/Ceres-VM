@@ -4,12 +4,13 @@
 #include "framework.h"
 #include <ceres/driver/command.h>
 #include <ceres/driver/driver.h>
+#include <ceres/driver/host_backend.h>
 #include <ceres/devices/devices.h>
-#include <ceres/devices/audio_device.h>
 #include <ceres/vm/ceresvm.h>
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -35,6 +36,14 @@ namespace
 		std::filesystem::remove(path);
 		return result == 0 ? output.str() : "exit " + std::to_string(result) + ": " + diagnostics.str();
 	}
+
+	// A host with a window that nothing happens in: what the windowed loop does between frames.
+	class QuietWindow final : public HostBackend
+	{
+	public:
+		bool pump(devices::KeyboardDevice&, devices::MouseDevice&, devices::GamepadDevice&) override { return true; }
+		void present(const devices::DisplayDevice&) override {}
+	};
 
 	// The first run marks the word just above the image (which a reset does not reload), prints '1' and
 	// the digit in `counter`, changes `counter`, and resets. The second run finds the mark, prints '2' and
@@ -75,6 +84,16 @@ namespace
 		"    la   r13, 0xFFFF0000\n"
 		"    str  [r13 + 0], r0\n"
 		"    halt\n";
+
+	// The same program ending with status 0, so `run` returns its output.
+	std::string withStatusZero()
+	{
+		std::string program = ResetOnce;
+		const auto at = program.find("0x0301");
+		if (at != std::string::npos)
+			program.replace(at, 6, "0x0001");
+		return program;
+	}
 }
 
 TEST(driver_reset, a_reset_starts_the_program_again_with_its_image_reloaded)
@@ -84,9 +103,24 @@ TEST(driver_reset, a_reset_starts_the_program_again_with_its_image_reloaded)
 	const std::string shown = run("ceres_reset_a.casm", ResetOnce);
 	CHECK(shown.starts_with("exit 3"));
 
-	std::string zero = ResetOnce;
-	zero.replace(zero.find("0x0301"), 6, "0x0001");
-	CHECK_EQ(run("ceres_reset_b.casm", zero), std::string{ "1727" });
+	CHECK_EQ(run("ceres_reset_b.casm", withStatusZero()), std::string{ "1727" });
+}
+
+TEST(driver_reset, a_windowed_host_restarts_the_program_between_frames_too)
+{
+	const auto path = std::filesystem::temp_directory_path() / "ceres_reset_window.casm";
+	{
+		std::ofstream file(path, std::ios::binary | std::ios::trunc);
+		file << withStatusZero();
+	}
+	const HostBackendFactory factory = []() -> std::unique_ptr<HostBackend> { return std::make_unique<QuietWindow>(); };
+	std::istringstream input;
+	std::ostringstream output;
+	std::ostringstream diagnostics;
+	const int result = execute(RunCommand{ .input = path, .window = true }, { &input, &output, &diagnostics }, factory);
+	std::filesystem::remove(path);
+	CHECK_EQ(result, 0);
+	CHECK_EQ(output.str(), std::string{ "1727" });
 }
 
 TEST(driver_reset, a_reset_disarms_the_timer_and_drops_a_transfer_in_flight)
@@ -106,6 +140,14 @@ TEST(driver_reset, a_reset_disarms_the_timer_and_drops_a_transfer_in_flight)
 	control.reset();
 	CHECK_EQ(control.features(), 0u);
 	CHECK_EQ(told, 0u);
+
+	devices::DmaController dma;
+	dma.writeWord(vm::Address(0x08), 16);               // a length ...
+	dma.writeWord(vm::Address(0x0C), 1);                // ... armed: it lands on the next tick
+	CHECK_EQ(dma.ticksUntilEvent(), u64{ 1 });
+	dma.reset();
+	CHECK_EQ(dma.ticksUntilEvent(), vm::NoDeviceEvent);
+	CHECK_EQ(dma.readUnsignedWord(vm::Address(0x10)), 0u);   // neither busy nor done
 }
 
 TEST(driver_reset, a_machine_without_a_reset_request_does_not_restart)

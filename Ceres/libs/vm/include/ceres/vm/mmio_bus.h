@@ -207,6 +207,9 @@ namespace ceres::vm
 		// ticksUntilNextEvent(), so no device skips past something it had to do.
 		void advance(u64 ticks)
 		{
+			const u64 nearest = ticksUntilNextEvent();
+			if (ticks > nearest)
+				ticks = nearest;                   // no device steps past something it had to do
 			if (ticks == 0)
 				return;
 			for (usize i = 0; i < _tickedDeviceCount; ++i)

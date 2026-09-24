@@ -93,7 +93,7 @@ TEST(halt_clock, a_halted_wait_takes_its_ticks_in_real_time_at_the_halt_clock)
 	const u64 before = m.timer.ticks();
 
 	int steps = 0;
-	while (m.halted() && steps < 100000)
+	while (m.halted() && steps < 300)             // a regression fails in seconds, not minutes
 	{
 		m.step();
 		++steps;
@@ -153,6 +153,23 @@ TEST(halt_clock, a_masked_request_already_pending_does_not_keep_a_halted_machine
 	const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();
 	CHECK(m.halted());
 	CHECK(waited >= 5);
+}
+
+TEST(halt_clock, a_slow_halt_clock_still_reaches_the_event)
+{
+	// At 50 Hz a 10 ms sleep is half a tick: the remainder has to carry, or the clock never moves.
+	HaltedMachine m;
+	m.vm().engine().setHaltClock(50);
+	m.timer.arm(3);                             // STI and HALT take two; one tick of 20 ms is left
+	m.runToHalt();
+	int steps = 0;
+	while (m.halted() && steps < 300)
+	{
+		m.step();
+		++steps;
+	}
+	CHECK(!m.halted());
+	CHECK_EQ(m.reg(9), 0x5Au);
 }
 
 TEST(halt_clock, the_timer_reports_the_halt_clock_it_was_told)

@@ -69,7 +69,8 @@ namespace ceres::vm
 		void requestReset() noexcept
 		{
 			_resetRequested.store(true, std::memory_order_relaxed);
-			_isPoweredOn.store(false, std::memory_order_relaxed);
+			// Release: a step loop that sees the power-off also sees the request (restartIfRequested).
+			_isPoweredOn.store(false, std::memory_order_release);
 		}
 
 		bool isResetRequested() const noexcept { return _resetRequested.load(std::memory_order_relaxed); }

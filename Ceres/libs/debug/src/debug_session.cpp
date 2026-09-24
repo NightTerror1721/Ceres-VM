@@ -738,6 +738,14 @@ namespace ceres::debug
 		return _history.isEnabled() && currentTick() > _history.oldestTick();
 	}
 
+	// The engine's halted clock and what the timer tells the program about it move together, so a program
+	// replayed with the clock off reads 0 from HaltClockRegister, as it does under any host that sets 0.
+	void DebugSession::setReplayHaltClock(u64 hz)
+	{
+		_vm->engine().setHaltClock(hz);
+		_timer->setHaltClockRate(static_cast<u32>(_vm->engine().haltClock()));
+	}
+
 	bool DebugSession::replayTo(u64 tick)
 	{
 		const auto restored = _history.restoreNearest(tick, *_vm, *_timer, *_terminal);
@@ -766,7 +774,7 @@ namespace ceres::debug
 		_outputHandler = nullptr;
 		// Ground already covered is not waited through again: a halt jumps to the event that ended it.
 		const u64 haltClock = _vm->engine().haltClock();
-		_vm->engine().setHaltClock(0);
+		setReplayHaltClock(0);
 
 		for (const std::string& text : _history.inputsBetween(restored.value(), tick))
 			_terminal->pushInput(text);
@@ -774,7 +782,7 @@ namespace ceres::debug
 		while (currentTick() < tick && _vm->isPoweredOn())
 			stepOnce();
 
-		_vm->engine().setHaltClock(haltClock);
+		setReplayHaltClock(haltClock);
 		_outputHandler = std::move(savedOutput);
 		_history.endReplay();
 
@@ -856,7 +864,7 @@ namespace ceres::debug
 		OutputHandler savedOutput = std::move(_outputHandler);
 		_outputHandler = nullptr;
 		const u64 haltClock = _vm->engine().haltClock();
-		_vm->engine().setHaltClock(0);
+		setReplayHaltClock(0);
 
 		while (currentTick() < target && _vm->isPoweredOn())
 		{
@@ -865,7 +873,7 @@ namespace ceres::debug
 				found = currentTick();
 		}
 
-		_vm->engine().setHaltClock(haltClock);
+		setReplayHaltClock(haltClock);
 		_outputHandler = std::move(savedOutput);
 		_history.endReplay();
 

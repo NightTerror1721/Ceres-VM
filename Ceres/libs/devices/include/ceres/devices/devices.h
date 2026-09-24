@@ -260,6 +260,8 @@ namespace ceres::devices
 			_remaining = 0;
 			_periodic = false;
 			_period = 0;
+			_nanosHigh = 0;                                   // nothing latched yet, as at power-on
+			_started = std::chrono::steady_clock::now();      // "since the machine started" starts again
 		}
 
 		void restoreState(const State& state) noexcept

@@ -218,6 +218,8 @@ namespace ceres::debug
 		std::unique_ptr<TimerDevice> _timer;
 		std::unique_ptr<DmaController> _dma;
 		std::unique_ptr<SystemControlDevice> _systemControl;
+
+		void setReplayHaltClock(u64 hz);
 		std::unique_ptr<DiskDevice> _disk;
 		std::unique_ptr<FramebufferDevice> _framebuffer;
 		std::unique_ptr<KeyboardDevice> _keyboard;

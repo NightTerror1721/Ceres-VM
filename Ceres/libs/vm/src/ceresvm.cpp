@@ -93,7 +93,10 @@ namespace ceres::vm
 
 	bool CeresVM::restartIfRequested() noexcept
 	{
-		if (!_resetRequested.exchange(false, std::memory_order_relaxed) || !_program.has_value())
+		// requestReset() may run on another thread: this pairs with its release store of the power-off
+		// the step loop saw, so the request stored before it is seen here too.
+		std::atomic_thread_fence(std::memory_order_acquire);
+		if (!_resetRequested.exchange(false, std::memory_order_acq_rel) || !_program.has_value())
 			return false;
 
 		// Powered off by requestReset(), so loadProgram() accepts it. It already validated this image once.
@@ -116,8 +119,12 @@ namespace ceres::vm
 
 	std::expected<void, std::string> CeresVM::run() noexcept
 	{
-		if (auto powered = powerOn(); !powered)
-			return powered;
+		// A reset asked for before run() is carried out first; otherwise the machine starts as it is.
+		if (!restartIfRequested())
+		{
+			if (auto powered = powerOn(); !powered)
+				return powered;
+		}
 
 		// A reset stops the inner loop like a shutdown does; it starts again only if one was asked for.
 		do

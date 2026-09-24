@@ -73,6 +73,9 @@ namespace ceres::vm
 		// How fast the clock runs while the CPU is halted, in ticks per second (see haltedStep). 0 means
 		// it does not run in real time at all: a halted step jumps straight to the next device event.
 		u64 _haltClockHz = DefaultHaltClockHz;
+		// Real time a halted step waited that did not make a whole tick, carried into the next one so a
+		// slow clock still gets there (at 50 Hz a 10 ms sleep is half a tick).
+		u64 _haltCarryNanos = 0;
 
 		// The loaded program's own text, which nothing a correct program does ever writes to. An
 		// empty range means no program is loaded and there is nothing to protect. A store into it
@@ -182,9 +185,14 @@ namespace ceres::vm
 		void setFlags(FlagRegister flags) noexcept { _flags = flags; }
 		void setDivisionFaults(bool enabled) noexcept { _divisionFaults = enabled; }
 		constexpr bool divisionFaults() const noexcept { return _divisionFaults; }
-		// The halted clock's rate. A host that also shows it to the program (the timer's
-		// HaltClockRegister) sets both. 0 turns real time off: a debugger replaying does not wait.
-		void setHaltClock(u64 hz) noexcept { _haltClockHz = hz; }
+		// The halted clock's rate, at most what the timer's 32-bit HaltClockRegister can report. A host
+		// that also shows it to the program (TimerDevice::setHaltClockRate) sets both. 0 turns real time
+		// off: a halted step jumps to the next device event, and with none it waits for the host.
+		void setHaltClock(u64 hz) noexcept
+		{
+			_haltClockHz = hz > 0xFFFFFFFFull ? 0xFFFFFFFFull : hz;
+			_haltCarryNanos = 0;
+		}
 		constexpr u64 haltClock() const noexcept { return _haltClockHz; }
 		void setProgramCounter(Address address) noexcept { _pc = address; }
 		// Only for restoring a snapshot: the machine's clock has to go back with the rest of it,

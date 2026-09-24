@@ -15,6 +15,7 @@ namespace ceres::vm
 		_interruptShadow = false;
 		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
 		_mmu.reset(); // No program has had the chance to point PTBR at garbage yet; leave none behind either
+		_haltCarryNanos = 0;
 	}
 
 	namespace
@@ -52,7 +53,8 @@ namespace ceres::vm
 	// devices on by the time that actually passed - exactly to the event, when it was reached.
 	//
 	// With the clock at 0 (a debugger replaying) no real time is involved: a step jumps straight to the
-	// next device event, and with none scheduled it waits for the host to raise something.
+	// next device event, and with none scheduled it waits up to MaxHaltedWait for the host to raise
+	// something, then returns so the loop around it can look again.
 	void ExecutionEngine::haltedStep(u64 raisesSeen) noexcept
 	{
 		const u64 toEvent = _mmioBus.ticksUntilNextEvent();
@@ -77,9 +79,17 @@ namespace ceres::vm
 		if (wakeAt > start)
 			_interrupts.waitForRaise(raisesSeen, wakeAt);
 
-		u64 ticks = durationToTicks(HaltClock::now() - start, _haltClockHz);
+		// The time waited plus what the last steps left over, in whole ticks; the rest carries on.
+		const u64 waitedNanos = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(HaltClock::now() - start).count())
+			+ _haltCarryNanos;
+		u64 ticks = durationToTicks(std::chrono::nanoseconds(waitedNanos), _haltClockHz);
+		const u64 usedNanos = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(ticksToDuration(ticks, _haltClockHz)).count());
+		_haltCarryNanos = waitedNanos > usedNanos ? waitedNanos - usedNanos : 0;
 		if (toEvent != NoDeviceEvent && ticks >= toEvent)
+		{
 			ticks = toEvent;                      // the event happens on its own tick; the machine then wakes
+			_haltCarryNanos = 0;
+		}
 		_mmioBus.advance(ticks);
 	}
 

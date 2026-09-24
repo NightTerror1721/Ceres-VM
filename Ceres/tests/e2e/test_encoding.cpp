@@ -885,6 +885,11 @@ TEST(encoding, float_neg_is_still_fneg)
 	auto words = assembleText("    neg f2, f1", r);
 
 	CHECK(r.ok());
-	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::FNEG, true);
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+	CHECK_EQ(words.size(), usize{ 1 });
+	const Instruction encoded{ words[0] };
+	CHECK_EQ(encoded.opcode() == Opcode::FNEG, true);
+	CHECK_EQ(encoded.fd(), u8{ 2 });
+	CHECK_EQ(encoded.fs(), u8{ 1 });
 }
 
