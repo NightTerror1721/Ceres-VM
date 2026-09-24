@@ -55,6 +55,7 @@ namespace ceres::driver
 		std::vector<PortAttachment> ports;
 		std::vector<std::string> arguments;     // after --: argv[1] on (argv[0] is the input's path)
 		std::vector<std::string> environment;   // --env NAME=value, in order
+		std::filesystem::path hostDirectory;    // --host-dir: the host directory the program's host files live in
 	};
 
 	struct ProfileCommand

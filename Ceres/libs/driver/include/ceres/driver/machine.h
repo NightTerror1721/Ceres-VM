@@ -38,6 +38,8 @@ namespace ceres::driver
 		// What main(argc, argv) and getenv see (vm::ProgramArguments).
 		std::vector<std::string> arguments;
 		std::vector<std::string> environment;
+		// The host directory the program's host files are under (HostFsDevice); empty for none.
+		std::filesystem::path hostDirectory;
 	};
 
 	class Machine

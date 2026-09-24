@@ -17,6 +17,7 @@
 #include <ceres/devices/display_device.h>
 #include <ceres/devices/audio_device.h>
 #include <ceres/devices/peripheral_device.h>
+#include <ceres/devices/host_fs_device.h>
 #include <ceres/core/format/program.h>
 #include <ceres/core/format/debug_info.h>
 #include <atomic>
@@ -228,6 +229,7 @@ namespace ceres::debug
 		std::unique_ptr<GamepadDevice> _gamepad;
 		std::unique_ptr<AudioDevice> _audio;
 		std::unique_ptr<PeripheralDevice> _peripherals;
+		std::unique_ptr<HostFsDevice> _hostFs;
 		// What the millisecond register counts from, so a fresh session starts at zero.
 		std::chrono::steady_clock::time_point _millisEpoch = std::chrono::steady_clock::now();
 

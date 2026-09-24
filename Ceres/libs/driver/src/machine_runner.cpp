@@ -8,6 +8,7 @@
 #include <ceres/devices/display_device.h>
 #include <ceres/devices/audio_device.h>
 #include <ceres/devices/peripheral_device.h>
+#include <ceres/devices/host_fs_device.h>
 #include <ceres/vm/ceresvm.h>
 
 #include <atomic>
@@ -47,6 +48,7 @@ namespace ceres::driver
 		GamepadDevice gamepad;
 		AudioDevice audio;
 		PeripheralDevice peripherals;
+		HostFsDevice hostFs;
 		std::string startupError;
 
 		Impl(const MachineConfig& config, const MachineHost& host) :
@@ -78,6 +80,9 @@ namespace ceres::driver
 			gamepad.attachTo(vm.io());
 			audio.attachTo(vm.io());
 			peripherals.attachTo(vm.io());
+			hostFs.attachTo(vm.io());
+			if (!config.hostDirectory.empty() && !hostFs.setRoot(config.hostDirectory))
+				startupError = "Not a directory: " + config.hostDirectory.string();
 
 			if (host.terminalOutput)
 				terminal.setOutputSink([sink = host.terminalOutput](u8 byte)
@@ -187,7 +192,7 @@ namespace ceres::driver
 
 	int runMachine(const Program& program, usize memorySize, const DebugInfo* profileInfo,
 		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, vm::ProgramArguments arguments,
-		HostServices services, HostBackend* backend)
+		const std::filesystem::path& hostDirectory, HostServices services, HostBackend* backend)
 	{
 		CeresVM vm{memorySize};
 		vm.setProgramArguments(std::move(arguments));
@@ -215,6 +220,7 @@ namespace ceres::driver
 		GamepadDevice gamepad;
 		AudioDevice audio;
 		PeripheralDevice peripherals;
+		HostFsDevice hostFs;
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		framebuffer.setWindowHost(backend != nullptr && backend->showsText());
@@ -232,6 +238,7 @@ namespace ceres::driver
 		gamepad.attachTo(vm.io());
 		audio.attachTo(vm.io());
 		terminal->setOutputSink([out = services.output](u8 byte) { out->put(static_cast<char>(byte)); out->flush(); });
+		terminal->setErrorSink([err = services.diagnostics](u8 byte) { err->put(static_cast<char>(byte)); err->flush(); });
 		framebuffer.setPresentSink([out = services.output](std::string_view frame) { *out << frame; out->flush(); });
 		if (!diskImage.empty() && !disk.open(diskImage))
 		{
@@ -241,6 +248,12 @@ namespace ceres::driver
 		disk.attachTo(vm.io());
 		framebuffer.attachTo(vm.io());
 		peripherals.attachTo(vm.io());
+		if (!hostDirectory.empty() && !hostFs.setRoot(hostDirectory))
+		{
+			*services.diagnostics << "--host-dir: not a directory: " << hostDirectory.string() << '\n';
+			return 1;
+		}
+		hostFs.attachTo(vm.io());
 		for (const PortAttachment& port : ports)
 		{
 			std::string error;

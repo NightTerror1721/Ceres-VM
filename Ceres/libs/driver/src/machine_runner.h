@@ -12,5 +12,5 @@ namespace ceres::driver
 	struct HostServices;
 	int runMachine(const fmt::Program& program, usize memorySize, const fmt::DebugInfo* profileInfo,
 		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, vm::ProgramArguments arguments,
-		HostServices services, HostBackend* backend = nullptr);
+		const std::filesystem::path& hostDirectory, HostServices services, HostBackend* backend = nullptr);
 }

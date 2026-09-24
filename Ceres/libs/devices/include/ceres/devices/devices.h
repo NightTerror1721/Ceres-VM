@@ -628,6 +628,7 @@ namespace ceres::devices
 		static inline constexpr Address BlockReadCountRegister = Address(0x10); // Read-only: bytes the most recent block-read actually moved into RAM.
 		static inline constexpr Address DroppedInputRegister = Address(0x14); // Read-only: input bytes discarded by a full ring (truncated to 32 bits).
 		static inline constexpr Address ModeRegister = Address(0x18); // Read/write: write ModeRaw to ask the host for keys as they are pressed (no line editing, no echo); read what the host granted.
+		static inline constexpr Address ErrorOutputRegister = Address(0x1C); // Write-only: a byte for the error stream - the host's stderr under `ceres run`, kept apart from the output.
 
 		// A bulk transfer: write the RAM address and length, then a command (1 = read from the
 		// terminal's input ring into RAM, 2 = write RAM out to the terminal) - the direct
@@ -637,6 +638,7 @@ namespace ceres::devices
 		static inline constexpr Address BlockCommandRegister = Address(0xF8);
 		static inline constexpr u32 BlockCommandRead = 1;
 		static inline constexpr u32 BlockCommandWrite = 2;
+		static inline constexpr u32 BlockCommandWriteError = 3;   // RAM out to the error stream
 
 		// Which interrupt pushInput() requests once new bytes are actually sitting in the buffer.
 		// The second user interrupt (the first, UserInterrupt0, is the timer's) - so a program that
@@ -687,6 +689,7 @@ namespace ceres::devices
 		// single-producer/single-consumer fast path still has a minimal synchronization surface.
 		mutable std::mutex _inputMutex;
 		OutputSink _outputSink;
+		OutputSink _errorSink;
 		u32 _blockAddress = 0;
 		u32 _blockLength = 0;
 		u32 _blockReadCount = 0;
@@ -785,6 +788,8 @@ namespace ceres::devices
 		bool rawRequested() const noexcept { return (_modeRequested.load(std::memory_order_acquire) & ModeRaw) != 0; }
 
 		void setOutputSink(OutputSink sink) { _outputSink = std::move(sink); }
+		// Where a byte of the error stream goes; empty means the host's stderr.
+		void setErrorSink(OutputSink sink) { _errorSink = std::move(sink); }
 		void clearOutputSink() { _outputSink = nullptr; }
 
 		// The input ring, so a debugger restoring a snapshot can put back exactly the bytes the
@@ -837,6 +842,16 @@ namespace ceres::devices
 			std::print("{:c}", static_cast<char>(value));
 		}
 
+		void emitErrorByte(u8 value)
+		{
+			if (_errorSink)
+			{
+				_errorSink(value);
+				return;
+			}
+			std::fputc(value, stderr);
+		}
+
 		void blockRead(Address ramAddress, u32 size)
 		{
 			if (size == 0)
@@ -873,7 +888,7 @@ namespace ceres::devices
 			_blockReadCount = static_cast<u32>(bytesRead);
 		}
 
-		void blockWrite(Address ramAddress, u32 size)
+		void blockWrite(Address ramAddress, u32 size, bool error = false)
 		{
 			if (size == 0)
 				return;
@@ -884,7 +899,12 @@ namespace ceres::devices
 
 			const auto buffer = memory().peekBytes(ramAddress, clampSize);
 			for (u32 i = 0; i < buffer.size(); ++i)
-				emitByte(buffer[i]);
+			{
+				if (error)
+					emitErrorByte(buffer[i]);
+				else
+					emitByte(buffer[i]);
+			}
 		}
 
 	public:
@@ -936,6 +956,8 @@ namespace ceres::devices
 		{
 			if (offset == OutputRegister)
 				emitByte(value);
+			else if (offset == ErrorOutputRegister)
+				emitErrorByte(value);
 		}
 		void writeHalfword(Address offset, u16 value) override
 		{
@@ -943,6 +965,11 @@ namespace ceres::devices
 			{
 				emitByte(static_cast<u8>(value & 0xFF)); // Output the lower byte as a character.
 				emitByte(static_cast<u8>((value >> 8) & 0xFF)); // Output the upper byte as a character.
+			}
+			else if (offset == ErrorOutputRegister)
+			{
+				emitErrorByte(static_cast<u8>(value & 0xFF));
+				emitErrorByte(static_cast<u8>((value >> 8) & 0xFF));
 			}
 		}
 		void writeWord(Address offset, u32 value) override
@@ -953,6 +980,12 @@ namespace ceres::devices
 				emitByte(static_cast<u8>((value >> 8) & 0xFF));
 				emitByte(static_cast<u8>((value >> 16) & 0xFF));
 				emitByte(static_cast<u8>((value >> 24) & 0xFF));
+				return;
+			}
+			if (offset == ErrorOutputRegister)
+			{
+				for (u32 shift = 0; shift < 32; shift += 8)
+					emitErrorByte(static_cast<u8>((value >> shift) & 0xFF));
 				return;
 			}
 
@@ -973,6 +1006,8 @@ namespace ceres::devices
 					blockRead(Address(_blockAddress), _blockLength);
 				else if (value == BlockCommandWrite)
 					blockWrite(Address(_blockAddress), _blockLength);
+				else if (value == BlockCommandWriteError)
+					blockWrite(Address(_blockAddress), _blockLength, true);
 			}
 		}
 	};

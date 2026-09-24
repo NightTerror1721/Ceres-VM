@@ -265,7 +265,7 @@ namespace ceres::driver
 			vm::ProgramArguments arguments{ { command.input.string() }, command.environment };
 			arguments.arguments.insert(arguments.arguments.end(), command.arguments.begin(), command.arguments.end());
 			return runMachine(loaded->program, command.memorySize, nullptr, command.diskImage, command.ports, std::move(arguments),
-				services, backend.get());
+				command.hostDirectory, services, backend.get());
 		}
 
 		int executeProfile(const ProfileCommand& command, HostServices services)
@@ -280,7 +280,7 @@ namespace ceres::driver
 				return 1;
 			}
 			return runMachine(loaded->program, command.memorySize, &loaded->debugInfo, {}, {},
-				vm::ProgramArguments{ { command.input.string() }, {} }, services);
+				vm::ProgramArguments{ { command.input.string() }, {} }, {}, services);
 		}
 
 		int executeDisassemble(const DisassembleCommand& command, HostServices services)

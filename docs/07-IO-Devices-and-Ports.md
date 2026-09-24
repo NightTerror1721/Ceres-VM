@@ -34,7 +34,8 @@ collide.
 | `0xFF080000` | 8 | Gamepad |
 | `0xFF090000` | 9 | Audio (tone generator) |
 | `0xFF0A0000` | 10 | Peripheral ports (plug-in media) |
-| `0xFF0B0000`–`0xFFFE0000` | 11–254 | Reserved for future default devices |
+| `0xFF0B0000` | 11 | Host files (semihosting) |
+| `0xFF0C0000`–`0xFFFE0000` | 12–254 | Reserved for future default devices |
 | `0xFFFF0000` | 255 | System control |
 
 Every slot is `MmioBus::SlotSize` (0x10000 = 64 KiB) wide, computed as `MmioBus::slot(index)` —
@@ -233,7 +234,8 @@ A minimal character terminal.
 | `0x10` | `BlockReadCountRegister` | Read | How many bytes the most recent block read actually moved into RAM (a short read is how a program learns its input ended early). |
 | `0x14` | `DroppedInputRegister` | Read | How many input bytes were discarded because the ring was full (truncated to 32 bits). |
 | `0x18` | `ModeRegister` | Read/write | Write `1` (`ModeRaw`) to ask the host for keys as they are pressed; read what the host granted: bit 0 raw, bit 1 (`ModeKeystrokes`) the keys arrive on the keyboard's `KeyRegister`. Reads `0` when the host cannot. |
-| `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` reads from the input ring into RAM; `2` writes RAM out as characters. |
+| `0x1C` | `ErrorOutputRegister` | Write | Like `OutputRegister`, for the **error stream**: under `ceres run` it goes to the host's stderr, so a program's diagnostics stay out of what it prints (`2>err.txt` separates them). The debugger shows both. |
+| `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` reads from the input ring into RAM; `2` writes RAM out as characters; `3` writes RAM out to the error stream. |
 
 ```casm
 // print one character
@@ -621,6 +623,47 @@ debugger has `attach`, `detach` and `ports`. A stick's changes reach its file wh
 or the machine ends.
 
 The debugger's time travel does not record connections: stepping back over one leaves the medium as it is.
+
+### `HostFsDevice` (`0xFF0B0000`)
+
+Files of the host, reached by name: semihosting. `ceres run prog.cres --host-dir <dir>` gives the machine one
+directory of the host, and the program opens, reads, writes, lists and removes files under it - levels, saves,
+logs, test data - with no disk image in between. Nothing outside it can be named: a path is relative, and a
+component that is empty, `.` or `..`, or holds a `:` (a drive), is refused with `EINVAL`. Without `--host-dir`
+the device is there and every operation fails with `ENODEV`. At most 8 files are open at once; a reset closes them.
+
+An operation is a write to `CommandRegister`, carried out at once. Its outcome is in `ResultRegister`: 0 or more
+on success, minus an errno number on failure, in the C library's numbering (`ENOENT` 2, `EIO` 5, `EBADF` 9,
+`EACCES` 13, `EEXIST` 17, `ENODEV` 19, `ENOTDIR` 20, `EISDIR` 21, `EINVAL` 22, `EMFILE` 24, `ENAMETOOLONG` 36,
+`ENOTEMPTY` 39). Names are NUL-terminated strings in RAM, at most 255 bytes.
+
+| Offset | Register | Direction | Meaning |
+| --- | --- | --- | --- |
+| `0x00` | `StatusRegister` | Read | Bit 0: a host directory is attached. |
+| `0x04` | `CommandRegister` | Write | The operation (below). |
+| `0x08` | `HandleRegister` | Read/write | The open file an operation acts on. |
+| `0x0C` | `AddressRegister` | Write | Where a name, or the data to read into or write from, is in RAM. |
+| `0x10` | `LengthRegister` | Write | Bytes to move, or the size of a name buffer. |
+| `0x14` | `ArgumentRegister` | Write | Open flags, a seek's origin, an entry's index, or the address of a second name. |
+| `0x18` | `OffsetRegister` | Write | A seek's offset (signed), or where a listed name goes. |
+| `0x1C` | `ResultRegister` | Read | What the last operation gave, or minus an errno. |
+
+| Command | Operation | Uses | Result |
+| --- | --- | --- | --- |
+| `1` | Open | name at `Address`, flags in `Argument`: `1` read, `2` write, `4` create, `8` truncate, `16` append, `32` exclusive | a handle, 0–7 |
+| `2` | Close | `Handle` | 0 |
+| `3` | Read | `Handle`, `Address`, `Length` | bytes read; 0 at the end |
+| `4` | Write | `Handle`, `Address`, `Length` | bytes written |
+| `5` | Seek | `Handle`, `Offset`, origin in `Argument` (0 start, 1 current, 2 end) | the new position |
+| `6` | File size | `Handle` | its size |
+| `7` | Remove | name at `Address` (a file, or an empty directory) | 0 |
+| `8` | Rename | old name at `Address`, new name at `Argument` | 0 |
+| `9` | Stat | name at `Address` | a file's size; `-EISDIR` for a directory |
+| `10` | List | directory at `Address` (`""` the root), index in `Argument`, name buffer at `Offset` of `Length` bytes | the entry's name length, 0 past the last; a directory's name ends in `/`; entries come sorted by name |
+| `11` | Make directory | name at `Address` | 0 |
+
+The C library's `fopen("host:levels/1.txt", "r")` goes through it, and `ceres/hostfs.h` wraps it one
+operation per function.
 
 ## Related pages
 

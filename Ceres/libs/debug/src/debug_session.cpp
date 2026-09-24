@@ -248,6 +248,8 @@ namespace ceres::debug
 		_audio->attachTo(_vm->io());
 		_peripherals = std::make_unique<PeripheralDevice>();
 		_peripherals->attachTo(_vm->io());
+		_hostFs = std::make_unique<HostFsDevice>();   // with no directory: a program asking for host files is told ENODEV
+		_hostFs->attachTo(_vm->io());
 
 		setOutputHandler(_outputHandler); // Routes both the terminal and the screen
 
@@ -302,10 +304,16 @@ namespace ceres::debug
 				if (_outputHandler)
 					_outputHandler(std::span<const u8>(&byte, 1));
 			});
+			_terminal->setErrorSink([this](u8 byte)   // the error stream goes to the editor too
+			{
+				if (_outputHandler)
+					_outputHandler(std::span<const u8>(&byte, 1));
+			});
 		}
 		else
 		{
 			_terminal->clearOutputSink();
+			_terminal->setErrorSink({});
 		}
 	}
 
