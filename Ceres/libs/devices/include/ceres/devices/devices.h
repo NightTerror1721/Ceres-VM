@@ -34,6 +34,8 @@ namespace ceres::devices
 		using StackLimitSetter = std::function<void(u32)>;
 		// The last memory fault's data address and access, read from the engine (faultAddress/faultAccess).
 		using FaultInfoGetter = std::function<u32()>;
+		// Where the loader put the program's arguments (CeresVM::argumentBlock): 0 argc, 1 argv, 2 envp.
+		using ArgumentInfoGetter = std::function<u32(u32)>;
 
 		// Write-only: writing specific commands to this register triggers system control actions.
 		// The low byte is the command; the next byte is the exit status a shutdown reports.
@@ -53,6 +55,12 @@ namespace ceres::devices
 		// so a fault handler can say "store word to 0x00000801" and not only where the instruction was.
 		static inline constexpr Address FaultAddressRegister = Address(0x10);
 		static inline constexpr Address FaultAccessRegister = Address(0x14);
+		// Read-only: what main() was started with - argc, and the addresses of the null-terminated argv and envp
+		// arrays the loader placed at the top of the program's stack - so a library reaches the environment
+		// (getenv) without main passing it on. 0, 0, 0 when the host connected no machine to it.
+		static inline constexpr Address ArgumentCountRegister = Address(0x18);
+		static inline constexpr Address ArgumentVectorRegister = Address(0x1C);
+		static inline constexpr Address EnvironmentRegister = Address(0x20);
 
 		static inline constexpr u32 CommandShutdown = 0x01;
 		static inline constexpr u32 CommandReset = 0x02;
@@ -70,6 +78,7 @@ namespace ceres::devices
 		StackLimitSetter _stackLimitSetter;
 		FaultInfoGetter _faultAddressGetter;
 		FaultInfoGetter _faultAccessGetter;
+		ArgumentInfoGetter _argumentGetter;
 		u32 _features = 0;
 		std::atomic<u8> _exitCode{ 0 };
 
@@ -132,6 +141,11 @@ namespace ceres::devices
 			_faultAccessGetter = std::move(access);
 		}
 
+		void setArgumentHandler(ArgumentInfoGetter getter)
+		{
+			_argumentGetter = std::move(getter);
+		}
+
 		// The status the program shut the machine down with: the second byte of the word it wrote
 		// (0 for a plain byte write, which is what every program written before this existed does).
 		u8 exitCode() const noexcept { return _exitCode.load(std::memory_order_relaxed); }
@@ -182,6 +196,12 @@ namespace ceres::devices
 			if (offset == FaultAccessRegister && _faultAccessGetter)
 			{
 				value = _faultAccessGetter();
+				return true;
+			}
+			if (offset == ArgumentCountRegister || offset == ArgumentVectorRegister || offset == EnvironmentRegister)
+			{
+				const u32 which = (offset.value() - ArgumentCountRegister.value()) / 4u;
+				value = _argumentGetter ? _argumentGetter(which) : 0u;
 				return true;
 			}
 			return false;

@@ -83,6 +83,9 @@ writing a command to its command register:
 | `0x0C` | `StackLimitRegister` | Read/write | The lowest address the program's stack may reach (below). |
 | `0x10` | `FaultAddressRegister` | Read | The data address of the last memory fault: an unaligned access, a store into `.text` or below it, a page fault. |
 | `0x14` | `FaultAccessRegister` | Read | That fault's access: `1` read, `2` write, `3` instruction fetch in bits 0–7, the size in bytes in bits 8–31 (a block instruction's chunk runs to a page; `0` for a page fault, whose size the MMU does not know). |
+| `0x18` | `ArgumentCountRegister` | Read | `argc`: how many arguments the program was started with, its own path included. |
+| `0x1C` | `ArgumentVectorRegister` | Read | The address of `argv`, the null-terminated array of their addresses. |
+| `0x20` | `EnvironmentRegister` | Read | The address of `envp`, the null-terminated array of `NAME=value` strings. The three are what `main` received in `r0`–`r2` ([Memory → The stack](02-Memory.md#the-stack)), there for a library that has to reach them without `main` passing them on. |
 
 | Command (low byte) | Effect |
 | --- | --- |

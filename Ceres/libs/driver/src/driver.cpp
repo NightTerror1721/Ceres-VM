@@ -262,7 +262,10 @@ namespace ceres::driver
 				}
 			}
 
-			return runMachine(loaded->program, command.memorySize, nullptr, command.diskImage, command.ports, services, backend.get());
+			vm::ProgramArguments arguments{ { command.input.string() }, command.environment };
+			arguments.arguments.insert(arguments.arguments.end(), command.arguments.begin(), command.arguments.end());
+			return runMachine(loaded->program, command.memorySize, nullptr, command.diskImage, command.ports, std::move(arguments),
+				services, backend.get());
 		}
 
 		int executeProfile(const ProfileCommand& command, HostServices services)
@@ -276,7 +279,8 @@ namespace ceres::driver
 				*services.diagnostics << "Cannot profile a .cres without debug information: assemble with --debug, or profile the source directly.\n";
 				return 1;
 			}
-			return runMachine(loaded->program, command.memorySize, &loaded->debugInfo, {}, {}, services);
+			return runMachine(loaded->program, command.memorySize, &loaded->debugInfo, {}, {},
+				vm::ProgramArguments{ { command.input.string() }, {} }, services);
 		}
 
 		int executeDisassemble(const DisassembleCommand& command, HostServices services)

@@ -3,6 +3,55 @@
 
 namespace ceres::vm
 {
+	usize CeresVM::argumentBlockSize() const noexcept
+	{
+		usize strings = 0;
+		for (const std::string& text : _arguments.arguments)
+			strings += text.size() + 1;
+		for (const std::string& text : _arguments.environment)
+			strings += text.size() + 1;
+		const usize pointers = (_arguments.arguments.size() + 1 + _arguments.environment.size() + 1) * sizeof(u32);
+		return ((strings + 3) & ~usize{ 3 }) + pointers + 8;   // the strings word-aligned, and sp 8-aligned below
+	}
+
+	void CeresVM::placeArguments() noexcept
+	{
+		// From the top of the program's stack down: the strings, then argv[] and envp[] below them, and sp
+		// under those - as a hosted C implementation starts main.
+		const u32 top = static_cast<u32>(_memory.size() - Memory::SystemStackSize);
+		usize strings = 0;
+		for (const std::string& text : _arguments.arguments)
+			strings += text.size() + 1;
+		for (const std::string& text : _arguments.environment)
+			strings += text.size() + 1;
+		const u32 stringsAt = static_cast<u32>((top - strings) & ~usize{ 3 });
+		const u32 argc = static_cast<u32>(_arguments.arguments.size());
+		const u32 envc = static_cast<u32>(_arguments.environment.size());
+		const u32 vectorAt = (stringsAt - (argc + 1 + envc + 1) * 4u) & ~7u;
+		const u32 environmentAt = vectorAt + (argc + 1) * 4u;
+
+		u32 cursor = stringsAt;
+		auto put = [&](const std::string& text, u32 slot)
+		{
+			_memory.writeBytesUnchecked(Address(cursor), std::span<const u8>(reinterpret_cast<const u8*>(text.data()), text.size()));
+			_memory.writeUnchecked<u8>(Address(cursor + static_cast<u32>(text.size())), 0);
+			_memory.writeUnchecked<u32>(Address(slot), cursor);
+			cursor += static_cast<u32>(text.size()) + 1;
+		};
+		for (u32 i = 0; i < argc; ++i)
+			put(_arguments.arguments[i], vectorAt + i * 4u);
+		_memory.writeUnchecked<u32>(Address(vectorAt + argc * 4u), 0);
+		for (u32 i = 0; i < envc; ++i)
+			put(_arguments.environment[i], environmentAt + i * 4u);
+		_memory.writeUnchecked<u32>(Address(environmentAt + envc * 4u), 0);
+
+		_argumentBlock = ArgumentBlock{ argc, vectorAt, environmentAt };
+		_engine.setRegister(0, argc);
+		_engine.setRegister(1, vectorAt);
+		_engine.setRegister(2, environmentAt);
+		_engine.setRegister(15, vectorAt);            // sp: the arrays and strings stay above the stack
+	}
+
 	std::expected<void, std::string> CeresVM::loadProgram(const Program& program) noexcept
 	{
 		if (isPoweredOn())
@@ -18,7 +67,8 @@ namespace ceres::vm
 			header.dataSize +
 			header.bssSize +
 			header.minimumStack +
-			Memory::SystemStackSize;
+			Memory::SystemStackSize +
+			argumentBlockSize();
 
 		if (requiredMemory > _memory.size())
 		{
@@ -86,6 +136,7 @@ namespace ceres::vm
 		}
 
 		_engine.reset(); // Reset the execution engine to set the PC to the entry point and initialize registers/flags.
+		placeArguments();
 
 		// Kept for a reset. Skipped when a reset is reloading this very program.
 		if (!_program.has_value() || &*_program != &program)

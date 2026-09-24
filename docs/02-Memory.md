@@ -115,6 +115,14 @@ and **grows down** from there. That is not quite the top of memory: the last 4 K
 (`Memory::SystemStackSize`, 1 KiB until a fault report built at `-O0` needed more) are the system stack, which interrupt handlers run on, so
 `ExecutionEngine::reset()` sets `sp = memory.size() - SystemStackSize`.
 
+A loaded program then starts a little lower: `CeresVM::loadProgram` puts its arguments at the top of
+that region, the way a hosted C implementation starts `main`. The strings come first (each
+NUL-terminated, the arguments then the `NAME=value` environment), below them the null-terminated
+`argv` and `envp` arrays, and `sp` starts at `argv`, 8-aligned. `r0` holds `argc`, `r1` `argv` and `r2`
+`envp`, so `main(int argc, char** argv, char** envp)` receives them as its first three arguments; the
+system control device's `ArgumentCountRegister`, `ArgumentVectorRegister` and `EnvironmentRegister`
+read the same values. With nothing given the block is two null pointers: `argc` is 0.
+
 - Pushing below the **stack limit** raises `StackOverflow` (`hasStackRoom()` in
   `execution_engine.h`). `CeresVM::loadProgram` sets the limit to the address one past the loaded
   image, which it has to walk the sections to find anyway; with no program loaded it stays at

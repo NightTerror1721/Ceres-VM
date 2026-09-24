@@ -83,6 +83,90 @@ TEST(driver_command, symtab_belongs_to_link_alone)
 	CHECK(!parseCommandLine(4, runArgv).has_value());
 }
 
+TEST(driver_command, run_takes_the_program_arguments_after_a_double_dash_and_env)
+{
+	char program[] = "ceres";
+	char run[] = "run";
+	char input[] = "prog.cres";
+	char env[] = "--env";
+	char pair[] = "HOME=/save";
+	char dashes[] = "--";
+	char flag[] = "-x";
+	char word[] = "y";
+	char* argv[] = { program, run, input, env, pair, dashes, flag, word };
+	auto parsed = parseCommandLine(8, argv);
+	CHECK(parsed.has_value());
+	const auto* command = parsed ? std::get_if<RunCommand>(&*parsed) : nullptr;
+	CHECK(command != nullptr);
+	if (!command) return;
+	CHECK_EQ(command->arguments.size(), ceres::usize{ 2 });   // an option after -- is the program's
+	CHECK(command->arguments.size() == 2 && command->arguments[0] == "-x" && command->arguments[1] == "y");
+	CHECK(command->environment.size() == 1 && command->environment[0] == "HOME=/save");
+
+	char asmCommand[] = "asm";
+	char* asmArgv[] = { program, asmCommand, input, dashes, word };
+	CHECK(!parseCommandLine(5, asmArgv).has_value());   // only run starts a program
+	char bare[] = "HOME";
+	char* badArgv[] = { program, run, input, env, bare };
+	CHECK(!parseCommandLine(5, badArgv).has_value());   // NAME=value
+}
+
+TEST(driver_machine, main_receives_argc_argv_and_envp_and_the_registers_say_the_same)
+{
+	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_arguments_test.casm";
+	{
+		std::ofstream file{source};
+		file << "@text\n"
+			"global main:\n"
+			"    mov r10, r1\n"                 // argv
+			"    mov r11, r2\n"                 // envp
+			"    la r13, 0xFF000004\n"
+			"    add r3, r0, 48\n"              // argc as a digit
+			"    strb [r13 + 0], r3\n"
+			"    ldr r4, [r10 + 4]\n"           // argv[1][0]
+			"    ldrb r5, [r4 + 0]\n"
+			"    strb [r13 + 0], r5\n"
+			"    ldr r4, [r11 + 0]\n"           // envp[0][0]
+			"    ldrb r5, [r4 + 0]\n"
+			"    strb [r13 + 0], r5\n"
+			"    la r12, 0xFFFF0000\n"
+			"    ldr r6, [r12 + 24]\n"          // ArgumentCountRegister
+			"    add r6, r6, 48\n"
+			"    strb [r13 + 0], r6\n"
+			"    ldr r7, [r12 + 28]\n"          // ArgumentVectorRegister: argv[2][0]
+			"    ldr r8, [r7 + 8]\n"
+			"    ldrb r9, [r8 + 0]\n"
+			"    strb [r13 + 0], r9\n"
+			"    ldr r7, [r7 + 12]\n"           // argv[argc] is a null pointer
+			"    cmp r7, 0\n"
+			"    jz .done\n"
+			"    li r9, 33\n"
+			"    strb [r13 + 0], r9\n"
+			".done:\n"
+			"    li r0, 1\n"
+			"    strb [r12 + 0], r0\n";
+	}
+	ceres::casm::Assembler assembler;
+	auto program = assembler.assemble({source});
+	std::filesystem::remove(source);
+	CHECK(program.has_value());
+	if (!program) return;
+
+	std::string output;
+	MachineConfig config;
+	config.arguments = { "prog", "x", "y" };
+	config.environment = { "K=v" };
+	Machine machine{config, {
+		.terminalOutput = [&output](std::span<const ceres::u8> bytes)
+		{
+			output.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+		}
+	}};
+	CHECK(machine.load(*program).has_value());
+	CHECK(machine.run().has_value());
+	CHECK_EQ(output, std::string{"3xK3y"});
+}
+
 TEST(driver_command, json_diagnostics_stay_on_the_output_stream)
 {
 	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_invalid_test.casm";

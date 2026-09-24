@@ -53,6 +53,8 @@ namespace ceres::driver
 		bool window = false;     // --window: open the window at once
 		bool terminal = false;   // --terminal: no window; the text framebuffer goes to the terminal
 		std::vector<PortAttachment> ports;
+		std::vector<std::string> arguments;     // after --: argv[1] on (argv[0] is the input's path)
+		std::vector<std::string> environment;   // --env NAME=value, in order
 	};
 
 	struct ProfileCommand

@@ -24,6 +24,13 @@ namespace ceres::driver
 	using namespace fmt;
 	using namespace vm;
 
+	// The system control device's argument registers: 0 argc, 1 argv, 2 envp (CeresVM::argumentBlock).
+	static u32 argumentInfo(const CeresVM& vm, u32 which)
+	{
+		const ArgumentBlock& block = vm.argumentBlock();
+		return which == 0 ? block.count : which == 1 ? block.vector : block.environment;
+	}
+
 	class Machine::Impl
 	{
 	public:
@@ -53,6 +60,8 @@ namespace ceres::driver
 			control.setStackLimitHandlers([this] { return vm.engine().stackLimit(); },
 				[this](u32 address) { vm.engine().setProgramStackLimit(address); });
 			control.setFaultInfoHandlers([this] { return vm.engine().faultAddress(); }, [this] { return vm.engine().faultAccess(); });
+			control.setArgumentHandler([this](u32 which) { return argumentInfo(vm, which); });
+			vm.setProgramArguments(vm::ProgramArguments{ config.arguments, config.environment });
 			control.attachTo(vm.io());
 			terminal.attachTo(vm.io());
 			terminal.setModeHandler([](u32 requested)
@@ -177,9 +186,11 @@ namespace ceres::driver
 	}
 
 	int runMachine(const Program& program, usize memorySize, const DebugInfo* profileInfo,
-		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, HostServices services, HostBackend* backend)
+		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, vm::ProgramArguments arguments,
+		HostServices services, HostBackend* backend)
 	{
 		CeresVM vm{memorySize};
+		vm.setProgramArguments(std::move(arguments));
 		// A reset starts the program again from its entry point (CeresVM::restartIfRequested): vm.run()
 		// does that on its own, and the windowed loop below between two frames.
 		SystemControlDevice control{[&vm] { vm.shutdown(); }, [&vm] { vm.requestReset(); }};
@@ -190,6 +201,7 @@ namespace ceres::driver
 		control.setStackLimitHandlers([&vm] { return vm.engine().stackLimit(); },
 			[&vm](u32 address) { vm.engine().setProgramStackLimit(address); });
 		control.setFaultInfoHandlers([&vm] { return vm.engine().faultAddress(); }, [&vm] { return vm.engine().faultAccess(); });
+		control.setArgumentHandler([&vm](u32 which) { return argumentInfo(vm, which); });
 		auto terminal = std::make_shared<TerminalDevice>();
 		TimerDevice timer;
 		DmaController dma;

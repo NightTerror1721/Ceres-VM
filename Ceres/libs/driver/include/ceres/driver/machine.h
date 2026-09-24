@@ -35,6 +35,9 @@ namespace ceres::driver
 			bool cartridge = false;
 		};
 		std::vector<Port> ports;
+		// What main(argc, argv) and getenv see (vm::ProgramArguments).
+		std::vector<std::string> arguments;
+		std::vector<std::string> environment;
 	};
 
 	class Machine

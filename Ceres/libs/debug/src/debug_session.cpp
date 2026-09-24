@@ -168,6 +168,8 @@ namespace ceres::debug
 			new DebugSession(std::move(program.value()), std::move(debugInfo), config) };
 
 		session->_vm = std::make_unique<vm::CeresVM>(config.memorySize);
+		if (!config.sources.empty())
+			session->_vm->setProgramArguments(vm::ProgramArguments{ { config.sources.front().string() }, {} });
 		session->attachDevices();
 
 		if (auto loaded = session->_vm->loadProgram(session->_program); !loaded)
@@ -198,6 +200,11 @@ namespace ceres::debug
 		});
 		_systemControl->setStackLimitHandlers([this] { return _vm->engine().stackLimit(); },
 			[this](u32 address) { _vm->engine().setProgramStackLimit(address); });
+		_systemControl->setArgumentHandler([this](u32 which)
+		{
+			const vm::ArgumentBlock& block = _vm->argumentBlock();
+			return which == 0 ? block.count : which == 1 ? block.vector : block.environment;
+		});
 		_systemControl->setFaultInfoHandlers([this] { return _vm->engine().faultAddress(); }, [this] { return _vm->engine().faultAccess(); });
 		_systemControl->attachTo(_vm->io());
 

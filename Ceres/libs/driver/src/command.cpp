@@ -16,6 +16,7 @@ namespace ceres::driver
 			"  ceres ar <output.car> <file.cobj> [...]\n"
 			"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>] [--window | --terminal]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
+			"                                  [--env <name>=<value>]... [-- <argument>...]\n"
 			"  ceres profile <file.casm|file.cres> [--memory <bytes>]\n"
 			"  ceres disasm <file.casm|file.cres> [--debug]\n"
 			"  ceres debug <file.casm|file.cres> [<source2.casm> ...] [--memory <bytes>]\n"
@@ -25,7 +26,10 @@ namespace ceres::driver
 			"\n"
 			"With a window (an SDL build), 'run' opens it when the program first shows a frame - of the text\n"
 			"framebuffer or of the pixel display - so a program that never does opens none. --window opens it at\n"
-			"once; --terminal (or CERES_HEADLESS in the environment) never does, and text frames go to the terminal.\n";
+			"once; --terminal (or CERES_HEADLESS in the environment) never does, and text frames go to the terminal.\n"
+			"\n"
+			"Everything after -- goes to the program: main(argc, argv) gets the input's path as argv[0], then those.\n"
+			"--env gives it an environment variable (getenv); nothing of the host's environment is passed on.\n";
 
 		struct RawOptions
 		{
@@ -54,6 +58,9 @@ namespace ceres::driver
 			std::filesystem::path disk;
 			bool usedDisk = false;            // also set by --port and --cart: none of them belongs to any command but run
 			std::vector<PortAttachment> ports;
+			std::vector<std::string> arguments;
+			std::vector<std::string> environment;
+			bool usedArguments = false;       // -- or --env: they belong to run alone
 			bool window = false;
 			bool usedWindow = false;
 			bool terminal = false;
@@ -97,7 +104,25 @@ namespace ceres::driver
 				return argv[i];
 			};
 
-			if (argument == "-o" || argument == "--output")
+			if (argument == "--")
+			{
+				// The rest is the program's, options or not.
+				for (++i; i < argc; ++i)
+					raw.arguments.emplace_back(argv[i]);
+				raw.usedArguments = true;
+				break;
+			}
+			if (argument == "--env")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				const std::string_view text = *value;
+				if (text.find('=') == std::string_view::npos || text.front() == '=')
+					return std::unexpected(ParseError{ "'--env' takes <name>=<value>, for example --env HOME=/save" });
+				raw.environment.emplace_back(text);
+				raw.usedArguments = true;
+			}
+			else if (argument == "-o" || argument == "--output")
 			{
 				auto value = nextValue(argument);
 				if (!value) return std::unexpected(value.error());
@@ -171,6 +196,8 @@ namespace ceres::driver
 		std::vector<std::filesystem::path> inputs(raw.positional.begin() + static_cast<std::ptrdiff_t>(firstInput), raw.positional.end());
 		if (raw.usedSymbolTable && command != "link")
 			return std::unexpected(invalidOption("--symtab", command));
+		if (raw.usedArguments && command != "run")
+			return std::unexpected(invalidOption(raw.arguments.empty() ? "--env" : "--", command));
 		if (command == "asm")
 		{
 			if (raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
@@ -203,7 +230,8 @@ namespace ceres::driver
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (raw.window && raw.terminal)
 				return std::unexpected(ParseError{ "'--window' and '--terminal' are opposites: pick one" });
-			return RunCommand{ std::move(inputs.front()), raw.memorySize, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal, std::move(raw.ports) };
+			return RunCommand{ std::move(inputs.front()), raw.memorySize, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal,
+				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment) };
 		}
 		if (command == "profile")
 		{

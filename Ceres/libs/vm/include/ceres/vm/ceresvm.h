@@ -8,10 +8,28 @@
 #include <optional>
 #include <expected>
 #include <string>
+#include <vector>
 
 namespace ceres::vm
 {
 	using namespace fmt;
+
+	// What a program is started with: its arguments (argv[0] first, by convention the program's own path) and
+	// its environment, one "NAME=value" string each. `ceres run prog.cres -- a b --env K=V` fills them.
+	struct ProgramArguments
+	{
+		std::vector<std::string> arguments;
+		std::vector<std::string> environment;
+	};
+
+	// Where the loader put them: argc, and the addresses of the argv and envp arrays (each ends with a null
+	// pointer). The same three values main() finds in r0, r1 and r2.
+	struct ArgumentBlock
+	{
+		u32 count = 0;
+		u32 vector = 0;
+		u32 environment = 0;
+	};
 
 	class CeresVM
 	{
@@ -35,6 +53,15 @@ namespace ceres::vm
 		// What loadProgram() placed, kept so a reset can put the image back as it was loaded.
 		std::optional<Program> _program;
 
+		ProgramArguments _arguments;
+		ArgumentBlock _argumentBlock;
+
+		// The bytes the argument block takes at the top of the program's stack.
+		usize argumentBlockSize() const noexcept;
+		// Writes the strings and the two arrays below the system stack, points sp under them, and sets
+		// r0 = argc, r1 = argv, r2 = envp: main(int argc, char** argv, char** envp) receives them.
+		void placeArguments() noexcept;
+
 	public:
 		explicit CeresVM(usize memorySize = Memory::DefaultSize) :
 			_memory(memorySize),
@@ -51,6 +78,11 @@ namespace ceres::vm
 
 	public:
 		std::expected<void, std::string> loadProgram(const Program& program) noexcept;
+
+		// For the next loadProgram() and every reset after it.
+		void setProgramArguments(ProgramArguments arguments) noexcept { _arguments = std::move(arguments); }
+		const ProgramArguments& programArguments() const noexcept { return _arguments; }
+		const ArgumentBlock& argumentBlock() const noexcept { return _argumentBlock; }
 
 		std::expected<void, std::string> run() noexcept;
 
