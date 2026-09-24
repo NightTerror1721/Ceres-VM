@@ -420,6 +420,28 @@ TEST(device_extras, a_program_switches_the_option_on_through_the_control_device)
 	CHECK(m.vm().engine().divisionFaults());
 }
 
+TEST(device_extras, a_program_moves_the_stack_limit_through_the_control_device)
+{
+	const u32 image = static_cast<u32>(Memory::UnrestrictedSegmentStartValue) + 0x1000;
+	Machine m{
+		LoadBase(default_mmio::SystemControl), LoadBaseLow(default_mmio::SystemControl),
+		Instruction::LI(1, 0x2000),
+		Instruction::STR(Base, 1, Off(SystemControlDevice::StackLimitRegister)),
+		Instruction::LDR(2, Base, Off(SystemControlDevice::StackLimitRegister)),
+	};
+	m.vm().engine().setStackLimit(image);
+
+	SystemControlDevice control{};
+	CHECK_EQ(control.readUnsignedWord(SystemControlDevice::StackLimitRegister), 0xFFFFFFFFu);   // no engine connected
+	control.setStackLimitHandlers([&] { return m.vm().engine().stackLimit(); },
+		[&](u32 address) { m.vm().engine().setProgramStackLimit(address); });
+	control.attachTo(m.vm().io());
+	m.step(5);
+
+	CHECK_EQ(m.vm().engine().stackLimit(), 0x2000u);
+	CHECK_EQ(m.reg(2), 0x2000u);
+}
+
 // --- A millisecond clock -----------------------------------------------------------------------
 
 TEST(device_extras, the_millisecond_register_never_goes_backwards)

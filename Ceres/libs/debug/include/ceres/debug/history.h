@@ -55,6 +55,7 @@ namespace ceres::debug
 			u32 programCounter = 0;
 			u64 pendingInterrupts = 0;
 			bool wakeEvent = false;   // a raise the next HALT will find (ExecutionEngine::hasWakeEvent)
+			u32 stackLimit = 0;       // where the program had put it over its heap
 			TimerDevice::State timer;
 			TerminalDevice::State terminal;
 			// Page index to contents, for every page that differs from the base image.

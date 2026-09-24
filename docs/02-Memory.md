@@ -128,13 +128,13 @@ and **grows down** from there. That is not quite the top of memory: the last kil
   that overflowed — see
   [Interrupts and exceptions](08-Interrupts-and-Exceptions.md).
 
-A `reset` leaves the limit where it is: the same image is still in memory, so the same ground is
-still worth guarding.
-
-**What it still does not protect:** the heap. Everything between the end of the image and the
-stack is free ground, and the limit sits at the bottom of it, so a stack that runs all the way
-down will have flattened whatever a heap put there first — it just cannot reach the program's own
-code, data or `.bss` any more.
+**The heap too, when the program says where it ends.** Everything between the end of the image and the
+stack is free ground, and the limit starts at the bottom of it. A program raises it over its heap
+through the system-control device's `StackLimitRegister` (`0xFFFF000C`,
+[I/O devices](07-IO-Devices-and-Ports.md#systemcontroldevice-0xffff0000)) each time the heap grows - the
+standard library's `malloc` does - and a stack that runs down into the heap then raises `StackOverflow`
+rather than flattening allocations. It never goes below the image. A `reset` puts it back at the end of
+the image: the program starts over, and its heap with it.
 
 If the `StackOverflow` dispatch cannot fit its own saved flags and PC either, the machine sets the
 Trap and Halting flags and stops instead of faulting forever.

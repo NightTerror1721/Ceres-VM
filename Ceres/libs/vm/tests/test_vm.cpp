@@ -522,6 +522,34 @@ TEST(vm, a_push_below_the_stack_limit_faults_instead_of_writing)
 	CHECK(m.reg(15) >= m.engine().systemStackFloor());
 }
 
+TEST(vm, a_program_raises_the_stack_limit_over_its_heap_but_never_below_its_image)
+{
+	Machine m{ Instruction::PUSH(1), Instruction::PUSH(1) };
+	const u32 image = static_cast<u32>(Memory::UnrestrictedSegmentStartValue) + 0x1000;
+	const u32 heapTop = image + 0x800;
+	m.engine().setStackLimit(image);            // the loader's: the end of the image
+
+	m.engine().setProgramStackLimit(0x10);      // below the image: held at it
+	CHECK_EQ(m.engine().stackLimit(), image);
+	m.engine().setProgramStackLimit(heapTop);   // the top of a heap
+	CHECK_EQ(m.engine().stackLimit(), heapTop);
+
+	// A stack that comes down to the heap stops there.
+	m.memory().writeUnchecked<u32>(
+		Address(static_cast<u32>(InterruptNumber::StackOverflow) * Address::Size),
+		Memory::UnrestrictedSegmentStart.value());
+	m.memory().writeUnchecked<u32>(Address(heapTop - 4), 0x600DF00Du);   // an allocation
+	m.engine().setRegister(15, heapTop + 4);
+	m.step();
+	CHECK_EQ(m.reg(15), heapTop);
+	m.step();
+	CHECK_EQ(m.engine().interruptDepth(), 1u);  // StackOverflow
+	CHECK_EQ(m.memory().readUnchecked<u32>(Address(heapTop - 4)), 0x600DF00Du);
+
+	m.engine().reset();                         // the program starts over, its heap with it
+	CHECK_EQ(m.engine().stackLimit(), image);
+}
+
 TEST(vm, the_stack_limit_defaults_to_the_top_of_the_bios)
 {
 	// With no program loaded there is no image to defend, so the guard sits where it always did.

@@ -196,6 +196,8 @@ namespace ceres::debug
 		{
 			_vm->engine().setDivisionFaults((features & SystemControlDevice::FeatureDivisionFault) != 0);
 		});
+		_systemControl->setStackLimitHandlers([this] { return _vm->engine().stackLimit(); },
+			[this](u32 address) { _vm->engine().setProgramStackLimit(address); });
 		_systemControl->attachTo(_vm->io());
 
 		_terminal = std::make_unique<TerminalDevice>();

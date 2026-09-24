@@ -80,6 +80,7 @@ writing a command to its command register:
 | `0x00` | `CommandRegister` | Write | The command in the low byte; for a shutdown, the exit status in the next byte. |
 | `0x04` | `MemorySizeRegister` | Read | How many bytes of RAM the machine has. |
 | `0x08` | `FeaturesRegister` | Read/write | Switches for behaviour that is off by default (below). |
+| `0x0C` | `StackLimitRegister` | Read/write | The lowest address the program's stack may reach (below). |
 
 | Command (low byte) | Effect |
 | --- | --- |
@@ -113,6 +114,12 @@ str [r13 + 0], r0
 `FeatureDivisionFault`, makes a division or modulo by zero raise the `DivisionByZero` interrupt (4)
 instead of only setting the Trap flag — see [Interrupts and exceptions](08-Interrupts-and-Exceptions.md).
 Every other offset, and the command register itself, reads all-ones.
+
+**Stack limit.** Reading `StackLimitRegister` gives the lowest address the program's stack may reach: a push,
+call or frame below it raises `StackOverflow` (see [Memory](02-Memory.md#the-stack)). It starts at the end of
+the loaded image. A program with a heap writes the top of the heap here each time the heap grows, and a
+stack that runs down into the heap is then a fault instead of rewritten allocations; a value below the
+image is taken as the image's end. A reset puts it back there.
 
 ```casm
 li  r0, 0x01

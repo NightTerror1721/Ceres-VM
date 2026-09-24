@@ -28,6 +28,10 @@ namespace ceres::devices
 		// Told the new value of the features register whenever a program writes it, so the host can
 		// pass on to the engine the settings the engine itself has to act on.
 		using FeaturesCallback = std::function<void(u32)>;
+		// How the device reaches the engine's stack limit, which it does not own: the host passes the
+		// engine's stackLimit() and setProgramStackLimit().
+		using StackLimitGetter = std::function<u32()>;
+		using StackLimitSetter = std::function<void(u32)>;
 
 		// Write-only: writing specific commands to this register triggers system control actions.
 		// The low byte is the command; the next byte is the exit status a shutdown reports.
@@ -37,6 +41,10 @@ namespace ceres::devices
 		// Read/write: switches for behaviour that is off by default, so a program that never asks
 		// keeps the machine it always had.
 		static inline constexpr Address FeaturesRegister = Address(0x08);
+		// Read/write: the lowest address the program's stack may reach. A push below it raises
+		// StackOverflow. It starts at the end of the loaded image; a program raises it over its heap as
+		// the heap grows, and cannot lower it below the image. All-ones when the host connected no engine.
+		static inline constexpr Address StackLimitRegister = Address(0x0C);
 
 		static inline constexpr u32 CommandShutdown = 0x01;
 		static inline constexpr u32 CommandReset = 0x02;
@@ -50,6 +58,8 @@ namespace ceres::devices
 		ShutdownCallback _shutdownCallback;
 		ResetCallback _resetCallback;
 		FeaturesCallback _featuresCallback;
+		StackLimitGetter _stackLimitGetter;
+		StackLimitSetter _stackLimitSetter;
 		u32 _features = 0;
 		std::atomic<u8> _exitCode{ 0 };
 
@@ -100,6 +110,12 @@ namespace ceres::devices
 			_featuresCallback = std::move(callback);
 		}
 
+		void setStackLimitHandlers(StackLimitGetter getter, StackLimitSetter setter)
+		{
+			_stackLimitGetter = std::move(getter);
+			_stackLimitSetter = std::move(setter);
+		}
+
 		// The status the program shut the machine down with: the second byte of the word it wrote
 		// (0 for a plain byte write, which is what every program written before this existed does).
 		u8 exitCode() const noexcept { return _exitCode.load(std::memory_order_relaxed); }
@@ -137,6 +153,11 @@ namespace ceres::devices
 				value = _features;
 				return true;
 			}
+			if (offset == StackLimitRegister && _stackLimitGetter)
+			{
+				value = _stackLimitGetter();
+				return true;
+			}
 			return false;
 		}
 
@@ -160,6 +181,10 @@ namespace ceres::devices
 				_features = value;
 				if (_featuresCallback)
 					_featuresCallback(value);
+			}
+			else if (offset == StackLimitRegister && _stackLimitSetter)
+			{
+				_stackLimitSetter(value);
 			}
 		}
 	};

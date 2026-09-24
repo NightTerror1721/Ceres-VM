@@ -14,6 +14,7 @@ namespace ceres::vm
 		_savedStackPointer = 0;
 		_interruptShadow = false;
 		_raisesConsumed = _interrupts.raiseCount(); // what the last program raised does not wake this one
+		_stackLimit = _stackFloor;                  // the heap the limit guarded starts again from nothing
 		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
 		_mmu.reset(); // No program has had the chance to point PTBR at garbage yet; leave none behind either
 		_haltCarryNanos = 0;

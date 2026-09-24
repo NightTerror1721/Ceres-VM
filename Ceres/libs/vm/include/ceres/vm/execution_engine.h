@@ -52,6 +52,10 @@ namespace ceres::vm
 		// before: a runaway stack ate the program's own text for as many megabytes as it took to
 		// reach 0x400, and only then said so. loadProgram lowers it to the end of the loaded image.
 		u32 _stackLimit = static_cast<u32>(Memory::UnrestrictedSegmentStartValue);
+		// The lowest the limit may be put: the end of the loaded image. A program moves the limit up
+		// over its heap (setProgramStackLimit, through the system-control device) and never below this,
+		// and a reset puts it back here.
+		u32 _stackFloor = static_cast<u32>(Memory::UnrestrictedSegmentStartValue);
 
 		// How many interrupts are being serviced, and what the program's own stack pointer was when
 		// the first one arrived. Nested interrupts stay on the system stack; only the outermost one
@@ -177,7 +181,14 @@ namespace ceres::vm
 			_accessObserver = std::move(observer);
 		}
 
-		void setStackLimit(u32 lowestAddress) noexcept { _stackLimit = lowestAddress; }
+		// The loader's: the end of the image it placed, which is both the limit and the floor below which a
+		// program cannot put it.
+		void setStackLimit(u32 lowestAddress) noexcept { _stackLimit = lowestAddress; _stackFloor = lowestAddress; }
+		// The program's own, from the system-control device's StackLimitRegister: the top of its heap, so a
+		// stack that runs down into it is a StackOverflow rather than silently rewritten allocations. Never
+		// below the image; above the stack pointer it makes the next push overflow, which is the program's
+		// to avoid.
+		void setProgramStackLimit(u32 lowestAddress) noexcept { _stackLimit = lowestAddress > _stackFloor ? lowestAddress : _stackFloor; }
 
 		// Also the loader's to set, and also kept across a reset. Pass an empty range to lift the
 		// protection, which is what a machine with no program loaded has.

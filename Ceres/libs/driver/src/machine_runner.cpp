@@ -50,6 +50,8 @@ namespace ceres::driver
 			{
 				vm.engine().setDivisionFaults((features & SystemControlDevice::FeatureDivisionFault) != 0);
 			});
+			control.setStackLimitHandlers([this] { return vm.engine().stackLimit(); },
+				[this](u32 address) { vm.engine().setProgramStackLimit(address); });
 			control.attachTo(vm.io());
 			terminal.attachTo(vm.io());
 			terminal.setModeHandler([](u32 requested)
@@ -184,6 +186,8 @@ namespace ceres::driver
 		{
 			vm.engine().setDivisionFaults((features & SystemControlDevice::FeatureDivisionFault) != 0);
 		});
+		control.setStackLimitHandlers([&vm] { return vm.engine().stackLimit(); },
+			[&vm](u32 address) { vm.engine().setProgramStackLimit(address); });
 		auto terminal = std::make_shared<TerminalDevice>();
 		TimerDevice timer;
 		DmaController dma;
