@@ -117,8 +117,10 @@ namespace ceres::casm
 		// already do - `fmod` above is the explicit spelling, this is the consistent one.
 		inst(Opcode::FMOD, Mnemonic::MOD, OpcodeParameterType::FD, OpcodeParameterType::FS, OpcodeParameterType::FT),
 		inst(Opcode::FNEG, Mnemonic::NEG, OpcodeParameterType::FD, OpcodeParameterType::FS),
+		// The immediate form: rd = rs * -1. The -1 goes in the 16-bit immediate and rs keeps the
+		// source; putting the -1 in the RS field (as a register form) encoded IMUL rd, r15, r0.
 		inst(sig(Mnemonic::NEG, OperandType::IntegralRegister, OperandType::IntegralRegister), {
-			op(Opcode::IMUL, param(OpcodeParameterType::RD, 0), paramSFixed(OpcodeParameterType::RS, -1))
+			op(Opcode::IMULI, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::RS, 1), paramSFixed(OpcodeParameterType::SIMM16, -1))
 		}),
 
 		// The high half of a multiply, the orderings, the bit counts and the two widenings. `abs`

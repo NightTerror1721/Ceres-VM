@@ -861,3 +861,30 @@ TEST(encoding, mov_moves_anything_anywhere)
 	CHECK_EQ(Instruction{ words[9] }.opcode() == Opcode::LDRBX, true);
 	CHECK_EQ(Instruction{ words[10] }.opcode() == Opcode::FSTR, true);
 }
+
+TEST(encoding, integer_neg_is_imul_by_minus_one_of_the_source)
+{
+	// The expansion used to put the -1 in the RS field of a register-form IMUL, which encoded
+	// IMUL r2, r15, r0 - the stack pointer times r0 - and dropped the source register.
+	AssembleResult r;
+	auto words = assembleText("    neg r2, r1", r);
+
+	CHECK(r.ok());
+	CHECK_EQ(words.size(), usize{ 1 });
+	const Instruction encoded{ words[0] };
+	CHECK_EQ(encoded.opcode() == Opcode::IMULI, true);
+	CHECK_EQ(encoded.rd(), u8{ 2 });
+	CHECK_EQ(encoded.rs(), u8{ 1 });
+	CHECK_EQ(encoded.imm16(), u16{ 0xFFFF });
+	CHECK_EQ_FMT(words[0], static_cast<u32>(Instruction::IMULI(2, 1, static_cast<u16>(0xFFFF))), renderWord);
+}
+
+TEST(encoding, float_neg_is_still_fneg)
+{
+	AssembleResult r;
+	auto words = assembleText("    neg f2, f1", r);
+
+	CHECK(r.ok());
+	CHECK_EQ(Instruction{ words[0] }.opcode() == Opcode::FNEG, true);
+}
+
