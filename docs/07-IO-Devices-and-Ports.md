@@ -137,7 +137,7 @@ machine forever, since nothing could ever wake it back up.
 | `0x14` | `NanosHighRegister` | Read | The high word latched by the last read of `NanosLowRegister` (`0` before the first). Reading it does not look at the clock. |
 | `0x18` | `NanosResolutionRegister` | Read | The smallest step, in nanoseconds, that the host clock is seen to take between two reads. |
 | `0x1C` | `HaltClockRegister` | Read | How many ticks a second the clock counts while the CPU is halted (100 000 000 by default); `0` when the host does not run it in real time (a debugger replaying history). |
-| `0x20` | `AlarmLowRegister` | Read/Write | The low word of the **alarm** instant, in nanoseconds on `NanosLowRegister`'s clock. Written first; it does not arm anything alone. Reads the armed instant's low word (or what was written, while disarmed). |
+| `0x20` | `AlarmLowRegister` | Read/Write | The low word of the **alarm** instant, in nanoseconds on `NanosLowRegister`'s clock. Written first; it does not arm anything alone. Reads the armed instant's low word (`0` when disarmed, so `0:0` always means disarmed). |
 | `0x24` | `AlarmHighRegister` | Read/Write | The high word. Writing it **arms** the alarm at `high:low`; `0:0` disarms it. Reads the armed instant's high word (`0` when disarmed). |
 
 The nanosecond count is 64 bits, so it takes two reads: **low first, then high**. The low read

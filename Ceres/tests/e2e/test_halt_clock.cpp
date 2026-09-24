@@ -215,6 +215,7 @@ TEST(halt_clock, the_alarm_fires_at_its_instant_on_the_nanosecond_clock)
 	const u64 at = soon + 20'000'000;           // 20 ms from now
 	timer.writeWord(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
 	CHECK_EQ(timer.alarmNanos(), u64{ 0 });     // the low word alone does not arm it
+	CHECK_EQ(timer.readUnsignedWord(TimerDevice::AlarmLowRegister), 0u);   // and a disarmed alarm reads 0:0
 	timer.writeWord(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
 	CHECK_EQ(timer.alarmNanos(), at);
 	CHECK_EQ(timer.readUnsignedWord(TimerDevice::AlarmLowRegister), static_cast<u32>(at));

@@ -181,7 +181,7 @@ namespace ceres::devices
 		static inline constexpr Address NanosHighRegister = Address(0x14); // Read: the high word latched by the last read of NanosLowRegister
 		static inline constexpr Address NanosResolutionRegister = Address(0x18); // Read: the smallest step the nanosecond clock is seen to take, in nanoseconds
 		static inline constexpr Address HaltClockRegister = Address(0x1C); // Read: ticks per second while the CPU is halted; 0 when time only moves by events
-		static inline constexpr Address AlarmLowRegister = Address(0x20);  // Read/write: the low word of the alarm instant, in nanoseconds on NanosLow's clock
+		static inline constexpr Address AlarmLowRegister = Address(0x20);  // Read/write: the low word of the alarm instant, in nanoseconds on NanosLow's clock (reads 0 when disarmed)
 		static inline constexpr Address AlarmHighRegister = Address(0x24); // Read/write: the high word; writing it arms the alarm at high:low (0:0 disarms)
 
 		// Which interrupt the timer requests when it expires. The first user interrupt, so it needs
@@ -462,8 +462,10 @@ namespace ceres::devices
 			if (offset == NanosHighRegister)
 				return _nanosHigh;
 
+			// The armed instant, 0:0 when disarmed - so a program can tell the two apart, even for an
+			// instant in the first 4.29 s. A low word written and not yet armed does not show.
 			if (offset == AlarmLowRegister)
-				return _alarmNanos != 0 ? static_cast<u32>(_alarmNanos) : _alarmLow;
+				return static_cast<u32>(_alarmNanos);
 
 			if (offset == AlarmHighRegister)
 				return static_cast<u32>(_alarmNanos >> 32);
