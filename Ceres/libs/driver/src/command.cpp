@@ -12,7 +12,7 @@ namespace ceres::driver
 			"\n"
 			"  ceres asm <source.casm> [<source2.casm> ...] [-o <output.cres>] [--listing] [--json]\n"
 			"                          [--debug] [--emit-debug-json] [-c]\n"
-			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug]\n"
+			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
 			"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>] [--window | --terminal]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"

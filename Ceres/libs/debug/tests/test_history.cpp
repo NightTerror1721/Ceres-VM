@@ -223,6 +223,56 @@ TEST(history, going_back_restores_the_wake_latch_and_the_stack_limit)
 	CHECK_EQ(session->machine().engine().stackLimit(), limit);
 }
 
+// Counts, takes an alignment fault half-way (its handler aligns the address, and the load is retried), and
+// counts on.
+constexpr std::string_view FaultHalfWay =
+	"interrupt 6: fixup\r\n"
+	"@text\r\n"
+	"global main:\r\n"
+	"    la r13, 0xFFFF0000\r\n"
+	"    li r3, 0\r\n"
+	".first:\r\n"
+	"    add r3, r3, 1\r\n"
+	"    cmp r3, 500\r\n"
+	"    jnz .first\r\n"
+	"    la r2, 0x10001\r\n"
+	"    ldr r1, [r2 + 0]\r\n"
+	".second:\r\n"
+	"    add r3, r3, 1\r\n"
+	"    cmp r3, 1500\r\n"
+	"    jnz .second\r\n"
+	"    li r0, 1\r\n"
+	"    strb [r13 + 0], r0\r\n"
+	"    ret\r\n"
+	"fixup:\r\n"
+	"    la r2, 0x10000\r\n"
+	"    iret\r\n";
+
+TEST(history, going_back_restores_the_fault_registers_and_the_stop_for_good)
+{
+	TempSource source{ FaultHalfWay, "fault" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+
+	session->start();
+	session->resume(600);                       // in the first loop: no fault yet
+	const u64 moment = session->currentTick();
+	CHECK_EQ(session->machine().engine().faultAddress(), 0u);
+	CHECK(!session->machine().engine().stoppedForGood());
+
+	session->resume(3000);                      // past the fault
+	CHECK_EQ(session->machine().engine().faultAddress(), 0x10001u);
+	CHECK_EQ(session->machine().engine().faultAccess() & 0xFFu, 1u);   // a read
+	session->machine().engine().setStoppedForGood(true);
+
+	session->runToTick(moment);
+	CHECK_EQ(session->currentTick(), moment);
+	CHECK_EQ(session->machine().engine().faultAddress(), 0u);
+	CHECK_EQ(session->machine().engine().faultAccess(), 0u);
+	CHECK(!session->machine().engine().stoppedForGood());
+}
+
 TEST(history, going_back_and_forward_again_restores_the_machine_byte_for_byte)
 {
 	TempSource source{ LongLoop, "roundtrip" };

@@ -10,12 +10,15 @@ namespace ceres::vm
 
 		const ProgramHeader& header = program.header();
 
+		// The image, the program's own stack, and the system stack at the top that interrupt handlers run
+		// on: the image must end below systemStackFloor() with minimumStack to spare.
 		const usize requiredMemory = Memory::UnrestrictedSegmentStartValue +
 			header.textSize +
 			header.rodataSize +
 			header.dataSize +
 			header.bssSize +
-			header.minimumStack;
+			header.minimumStack +
+			Memory::SystemStackSize;
 
 		if (requiredMemory > _memory.size())
 		{

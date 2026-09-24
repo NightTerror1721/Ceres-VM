@@ -82,7 +82,7 @@ writing a command to its command register:
 | `0x08` | `FeaturesRegister` | Read/write | Switches for behaviour that is off by default (below). |
 | `0x0C` | `StackLimitRegister` | Read/write | The lowest address the program's stack may reach (below). |
 | `0x10` | `FaultAddressRegister` | Read | The data address of the last memory fault: an unaligned access, a store into `.text` or below it, a page fault. |
-| `0x14` | `FaultAccessRegister` | Read | That fault's access: `1` read, `2` write, `3` instruction fetch in bits 0–7, the size in bytes in bits 8–15 (`0` for a page fault, whose size the MMU does not know). |
+| `0x14` | `FaultAccessRegister` | Read | That fault's access: `1` read, `2` write, `3` instruction fetch in bits 0–7, the size in bytes in bits 8–31 (a block instruction's chunk runs to a page; `0` for a page fault, whose size the MMU does not know). |
 
 | Command (low byte) | Effect |
 | --- | --- |

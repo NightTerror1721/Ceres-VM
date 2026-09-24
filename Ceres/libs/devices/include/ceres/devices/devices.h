@@ -48,7 +48,8 @@ namespace ceres::devices
 		// the heap grows, and cannot lower it below the image. All-ones when the host connected no engine.
 		static inline constexpr Address StackLimitRegister = Address(0x0C);
 		// Read-only: the data address of the last memory fault (AlignmentFault, MemoryFault, PageFault),
-		// and its access - 1 read, 2 write, 3 instruction fetch in bits 0-7, the size in bytes in 8-15 -
+		// and its access - 1 read, 2 write, 3 instruction fetch in bits 0-7, the size in bytes in 8-31 (a block
+		// instruction's chunk runs to a page) -
 		// so a fault handler can say "store word to 0x00000801" and not only where the instruction was.
 		static inline constexpr Address FaultAddressRegister = Address(0x10);
 		static inline constexpr Address FaultAccessRegister = Address(0x14);
@@ -500,8 +501,9 @@ namespace ceres::devices
 			// the two reads. A 32-bit count wraps in 43 s at the usual rate.
 			if (offset == TicksRegister)
 			{
-				_ticksHigh = static_cast<u32>(_ticks >> 32);
-				return static_cast<u32>(_ticks);
+				const u64 ticks = _ticks;
+				_ticksHigh = static_cast<u32>(ticks >> 32);
+				return static_cast<u32>(ticks);
 			}
 
 			if (offset == TicksHighRegister)

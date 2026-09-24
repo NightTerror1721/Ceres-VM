@@ -56,6 +56,9 @@ namespace ceres::debug
 			u64 pendingInterrupts = 0;
 			bool wakeEvent = false;   // a raise the next HALT will find (ExecutionEngine::hasWakeEvent)
 			u32 stackLimit = 0;       // where the program had put it over its heap
+			bool stoppedForGood = false;   // stopped for want of stack: no HALT wakes (ExecutionEngine::stoppedForGood)
+			u32 faultAddress = 0;     // the last memory fault, as SystemControl reads it back
+			u32 faultAccess = 0;
 			TimerDevice::State timer;
 			TerminalDevice::State terminal;
 			// Page index to contents, for every page that differs from the base image.

@@ -239,7 +239,7 @@ reasons.
   when the program's own stack is nearly full — see
   [Interrupts and exceptions](08-Interrupts-and-Exceptions.md).
 - The loader refuses to start a program that does not have 1 KiB of stack left over after the image
-  (`minimumStack` in the [`.cres` header](09-CRES-Binary-Format.md)).
+  (`minimumStack` in the [`.cres` header](09-CRES-Binary-Format.md)), on top of the 4 KiB system stack.
 
 ## Worked example: recursion
 

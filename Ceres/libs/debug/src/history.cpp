@@ -54,6 +54,9 @@ namespace ceres::debug
 		snapshot.pendingInterrupts = const_cast<vm::CeresVM&>(machine).interrupts().pendingMask();
 		snapshot.wakeEvent = machine.engine().hasWakeEvent();
 		snapshot.stackLimit = machine.engine().stackLimit();
+		snapshot.stoppedForGood = machine.engine().stoppedForGood();
+		snapshot.faultAddress = machine.engine().faultAddress();
+		snapshot.faultAccess = machine.engine().faultAccess();
 		snapshot.timer = timer.captureState();
 		snapshot.terminal = terminal.captureState();
 
@@ -123,6 +126,8 @@ namespace ceres::debug
 		machine.interrupts().restorePendingMask(chosen->pendingInterrupts);
 		engine.setWakeEvent(chosen->wakeEvent);   // after the mask: restoring it may count as raises
 		engine.setProgramStackLimit(chosen->stackLimit);
+		engine.setStoppedForGood(chosen->stoppedForGood);
+		engine.setFaultRegisters(chosen->faultAddress, chosen->faultAccess);
 		timer.restoreState(chosen->timer);
 		terminal.restoreState(chosen->terminal);
 

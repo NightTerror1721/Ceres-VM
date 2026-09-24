@@ -266,7 +266,11 @@ TEST(objects, symtab_appends_a_sorted_table_of_the_code_names_to_rodata)
 {
 	ObjectWorkspace ws{ "symtab" };
 	ws.write("lib.casm", LibrarySource);
-	ws.write("main.casm", ProgramSource);
+	// Seven code names in one object: the object lists them in its symbol table's (hash) order, so a
+	// table the linker did not sort would all but never come out ascending.
+	ws.write("main.casm", std::string(ProgramSource) +
+		"global zebra:\r\n    ret\r\n" "global aardvark:\r\n    ret\r\n" "global mongoose:\r\n    ret\r\n"
+		"global kiwi:\r\n    ret\r\n" "global bison:\r\n    ret\r\n" "global yak:\r\n    ret\r\n");
 	auto build = [&](bool table) -> std::optional<Program>
 	{
 		auto library = ws.assemble("lib.casm");
@@ -294,7 +298,7 @@ TEST(objects, symtab_appends_a_sorted_table_of_the_code_names_to_rodata)
 			(static_cast<u32>(rodata[at + offset + 2]) << 16) | (static_cast<u32>(rodata[at + offset + 3]) << 24);
 	};
 	const u32 count = word(0);
-	CHECK(count >= 2);                          // main, and the library's routine
+	CHECK(count >= 8);                          // main and six more, and the library's routine
 	bool sorted = true;
 	bool foundMain = false;
 	for (u32 i = 0; i < count; ++i)

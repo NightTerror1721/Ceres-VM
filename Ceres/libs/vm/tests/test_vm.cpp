@@ -619,13 +619,39 @@ TEST(vm, a_block_write_into_the_text_faults_and_writes_nothing)
 	m.engine().setTextRange(entry, entry + 0x100);
 	m.memory().writeUnchecked<u32>(
 		Address(static_cast<u32>(InterruptNumber::MemoryFault) * Address::Size), 0x2000u);
+	m.memory().writeUnchecked<u8>(Address(entry + 0x80), 0xAA);
 	m.engine().setRegister(1, entry + 0x80);
 	m.engine().setRegister(2, 0);
 	m.engine().setRegister(3, 16);
 	m.step();
 	CHECK_EQ(m.engine().interruptDepth(), 1u);
 	CHECK_EQ(m.reg(3), 16u);                  // nothing done
-	CHECK(m.memory().readUnchecked<u32>(Address(entry)) != 0u);
+	CHECK_EQ(m.memory().readUnchecked<u8>(Address(entry + 0x80)), u8{ 0xAA });   // the fill never landed
+	CHECK_EQ(m.engine().faultAccess(), 2u | (16u << 8));   // a 16-byte write
+}
+
+TEST(vm, a_block_write_faulting_on_a_later_chunk_keeps_the_chunks_before_it)
+{
+	// .text is the page at 0x20000: a fill from 0x1F000 writes its first page, then faults on the second
+	// with the registers saying how far it got, so the handler's iret would resume it there.
+	Machine m{ Instruction::MSET(1, 2, 3) };
+	m.engine().setTextRange(0x20000, 0x21000);
+	m.memory().writeUnchecked<u32>(
+		Address(static_cast<u32>(InterruptNumber::MemoryFault) * Address::Size), 0x2000u);
+	m.engine().setRegister(1, 0x1F000);
+	m.engine().setRegister(2, 0x5A);
+	m.engine().setRegister(3, 0x1800);
+	m.step();
+	CHECK_EQ(m.engine().interruptDepth(), 0u);
+	CHECK_EQ(m.reg(1), 0x20000u);
+	CHECK_EQ(m.reg(3), 0x800u);
+	CHECK_EQ(m.memory().readUnchecked<u8>(Address(0x1FFFF)), u8{ 0x5A });
+	m.step();
+	CHECK_EQ(m.engine().interruptDepth(), 1u);  // the MemoryFault
+	CHECK_EQ(m.reg(1), 0x20000u);              // unchanged: nothing of the second chunk was written
+	CHECK_EQ(m.reg(3), 0x800u);
+	CHECK_EQ(m.memory().readUnchecked<u8>(Address(0x20000)), u8{ 0 });
+	CHECK_EQ(m.engine().faultAccess(), 2u | (0x800u << 8));   // wider than a byte
 }
 
 // --- A fault says what it was doing ----------------------------------------------------------

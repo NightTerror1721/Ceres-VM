@@ -213,13 +213,13 @@ TEST(halt_clock, a_running_machine_reaches_the_alarm_and_takes_its_interrupt)
 	HaltedMachine m;
 	m.vm().memory().writeUnchecked<u32>(Memory::UnrestrictedSegmentStart + Address(4), Instruction::JP(i24(0)).raw());
 	m.vm().memory().writeUnchecked<u32>(Address(static_cast<u32>(TimerDevice::AlarmInterrupt) * Address::Size), 0x800u);
+	const Clock::time_point start = Clock::now();   // before the instant is read: the wait is at least 2 ms from here
 	const u32 low = m.timer.readUnsignedWord(TimerDevice::NanosLowRegister);
 	const u64 at = ((static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosHighRegister)) << 32) | low) + 2'000'000;
 	m.timer.writeWord(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
 	m.timer.writeWord(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
-	const Clock::time_point start = Clock::now();
 	u64 steps = 0;
-	while (m.reg(9) != 0x5Au && steps < 200'000'000)
+	while (m.reg(9) != 0x5Au && steps < 20'000'000 && Clock::now() - start < std::chrono::seconds(5))
 	{
 		m.step();
 		++steps;
@@ -227,7 +227,7 @@ TEST(halt_clock, a_running_machine_reaches_the_alarm_and_takes_its_interrupt)
 	const auto waited = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - start).count();
 	CHECK_EQ(m.reg(9), 0x5Au);
 	CHECK(!m.halted());
-	CHECK(waited >= 1'900);                     // not before its instant
+	CHECK(waited >= 2'000);                     // not before its instant
 	CHECK_EQ(m.timer.alarmNanos(), u64{ 0 });
 }
 

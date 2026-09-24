@@ -59,6 +59,30 @@ TEST(driver_command, options_from_another_command_are_rejected)
 	CHECK(!parsed.has_value());
 }
 
+TEST(driver_command, symtab_belongs_to_link_alone)
+{
+	char program[] = "ceres";
+	char link[] = "link";
+	char run[] = "run";
+	char input[] = "main.cobj";
+	char dashO[] = "-o";
+	char output[] = "main.cres";
+	char symtab[] = "--symtab";
+	char* linkArgv[] = { program, link, input, dashO, output, symtab };
+	auto linked = parseCommandLine(6, linkArgv);
+	CHECK(linked.has_value());
+	const auto* command = linked ? std::get_if<LinkCommand>(&*linked) : nullptr;
+	CHECK(command != nullptr && command->symbolTable);
+
+	char* plainArgv[] = { program, link, input, dashO, output };
+	auto plain = parseCommandLine(5, plainArgv);
+	const auto* without = plain ? std::get_if<LinkCommand>(&*plain) : nullptr;
+	CHECK(without != nullptr && !without->symbolTable);
+
+	char* runArgv[] = { program, run, input, symtab };
+	CHECK(!parseCommandLine(4, runArgv).has_value());
+}
+
 TEST(driver_command, json_diagnostics_stay_on_the_output_stream)
 {
 	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_invalid_test.casm";

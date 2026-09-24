@@ -88,8 +88,9 @@ namespace ceres::vm
 		// The data address and the access of the last memory fault - an unaligned access, a store into
 		// .text or below it, a page fault - so a fault handler can say what the faulting instruction was
 		// doing and where, not only where it was. What the system-control device's FaultAddressRegister and
-		// FaultAccessRegister read. The access is FaultAccess in bits 0-7 and the size in bytes in 8-15
-		// (0 when the MMU faulted on the first page of an access whose size it does not know).
+		// FaultAccessRegister read. The access is FaultAccess in bits 0-7 and the size in bytes in 8-31 -
+		// wider than a byte, as a block instruction's chunk runs up to a page (0 when the MMU faulted on the
+		// first page of an access whose size it does not know).
 		u32 _faultAddress = 0;
 		u32 _faultAccess = 0;
 
@@ -237,6 +238,12 @@ namespace ceres::vm
 		enum class FaultAccess : u8 { None = 0, Read = 1, Write = 2, Execute = 3 };
 		u32 faultAddress() const noexcept { return _faultAddress; }
 		u32 faultAccess() const noexcept { return _faultAccess; }
+		// Only for restoring a snapshot: a rewind to before a fault must not still report it.
+		void setFaultRegisters(u32 address, u32 access) noexcept { _faultAddress = address; _faultAccess = access; }
+		// Whether the machine stopped for want of stack (_stoppedForGood). A debugger keeps it in its
+		// snapshots: it decides whether a HALT can ever be woken.
+		bool stoppedForGood() const noexcept { return _stoppedForGood; }
+		void setStoppedForGood(bool stopped) noexcept { _stoppedForGood = stopped; }
 		// Whether a request has been raised since the machine last woke, so the next HALT will not
 		// sleep (_raisesConsumed). A debugger keeps it in its snapshots, since it decides what a HALT does.
 		bool hasWakeEvent() const noexcept { return _interrupts.raiseCount() != _raisesConsumed; }
@@ -1595,7 +1602,7 @@ namespace ceres::vm
 				carry(left < right);
 				sign(left < right);
 				overflow(false);
-				chargeBlock(i);
+				chargeBlock(i + 1);                 // the differing byte was read too
 				advancePC();
 				return;
 			}
@@ -1651,7 +1658,7 @@ namespace ceres::vm
 				setReg(inst.rd(), a + i);
 				setReg(inst.rt(), count - i);
 				zero(false);
-				chargeBlock(i);
+				chargeBlock(i + 1);                 // the byte found was read too
 				advancePC();
 				return;
 			}
