@@ -18,7 +18,7 @@ which addresses (the null page, the BIOS, the system stack) stay physical regard
 ```cpp
 static inline constexpr usize DefaultSize = 1024 * 1024 * 16; // 16 MiB
 static inline constexpr usize MaxSize     = 1024 * 1024 * 1024; // 1 GiB
-static inline constexpr usize MinSize     = 1024; // 1 KiB
+static inline constexpr usize MinSize     = 8192; // 8 KiB
 ```
 
 The default machine has 16 MiB of RAM. `ceres run --memory <bytes>` overrides this (see
@@ -111,8 +111,8 @@ Integers are assembled and disassembled byte-by-byte in little-endian order (see
 ## The stack
 
 The stack pointer (`r15`/`sp`) is initialized to the top of the **program's own** region on reset
-and **grows down** from there. That is not quite the top of memory: the last kilobyte
-(`Memory::SystemStackSize`) is the system stack, which interrupt handlers run on, so
+and **grows down** from there. That is not quite the top of memory: the last 4 KiB
+(`Memory::SystemStackSize`, 1 KiB until a fault report built at `-O0` needed more) are the system stack, which interrupt handlers run on, so
 `ExecutionEngine::reset()` sets `sp = memory.size() - SystemStackSize`.
 
 - Pushing below the **stack limit** raises `StackOverflow` (`hasStackRoom()` in

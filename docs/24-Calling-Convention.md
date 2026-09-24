@@ -227,7 +227,7 @@ reasons.
 
 ## Where the stack is
 
-- It starts at the **top of the program's own region**, which is the end of memory minus the 1 KiB
+- It starts at the **top of the program's own region**, which is the end of memory minus the 4 KiB
   reserved for interrupt handlers (`Memory::SystemStackSize`). `sp` on entry is that address; there
   is deliberately no `__stack_top` symbol, because how much memory there is is chosen at run time
   with `--memory`.

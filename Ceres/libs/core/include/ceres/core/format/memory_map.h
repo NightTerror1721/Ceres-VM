@@ -12,7 +12,11 @@ namespace ceres::fmt
 		// run on whatever stack it interrupted, which meant a program that had nearly exhausted
 		// its own stack could not take an interrupt at all: the push of the saved PC was the thing
 		// that overflowed, and the overflow was itself an interrupt.
-		inline constexpr usize SystemStackSize = 1024;
+		//
+		// 4 KiB: a fault report that names functions and walks the program's frames (the STDLIB's
+		// ceres/backtrace.h) needed more than the 1 KiB this used to be when built at -O0, where every
+		// temporary has a slot of its own - and a handler that runs out of it has nowhere to report that.
+		inline constexpr usize SystemStackSize = 4096;
 
 		inline constexpr usize NullPageSegmentSize = 0x100; // 256 bytes, used for null page (address 0x00000000 - 0x000000FF)
 		inline constexpr usize BiosSegmentSize = 0x300; // 768 bytes, used for BIOS (address 0x00000100 - 0x000003FF)

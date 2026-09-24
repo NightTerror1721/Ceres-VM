@@ -23,7 +23,7 @@ namespace ceres::vm
 
 		static inline constexpr usize DefaultSize = 1024 * 1024 * 16; // 16 MiB
 		static inline constexpr usize MaxSize = 1024 * 1024 * 1024; // 1 GiB
-		static inline constexpr usize MinSize = 1024; // 1 KiB
+		static inline constexpr usize MinSize = 8192; // 8 KiB: the system stack's 4 KiB and room for a program
 
 		// The top of memory belongs to interrupt handlers, not to the program. A handler used to
 		// run on whatever stack it interrupted, which meant a program that had nearly exhausted
