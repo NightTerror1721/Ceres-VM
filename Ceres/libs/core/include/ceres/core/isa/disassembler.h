@@ -236,6 +236,10 @@ namespace ceres::isa
 				case Opcode::FCEIL:   return { "FCEIL",   Shape::FdFs };
 				case Opcode::FTRUNC:  return { "FTRUNC",  Shape::FdFs };
 				case Opcode::FCOPYSIGN: return { "FCOPYSIGN", Shape::FdFsFt };
+				case Opcode::MCPY:    return { "MCPY",    Shape::RdRsRt };
+				case Opcode::MSET:    return { "MSET",    Shape::RdRsRt };
+				case Opcode::MCMP:    return { "MCMP",    Shape::RdRsRt };
+				case Opcode::MSCAN:   return { "MSCAN",   Shape::RdRsRt };
 				case Opcode::FMA:     return { "FMA",     Shape::FdFsFt };
 				case Opcode::FCLASS:  return { "FCLASS",  Shape::RdFs };
 				case Opcode::FRECIPE: return { "FRECIPE", Shape::FdFs };

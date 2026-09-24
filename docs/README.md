@@ -53,6 +53,9 @@ the assembler does internally at each stage of the build.
 
 If you already knew this language, these are the parts that moved:
 
+- **Block memory**: `mcpy`, `mset`, `mcmp` and `mscan` do a whole `memcpy`/`memset`/`memcmp`/`memchr` in one
+  instruction, a page per step, resumable after an interrupt or a page fault —
+  [Instruction set](05-Instruction-Set.md#block-memory-0xa00xa3).
 - **Extended float arithmetic**: `fmod`, `fmin`/`fmax`, `fround`/`ffloor`/`fceil`/`ftrunc`,
   `fcopysign`, `fma`, `fclass`, `frecipe`/`frsqrte`, plus the integer `ctz` — the primitives a
   software math library needs for `sin`/`log`/`exp`/`pow`, none of which get an opcode of their

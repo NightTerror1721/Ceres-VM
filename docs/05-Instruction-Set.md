@@ -514,7 +514,43 @@ faulted), because the fault handler has already redirected execution to the hand
 
 None of the conversions touch the flags register.
 
-## Devices: no opcodes of their own · `0xA0`–`0xB3` free
+## Block memory · `0xA0`–`0xA3`
+
+A whole `memcpy`, `memset`, `memcmp` or `memchr` in one instruction. In an interpreter a copy done in C++
+costs about what one dispatched instruction does, so a 64 KiB `memcpy` goes from some 130 000 instructions to
+16 steps.
+
+| Assembly | Opcode | Semantics |
+| --- | --- | --- |
+| `mcpy rd, rs, rt` | `MCPY` `0xA0` | Copy `rt` bytes from `[rs]` to `[rd]`, lowest address first. Then `rd` and `rs` are past the block and `rt` is 0. |
+| `mset rd, rs, rt` | `MSET` `0xA1` | Fill `rt` bytes at `[rd]` with the low byte of `rs`. Then `rd` is past the block and `rt` is 0. |
+| `mcmp rd, rs, rt` | `MCMP` `0xA2` | Compare `rt` bytes at `[rd]` and `[rs]`. Equal: Z set, `rd`/`rs` past the blocks, `rt` 0. Otherwise Z clear, `rd`/`rs` at the first bytes that differ, `rt` counting them and the rest, and C and N set when `[rd]`'s byte is the lower (as unsigned) — the flags of a `cmp` of the two bytes. |
+| `mscan rd, rs, rt` | `MSCAN` `0xA3` | Find the low byte of `rs` in the `rt` bytes at `[rd]`. Found: Z clear, `rd` at it, `rt` counting it and the rest. Not found: Z set, `rd` past the block, `rt` 0. |
+
+All three registers are read **and written**, so they must be three different ones. The work goes a
+**chunk** at a time — at most a page (4 KiB), and never across a page boundary of either address — and
+until `rt` reaches 0 the PC stays on the instruction, so the next step does the next chunk:
+
+- an interrupt is taken between two chunks, and the instruction goes on after its `iret`;
+- a page fault leaves the registers saying how far it got, so the handler's `iret` resumes it;
+- every access is checked as a byte access would be: `.text` and the vector table/BIOS are not
+  writable (`MemoryFault`), the MMU translates and faults, and a block that runs into the device window
+  reaches it a byte at a time. Byte accesses never fault on alignment;
+- a chunk costs the clock `1 + bytes/16` ticks, so an instruction budget still means something.
+
+`mcpy` with the destination overlapping the source from above repeats bytes, as a forward byte loop
+would; a `memmove` that has to go downwards copies from the top by other means.
+
+```casm
+// strlen(r1): scan for the NUL through at most all of memory, then subtract
+mov   r2, r1
+li    r3, 0
+la    r4, 0xFFFFFFFF
+mscan r2, r3, r4      // r2 = the NUL
+sub   r0, r2, r1
+```
+
+## Devices: no opcodes of their own · `0xA4`–`0xB3` free
 
 There used to be a dedicated I/O family here — `in`/`out` and their eight variants, addressing one
 of 256 single-byte "ports". It is gone: a device's registers now sit at an ordinary memory address,
@@ -534,8 +570,8 @@ each device uses, and the bulk-transfer registers that replaced `inm`/`outm`.
 Adding the comparison jumps left only eight free slots where sixteen were needed, so the control-flow
 block grew to `0x77` and pushed the families above it up: stack `0x70`→`0x80`, conversions
 `0x80`→`0x90`, I/O `0x90`→`0xA0`. Retiring I/O entirely freed `0xA0`–`0xB3` outright rather than
-moving anything into it. Free today: `0x0F`, `0x29`–`0x2F`, `0x3D`–`0x3F`, `0x4F`, `0x78`–`0x7F`,
-`0x8C`–`0x8F`, `0x96`–`0x9F`, `0xA0`–`0xB3`, `0xD7`–`0xFF` (the memory-management block, `0x08`–`0x0E`,
+moving anything into it; the block-memory instructions took `0xA0`–`0xA3` of it. Free today: `0x0F`, `0x4F`,
+`0x7A`–`0x7F`, `0x8C`–`0x8F`, `0xA4`–`0xB3`, `0xD7`–`0xFF` (the memory-management block, `0x08`–`0x0E`,
 took the first eight of what a version ago was `0x08`–`0x0F` — see
 [Virtual memory and paging](27-Virtual-Memory-and-Paging.md)).
 

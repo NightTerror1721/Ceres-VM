@@ -88,6 +88,10 @@ namespace ceres::casm
 		FCEIL, // FCEIL
 		FTRUNC, // FTRUNC
 		FCOPYSIGN, // FCOPYSIGN
+		MCPY, // MCPY: copy a block
+		MSET, // MSET: fill a block
+		MCMP, // MCMP: compare two blocks
+		MSCAN, // MSCAN: find a byte in a block
 		FMA, // FMA. fd = fd + fs * ft: the accumulator is a source as well as the destination.
 		FRECIPE, // FRECIPE
 		FRSQRTE, // FRSQRTE

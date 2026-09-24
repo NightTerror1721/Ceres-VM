@@ -363,6 +363,7 @@ TEST(vm, the_disassembler_names_every_mapped_opcode)
 		Opcode::STRX, Opcode::STRBX, Opcode::STRHX, Opcode::FSTRX,
 		Opcode::LDRP, Opcode::LDRBP, Opcode::LDRHP, Opcode::LDRSBP, Opcode::LDRSHP,
 		Opcode::FLDRP, Opcode::STRP, Opcode::STRBP, Opcode::STRHP, Opcode::FSTRP,
+		Opcode::MCPY, Opcode::MSET, Opcode::MCMP, Opcode::MSCAN,
 	};
 
 	for (Opcode opcode : mapped)
@@ -486,6 +487,145 @@ TEST(vm, signed_ordering_survives_a_difference_that_overflows)
 	// Nothing overflows here: the ordinary cases keep working.
 	CHECK_EQ(compareImmediateAndJump(5, -1, Instruction::JGR(i24(12))), u32{ 200 });
 	CHECK_EQ(compareImmediateAndJump(0xFFFFFFFFu, 1, Instruction::JLS(i24(12))), u32{ 200 });
+}
+
+// --- Block memory ------------------------------------------------------------------------------
+
+TEST(vm, mcpy_copies_a_page_at_a_time_and_leaves_its_registers_past_the_block)
+{
+	const u32 entry = Memory::UnrestrictedSegmentStart.value();
+	const u32 src = 0x10000, dst = 0x20000, n = 10000;
+	Machine m{ Instruction::MCPY(1, 2, 3), Instruction::NOP() };
+	for (u32 i = 0; i < n; ++i)
+		m.memory().writeUnchecked<u8>(Address(src + i), static_cast<u8>(i * 7));
+	m.engine().setRegister(1, dst);
+	m.engine().setRegister(2, src);
+	m.engine().setRegister(3, n);
+
+	m.step();                                   // one page, and the PC stays for the rest
+	CHECK_EQ(m.pc().value(), entry);
+	CHECK_EQ(m.reg(3), n - Mmu::PageSize);
+	CHECK_EQ(m.reg(1), dst + Mmu::PageSize);
+	m.step(2);
+	CHECK_EQ(m.pc().value(), entry + Instruction::Size);
+	CHECK_EQ(m.reg(1), dst + n);
+	CHECK_EQ(m.reg(2), src + n);
+	CHECK_EQ(m.reg(3), 0u);
+	bool same = true;
+	for (u32 i = 0; i < n; ++i)
+		same = same && m.memory().readUnchecked<u8>(Address(dst + i)) == static_cast<u8>(i * 7);
+	CHECK(same);
+}
+
+TEST(vm, mcpy_never_crosses_a_page_boundary_in_one_step)
+{
+	// 100 bytes starting 10 short of a page's end: 10, then the other 90.
+	const u32 src = 0x10000, dst = 0x21000 - 10;
+	Machine m{ Instruction::MCPY(1, 2, 3) };
+	m.engine().setRegister(1, dst);
+	m.engine().setRegister(2, src);
+	m.engine().setRegister(3, 100);
+	m.step();
+	CHECK_EQ(m.reg(3), 90u);
+	m.step();
+	CHECK_EQ(m.reg(3), 0u);
+}
+
+TEST(vm, mcpy_onto_itself_one_byte_up_repeats_the_first_byte_as_a_byte_loop_would)
+{
+	const u32 src = 0x10000;
+	Machine m{ Instruction::MCPY(1, 2, 3) };
+	for (u32 i = 0; i < 9; ++i)
+		m.memory().writeUnchecked<u8>(Address(src + i), static_cast<u8>('a' + i));
+	m.engine().setRegister(1, src + 1);
+	m.engine().setRegister(2, src);
+	m.engine().setRegister(3, 8);
+	m.step();
+	for (u32 i = 0; i < 9; ++i)
+		CHECK_EQ(m.memory().readUnchecked<u8>(Address(src + i)), static_cast<u8>('a'));
+}
+
+TEST(vm, mset_fills_with_the_low_byte)
+{
+	const u32 dst = 0x10000;
+	Machine m{ Instruction::MSET(1, 2, 3), Instruction::NOP() };
+	m.engine().setRegister(1, dst);
+	m.engine().setRegister(2, 0x1234);
+	m.engine().setRegister(3, 5000);
+	m.step(2);
+	CHECK_EQ(m.reg(1), dst + 5000);
+	CHECK_EQ(m.reg(3), 0u);
+	CHECK_EQ(m.memory().readUnchecked<u8>(Address(dst)), u8{ 0x34 });
+	CHECK_EQ(m.memory().readUnchecked<u8>(Address(dst + 4999)), u8{ 0x34 });
+	CHECK_EQ(m.memory().readUnchecked<u8>(Address(dst + 5000)), u8{ 0 });
+}
+
+TEST(vm, mcmp_stops_at_the_first_difference_with_the_flags_of_a_cmp)
+{
+	const u32 a = 0x10000, b = 0x11000;
+	Machine m{ Instruction::MCMP(1, 2, 3), Instruction::MCMP(4, 5, 6) };
+	for (u32 i = 0; i < 100; ++i)
+	{
+		m.memory().writeUnchecked<u8>(Address(a + i), static_cast<u8>(i));
+		m.memory().writeUnchecked<u8>(Address(b + i), static_cast<u8>(i));
+	}
+	m.memory().writeUnchecked<u8>(Address(b + 70), u8{ 200 });   // [a] is lower there
+	m.engine().setRegister(1, a);
+	m.engine().setRegister(2, b);
+	m.engine().setRegister(3, 100);
+	m.engine().setRegister(4, a);
+	m.engine().setRegister(5, b);
+	m.engine().setRegister(6, 50);            // the first fifty agree
+
+	m.step();
+	CHECK(!m.flags().zero());
+	CHECK(m.flags().carry());
+	CHECK_EQ(m.reg(1), a + 70);
+	CHECK_EQ(m.reg(2), b + 70);
+	CHECK_EQ(m.reg(3), 30u);
+	m.step();
+	CHECK(m.flags().zero());
+	CHECK(!m.flags().carry());
+	CHECK_EQ(m.reg(4), a + 50);
+	CHECK_EQ(m.reg(6), 0u);
+}
+
+TEST(vm, mscan_finds_a_byte_or_says_it_is_not_there)
+{
+	const u32 a = 0x10000;
+	Machine m{ Instruction::MSCAN(1, 2, 3), Instruction::MSCAN(4, 5, 6) };
+	for (u32 i = 0; i < 64; ++i)
+		m.memory().writeUnchecked<u8>(Address(a + i), static_cast<u8>(i + 1));
+	m.engine().setRegister(1, a);
+	m.engine().setRegister(2, 0x1FF);         // the low byte, 0xFF: not there
+	m.engine().setRegister(3, 64);
+	m.engine().setRegister(4, a);
+	m.engine().setRegister(5, 40);
+	m.engine().setRegister(6, 64);
+	m.step();
+	CHECK(m.flags().zero());
+	CHECK_EQ(m.reg(1), a + 64);
+	CHECK_EQ(m.reg(3), 0u);
+	m.step();
+	CHECK(!m.flags().zero());
+	CHECK_EQ(m.reg(4), a + 39);               // byte 39 holds 40
+	CHECK_EQ(m.reg(6), 25u);
+}
+
+TEST(vm, a_block_write_into_the_text_faults_and_writes_nothing)
+{
+	const u32 entry = Memory::UnrestrictedSegmentStart.value();
+	Machine m{ Instruction::MSET(1, 2, 3) };
+	m.engine().setTextRange(entry, entry + 0x100);
+	m.memory().writeUnchecked<u32>(
+		Address(static_cast<u32>(InterruptNumber::MemoryFault) * Address::Size), 0x2000u);
+	m.engine().setRegister(1, entry + 0x80);
+	m.engine().setRegister(2, 0);
+	m.engine().setRegister(3, 16);
+	m.step();
+	CHECK_EQ(m.engine().interruptDepth(), 1u);
+	CHECK_EQ(m.reg(3), 16u);                  // nothing done
+	CHECK(m.memory().readUnchecked<u32>(Address(entry)) != 0u);
 }
 
 // --- The stack stops where the program ends ------------------------------------------------

@@ -270,6 +270,10 @@ namespace ceres::isa
 		static constexpr Instruction LDRSHX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::LDRSHX, rd, rs, rt); }
 		static constexpr Instruction FLDRX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::FLDRX, rd, rs, rt); }
 		static constexpr Instruction STRX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::STRX, rd, rs, rt); }
+		static constexpr Instruction MCPY(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::MCPY, rd, rs, rt); }
+		static constexpr Instruction MSET(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::MSET, rd, rs, rt); }
+		static constexpr Instruction MCMP(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::MCMP, rd, rs, rt); }
+		static constexpr Instruction MSCAN(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::MSCAN, rd, rs, rt); }
 		static constexpr Instruction STRBX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::STRBX, rd, rs, rt); }
 		static constexpr Instruction STRHX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::STRHX, rd, rs, rt); }
 		static constexpr Instruction FSTRX(u8 rd, u8 rs, u8 rt) noexcept { return make(Opcode::FSTRX, rd, rs, rt); }

@@ -205,6 +205,15 @@ namespace ceres::isa
 		// through ordinary loads and stores now - the top 16 MiB of the address space is reserved
 		// for them - so none of it is needed any more. See docs/07-IO-Devices-and-Ports.md.
 
+		// Block memory: a whole memcpy, memset, memcmp or memchr in one instruction, worked a page at a
+		// time. Each takes three registers, all read and written: rd and rs move on past what was done
+		// and rt counts down what is left, so a long one is interrupted between pages and a page fault
+		// resumes it where it stopped. See docs/05-Instruction-Set.md#block-memory.
+		MCPY = 0xA0, // [rd, rs, rt] - copy rt bytes from [rs] to [rd], lowest first
+		MSET = 0xA1, // [rd, rs, rt] - fill rt bytes at [rd] with the low byte of rs
+		MCMP = 0xA2, // [rd, rs, rt] - compare rt bytes at [rd] and [rs]; stop at the first that differ
+		MSCAN = 0xA3, // [rd, rs, rt] - find the low byte of rs in the rt bytes at [rd]
+
 		// Indexed addressing: the offset is a register instead of a displacement, so walking an
 		// array costs no ADD per element. They are here rather than beside 0x40-0x4E because only
 		// one slot was left there, and ten consecutive numbers say more than ten scattered ones.
@@ -255,7 +264,7 @@ namespace ceres::isa
 		FRSQRTE = 0xD5, // [fd, fs] - fd = 1 / sqrt(fs); traps on fs == 0
 		CTZ = 0xD6, // [rd, rs] - rd = trailing zero bits in rs; 32 when rs is zero
 
-		// Free: 0x0F, 0x4F, 0x7A-0x7F, 0x8C-0x8F, 0xA0-0xB3, 0xD7-0xFF.
+		// Free: 0x0F, 0x4F, 0x7A-0x7F, 0x8C-0x8F, 0xA4-0xB3, 0xD7-0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

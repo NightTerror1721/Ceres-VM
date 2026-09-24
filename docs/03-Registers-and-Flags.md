@@ -126,6 +126,9 @@ go straight back to sleep the moment the handler returned, and nothing could eve
 - **`FMIN`/`FMAX`/`FCOPYSIGN`**: Zero/Sign from the result, Carry/Overflow always cleared — the same
   light touch as the bitwise operations, since picking or reassembling an existing value cannot
   carry or overflow.
+- **`MCMP`/`MSCAN`**: Zero set when the blocks are equal or the byte was not found (the count register
+  ran out). A difference found by `MCMP` also sets Carry and Sign when `[rd]`'s byte is the lower, as a
+  `CMP` of the two bytes would, and clears Overflow. `MCPY`/`MSET` touch no flags.
 - **`FMA`**: reuses `FADD`'s exact flag behaviour, applied to `(fd, fs * ft)` — it *is* an `FADD`
   once the product has been computed.
 - **`FROUND`/`FFLOOR`/`FCEIL`/`FTRUNC`/`FRECIPE`/`FRSQRTE`/`FCLASS`**: touch no flags at all, the

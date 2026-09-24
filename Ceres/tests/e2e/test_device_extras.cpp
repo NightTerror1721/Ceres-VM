@@ -442,6 +442,21 @@ TEST(device_extras, a_program_moves_the_stack_limit_through_the_control_device)
 	CHECK_EQ(m.reg(2), 0x2000u);
 }
 
+TEST(device_extras, a_block_instruction_costs_the_clock_its_length_in_ticks)
+{
+	// A page copied in one step: 1 tick for the step and 4096 / 16 for the bytes.
+	Machine m{ Instruction::MCPY(1, 2, 3) };
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+	m.vm().engine().setRegister(1, 0x20000);
+	m.vm().engine().setRegister(2, 0x10000);
+	m.vm().engine().setRegister(3, 4096);
+	const u64 before = timer.ticks();
+	m.step();
+	CHECK_EQ(timer.ticks() - before, u64{ 1 + 4096 / 16 });
+	timer.detachFrom(m.vm().io());
+}
+
 // --- A millisecond clock -----------------------------------------------------------------------
 
 TEST(device_extras, the_millisecond_register_never_goes_backwards)

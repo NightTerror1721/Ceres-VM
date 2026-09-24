@@ -191,6 +191,15 @@ name is only the hardware-precedented spelling of "one instruction instead of `l
 `fround`/`ffloor`/`fceil`/`ftrunc`/`frecipe`/`frsqrte` touch no flags, the same as `fsqrt`/`fabs`.
 `fmin`/`fmax`/`fcopysign` set Zero/Sign and always clear Carry/Overflow, like the bitwise ops.
 
+### Block memory · `0xA0`–`0xA3`
+
+`mcpy` `mset` `mcmp` `mscan`
+
+A whole `memcpy`, `memset`, `memcmp` or `memchr` in one instruction, a page at a time: `mcpy rd, rs, rt`
+copies `rt` bytes from `[rs]` to `[rd]`, and all three registers move on as it goes, so a long one is
+interrupted between pages and resumes after a page fault. A chunk costs the clock `1 + bytes/16` ticks.
+`mcmp` and `mscan` stop where the blocks differ or the byte is, and say which with the Zero flag.
+
 ### Logic and shifts · `0x30`–`0x3F`, `0xC8`–`0xCD`, `0xD6`
 
 `and` `or` `xor` `not` `shl` `shr` `sar` `rol` `ror` `clz` `ctz` `popcnt` `bswap` `sxtb` `sxth`

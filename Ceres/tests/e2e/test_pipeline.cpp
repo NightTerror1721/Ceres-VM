@@ -359,6 +359,47 @@ TEST(pipeline, the_shipped_example_still_assembles_and_runs)
 	CHECK_EQ(r.output, std::string{ "Hello, CeresVM!" });
 }
 
+TEST(pipeline, the_block_instructions_assemble_and_run)
+{
+	RunResult r = assembleAndRun(std::string(
+		"@data\r\n"
+		"    let src: u8[] = \"hello\"\r\n"
+		"    let dst: u8[8] = \"xxxxxxx\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    la r13, 0xFF000004\r\n"
+		"    la r1, dst\r\n"
+		"    la r2, src\r\n"
+		"    li r3, 5\r\n"
+		"    mcpy r1, r2, r3\r\n"          // dst = hello
+		"    la r1, dst\r\n"
+		"    ldrb r4, [r1 + 4]\r\n"
+		"    strb [r13 + 0], r4\r\n"       // o
+		"    li r2, 108\r\n"
+		"    li r3, 5\r\n"
+		"    mscan r1, r2, r3\r\n"         // r1 at the first l, r3 = 3
+		"    ldrb r4, [r1 + 0]\r\n"
+		"    strb [r13 + 0], r4\r\n"       // l
+		"    add r4, r3, 48\r\n"
+		"    strb [r13 + 0], r4\r\n"       // 3
+		"    la r1, dst\r\n"
+		"    li r2, 65\r\n"
+		"    li r3, 3\r\n"
+		"    mset r1, r2, r3\r\n"          // dst = AAAlo
+		"    la r1, dst\r\n"
+		"    ldrb r4, [r1 + 2]\r\n"
+		"    strb [r13 + 0], r4\r\n"       // A
+		"    la r2, src\r\n"
+		"    li r3, 5\r\n"
+		"    mcmp r1, r2, r3\r\n"          // they differ at once: r2 at src's h
+		"    ldrb r4, [r2 + 0]\r\n"
+		"    strb [r13 + 0], r4\r\n"       // h
+		) + std::string(shutdown) + "    ret\r\n");
+	CHECK(r.assembled);
+	CHECK_EQ(r.errors, std::string{});
+	CHECK_EQ(r.output, std::string("ol3Ah"));
+}
+
 TEST(pipeline, a_program_without_a_global_main_is_rejected)
 {
 	AssembleResult r = assembleSource(

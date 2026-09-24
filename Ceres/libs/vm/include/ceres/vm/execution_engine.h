@@ -10,6 +10,7 @@
 #include <ceres/core/isa/interrupts.h>
 #include <algorithm>
 #include <bit>
+#include <cstring>
 #include <span>
 #include <vector>
 #include <limits>
@@ -1398,6 +1399,251 @@ namespace ceres::vm
 		}
 		forceinline void LEA(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs()) + displacement(inst)); advancePC(); }
 
+		// ---- Block memory: MCPY, MSET, MCMP, MSCAN ----------------------------------------------------
+		//
+		// One step does one chunk: up to a page, and never across a page boundary of any address it
+		// touches, so each side is translated once and lies in one frame. Until rt reaches 0 the PC stays
+		// on the instruction and the next step does the next chunk - an interrupt waits at most a page,
+		// and a page fault leaves the registers saying how far the operation got, so the handler's IRET
+		// resumes it. A chunk costs the machine's clock 1 + bytes/16 ticks, so an instruction budget still
+		// means something when one instruction can move a megabyte.
+
+		static constexpr u32 BlockChunkBytes = Mmu::PageSize;
+
+		static u32 blockChunk(u32 count, u32 a, u32 b) noexcept
+		{
+			u32 n = count < BlockChunkBytes ? count : BlockChunkBytes;
+			const u32 toPageEndA = Mmu::PageSize - (a & (Mmu::PageSize - 1));
+			const u32 toPageEndB = Mmu::PageSize - (b & (Mmu::PageSize - 1));
+			n = n < toPageEndA ? n : toPageEndA;
+			return n < toPageEndB ? n : toPageEndB;
+		}
+
+		// A chunk as one span of RAM, or nullptr when it does not lie wholly in the RAM a program reaches
+		// (the vector table and the BIOS, the device window, past the end): then it goes a byte at a time
+		// through read<u8>/write<u8>, which say what every such byte does.
+		u8* blockSpan(Address physical, u32 size) noexcept
+		{
+			const u64 base = physical.value();
+			if (base < Memory::UnrestrictedSegmentStartValue || MmioBus::contains(physical) || base + size > _memory.size())
+				return nullptr;
+			return _memory.peekMutBytesUnchecked(physical, size).data();
+		}
+
+		void chargeBlock(u32 bytes) noexcept
+		{
+			if (bytes >= 16)
+				_mmioBus.advance(bytes / 16);
+		}
+
+		void MCPY(const Instruction inst) noexcept
+		{
+			const u32 count = getReg(inst.rt());
+			if (count == 0)
+			{
+				advancePC();
+				return;
+			}
+			const u32 dst = getReg(inst.rd());
+			const u32 src = getReg(inst.rs());
+			const u32 n = blockChunk(count, dst, src);
+			if (_accessObserver) [[unlikely]]
+			{
+				_accessObserver(AccessKind::Read, src, n);
+				_accessObserver(AccessKind::Write, dst, n);
+			}
+			if (!checkWritable(Address(dst), n))
+				return;
+			const auto from = translate(Address(src), MmuAccess::Read);
+			if (!from.has_value())
+				return;
+			const auto to = translate(Address(dst), MmuAccess::Write);
+			if (!to.has_value())
+				return;
+			u8* s = blockSpan(*from, n);
+			u8* d = blockSpan(*to, n);
+			if (s != nullptr && d != nullptr)
+			{
+				// Lowest byte first, as the instruction is defined: an overlap with the destination above the
+				// source repeats the bytes it has just written, as a byte loop would.
+				if (d > s && d < s + n)
+				{
+					for (u32 i = 0; i < n; ++i)
+						d[i] = s[i];
+				}
+				else
+					std::memmove(d, s, n);
+			}
+			else
+			{
+				for (u32 i = 0; i < n; ++i)
+					write<u8>(Address(dst + i), read<u8>(Address(src + i)));
+			}
+			setReg(inst.rd(), dst + n);
+			setReg(inst.rs(), src + n);
+			setReg(inst.rt(), count - n);
+			chargeBlock(n);
+			if (count == n)
+				advancePC();
+		}
+
+		void MSET(const Instruction inst) noexcept
+		{
+			const u32 count = getReg(inst.rt());
+			if (count == 0)
+			{
+				advancePC();
+				return;
+			}
+			const u32 dst = getReg(inst.rd());
+			const u8 value = static_cast<u8>(getReg(inst.rs()));
+			const u32 n = blockChunk(count, dst, dst);
+			if (_accessObserver) [[unlikely]]
+				_accessObserver(AccessKind::Write, dst, n);
+			if (!checkWritable(Address(dst), n))
+				return;
+			const auto to = translate(Address(dst), MmuAccess::Write);
+			if (!to.has_value())
+				return;
+			if (u8* d = blockSpan(*to, n); d != nullptr)
+				std::memset(d, value, n);
+			else
+			{
+				for (u32 i = 0; i < n; ++i)
+					write<u8>(Address(dst + i), value);
+			}
+			setReg(inst.rd(), dst + n);
+			setReg(inst.rt(), count - n);
+			chargeBlock(n);
+			if (count == n)
+				advancePC();
+		}
+
+		// Z set: the blocks are equal (or the byte was not found) and rt is 0. Otherwise rd and rs are at the
+		// first bytes that differ, rt counts them and what follows, and the flags are those of a CMP of the
+		// two bytes as unsigned numbers: C and N set when [rd]'s is the lower.
+		void MCMP(const Instruction inst) noexcept
+		{
+			const u32 count = getReg(inst.rt());
+			if (count == 0)
+			{
+				zero(true); carry(false); sign(false); overflow(false);
+				advancePC();
+				return;
+			}
+			const u32 a = getReg(inst.rd());
+			const u32 b = getReg(inst.rs());
+			const u32 n = blockChunk(count, a, b);
+			if (_accessObserver) [[unlikely]]
+			{
+				_accessObserver(AccessKind::Read, a, n);
+				_accessObserver(AccessKind::Read, b, n);
+			}
+			const auto pa = translate(Address(a), MmuAccess::Read);
+			if (!pa.has_value())
+				return;
+			const auto pb = translate(Address(b), MmuAccess::Read);
+			if (!pb.has_value())
+				return;
+			const u8* x = blockSpan(*pa, n);
+			const u8* y = blockSpan(*pb, n);
+			u32 i = 0;
+			u8 left = 0, right = 0;
+			if (x != nullptr && y != nullptr)
+			{
+				while (i < n && x[i] == y[i])
+					++i;
+				if (i < n) { left = x[i]; right = y[i]; }
+			}
+			else
+			{
+				for (; i < n; ++i)
+				{
+					left = read<u8>(Address(a + i));
+					right = read<u8>(Address(b + i));
+					if (left != right)
+						break;
+				}
+			}
+			if (i < n)
+			{
+				setReg(inst.rd(), a + i);
+				setReg(inst.rs(), b + i);
+				setReg(inst.rt(), count - i);
+				zero(false);
+				carry(left < right);
+				sign(left < right);
+				overflow(false);
+				chargeBlock(i);
+				advancePC();
+				return;
+			}
+			setReg(inst.rd(), a + n);
+			setReg(inst.rs(), b + n);
+			setReg(inst.rt(), count - n);
+			chargeBlock(n);
+			if (count == n)
+			{
+				zero(true); carry(false); sign(false); overflow(false);
+				advancePC();
+			}
+		}
+
+		// Z set: not found, rd past the block and rt 0. Otherwise rd is at the byte and rt counts it and
+		// what follows.
+		void MSCAN(const Instruction inst) noexcept
+		{
+			const u32 count = getReg(inst.rt());
+			if (count == 0)
+			{
+				zero(true);
+				advancePC();
+				return;
+			}
+			const u32 a = getReg(inst.rd());
+			const u8 value = static_cast<u8>(getReg(inst.rs()));
+			const u32 n = blockChunk(count, a, a);
+			if (_accessObserver) [[unlikely]]
+				_accessObserver(AccessKind::Read, a, n);
+			const auto pa = translate(Address(a), MmuAccess::Read);
+			if (!pa.has_value())
+				return;
+			u32 i = n;
+			if (const u8* x = blockSpan(*pa, n); x != nullptr)
+			{
+				if (const void* hit = std::memchr(x, value, n); hit != nullptr)
+					i = static_cast<u32>(static_cast<const u8*>(hit) - x);
+			}
+			else
+			{
+				for (u32 k = 0; k < n; ++k)
+				{
+					if (read<u8>(Address(a + k)) == value)
+					{
+						i = k;
+						break;
+					}
+				}
+			}
+			if (i < n)
+			{
+				setReg(inst.rd(), a + i);
+				setReg(inst.rt(), count - i);
+				zero(false);
+				chargeBlock(i);
+				advancePC();
+				return;
+			}
+			setReg(inst.rd(), a + n);
+			setReg(inst.rt(), count - n);
+			chargeBlock(n);
+			if (count == n)
+			{
+				zero(true);
+				advancePC();
+			}
+		}
+
 		forceinline void JP(const Instruction inst) noexcept { _pc += inst.simm24().signedValue(); }
 		forceinline void JPR(const Instruction inst) noexcept { _pc = Address(getReg(inst.rs())); }
 		forceinline void CMP(const Instruction inst) noexcept
@@ -1832,6 +2078,10 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::FCEIL)] = &ExecutionEngine::FCEIL;
 				handlers[static_cast<u8>(Opcode::FTRUNC)] = &ExecutionEngine::FTRUNC;
 				handlers[static_cast<u8>(Opcode::FCOPYSIGN)] = &ExecutionEngine::FCOPYSIGN;
+				handlers[static_cast<u8>(Opcode::MCPY)] = &ExecutionEngine::MCPY;
+				handlers[static_cast<u8>(Opcode::MSET)] = &ExecutionEngine::MSET;
+				handlers[static_cast<u8>(Opcode::MCMP)] = &ExecutionEngine::MCMP;
+				handlers[static_cast<u8>(Opcode::MSCAN)] = &ExecutionEngine::MSCAN;
 				handlers[static_cast<u8>(Opcode::FMA)] = &ExecutionEngine::FMA;
 				handlers[static_cast<u8>(Opcode::FCLASS)] = &ExecutionEngine::FCLASS;
 				handlers[static_cast<u8>(Opcode::FRECIPE)] = &ExecutionEngine::FRECIPE;
