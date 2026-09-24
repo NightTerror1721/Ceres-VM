@@ -1,4 +1,5 @@
 #include <ceres/asm/binary_emitter.h>
+#include <ceres/core/isa/interrupts.h>
 #include <optional>
 #include <unordered_map>
 
@@ -811,6 +812,13 @@ namespace ceres::casm
 							if (!fitsInBits(shifted, width))
 							{
 								reportError(statement.line(), "Value {} does not fit in {}", shifted, immediateFieldName(param.type()));
+								return;
+							}
+
+							if (opcodeInfo.opcode() == Opcode::INT && shifted >= isa::InterruptNumberCount)
+							{
+								reportError(statement.line(), "Interrupt number {} is out of range: there are {} vectors, 0-{}",
+									shifted, isa::InterruptNumberCount, isa::InterruptNumberCount - 1);
 								return;
 							}
 

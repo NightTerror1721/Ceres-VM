@@ -163,7 +163,7 @@ first and leaving the machine to sleep with nothing left to wake it. See
 
 | Instruction | Effect |
 | --- | --- |
-| `int imm8` | Advances the PC, then raises interrupt `imm8`. Any of the 256 possible values is valid syntactically; only 0–63 map to a named `InterruptNumber`, but the dispatch code itself just indexes the 64-entry vector table by whatever number is given — values ≥ 64 read past the defined table into whatever memory follows it. |
+| `int imm8` | Advances the PC, then raises interrupt `imm8`, 0–63. The assembler refuses a larger number, and one that reaches the machine anyway (a hand-built word) raises `IllegalInstruction` with the PC still at the `int` — it would otherwise read the BIOS above the 64-entry table as a handler address. |
 | `trap` | Advances the PC, then raises `Trap` (1). Equivalent to `int 1`, spelled out as its own mnemonic for readability. |
 | `reset` | Raises `Reset` (0) *without* first advancing the PC — since it's about to reinitialize the whole machine, the PC being about to change is moot. |
 

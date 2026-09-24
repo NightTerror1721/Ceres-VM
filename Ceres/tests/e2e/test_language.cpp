@@ -486,6 +486,15 @@ TEST(language, interrupt_0_is_rejected_because_it_is_the_reset_vector)
 	CHECK(r.joinedErrors().find("reset vector") != std::string::npos);
 }
 
+TEST(language, int_names_one_of_the_64_vectors)
+{
+	AssembleResult last = assembleSource("@text\r\nglobal main:\r\n    int 63\r\n    ret\r\n");
+	CHECK(last.ok());
+	AssembleResult past = assembleSource("@text\r\nglobal main:\r\n    int 64\r\n    ret\r\n");
+	CHECK(!past.ok());
+	CHECK(past.joinedErrors().find("out of range") != std::string::npos);
+}
+
 TEST(language, binding_the_same_interrupt_twice_is_rejected)
 {
 	AssembleResult r = assembleSource(

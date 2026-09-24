@@ -301,6 +301,29 @@ TEST(vm, push_then_pop_restores_the_value)
 
 // --- Conversions ------------------------------------------------------------------------------
 
+TEST(vm, int_past_the_vector_table_is_an_illegal_instruction)
+{
+	// int 200 would read 0x320, inside the BIOS, as a handler address.
+	const u32 entry = Memory::UnrestrictedSegmentStart.value();
+	Machine m{ Instruction::INT(200) };
+	m.memory().writeUnchecked<u32>(
+		Address(static_cast<u32>(InterruptNumber::IllegalInstruction) * Address::Size), 0x2000u);
+	std::vector<u8> taken;
+	m.engine().setInterruptObserver([&](InterruptNumber n, Address pc, bool entered)
+	{
+		if (entered)
+		{
+			taken.push_back(static_cast<u8>(n));
+			CHECK_EQ(pc.value(), entry);           // at the INT, not past it
+		}
+	});
+	m.step();
+	CHECK_EQ(taken.size(), usize{ 1 });
+	if (!taken.empty())
+		CHECK_EQ(taken[0], static_cast<u8>(InterruptNumber::IllegalInstruction));
+	CHECK_EQ(m.pc().value(), 0x2000u);
+}
+
 TEST(vm, integer_to_float_and_back)
 {
 	Machine m{

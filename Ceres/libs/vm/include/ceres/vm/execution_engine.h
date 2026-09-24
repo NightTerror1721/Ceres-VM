@@ -1028,7 +1028,18 @@ namespace ceres::vm
 		// would land back on the trap and loop forever.
 		forceinline void TRAP(const Instruction inst) noexcept { advancePC(); triggerInterrupt(InterruptNumber::Trap); }
 		forceinline void RESET(const Instruction inst) noexcept { triggerInterrupt(InterruptNumber::Reset); }
-		forceinline void INT(const Instruction inst) noexcept { advancePC(); triggerInterrupt(static_cast<InterruptNumber>(inst.imm8())); }
+		// There are InterruptNumberCount vectors; a larger number would read the BIOS above the table as a
+		// handler address, so it is an illegal instruction, reported at the INT itself.
+		forceinline void INT(const Instruction inst) noexcept
+		{
+			if (inst.imm8() >= isa::InterruptNumberCount) [[unlikely]]
+			{
+				triggerInterrupt(InterruptNumber::IllegalInstruction);
+				return;
+			}
+			advancePC();
+			triggerInterrupt(static_cast<InterruptNumber>(inst.imm8()));
+		}
 		// Without these the interrupt flag could never be set, so every user interrupt was
 		// unreachable: triggerInterrupt drops numbers >= 16 while the flag is clear.
 		forceinline void CLI(const Instruction inst) noexcept { _flags.clear<ExecutionFlag::Interrupt>(); advancePC(); }
