@@ -14,6 +14,7 @@ namespace ceres::vm
 		_savedStackPointer = 0;
 		_interruptShadow = false;
 		_raisesConsumed = _interrupts.raiseCount(); // what the last program raised does not wake this one
+		_stoppedForGood = false;
 		_stackLimit = _stackFloor;                  // the heap the limit guarded starts again from nothing
 		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
 		_mmu.reset(); // No program has had the chance to point PTBR at garbage yet; leave none behind either
@@ -156,6 +157,7 @@ namespace ceres::vm
 		{
 			_flags.set<ExecutionFlag::Trap>();
 			_flags.set<ExecutionFlag::Halting>();
+			_stoppedForGood = true;
 			leaveInterrupt();
 			notify(false);
 			return false;
@@ -214,8 +216,8 @@ namespace ceres::vm
 		{
 			// A request raised since the machine went to sleep ends the halt even when it was not taken
 			// - masked, or with no handler to take it (vector 0). A machine stopped by a fault it had no
-			// stack left to report (Trap with Halting) stays stopped.
-			if (raisesSeen != _raisesConsumed && !_flags.get<ExecutionFlag::Trap>())
+			// stack left to report stays stopped.
+			if (raisesSeen != _raisesConsumed && !_stoppedForGood)
 			{
 				_raisesConsumed = raisesSeen;
 				_flags.clear<ExecutionFlag::Halting>();

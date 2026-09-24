@@ -53,13 +53,18 @@ namespace ceres::vm
 			if (now >= deadline)
 				break;
 			const long long left = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline - now).count();
-			HANDLE handles[2] = { _wakeEvent, _timer };
+			// Without the event (CreateEventW failed) a raise cannot interrupt the wait: it waits a
+			// millisecond at a time instead, and the loop looks at the count between them.
+			const long long step = _wakeEvent != nullptr ? left : (left < 1'000'000 ? left : 1'000'000);
+			HANDLE handles[2] = { _timer, _wakeEvent };
 			LARGE_INTEGER due;
-			due.QuadPart = -(left / 100 > 0 ? left / 100 : 1);   // relative, in 100 ns units
+			due.QuadPart = -(step / 100 > 0 ? step / 100 : 1);   // relative, in 100 ns units
 			if (_timer != nullptr && SetWaitableTimer(_timer, &due, 0, nullptr, nullptr, FALSE))
-				WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+				WaitForMultipleObjects(_wakeEvent != nullptr ? 2 : 1, handles, FALSE, INFINITE);
+			else if (_wakeEvent != nullptr)
+				WaitForSingleObject(_wakeEvent, static_cast<DWORD>(step / 1'000'000 + 1));
 			else
-				WaitForSingleObject(_wakeEvent, static_cast<DWORD>(left / 1'000'000 + 1));
+				Sleep(1);
 			raised = _raises.load() != seen;
 		}
 		_sleepers.fetch_sub(1);

@@ -170,6 +170,59 @@ TEST(history, the_nanosecond_clock_reads_the_same_on_the_way_through_again)
 	CHECK(fingerprint(*session) == first);
 }
 
+// Arms the timer with interrupts masked, so its request only sets the wake latch; moves the stack limit on
+// every turn; halts half-way, which spends the latch; and goes on moving the limit.
+constexpr std::string_view LatchAndLimit =
+	"@text\r\n"
+	"global main:\r\n"
+	"    la r10, 0xFF010000\r\n"
+	"    li r1, 50\r\n"
+	"    str [r10 + 8], r1\r\n"
+	"    la r13, 0xFFFF0000\r\n"
+	"    la r4, 0x10000\r\n"
+	"    li r3, 0\r\n"
+	".first:\r\n"
+	"    add r3, r3, 1\r\n"
+	"    add r4, r4, 16\r\n"
+	"    str [r13 + 12], r4\r\n"
+	"    cmp r3, 500\r\n"
+	"    jnz .first\r\n"
+	"    halt\r\n"
+	".second:\r\n"
+	"    add r3, r3, 1\r\n"
+	"    add r4, r4, 16\r\n"
+	"    str [r13 + 12], r4\r\n"
+	"    cmp r3, 1500\r\n"
+	"    jnz .second\r\n"
+	"    li r0, 1\r\n"
+	"    strb [r13 + 0], r0\r\n"
+	"    ret\r\n";
+
+TEST(history, going_back_restores_the_wake_latch_and_the_stack_limit)
+{
+	TempSource source{ LatchAndLimit, "latch" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+
+	session->start();
+	session->resume(1000);                      // in the first loop, the timer's masked request pending
+	const u64 moment = session->currentTick();
+	const bool wake = session->machine().engine().hasWakeEvent();
+	const u32 limit = session->machine().engine().stackLimit();
+	CHECK(wake);
+	CHECK(limit > 0x10000u);
+
+	session->resume(3000);                      // past the halt, which spent it, with the limit further up
+	CHECK(!session->machine().engine().hasWakeEvent());
+	CHECK(session->machine().engine().stackLimit() > limit);
+
+	session->runToTick(moment);
+	CHECK_EQ(session->currentTick(), moment);
+	CHECK(session->machine().engine().hasWakeEvent() == wake);
+	CHECK_EQ(session->machine().engine().stackLimit(), limit);
+}
+
 TEST(history, going_back_and_forward_again_restores_the_machine_byte_for_byte)
 {
 	TempSource source{ LongLoop, "roundtrip" };

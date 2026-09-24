@@ -78,6 +78,12 @@ namespace ceres::vm
 		// handler, and a wake-up that comes between its last look and the HALT is not lost.
 		u64 _raisesConsumed = 0;
 
+		// Set when a fault found no stack left to save its state on and the machine stopped (Trap and
+		// Halting together): that halt is for good, and no request ends it. Its own flag, because Trap
+		// alone also stays set after a benign division by zero, and a program that then sleeps with CLI
+		// and HALT must still be woken.
+		bool _stoppedForGood = false;
+
 		// Whether a division by zero raises the DivisionByZero interrupt. Off unless the program
 		// switches it on through the system control device, so a program written without it keeps
 		// the old behaviour: the Trap flag is set and the destination is left alone.

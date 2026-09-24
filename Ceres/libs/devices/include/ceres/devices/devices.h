@@ -552,6 +552,7 @@ namespace ceres::devices
 			if (offset == AlarmHighRegister)
 			{
 				_alarmNanos = (static_cast<u64>(value) << 32) | _alarmLow;
+				_alarmLow = 0;                     // spent: a later write of the high word alone cannot reuse it
 				_alarmPoll = 0;
 				syncAlarm();                       // one already past fires now
 				return;

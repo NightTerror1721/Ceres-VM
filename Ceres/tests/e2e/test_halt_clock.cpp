@@ -206,6 +206,46 @@ TEST(halt_clock, a_halt_after_an_interrupt_was_taken_waits_for_the_next_one)
 	CHECK(!m.vm().engine().hasWakeEvent());
 }
 
+TEST(halt_clock, a_running_machine_reaches_the_alarm_and_takes_its_interrupt)
+{
+	// STI, then a jump to itself: the program runs, never halts, and the alarm's handler (bound to 24) runs
+	// once its instant comes - the running machine looks at the clock every AlarmPollTicks instructions.
+	HaltedMachine m;
+	m.vm().memory().writeUnchecked<u32>(Memory::UnrestrictedSegmentStart + Address(4), Instruction::JP(i24(0)).raw());
+	m.vm().memory().writeUnchecked<u32>(Address(static_cast<u32>(TimerDevice::AlarmInterrupt) * Address::Size), 0x800u);
+	const u32 low = m.timer.readUnsignedWord(TimerDevice::NanosLowRegister);
+	const u64 at = ((static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosHighRegister)) << 32) | low) + 2'000'000;
+	m.timer.writeWord(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
+	m.timer.writeWord(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
+	const Clock::time_point start = Clock::now();
+	u64 steps = 0;
+	while (m.reg(9) != 0x5Au && steps < 200'000'000)
+	{
+		m.step();
+		++steps;
+	}
+	const auto waited = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - start).count();
+	CHECK_EQ(m.reg(9), 0x5Au);
+	CHECK(!m.halted());
+	CHECK(waited >= 1'900);                     // not before its instant
+	CHECK_EQ(m.timer.alarmNanos(), u64{ 0 });
+}
+
+TEST(halt_clock, a_trap_left_set_does_not_keep_a_masked_halt_asleep)
+{
+	// A division by zero with the fault switched off sets Trap and goes on; the flag stays. A masked halt
+	// afterwards must still end on a request - only a machine stopped for want of stack stays stopped.
+	HaltedMachine m;
+	m.vm().memory().writeUnchecked<u32>(Address(0x404), Instruction::HALT().raw());
+	m.vm().engine().setFlags(FlagRegister{ static_cast<FlagRegister::ValueType>(ExecutionFlag::Trap) });
+	m.vm().engine().setProgramCounter(Address(0x404));
+	m.step();
+	CHECK(m.halted());
+	m.vm().interrupts().raise(TimerDevice::Interrupt);
+	m.step();
+	CHECK(!m.halted());
+}
+
 TEST(halt_clock, the_tick_count_reads_as_64_bits_through_a_latched_high_word)
 {
 	TimerDevice timer;
@@ -222,8 +262,8 @@ TEST(halt_clock, the_alarm_fires_at_its_instant_on_the_nanosecond_clock)
 {
 	TimerDevice timer;
 	CHECK_EQ(timer.alarmNanos(), u64{ 0 });
-	const u64 soon = static_cast<u64>(timer.readUnsignedWord(TimerDevice::NanosLowRegister)) |
-		(static_cast<u64>(timer.readUnsignedWord(TimerDevice::NanosHighRegister)) << 32);
+	const u32 soonLow = timer.readUnsignedWord(TimerDevice::NanosLowRegister);   // the low word first: it latches the high one
+	const u64 soon = (static_cast<u64>(timer.readUnsignedWord(TimerDevice::NanosHighRegister)) << 32) | soonLow;
 	const u64 at = soon + 20'000'000;           // 20 ms from now
 	timer.writeWord(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
 	CHECK_EQ(timer.alarmNanos(), u64{ 0 });     // the low word alone does not arm it
@@ -250,8 +290,8 @@ TEST(halt_clock, a_masked_halt_sleeps_until_the_alarm_in_real_time)
 	m.vm().memory().writeUnchecked<u32>(Address(0x404), Instruction::HALT().raw());
 	m.vm().engine().setFlags(FlagRegister{});
 	m.vm().engine().setProgramCounter(Address(0x404));
-	const u64 now = static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosLowRegister)) |
-		(static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosHighRegister)) << 32);
+	const u32 nowLow = m.timer.readUnsignedWord(TimerDevice::NanosLowRegister);   // the low word first: it latches the high one
+	const u64 now = (static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosHighRegister)) << 32) | nowLow;
 	const u64 at = now + 30'000'000;            // 30 ms
 	m.timer.writeWord(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
 	m.timer.writeWord(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
@@ -284,8 +324,8 @@ TEST(halt_clock, the_halted_clock_keeps_real_time_through_a_sleep_on_the_alarm)
 	m.vm().memory().writeUnchecked<u32>(Address(0x404), Instruction::HALT().raw());
 	m.vm().engine().setFlags(FlagRegister{});
 	m.vm().engine().setProgramCounter(Address(0x404));
-	const u64 now = static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosLowRegister)) |
-		(static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosHighRegister)) << 32);
+	const u32 nowLow = m.timer.readUnsignedWord(TimerDevice::NanosLowRegister);   // the low word first: it latches the high one
+	const u64 now = (static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosHighRegister)) << 32) | nowLow;
 	const u64 at = now + 30'000'000;
 	m.timer.writeWord(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
 	m.timer.writeWord(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
