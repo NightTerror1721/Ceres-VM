@@ -65,6 +65,15 @@ namespace ceres::vm
 		// so the machine then slept with nothing left to wake it. Set by STI, spent by the next step().
 		bool _interruptShadow = false;
 
+		// HALT waits for an event, the way ARM's WFE does: a request raised since the machine last
+		// woke - taken or not, masked by CLI or with no handler bound - ends the wait, and one raised
+		// before the HALT has run keeps it from sleeping at all. This is the raise count
+		// (InterruptController::raiseCount) at the last wake, so "raised since" is a comparison and a
+		// request that stays pending while masked wakes a HALT once, not every time. A program can so
+		// sleep with interrupts masked - arm a timer, CLI, HALT, look at the clock - and needs no
+		// handler, and a wake-up that comes between its last look and the HALT is not lost.
+		u64 _raisesConsumed = 0;
+
 		// Whether a division by zero raises the DivisionByZero interrupt. Off unless the program
 		// switches it on through the system control device, so a program written without it keeps
 		// the old behaviour: the Trap flag is set and the destination is left alone.
@@ -198,6 +207,14 @@ namespace ceres::vm
 		// Only for restoring a snapshot: the machine's clock has to go back with the rest of it,
 		// or a restored timer would fire against a count that never rewound.
 		void setExecutedInstructions(u64 count) noexcept { _executedInstructions = count; }
+		// Whether a request has been raised since the machine last woke, so the next HALT will not
+		// sleep (_raisesConsumed). A debugger keeps it in its snapshots, since it decides what a HALT does.
+		bool hasWakeEvent() const noexcept { return _interrupts.raiseCount() != _raisesConsumed; }
+		void setWakeEvent(bool pending) noexcept
+		{
+			const u64 raises = _interrupts.raiseCount();
+			_raisesConsumed = pending && raises != 0 ? raises - 1 : raises;
+		}
 
 	public:
 		// Told about every interrupt the machine takes, with the program counter as it stood when
@@ -218,7 +235,9 @@ namespace ceres::vm
 		void haltedStep(u64 raisesSeen) noexcept;
 		void handleTrap() noexcept;
 
-		void triggerInterrupt(InterruptNumber interruptNumber) noexcept;
+		// True when a handler was entered; false when the request was ignored (masked, or no handler bound)
+		// or the machine stopped for want of stack to save its state on.
+		bool triggerInterrupt(InterruptNumber interruptNumber) noexcept;
 
 		inline void execute(const Instruction instruction) noexcept
 		{

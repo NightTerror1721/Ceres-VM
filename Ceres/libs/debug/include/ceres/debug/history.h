@@ -54,6 +54,7 @@ namespace ceres::debug
 			u32 flags = 0;
 			u32 programCounter = 0;
 			u64 pendingInterrupts = 0;
+			bool wakeEvent = false;   // a raise the next HALT will find (ExecutionEngine::hasWakeEvent)
 			TimerDevice::State timer;
 			TerminalDevice::State terminal;
 			// Page index to contents, for every page that differs from the base image.

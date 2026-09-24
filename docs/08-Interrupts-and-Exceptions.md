@@ -94,9 +94,24 @@ already points at the correct resumption point.
 
 Before every instruction (including while halted), `ExecutionEngine::step()` checks for a pending
 interrupt via `InterruptController::peek()`. A masked user interrupt is **not thrown away** — it
-stays queued until the Interrupt flag is set. This is also the mechanism by which a device wakes a
-halted machine: `triggerInterrupt()` clears the Halting flag as part of dispatch, so a `halt`ed CPU
-resumes the instant a deliverable interrupt arrives.
+stays queued until the Interrupt flag is set. A deliverable one is dispatched, and
+`triggerInterrupt()` clears the Halting flag as part of it, so a `halt`ed CPU resumes in the handler.
+
+`halt` waits for an **event**, the way ARM's `wfi`/`wfe` do: any request a device raises ends it,
+whether or not it is taken. One that is masked stays pending and the program goes on after the `halt`
+without running a handler; one whose vector is 0 is dropped as before, and the `halt` still ends. The
+engine remembers the raise count at the last wake (`hasWakeEvent`), which gives two rules:
+
+- **A request raised before the `halt` has run keeps it from sleeping.** A program that looked at a
+  flag or a clock and then halts cannot lose the wake-up that came in between.
+- **A request wakes one `halt`, not all of them.** One still pending because it is masked does not
+  make every later `halt` return at once; taking an interrupt counts as the wake-up too, so the
+  `halt` after a handler's `iret` waits for the next one.
+
+So a program can sleep with interrupts masked and no handler at all - arm the timer or the alarm,
+`cli`, `halt`, look at the clock, and `halt` again if it is early - which is what the standard
+library's waits do. (Before this, a masked request or one with no handler never woke a `halt`, and a
+wait needed a bound vector and `sti`.)
 
 A halted step (`ExecutionEngine::haltedStep`) executes nothing, but time goes on for the devices:
 
@@ -106,8 +121,9 @@ A halted step (`ExecutionEngine::haltedStep`) executes nothing, but time goes on
   `IODevice::ticksUntilEvent()` reports it, for at most 10 ms per step so the loop around `step()` still
   sees a shutdown or a window event. It then moves the devices on by the time that passed
   (`IODevice::advance`), exactly to the event when it was reached.
-- **Anything raised wakes it at once**: `InterruptController::raise()` notifies a sleeping step. A
-  request that was already pending and is masked does not, so `cli; halt` sleeps instead of spinning.
+- **Anything raised wakes it at once**: `InterruptController::raise()` notifies a sleeping step, and
+  the halt ends (above). A request that was already pending and has woken a halt once does not wake
+  the next, so `cli; halt` sleeps instead of spinning.
 - **A clock of 0** turns real time off: a halted step jumps straight to the next device event. The
   debugger does this while it replays history.
 

@@ -52,6 +52,7 @@ namespace ceres::debug
 		snapshot.flags = machine.engine().flags().value();
 		snapshot.programCounter = machine.engine().programCounter().value();
 		snapshot.pendingInterrupts = const_cast<vm::CeresVM&>(machine).interrupts().pendingMask();
+		snapshot.wakeEvent = machine.engine().hasWakeEvent();
 		snapshot.timer = timer.captureState();
 		snapshot.terminal = terminal.captureState();
 
@@ -119,6 +120,7 @@ namespace ceres::debug
 		engine.setExecutedInstructions(chosen->tick);
 
 		machine.interrupts().restorePendingMask(chosen->pendingInterrupts);
+		engine.setWakeEvent(chosen->wakeEvent);   // after the mask: restoring it may count as raises
 		timer.restoreState(chosen->timer);
 		terminal.restoreState(chosen->terminal);
 

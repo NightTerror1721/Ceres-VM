@@ -13,6 +13,7 @@ namespace ceres::vm
 		_interruptDepth = 0;
 		_savedStackPointer = 0;
 		_interruptShadow = false;
+		_raisesConsumed = _interrupts.raiseCount(); // what the last program raised does not wake this one
 		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
 		_mmu.reset(); // No program has had the chance to point PTBR at garbage yet; leave none behind either
 		_haltCarryNanos = 0;
@@ -95,8 +96,14 @@ namespace ceres::vm
 
 	void ExecutionEngine::handleHalt() noexcept
 	{
-		_flags.set<ExecutionFlag::Halting>(); // Set halting flag to stop execution
-		advancePC(); // Advance PC to the next instruction (optional, depending on how you want to handle halting)
+		// A request raised since the last wake is the event this HALT waits for, already here: it is
+		// spent and the machine goes on (see _raisesConsumed). Otherwise it sleeps until the next one.
+		const u64 raises = _interrupts.raiseCount();
+		if (raises != _raisesConsumed)
+			_raisesConsumed = raises;
+		else
+			_flags.set<ExecutionFlag::Halting>();
+		advancePC();
 	}
 
 	void ExecutionEngine::handleTrap() noexcept
@@ -104,7 +111,7 @@ namespace ceres::vm
 		_flags.set<ExecutionFlag::Trap>(); // Set trap flag to indicate a trap condition
 	}
 
-	void ExecutionEngine::triggerInterrupt(InterruptNumber interruptNumber) noexcept
+	bool ExecutionEngine::triggerInterrupt(InterruptNumber interruptNumber) noexcept
 	{
 		// Captured before anything can redirect it: for a fault this is the instruction that
 		// caused it, and it is the one thing a debugger cannot recover afterwards.
@@ -118,7 +125,7 @@ namespace ceres::vm
 		if (!_flags.get<ExecutionFlag::Interrupt>() && static_cast<u8>(interruptNumber) >= ReservedInterruptCount)
 		{
 			notify(false);
-			return; // Ignore interrupts if interrupt flag is not set or if the interrupt number is reserved
+			return false; // Ignore interrupts if interrupt flag is not set or if the interrupt number is reserved
 		}
 
 		const Address interruptVectorAddress = Address(static_cast<Address::ValueType>(interruptNumber) * Address::Size);
@@ -127,7 +134,7 @@ namespace ceres::vm
 		if (handlerAddress == 0)
 		{
 			notify(false);
-			return; // Ignore if no handler is defined
+			return false; // Ignore if no handler is defined
 		}
 
 		// The handler runs on the system stack, not on whatever the program had left. Only the
@@ -150,7 +157,7 @@ namespace ceres::vm
 			_flags.set<ExecutionFlag::Halting>();
 			leaveInterrupt();
 			notify(false);
-			return;
+			return false;
 		}
 
 		// The halting flag is deliberately left out of the saved state. HALT means "wait for an
@@ -170,6 +177,7 @@ namespace ceres::vm
 		// check to stay out of its way for the rest of the instruction that triggered it.
 		_faulted = true;
 		notify(true);
+		return true;
 	}
 
 	void ExecutionEngine::step() noexcept
@@ -194,14 +202,28 @@ namespace ceres::vm
 			if (deliverable)
 			{
 				_interrupts.clear(pending.value());
-				triggerInterrupt(pending.value());
+				// Taking an interrupt is the wake-up: the HALT after its IRET waits for the next one. One
+				// dropped for want of a handler is not taken, and still wakes a halt below.
+				if (triggerInterrupt(pending.value()))
+					_raisesConsumed = raisesSeen;
 			}
 		}
 
 		if (_flags.get<ExecutionFlag::Halting>())
 		{
-			haltedStep(raisesSeen);
-			return;
+			// A request raised since the machine went to sleep ends the halt even when it was not taken
+			// - masked, or with no handler to take it (vector 0). A machine stopped by a fault it had no
+			// stack left to report (Trap with Halting) stays stopped.
+			if (raisesSeen != _raisesConsumed && !_flags.get<ExecutionFlag::Trap>())
+			{
+				_raisesConsumed = raisesSeen;
+				_flags.clear<ExecutionFlag::Halting>();
+			}
+			else
+			{
+				haltedStep(raisesSeen);
+				return;
+			}
 		}
 
 		// Counted before the instruction runs, because running it is what moves the PC. Profiling

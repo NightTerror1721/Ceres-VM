@@ -137,6 +137,8 @@ machine forever, since nothing could ever wake it back up.
 | `0x14` | `NanosHighRegister` | Read | The high word latched by the last read of `NanosLowRegister` (`0` before the first). Reading it does not look at the clock. |
 | `0x18` | `NanosResolutionRegister` | Read | The smallest step, in nanoseconds, that the host clock is seen to take between two reads. |
 | `0x1C` | `HaltClockRegister` | Read | How many ticks a second the clock counts while the CPU is halted (100 000 000 by default); `0` when the host does not run it in real time (a debugger replaying history). |
+| `0x20` | `AlarmLowRegister` | Read/Write | The low word of the **alarm** instant, in nanoseconds on `NanosLowRegister`'s clock. Written first; it does not arm anything alone. Reads the armed instant's low word (or what was written, while disarmed). |
+| `0x24` | `AlarmHighRegister` | Read/Write | The high word. Writing it **arms** the alarm at `high:low`; `0:0` disarms it. Reads the armed instant's high word (`0` when disarmed). |
 
 The nanosecond count is 64 bits, so it takes two reads: **low first, then high**. The low read
 takes the instant and keeps its high half, so the pair is one moment however much time passes
@@ -158,8 +160,18 @@ Writing to the command register:
 
 When the timer expires it raises `UserInterrupt0` (interrupt number 16) — see
 [Interrupts and exceptions](08-Interrupts-and-Exceptions.md). Since that's a user interrupt (not one
-of the 16 reserved/always-deliverable ones), **the Interrupt flag must be set (`sti`) or the
-interrupt is dropped** the moment it fires, never queued for later.
+of the 16 reserved/always-deliverable ones), it is taken only while the Interrupt flag is set (`sti`);
+masked, it stays pending until it is. Either way it ends a `halt`.
+
+**The alarm** is the real-time counterpart: an absolute instant on the nanosecond clock rather than a
+count of ticks, so it keeps to the wall clock whatever the program executes in the meantime. Write the
+low word, then the high word, which arms it; when the host clock reaches the instant the alarm raises
+`UserInterrupt8` (interrupt number **24**, its own, so a handler never has to ask which of the two
+fired) once and disarms. An instant already past fires on the next instruction. A running machine
+looks at the clock for it every 1 024 instructions (about 10 µs at the usual rate); a halted one
+sleeps until it, the instant turned into halted-clock ticks and rounded up. The alarm reads the host's
+clock directly, never a debugger's recording of `NanosLowRegister`, and with the halted clock at `0`
+it offers a halted machine no event: under a debugger that replays, a program should not sleep on it.
 
 **While halted** the machine executes nothing, but its clock keeps counting at `HaltClockRegister` ticks
 per second - an instruction's worth of time per tick - so a timer armed for N ticks fires N ticks later
@@ -175,8 +187,18 @@ Typical wake-up-after-a-delay pattern:
 li   r1, 1000
 la   r13, 0xFF010008   // Timer's CommandRegister
 str  [r13 + 0], r1     // fire in 1000 executed instructions
-sti                     // user interrupts must be unmasked, or the timer's interrupt is lost
-halt                    // suspended until the timer (or any other interrupt) fires
+halt                    // suspended until the timer (or any other device) raises a request
+```
+
+With interrupts masked nothing is taken, and no handler has to be bound: the `halt` just ends. A
+program that must wait for the timer and not for a key loops, looking at the clock after each `halt`.
+A real-time sleep until instant `t` (a `u64` of nanoseconds, in `r2:r1`):
+
+```casm
+la   r13, 0xFF010020   // AlarmLowRegister
+str  [r13 + 0], r1     // low word first
+str  [r13 + 4], r2     // the high word arms it
+halt                    // the alarm's request (IRQ 24) ends it
 ```
 
 ### `TerminalDevice` (`0xFF000000`)

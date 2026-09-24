@@ -137,22 +137,128 @@ TEST(halt_clock, a_raise_from_another_thread_wakes_a_halted_machine_at_once)
 	CHECK(steps < 20);                          // ~3 sleeps of 10 ms and the delivery, not 30 steps of 1 ms
 }
 
-TEST(halt_clock, a_masked_request_already_pending_does_not_keep_a_halted_machine_awake)
+TEST(halt_clock, a_masked_request_wakes_a_halt_once_without_being_taken)
 {
 	HaltedMachine m;
 	m.runToHalt();
 	m.vm().engine().setFlags(FlagRegister{});   // interrupts masked, and not halted any more ...
 	m.vm().memory().writeUnchecked<u32>(Address(0x404), Instruction::HALT().raw());
+	m.vm().memory().writeUnchecked<u32>(Address(0x408), Instruction::HALT().raw());
 	m.vm().engine().setProgramCounter(Address(0x404));
 	m.step();                                   // ... until this HALT
 	CHECK(m.halted());
-	m.vm().interrupts().raise(TerminalDevice::Interrupt);   // pending, and masked
+	m.vm().interrupts().raise(TimerDevice::Interrupt);   // masked: it cannot be taken
 
+	m.step();                                   // it wakes the halt, like ARM's WFI, and runs the next HALT
+	CHECK_EQ(m.vm().engine().programCounter().value(), 0x40Cu);
+	CHECK(m.vm().interrupts().hasPending());    // still there for when the program unmasks it
+	CHECK(m.reg(9) != 0x5Au);                   // and its handler did not run
+
+	// Still pending, but it has woken one halt already: the second sleeps its full slice.
+	CHECK(m.halted());
 	const Clock::time_point start = Clock::now();
-	m.step();                                   // nothing new since it looked: it sleeps its full slice
+	m.step();
 	const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();
 	CHECK(m.halted());
 	CHECK(waited >= 5);
+}
+
+TEST(halt_clock, a_request_raised_before_the_halt_keeps_it_from_sleeping)
+{
+	// The race a masked sleep has to survive: the event comes after the program last looked but
+	// before its HALT has run. The HALT finds it and goes straight on.
+	HaltedMachine m;
+	m.vm().memory().writeUnchecked<u32>(Address(0x404), Instruction::HALT().raw());
+	m.vm().engine().setFlags(FlagRegister{});
+	m.vm().engine().setProgramCounter(Address(0x404));
+	m.vm().interrupts().raise(TimerDevice::Interrupt);
+	m.step();
+	CHECK(!m.halted());
+	CHECK_EQ(m.vm().engine().programCounter().value(), 0x408u);
+}
+
+TEST(halt_clock, a_request_with_no_handler_still_wakes_the_halt)
+{
+	// Interrupts enabled, but nothing bound to the vector: the request is dropped as before, and the
+	// halt still ends rather than sleeping on for good.
+	HaltedMachine m;
+	m.runToHalt();
+	CHECK(m.halted());
+	m.vm().interrupts().raise(TimerDevice::AlarmInterrupt);   // vector 24 is 0
+	m.step();
+	CHECK(!m.halted());
+	CHECK_EQ(m.reg(10), 0x33u);                 // the instruction after the HALT ran
+}
+
+TEST(halt_clock, a_halt_after_an_interrupt_was_taken_waits_for_the_next_one)
+{
+	// Taking an interrupt is the wake-up: the HALT after the handler's IRET sleeps again.
+	HaltedMachine m;
+	m.vm().memory().writeUnchecked<u32>(Address(0x40C), Instruction::HALT().raw());   // after the LI of r10
+	m.runToHalt();
+	m.vm().interrupts().raise(TimerDevice::Interrupt);
+	for (int i = 0; i < 3; ++i)                 // delivered with the handler's LI, its IRET, the LI of r10
+		m.step();
+	CHECK_EQ(m.reg(9), 0x5Au);
+	CHECK_EQ(m.reg(10), 0x33u);
+	m.step();                                   // the second HALT
+	CHECK(m.halted());
+	CHECK(!m.vm().engine().hasWakeEvent());
+}
+
+TEST(halt_clock, the_alarm_fires_at_its_instant_on_the_nanosecond_clock)
+{
+	TimerDevice timer;
+	CHECK_EQ(timer.alarmNanos(), u64{ 0 });
+	const u64 soon = static_cast<u64>(timer.readUnsignedWord(TimerDevice::NanosLowRegister)) |
+		(static_cast<u64>(timer.readUnsignedWord(TimerDevice::NanosHighRegister)) << 32);
+	const u64 at = soon + 20'000'000;           // 20 ms from now
+	timer.writeWord(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
+	CHECK_EQ(timer.alarmNanos(), u64{ 0 });     // the low word alone does not arm it
+	timer.writeWord(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
+	CHECK_EQ(timer.alarmNanos(), at);
+	CHECK_EQ(timer.readUnsignedWord(TimerDevice::AlarmLowRegister), static_cast<u32>(at));
+
+	// About 20 ms of halted-clock ticks, rounded up, and never 0.
+	const u64 ticks = timer.ticksUntilEvent();
+	CHECK(ticks > 0 && ticks <= 20'000'000ull * DefaultHaltClockHz / 1'000'000'000ull + 1);
+	timer.setHaltClockRate(0);
+	CHECK_EQ(timer.ticksUntilEvent(), NoDeviceEvent);   // no real time while halted: no event to offer
+
+	timer.writeWord(TimerDevice::AlarmLowRegister, 0);
+	timer.writeWord(TimerDevice::AlarmHighRegister, 0);
+	CHECK_EQ(timer.alarmNanos(), u64{ 0 });     // 0:0 disarms
+}
+
+TEST(halt_clock, a_masked_halt_sleeps_until_the_alarm_in_real_time)
+{
+	// No handler, interrupts masked: arm the alarm, halt, and the alarm's own request wakes it.
+	HaltedMachine m;
+	m.vm().memory().writeUnchecked<u32>(Address(0x404), Instruction::HALT().raw());
+	m.vm().engine().setFlags(FlagRegister{});
+	m.vm().engine().setProgramCounter(Address(0x404));
+	const u64 now = static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosLowRegister)) |
+		(static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosHighRegister)) << 32);
+	const u64 at = now + 30'000'000;            // 30 ms
+	m.timer.writeWord(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
+	m.timer.writeWord(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
+
+	const Clock::time_point start = Clock::now();
+	m.step();
+	CHECK(m.halted());
+	int steps = 0;
+	while (m.halted() && steps < 300)
+	{
+		m.step();
+		++steps;
+	}
+	const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();
+	CHECK(!m.halted());
+	CHECK(waited >= 25);
+	CHECK(waited < 2000);
+	CHECK(steps < 20);                          // a few sleeps of up to 10 ms, not a poll per tick
+	CHECK_EQ(m.timer.alarmNanos(), u64{ 0 });   // it fired once and disarmed
+	CHECK(m.vm().interrupts().peek() == TimerDevice::AlarmInterrupt);
 }
 
 TEST(halt_clock, a_slow_halt_clock_still_reaches_the_event)

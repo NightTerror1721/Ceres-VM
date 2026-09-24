@@ -181,10 +181,21 @@ namespace ceres::devices
 		static inline constexpr Address NanosHighRegister = Address(0x14); // Read: the high word latched by the last read of NanosLowRegister
 		static inline constexpr Address NanosResolutionRegister = Address(0x18); // Read: the smallest step the nanosecond clock is seen to take, in nanoseconds
 		static inline constexpr Address HaltClockRegister = Address(0x1C); // Read: ticks per second while the CPU is halted; 0 when time only moves by events
+		static inline constexpr Address AlarmLowRegister = Address(0x20);  // Read/write: the low word of the alarm instant, in nanoseconds on NanosLow's clock
+		static inline constexpr Address AlarmHighRegister = Address(0x24); // Read/write: the high word; writing it arms the alarm at high:low (0:0 disarms)
 
 		// Which interrupt the timer requests when it expires. The first user interrupt, so it needs
 		// STI to be delivered and cannot surprise a program that never asked for it.
 		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt0;
+
+		// Which interrupt the real-time alarm requests when its instant comes: its own, so a handler
+		// never has to ask which of the two fired. See AlarmLowRegister.
+		static inline constexpr InterruptNumber AlarmInterrupt = InterruptNumber::UserInterrupt8;
+
+		// A running machine looks at the host clock for the alarm once every this many instructions:
+		// about 10 microseconds at the default rate, and a clock read per instruction would cost more
+		// than the instruction.
+		static inline constexpr u32 AlarmPollTicks = 1024;
 
 		// Everything the timer remembers. Exposed so a debugger can put the whole machine back
 		// where it was: without the timer, a restored snapshot would keep counting from wherever
@@ -196,6 +207,8 @@ namespace ceres::devices
 			bool periodic = false;
 			u64 period = 0;
 			u32 nanosHigh = 0;   // the half of the nanosecond count that the last low read latched
+			u64 alarmNanos = 0;  // the armed alarm instant, 0 when disarmed
+			u32 alarmLow = 0;    // the low word written, waiting for the high one
 		};
 
 		// Where the real-time clock register gets its answer. The default is the host's wall clock,
@@ -217,6 +230,9 @@ namespace ceres::devices
 		u32 _nanosHigh = 0;                 // latched by a read of the low word, so the pair is one instant
 		u32 _nanosResolution = 0;           // measured on first use, 0 until then
 		u32 _haltClockHz = static_cast<u32>(vm::DefaultHaltClockHz);   // what HaltClockRegister reports
+		u64 _alarmNanos = 0;                // the alarm instant on the nanosecond clock, 0 when disarmed
+		u32 _alarmLow = 0;                  // AlarmLowRegister's word, taken when the high one arms
+		u32 _alarmPoll = 0;                 // instructions since the running machine last looked at the clock
 		std::chrono::steady_clock::time_point _started = std::chrono::steady_clock::now();
 
 	public:
@@ -250,7 +266,7 @@ namespace ceres::devices
 			_period = ticksFromNow;
 		}
 
-		State captureState() const noexcept { return State{ _ticks, _remaining, _periodic, _period, _nanosHigh }; }
+		State captureState() const noexcept { return State{ _ticks, _remaining, _periodic, _period, _nanosHigh, _alarmNanos, _alarmLow }; }
 
 		// A reset disarms the timer and restarts the count, as the engine restarts its own: a
 		// program that is starting over must not be interrupted by what the last one armed.
@@ -261,6 +277,9 @@ namespace ceres::devices
 			_periodic = false;
 			_period = 0;
 			_nanosHigh = 0;                                   // nothing latched yet, as at power-on
+			_alarmNanos = 0;
+			_alarmLow = 0;
+			_alarmPoll = 0;
 			_started = std::chrono::steady_clock::now();      // "since the machine started" starts again
 		}
 
@@ -271,6 +290,8 @@ namespace ceres::devices
 			_periodic = state.periodic;
 			_period = state.period;
 			_nanosHigh = state.nanosHigh;
+			_alarmNanos = state.alarmNanos;
+			_alarmLow = state.alarmLow;
 		}
 
 		void setClockSource(ClockSource source) { _clockSource = std::move(source); }
@@ -298,7 +319,26 @@ namespace ceres::devices
 		void setHaltClockRate(u32 hz) noexcept { _haltClockHz = hz; }
 		u32 haltClockRate() const noexcept { return _haltClockHz; }
 
+		u64 alarmNanos() const noexcept { return _alarmNanos; }
+
 	private:
+		// The host clock the alarm is kept against: the nanosecond count's own, since the machine
+		// started. Never a debugger's recording - a recording is replayed read by read, and the alarm
+		// looking at it would use up reads the program made - so the alarm is real time even there.
+		u64 liveNanos() const noexcept
+		{
+			return static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - _started).count());
+		}
+
+		void checkAlarm()
+		{
+			if (_alarmNanos != 0 && liveNanos() >= _alarmNanos)
+			{
+				_alarmNanos = 0;
+				raiseInterrupt(AlarmInterrupt);
+			}
+		}
+
 		// The smallest step the host clock is seen to take between two reads, in nanoseconds. A clock
 		// that advances in 100 ns steps (the usual one on Windows) shows a run of equal readings and
 		// then a jump of 100; one that reads every nanosecond shows whatever a read costs. Either way
@@ -330,6 +370,12 @@ namespace ceres::devices
 		{
 			++_ticks;
 
+			if (_alarmNanos != 0 && ++_alarmPoll >= AlarmPollTicks)
+			{
+				_alarmPoll = 0;
+				checkAlarm();
+			}
+
 			if (_remaining == 0)
 				return;
 
@@ -341,14 +387,32 @@ namespace ceres::devices
 			}
 		}
 
-		// The expiry, for a halted machine that sleeps until it instead of ticking there.
-		u64 ticksUntilEvent() const noexcept override { return _remaining != 0 ? _remaining : vm::NoDeviceEvent; }
+		// The expiry, for a halted machine that sleeps until it instead of ticking there - the tick timer's
+		// or the alarm's, whichever comes first. The alarm is in real time, so it becomes halted-clock ticks,
+		// rounded up so the machine never wakes before its instant; with the halted clock off (0) time only
+		// moves by events, and the alarm has none to offer.
+		u64 ticksUntilEvent() const noexcept override
+		{
+			u64 nearest = _remaining != 0 ? _remaining : vm::NoDeviceEvent;
+			if (_alarmNanos != 0 && _haltClockHz != 0)
+			{
+				const u64 now = liveNanos();
+				const u64 left = _alarmNanos > now ? _alarmNanos - now : 0;
+				const u64 hz = _haltClockHz;
+				const u64 ticks = (left / 1'000'000'000ull) * hz + ((left % 1'000'000'000ull) * hz + 999'999'999ull) / 1'000'000'000ull;
+				const u64 alarm = ticks == 0 ? 1 : ticks;
+				if (alarm < nearest)
+					nearest = alarm;
+			}
+			return nearest;
+		}
 
 		// `ticks` tick() calls at once. The bus never asks for more than ticksUntilEvent(), so the timer
 		// expires at most once here, on exactly the tick it would have.
 		void advance(u64 ticks) override
 		{
 			_ticks += ticks;
+			checkAlarm();                  // a halted machine's time passed: the alarm's instant may have come
 			if (_remaining == 0)
 				return;
 			if (ticks < _remaining)
@@ -398,6 +462,12 @@ namespace ceres::devices
 			if (offset == NanosHighRegister)
 				return _nanosHigh;
 
+			if (offset == AlarmLowRegister)
+				return _alarmNanos != 0 ? static_cast<u32>(_alarmNanos) : _alarmLow;
+
+			if (offset == AlarmHighRegister)
+				return static_cast<u32>(_alarmNanos >> 32);
+
 			if (offset == NanosResolutionRegister)
 			{
 				if (_nanosResolution == 0)
@@ -417,6 +487,21 @@ namespace ceres::devices
 		// it. The high bit asks for a periodic timer that re-arms itself after each expiry.
 		void writeWord(Address offset, u32 value) override
 		{
+			// The alarm: an absolute instant on the nanosecond clock, written low word first - the high
+			// word is what arms it, so the two halves are one instant. When the instant comes the alarm
+			// raises AlarmInterrupt once and disarms; one already past fires at once. 0:0 disarms it.
+			if (offset == AlarmLowRegister)
+			{
+				_alarmLow = value;
+				return;
+			}
+			if (offset == AlarmHighRegister)
+			{
+				_alarmNanos = (static_cast<u64>(value) << 32) | _alarmLow;
+				_alarmPoll = AlarmPollTicks - 1;   // look at the clock on the very next instruction
+				return;
+			}
+
 			if (offset != CommandRegister)
 				return;
 
