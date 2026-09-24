@@ -119,8 +119,10 @@ A halted step (`ExecutionEngine::haltedStep`) executes nothing, but time goes on
   by the timer's `HaltClockRegister`): a tick is an instruction's worth of time, running or halted.
 - **The host sleeps until the next device event** - the timer's expiry, a DMA transfer landing - as
   `IODevice::ticksUntilEvent()` reports it, for at most 10 ms per step so the loop around `step()` still
-  sees a shutdown or a window event. It then moves the devices on by the time that passed
-  (`IODevice::advance`), exactly to the event when it was reached.
+  sees a shutdown or a window event, and keeps to the event to about half a millisecond - on Windows
+  through a high-resolution waitable timer, since its other waits sleep in 15.6 ms steps. It then
+  moves the devices on by the time that passed (`IODevice::advance`), exactly to the event when it
+  was reached.
 - **Anything raised wakes it at once**: `InterruptController::raise()` notifies a sleeping step, and
   the halt ends (above). A request that was already pending and has woken a halt once does not wake
   the next, so `cli; halt` sleeps instead of spinning.

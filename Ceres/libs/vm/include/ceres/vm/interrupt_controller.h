@@ -9,6 +9,8 @@
 
 namespace ceres::vm
 {
+	using namespace isa;
+
 	// Lets a device ask for an interrupt.
 	//
 	// Devices used to be entirely passive: the machine read from them and wrote to them, and they
@@ -28,14 +30,21 @@ namespace ceres::vm
 		// from before" - a masked request stays pending and must not keep waking it.
 		std::atomic<u64> _raises{ 0 };
 		std::atomic<u32> _sleepers{ 0 };
+#ifdef _WIN32
+		// Windows: an event raise() sets and a high-resolution waitable timer, as HANDLEs, so this header
+		// needs no <windows.h> (interrupt_controller.cpp says why not a condition variable).
+		void* _wakeEvent = nullptr;
+		void* _timer = nullptr;
+#else
 		std::mutex _sleepMutex;
 		std::condition_variable _wake;
+#endif
 
 	public:
-		InterruptController() = default;
+		InterruptController();
 		InterruptController(const InterruptController&) = delete;
 		InterruptController(InterruptController&&) = delete;
-		~InterruptController() = default;
+		~InterruptController();
 
 		InterruptController& operator=(const InterruptController&) = delete;
 		InterruptController& operator=(InterruptController&&) = delete;
@@ -49,26 +58,16 @@ namespace ceres::vm
 			// and the sleeper count are sequentially consistent, so either this raise sees the sleeper
 			// or the sleeper sees the new count before it sleeps.
 			if (_sleepers.load() != 0)
-			{
-				const std::lock_guard lock{ _sleepMutex };
-				_wake.notify_all();
-			}
+				wakeSleepers();
 		}
 
 		// How many requests have been raised so far. Read before deciding to sleep, and handed to
 		// waitForRaise, so a raise that happens in between still wakes the sleeper.
 		u64 raiseCount() const noexcept { return _raises.load(); }
 
-		// Sleeps until a request is raised after raiseCount() returned `seen`, or until `deadline`.
-		// True when it was woken by a raise.
-		bool waitForRaise(u64 seen, std::chrono::steady_clock::time_point deadline) noexcept
-		{
-			std::unique_lock lock{ _sleepMutex };
-			_sleepers.fetch_add(1);
-			const bool raised = _wake.wait_until(lock, deadline, [&] { return _raises.load() != seen; });
-			_sleepers.fetch_sub(1);
-			return raised;
-		}
+		// Sleeps until a request is raised after raiseCount() returned `seen`, or until `deadline`, which
+		// it keeps to about half a millisecond. True when it was woken by a raise.
+		bool waitForRaise(u64 seen, std::chrono::steady_clock::time_point deadline) noexcept;
 
 		bool hasPending() const noexcept
 		{
@@ -104,6 +103,8 @@ namespace ceres::vm
 		void restorePendingMask(u64 mask) noexcept { _pending.store(mask, std::memory_order_release); }
 
 	private:
+		void wakeSleepers() noexcept;
+
 		static constexpr u64 bitOf(InterruptNumber interruptNumber) noexcept
 		{
 			return u64{ 1 } << static_cast<u8>(interruptNumber);
