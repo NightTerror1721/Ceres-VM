@@ -233,6 +233,7 @@ namespace ceres::devices
 		u64 _alarmNanos = 0;                // the alarm instant on the nanosecond clock, 0 when disarmed
 		u32 _alarmLow = 0;                  // AlarmLowRegister's word, taken when the high one arms
 		u32 _alarmPoll = 0;                 // instructions since the running machine last looked at the clock
+		u64 _alarmTick = 0;                 // the instant as a tick count, at the halted clock's rate, as of the last look
 		std::chrono::steady_clock::time_point _started = std::chrono::steady_clock::now();
 
 	public:
@@ -280,6 +281,7 @@ namespace ceres::devices
 			_alarmNanos = 0;
 			_alarmLow = 0;
 			_alarmPoll = 0;
+			_alarmTick = 0;
 			_started = std::chrono::steady_clock::now();      // "since the machine started" starts again
 		}
 
@@ -292,6 +294,7 @@ namespace ceres::devices
 			_nanosHigh = state.nanosHigh;
 			_alarmNanos = state.alarmNanos;
 			_alarmLow = state.alarmLow;
+			_alarmTick = _ticks;                              // its tick is worked out again at the next look
 		}
 
 		void setClockSource(ClockSource source) { _clockSource = std::move(source); }
@@ -330,13 +333,26 @@ namespace ceres::devices
 			return static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - _started).count());
 		}
 
-		void checkAlarm()
+		// Looks at the host clock: an instant that has come fires, and one still ahead is turned into the
+		// tick it falls on at the halted clock's rate, rounded up. A halted machine sleeps to that tick, and
+		// the count it asks for stays put while it sleeps - worked out afresh from the clock at every look,
+		// the ticks still to go would shrink as the host slept, and the halted clock would be held back
+		// to them rather than moving on by the time that passed.
+		void syncAlarm()
 		{
-			if (_alarmNanos != 0 && liveNanos() >= _alarmNanos)
+			if (_alarmNanos == 0)
+				return;
+			const u64 now = liveNanos();
+			if (now >= _alarmNanos)
 			{
 				_alarmNanos = 0;
 				raiseInterrupt(AlarmInterrupt);
+				return;
 			}
+			const u64 left = _alarmNanos - now;
+			const u64 hz = _haltClockHz;
+			const u64 ticks = (left / 1'000'000'000ull) * hz + ((left % 1'000'000'000ull) * hz + 999'999'999ull) / 1'000'000'000ull;
+			_alarmTick = _ticks + (ticks == 0 ? 1 : ticks);
 		}
 
 		// The smallest step the host clock is seen to take between two reads, in nanoseconds. A clock
@@ -373,7 +389,7 @@ namespace ceres::devices
 			if (_alarmNanos != 0 && ++_alarmPoll >= AlarmPollTicks)
 			{
 				_alarmPoll = 0;
-				checkAlarm();
+				syncAlarm();
 			}
 
 			if (_remaining == 0)
@@ -388,19 +404,16 @@ namespace ceres::devices
 		}
 
 		// The expiry, for a halted machine that sleeps until it instead of ticking there - the tick timer's
-		// or the alarm's, whichever comes first. The alarm is in real time, so it becomes halted-clock ticks,
-		// rounded up so the machine never wakes before its instant; with the halted clock off (0) time only
-		// moves by events, and the alarm has none to offer.
+		// or the alarm's, whichever comes first. The alarm's is the tick syncAlarm() worked out at its last
+		// look at the clock; if the host wakes a little before the instant, that look finds it still ahead and
+		// works out a new one. With the halted clock off (0) time only moves by events, and the alarm has none
+		// to offer.
 		u64 ticksUntilEvent() const noexcept override
 		{
 			u64 nearest = _remaining != 0 ? _remaining : vm::NoDeviceEvent;
 			if (_alarmNanos != 0 && _haltClockHz != 0)
 			{
-				const u64 now = liveNanos();
-				const u64 left = _alarmNanos > now ? _alarmNanos - now : 0;
-				const u64 hz = _haltClockHz;
-				const u64 ticks = (left / 1'000'000'000ull) * hz + ((left % 1'000'000'000ull) * hz + 999'999'999ull) / 1'000'000'000ull;
-				const u64 alarm = ticks == 0 ? 1 : ticks;
+				const u64 alarm = _alarmTick > _ticks ? _alarmTick - _ticks : 1;
 				if (alarm < nearest)
 					nearest = alarm;
 			}
@@ -412,7 +425,7 @@ namespace ceres::devices
 		void advance(u64 ticks) override
 		{
 			_ticks += ticks;
-			checkAlarm();                  // a halted machine's time passed: the alarm's instant may have come
+			syncAlarm();                   // a halted machine's time passed: the alarm's instant may have come
 			if (_remaining == 0)
 				return;
 			if (ticks < _remaining)
@@ -500,7 +513,8 @@ namespace ceres::devices
 			if (offset == AlarmHighRegister)
 			{
 				_alarmNanos = (static_cast<u64>(value) << 32) | _alarmLow;
-				_alarmPoll = AlarmPollTicks - 1;   // look at the clock on the very next instruction
+				_alarmPoll = 0;
+				syncAlarm();                       // one already past fires now
 				return;
 			}
 

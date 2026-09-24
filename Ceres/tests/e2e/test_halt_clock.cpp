@@ -262,6 +262,36 @@ TEST(halt_clock, a_masked_halt_sleeps_until_the_alarm_in_real_time)
 	CHECK(m.vm().interrupts().peek() == TimerDevice::AlarmInterrupt);
 }
 
+TEST(halt_clock, the_halted_clock_keeps_real_time_through_a_sleep_on_the_alarm)
+{
+	// 30 ms asleep on the alarm is 30 ms of halted-clock ticks, as it is on the tick timer: the count a halted
+	// step sleeps to must not shrink as the host sleeps.
+	HaltedMachine m;
+	m.vm().engine().setHaltClock(1'000'000);    // a microsecond a tick
+	m.timer.setHaltClockRate(1'000'000);
+	m.vm().memory().writeUnchecked<u32>(Address(0x404), Instruction::HALT().raw());
+	m.vm().engine().setFlags(FlagRegister{});
+	m.vm().engine().setProgramCounter(Address(0x404));
+	const u64 now = static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosLowRegister)) |
+		(static_cast<u64>(m.timer.readUnsignedWord(TimerDevice::NanosHighRegister)) << 32);
+	const u64 at = now + 30'000'000;
+	m.timer.writeWord(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
+	m.timer.writeWord(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
+
+	const u64 before = m.timer.ticks();
+	int steps = 0;
+	m.step();
+	while (m.halted() && steps < 300)
+	{
+		m.step();
+		++steps;
+	}
+	CHECK(!m.halted());
+	const u64 ticks = m.timer.ticks() - before;
+	CHECK(ticks >= 25'000);                     // about 30 000 microseconds' worth
+	CHECK(ticks < 1'000'000);
+}
+
 TEST(halt_clock, a_slow_halt_clock_still_reaches_the_event)
 {
 	// At 50 Hz a 10 ms sleep is half a tick: the remainder has to carry, or the clock never moves.
