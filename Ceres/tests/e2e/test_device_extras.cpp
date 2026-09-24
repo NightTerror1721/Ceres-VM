@@ -457,6 +457,15 @@ TEST(device_extras, a_block_instruction_costs_the_clock_its_length_in_ticks)
 	timer.detachFrom(m.vm().io());
 }
 
+TEST(device_extras, the_control_device_reads_the_last_fault_back)
+{
+	SystemControlDevice control{};
+	CHECK_EQ(control.readUnsignedWord(SystemControlDevice::FaultAddressRegister), 0xFFFFFFFFu);   // nothing connected
+	control.setFaultInfoHandlers([] { return 0x801u; }, [] { return 2u | (4u << 8); });
+	CHECK_EQ(control.readUnsignedWord(SystemControlDevice::FaultAddressRegister), 0x801u);
+	CHECK_EQ(control.readUnsignedWord(SystemControlDevice::FaultAccessRegister), 2u | (4u << 8));
+}
+
 // --- A millisecond clock -----------------------------------------------------------------------
 
 TEST(device_extras, the_millisecond_register_never_goes_backwards)

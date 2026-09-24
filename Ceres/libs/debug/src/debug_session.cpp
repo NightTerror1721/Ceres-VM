@@ -198,6 +198,7 @@ namespace ceres::debug
 		});
 		_systemControl->setStackLimitHandlers([this] { return _vm->engine().stackLimit(); },
 			[this](u32 address) { _vm->engine().setProgramStackLimit(address); });
+		_systemControl->setFaultInfoHandlers([this] { return _vm->engine().faultAddress(); }, [this] { return _vm->engine().faultAccess(); });
 		_systemControl->attachTo(_vm->io());
 
 		_terminal = std::make_unique<TerminalDevice>();

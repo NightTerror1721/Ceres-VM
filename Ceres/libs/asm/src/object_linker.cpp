@@ -162,6 +162,26 @@ namespace ceres::casm
 			bssSize += alignUp(member->object.bssSize);
 		}
 
+		// --symtab: every global name in .text, laid out after the members' own .rodata (object_linker.h).
+		struct SymtabEntry { std::string_view name; usize member; u32 offset; };
+		std::vector<SymtabEntry> symtabEntries;
+		const u32 membersRodataSize = rodataSize;
+		if (options.emitSymbolTable)
+		{
+			u32 namesSize = 0;
+			for (usize i = 0; i < members.size(); ++i)
+			{
+				for (const ObjectSymbol& symbol : members[i]->object.symbols)
+				{
+					if (symbol.section != SectionType::Text)
+						continue;
+					symtabEntries.push_back(SymtabEntry{ symbol.name, i, symbol.offset });
+					namesSize += static_cast<u32>(symbol.name.size()) + 1;
+				}
+			}
+			rodataSize += alignUp(4 + 8 * static_cast<u32>(symtabEntries.size()) + namesSize);
+		}
+
 		const u32 textStart = fmt::MemoryMap::UnrestrictedSegmentStart.value();
 		const u32 rodataStart = textStart + textSize;
 		const u32 dataStart = rodataStart + rodataSize;
@@ -208,6 +228,8 @@ namespace ceres::casm
 			{ "__bss_start",    bssStart },
 			{ "__bss_end",      bssStart + bssSize },
 			{ "__heap_start",   bssStart + bssSize },
+			{ "__symtab_start", rodataStart + membersRodataSize },
+			{ "__symtab_end",   rodataStart + rodataSize },
 		};
 		for (const auto& [name, address] : linkerDefined)
 		{
@@ -239,6 +261,35 @@ namespace ceres::casm
 			append(text, member->object.text);
 			append(rodata, member->object.rodata);
 			append(data, member->object.data);
+		}
+
+		if (options.emitSymbolTable)
+		{
+			std::vector<std::pair<u32, std::string_view>> sorted;
+			sorted.reserve(symtabEntries.size());
+			for (const SymtabEntry& entry : symtabEntries)
+				sorted.emplace_back(placements[entry.member].text + entry.offset, entry.name);
+			std::ranges::sort(sorted);
+			const auto word = [&rodata](u32 value)
+			{
+				for (u32 shift = 0; shift < 32; shift += 8)
+					rodata.push_back(static_cast<u8>((value >> shift) & 0xFF));
+			};
+			word(static_cast<u32>(sorted.size()));
+			u32 nameAt = 4 + 8 * static_cast<u32>(sorted.size());
+			for (const auto& [address, name] : sorted)
+			{
+				word(address);
+				word(nameAt);
+				nameAt += static_cast<u32>(name.size()) + 1;
+			}
+			for (const auto& entry : sorted)
+			{
+				rodata.insert(rodata.end(), entry.second.begin(), entry.second.end());
+				rodata.push_back(0);
+			}
+			while (rodata.size() % SectionAlignment != 0)
+				rodata.push_back(0);
 		}
 
 		// --- Filling in the blanks ---------------------------------------------------------------

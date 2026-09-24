@@ -81,6 +81,8 @@ writing a command to its command register:
 | `0x04` | `MemorySizeRegister` | Read | How many bytes of RAM the machine has. |
 | `0x08` | `FeaturesRegister` | Read/write | Switches for behaviour that is off by default (below). |
 | `0x0C` | `StackLimitRegister` | Read/write | The lowest address the program's stack may reach (below). |
+| `0x10` | `FaultAddressRegister` | Read | The data address of the last memory fault: an unaligned access, a store into `.text` or below it, a page fault. |
+| `0x14` | `FaultAccessRegister` | Read | That fault's access: `1` read, `2` write, `3` instruction fetch in bits 0–7, the size in bytes in bits 8–15 (`0` for a page fault, whose size the MMU does not know). |
 
 | Command (low byte) | Effect |
 | --- | --- |
@@ -120,6 +122,12 @@ call or frame below it raises `StackOverflow` (see [Memory](02-Memory.md#the-sta
 the loaded image. A program with a heap writes the top of the heap here each time the heap grows, and a
 stack that runs down into the heap is then a fault instead of rewritten allocations; a value below the
 image is taken as the image's end. A reset puts it back there.
+
+**The last fault.** A fault handler learns where the faulting instruction was from the PC it saved; the
+two fault registers say what it was doing: `FaultAddressRegister` the data address it was reaching,
+`FaultAccessRegister` whether it read, wrote or fetched, and how many bytes — so a report can say
+"store word to `0x00000801`" and not only "at `parse_line+0x1C`". `mfpf` still gives a page fault's address
+alone. Both registers read all-ones when the host connected no engine.
 
 ```casm
 li  r0, 0x01

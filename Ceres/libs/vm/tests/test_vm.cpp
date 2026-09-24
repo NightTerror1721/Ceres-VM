@@ -628,6 +628,28 @@ TEST(vm, a_block_write_into_the_text_faults_and_writes_nothing)
 	CHECK(m.memory().readUnchecked<u32>(Address(entry)) != 0u);
 }
 
+// --- A fault says what it was doing ----------------------------------------------------------
+
+TEST(vm, a_memory_fault_records_the_address_and_the_access_it_was_making)
+{
+	const u32 entry = Memory::UnrestrictedSegmentStart.value();
+	Machine m{ Instruction::STRH(1, 2, 0), Instruction::LDR(3, 1, 0) };
+	m.memory().writeUnchecked<u32>(Address(static_cast<u32>(InterruptNumber::AlignmentFault) * Address::Size), 0x2000u);
+	m.memory().writeUnchecked<u32>(Address(static_cast<u32>(InterruptNumber::MemoryFault) * Address::Size), 0x2000u);
+	m.engine().setRegister(1, 0x10001);
+	m.step();                                   // an unaligned halfword store
+	CHECK_EQ(m.engine().faultAddress(), 0x10001u);
+	CHECK_EQ(m.engine().faultAccess(), 2u | (2u << 8));   // a write, of 2 bytes
+
+	Machine n{ Instruction::STRB(1, 2, 0) };
+	n.memory().writeUnchecked<u32>(Address(static_cast<u32>(InterruptNumber::MemoryFault) * Address::Size), 0x2000u);
+	n.engine().setTextRange(entry, entry + 0x100);
+	n.engine().setRegister(1, entry + 8);
+	n.step();                                   // a store into the program's own text
+	CHECK_EQ(n.engine().faultAddress(), entry + 8);
+	CHECK_EQ(n.engine().faultAccess(), 2u | (1u << 8));
+}
+
 // --- The stack stops where the program ends ------------------------------------------------
 
 TEST(vm, a_push_below_the_stack_limit_faults_instead_of_writing)

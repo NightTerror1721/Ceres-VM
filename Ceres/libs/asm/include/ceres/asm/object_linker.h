@@ -24,6 +24,12 @@ namespace ceres::casm
 		// Merges each object's debug tables into one set covering the whole program. Costs nothing
 		// when the objects carry none.
 		bool emitDebugInfo = false;
+		// Appends to .rodata a table of every global name in .text and its address, sorted by address,
+		// between __symtab_start and __symtab_end, so the program itself can say which function an address
+		// is in - a backtrace, a fault report. Without it the two names are the same address: no entries.
+		//   u32 count; { u32 address; u32 nameOffset; } [count]; the names, NUL-terminated
+		// nameOffset counts from __symtab_start.
+		bool emitSymbolTable = false;
 	};
 
 	class ObjectLinker

@@ -516,6 +516,9 @@ namespace ceres::casm
 			// The same address as __bss_end, under the name that says what it is for: everything
 			// from here up is free ground, with the stack coming down to meet it.
 			{ "__heap_start",   SectionType::BSS,    map.bssStart + map.bssSize },
+			// ceres link --symtab puts a table of names here; a program assembled whole has none.
+			{ "__symtab_start", SectionType::Rodata, map.rodataStart + map.rodataSize },
+			{ "__symtab_end",   SectionType::Rodata, map.rodataStart + map.rodataSize },
 		};
 
 		for (const auto& entry : defined)

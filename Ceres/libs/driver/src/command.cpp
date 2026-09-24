@@ -41,6 +41,8 @@ namespace ceres::driver
 			bool usedDebugInfo = false;
 			bool debugJson = false;
 			bool usedDebugJson = false;
+			bool symbolTable = false;
+			bool usedSymbolTable = false;
 			bool stopOnEntry = true;
 			bool usedStopOnEntry = false;
 			bool server = false;
@@ -106,6 +108,7 @@ namespace ceres::driver
 			else if (argument == "--json") { raw.json = true; raw.usedJson = true; }
 			else if (argument == "--debug") { raw.debugInfo = true; raw.usedDebugInfo = true; }
 			else if (argument == "--emit-debug-json") { raw.debugJson = true; raw.debugInfo = true; raw.usedDebugJson = true; }
+			else if (argument == "--symtab") { raw.symbolTable = true; raw.usedSymbolTable = true; }
 			else if (argument == "--no-stop-on-entry") { raw.stopOnEntry = false; raw.usedStopOnEntry = true; }
 			else if (argument == "--server") { raw.server = true; raw.usedServer = true; }
 			else if (argument == "--no-history") { raw.recordHistory = false; raw.usedHistory = true; }
@@ -166,6 +169,8 @@ namespace ceres::driver
 			return std::unexpected(ParseError{ "Missing input file for '" + std::string(command) + "'" });
 
 		std::vector<std::filesystem::path> inputs(raw.positional.begin() + static_cast<std::ptrdiff_t>(firstInput), raw.positional.end());
+		if (raw.usedSymbolTable && command != "link")
+			return std::unexpected(invalidOption("--symtab", command));
 		if (command == "asm")
 		{
 			if (raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
@@ -178,7 +183,7 @@ namespace ceres::driver
 			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (raw.output.empty()) return std::unexpected(ParseError{ "'ceres link' needs -o <output.cres>" });
-			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson };
+			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson, raw.symbolTable };
 		}
 		if (command == "ar")
 		{

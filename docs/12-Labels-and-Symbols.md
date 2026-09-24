@@ -169,6 +169,20 @@ the answer, inserted into the global symbol table once the layout is fixed:
 | `__data_start` / `__data_end` | The bounds of `.data` |
 | `__bss_start` / `__bss_end` | The bounds of `.bss` |
 | `__heap_start` | The first free byte above the program |
+| `__symtab_start` / `__symtab_end` | The bounds of the symbol table `ceres link --symtab` puts at the end of `.rodata` (below); the same address, with nothing between, without it |
+
+**The symbol table.** `ceres link --symtab` appends to `.rodata` a table of every global name in `.text`
+and its address, sorted by address, so the program can say which function an address falls in — a
+backtrace, a fault report:
+
+```
+u32 count
+{ u32 address; u32 nameOffset; } [count]   // nameOffset counts from __symtab_start
+the names, each followed by a zero byte
+```
+
+Only global names are in it: a file-level label (a C `static` function) is not exported by its object, so
+an address inside one is attributed to the global name before it.
 
 `__heap_start` is the same address as `__bss_end`. It exists under its own name because that is the
 question a program actually asks: everything from there up is free ground, with the stack growing

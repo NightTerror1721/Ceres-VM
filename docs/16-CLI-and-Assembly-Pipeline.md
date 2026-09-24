@@ -19,7 +19,7 @@ detects by asking the linker.) The tests run with `ctest --preset gcc-debug`.
 | Command | What it does |
 | --- | --- |
 | `ceres asm <source.casm> [-o <output.cres>] [--listing] [--json] [--debug] [--emit-debug-json]` | Assembles a source file. Without `-o`, the source is only checked (parsed, translated, linked, emitted in memory) and discarded — useful as a pure syntax/semantics check. |
-| `ceres link <file.cobj\|file.car> [...] -o <out.cres>` | Places, resolves and finishes separately assembled objects — see [Separate compilation](25-Separate-Compilation.md). |
+| `ceres link <file.cobj\|file.car> [...] -o <out.cres> [--debug] [--symtab]` | Places, resolves and finishes separately assembled objects — see [Separate compilation](25-Separate-Compilation.md). `--symtab` appends a table of the code's global names to `.rodata`, between `__symtab_start` and `__symtab_end`, for a program that names its own addresses — see [Labels and symbols](12-Labels-and-Symbols.md). |
 | `ceres ar <out.car> <file.cobj> [...]` | Collects objects into an archive: a library that ships compiled. |
 | `ceres run <file.casm\|file.cres> [--memory <bytes>] [--disk <image>] [--window \| --terminal] [--port <n>=<image>]... [--cart <n>=<file>]...` | Runs a program, assembling it first if given a `.casm` source file. |
 | `ceres disasm <file.casm\|file.cres> [--debug]` | Prints the `.text` section as address, encoded word, and disassembled instruction, one per line. |

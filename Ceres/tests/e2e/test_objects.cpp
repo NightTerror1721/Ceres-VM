@@ -262,6 +262,58 @@ TEST(objects, two_objects_link_into_a_program_that_runs)
 	CHECK_EQ(run(linked.value()), std::string{ "two objects1" });
 }
 
+TEST(objects, symtab_appends_a_sorted_table_of_the_code_names_to_rodata)
+{
+	ObjectWorkspace ws{ "symtab" };
+	ws.write("lib.casm", LibrarySource);
+	ws.write("main.casm", ProgramSource);
+	auto build = [&](bool table) -> std::optional<Program>
+	{
+		auto library = ws.assemble("lib.casm");
+		auto program = ws.assemble("main.casm");
+		if (!library || !program)
+			return std::nullopt;
+		std::vector<casm::ObjectArchive::Member> inputs;
+		inputs.push_back(memberOf("main.cobj", std::move(program.value())));
+		inputs.push_back(memberOf("lib.cobj", std::move(library.value())));
+		casm::ObjectLinker linker;
+		return linker.link(std::move(inputs), { .emitSymbolTable = table });
+	};
+	auto plain = build(false);
+	auto tabled = build(true);
+	CHECK(plain.has_value() && tabled.has_value());
+	if (!plain || !tabled) return;
+
+	// The members' own .rodata is the same, and the table follows it.
+	const usize at = plain->rodata().size();
+	std::span<const u8> rodata = tabled->rodata();
+	CHECK(rodata.size() > at);
+	auto word = [&](usize offset) -> u32
+	{
+		return static_cast<u32>(rodata[at + offset]) | (static_cast<u32>(rodata[at + offset + 1]) << 8) |
+			(static_cast<u32>(rodata[at + offset + 2]) << 16) | (static_cast<u32>(rodata[at + offset + 3]) << 24);
+	};
+	const u32 count = word(0);
+	CHECK(count >= 2);                          // main, and the library's routine
+	bool sorted = true;
+	bool foundMain = false;
+	for (u32 i = 0; i < count; ++i)
+	{
+		const u32 address = word(4 + 8 * i);
+		const std::string name(reinterpret_cast<const char*>(rodata.data() + at + word(8 + 8 * i)));
+		if (i > 0 && address < word(4 + 8 * (i - 1)))
+			sorted = false;
+		if (name == "main")
+		{
+			foundMain = true;
+			CHECK_EQ(address, tabled->header().entryPoint);   // main's address is where the program starts
+		}
+	}
+	CHECK(sorted);
+	CHECK(foundMain);
+	CHECK_EQ(run(tabled.value()), run(plain.value()));   // and the program runs the same
+}
+
 TEST(objects, an_address_initializer_in_data_becomes_a_word32_relocation)
 {
 	ObjectWorkspace ws{ "data_addr" };

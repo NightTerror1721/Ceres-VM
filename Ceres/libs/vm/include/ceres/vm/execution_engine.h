@@ -85,6 +85,14 @@ namespace ceres::vm
 		// and HALT must still be woken.
 		bool _stoppedForGood = false;
 
+		// The data address and the access of the last memory fault - an unaligned access, a store into
+		// .text or below it, a page fault - so a fault handler can say what the faulting instruction was
+		// doing and where, not only where it was. What the system-control device's FaultAddressRegister and
+		// FaultAccessRegister read. The access is FaultAccess in bits 0-7 and the size in bytes in 8-15
+		// (0 when the MMU faulted on the first page of an access whose size it does not know).
+		u32 _faultAddress = 0;
+		u32 _faultAccess = 0;
+
 		// Whether a division by zero raises the DivisionByZero interrupt. Off unless the program
 		// switches it on through the system control device, so a program written without it keeps
 		// the old behaviour: the Trap flag is set and the destination is left alone.
@@ -225,6 +233,10 @@ namespace ceres::vm
 		// Only for restoring a snapshot: the machine's clock has to go back with the rest of it,
 		// or a restored timer would fire against a count that never rewound.
 		void setExecutedInstructions(u64 count) noexcept { _executedInstructions = count; }
+
+		enum class FaultAccess : u8 { None = 0, Read = 1, Write = 2, Execute = 3 };
+		u32 faultAddress() const noexcept { return _faultAddress; }
+		u32 faultAccess() const noexcept { return _faultAccess; }
 		// Whether a request has been raised since the machine last woke, so the next HALT will not
 		// sleep (_raisesConsumed). A debugger keeps it in its snapshots, since it decides what a HALT does.
 		bool hasWakeEvent() const noexcept { return _interrupts.raiseCount() != _raisesConsumed; }
@@ -287,6 +299,7 @@ namespace ceres::vm
 			if (const auto physical = _mmu.translate(_memory, address, access))
 				return physical;
 
+			noteFault(address, access == MmuAccess::Read ? FaultAccess::Read : access == MmuAccess::Write ? FaultAccess::Write : FaultAccess::Execute, 0);
 			triggerInterrupt(InterruptNumber::PageFault);
 			return std::nullopt;
 		}
@@ -321,8 +334,14 @@ namespace ceres::vm
 
 		// A halfword or word access has to sit on a boundary of its own size. Byte accesses never
 		// fault. Returns false when the access is misaligned, having already raised the fault.
+		forceinline void noteFault(Address address, FaultAccess access, u32 size) noexcept
+		{
+			_faultAddress = address.value();
+			_faultAccess = static_cast<u32>(access) | (size << 8);
+		}
+
 		template <typename T>
-		forceinline bool checkAlignment(Address address) noexcept
+		forceinline bool checkAlignment(Address address, FaultAccess access = FaultAccess::Read) noexcept
 		{
 			if constexpr (sizeof(T) <= 1)
 			{
@@ -333,6 +352,7 @@ namespace ceres::vm
 				if ((address.value() % sizeof(T)) == 0)
 					return true;
 
+				noteFault(address, access, static_cast<u32>(sizeof(T)));
 				triggerInterrupt(InterruptNumber::AlignmentFault);
 				return false;
 			}
@@ -376,6 +396,7 @@ namespace ceres::vm
 			if (base < Memory::UnrestrictedSegmentStartValue ||
 				(_textEnd > _textStart && base < _textEnd && base + size > _textStart))
 			{
+				noteFault(address, FaultAccess::Write, size);
 				triggerInterrupt(InterruptNumber::MemoryFault);
 				return false;
 			}
@@ -1224,7 +1245,7 @@ namespace ceres::vm
 		forceinline void STR(const Instruction inst) noexcept
 		{
 			const Address address = getReg(inst.rd()) + displacement(inst);
-			if (!checkAlignment<u32>(address) || !checkWritable(address, sizeof(u32)))
+			if (!checkAlignment<u32>(address, FaultAccess::Write) || !checkWritable(address, sizeof(u32)))
 				return;
 			write<u32>(address, getReg(inst.rs()));
 			advancePC();
@@ -1240,7 +1261,7 @@ namespace ceres::vm
 		forceinline void STRH(const Instruction inst) noexcept
 		{
 			const Address address = getReg(inst.rd()) + displacement(inst);
-			if (!checkAlignment<u16>(address) || !checkWritable(address, sizeof(u16)))
+			if (!checkAlignment<u16>(address, FaultAccess::Write) || !checkWritable(address, sizeof(u16)))
 				return;
 			write<u16>(address, static_cast<u16>(getReg(inst.rs())));
 			advancePC();
@@ -1248,7 +1269,7 @@ namespace ceres::vm
 		forceinline void FSTR(const Instruction inst) noexcept
 		{
 			const Address address = getReg(inst.rd()) + displacement(inst);
-			if (!checkAlignment<f32>(address) || !checkWritable(address, sizeof(f32)))
+			if (!checkAlignment<f32>(address, FaultAccess::Write) || !checkWritable(address, sizeof(f32)))
 				return;
 			write<f32>(address, getFloatReg(inst.fs()));
 			advancePC();
@@ -1295,7 +1316,7 @@ namespace ceres::vm
 		forceinline void STRX(const Instruction inst) noexcept
 		{
 			const Address address = indexedStore(inst);
-			if (!checkAlignment<u32>(address) || !checkWritable(address, sizeof(u32)))
+			if (!checkAlignment<u32>(address, FaultAccess::Write) || !checkWritable(address, sizeof(u32)))
 				return;
 			write<u32>(address, getReg(inst.rs()));
 			advancePC();
@@ -1311,7 +1332,7 @@ namespace ceres::vm
 		forceinline void STRHX(const Instruction inst) noexcept
 		{
 			const Address address = indexedStore(inst);
-			if (!checkAlignment<u16>(address) || !checkWritable(address, sizeof(u16)))
+			if (!checkAlignment<u16>(address, FaultAccess::Write) || !checkWritable(address, sizeof(u16)))
 				return;
 			write<u16>(address, static_cast<u16>(getReg(inst.rs())));
 			advancePC();
@@ -1319,7 +1340,7 @@ namespace ceres::vm
 		forceinline void FSTRX(const Instruction inst) noexcept
 		{
 			const Address address = indexedStore(inst);
-			if (!checkAlignment<f32>(address) || !checkWritable(address, sizeof(f32)))
+			if (!checkAlignment<f32>(address, FaultAccess::Write) || !checkWritable(address, sizeof(f32)))
 				return;
 			write<f32>(address, getFloatReg(inst.fs()));
 			advancePC();
@@ -1368,7 +1389,7 @@ namespace ceres::vm
 		forceinline void STRP(const Instruction inst) noexcept
 		{
 			const Address address = pcRelative(inst);
-			if (!checkAlignment<u32>(address) || !checkWritable(address, sizeof(u32)))
+			if (!checkAlignment<u32>(address, FaultAccess::Write) || !checkWritable(address, sizeof(u32)))
 				return;
 			write<u32>(address, getReg(inst.rs()));
 			advancePC();
@@ -1384,7 +1405,7 @@ namespace ceres::vm
 		forceinline void STRHP(const Instruction inst) noexcept
 		{
 			const Address address = pcRelative(inst);
-			if (!checkAlignment<u16>(address) || !checkWritable(address, sizeof(u16)))
+			if (!checkAlignment<u16>(address, FaultAccess::Write) || !checkWritable(address, sizeof(u16)))
 				return;
 			write<u16>(address, static_cast<u16>(getReg(inst.rs())));
 			advancePC();
@@ -1392,7 +1413,7 @@ namespace ceres::vm
 		forceinline void FSTRP(const Instruction inst) noexcept
 		{
 			const Address address = pcRelative(inst);
-			if (!checkAlignment<f32>(address) || !checkWritable(address, sizeof(f32)))
+			if (!checkAlignment<f32>(address, FaultAccess::Write) || !checkWritable(address, sizeof(f32)))
 				return;
 			write<f32>(address, getFloatReg(inst.fs()));
 			advancePC();

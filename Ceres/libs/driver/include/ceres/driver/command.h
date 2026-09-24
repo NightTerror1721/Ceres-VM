@@ -26,6 +26,7 @@ namespace ceres::driver
 		std::filesystem::path output;
 		bool debugInfo = false;
 		bool debugJson = false;
+		bool symbolTable = false;   // --symtab
 	};
 
 	struct ArchiveCommand
