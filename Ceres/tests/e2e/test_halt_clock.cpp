@@ -206,6 +206,18 @@ TEST(halt_clock, a_halt_after_an_interrupt_was_taken_waits_for_the_next_one)
 	CHECK(!m.vm().engine().hasWakeEvent());
 }
 
+TEST(halt_clock, the_tick_count_reads_as_64_bits_through_a_latched_high_word)
+{
+	TimerDevice timer;
+	timer.advance(0x1'0000'0005ull);            // past 2^32 ticks
+	CHECK_EQ(timer.readUnsignedWord(TimerDevice::TicksHighRegister), 0u);   // nothing latched yet
+	CHECK_EQ(timer.readUnsignedWord(TimerDevice::TicksRegister), 5u);
+	timer.advance(0xFFFF'FFFFull);              // the count moves on between the two reads...
+	CHECK_EQ(timer.readUnsignedWord(TimerDevice::TicksHighRegister), 1u);   // ...and the pair is still one moment
+	CHECK_EQ(timer.readUnsignedWord(TimerDevice::TicksRegister), 4u);
+	CHECK_EQ(timer.readUnsignedWord(TimerDevice::TicksHighRegister), 2u);
+}
+
 TEST(halt_clock, the_alarm_fires_at_its_instant_on_the_nanosecond_clock)
 {
 	TimerDevice timer;

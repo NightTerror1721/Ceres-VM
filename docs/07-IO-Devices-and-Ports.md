@@ -136,7 +136,7 @@ machine forever, since nothing could ever wake it back up.
 
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |
-| `0x00` | `TicksRegister` | Read | Number of instructions executed so far (a `u64` counter, truncated to 32 bits on read). |
+| `0x00` | `TicksRegister` | Read | The low word of the ticks so far: instructions executed, and the halted clock's ticks. Reading it also **latches** the high word. |
 | `0x04` | `ClockRegister` | Read | Wall-clock seconds since the Unix epoch. **This is the one value in the entire VM that is not deterministic** — everything else (including the tick count) behaves identically on every run. |
 | `0x08` | `CommandRegister` | Write | Arms or disarms the timer. |
 | `0x0C` | `MillisRegister` | Read | Milliseconds since the machine started, from the host's steady clock (wraps after 49 days). Like `ClockRegister`, **not deterministic**: the debugger records and replays it. |
@@ -146,6 +146,7 @@ machine forever, since nothing could ever wake it back up.
 | `0x1C` | `HaltClockRegister` | Read | How many ticks a second the clock counts while the CPU is halted (100 000 000 by default); `0` when the host does not run it in real time (a debugger replaying history). |
 | `0x20` | `AlarmLowRegister` | Read/Write | The low word of the **alarm** instant, in nanoseconds on `NanosLowRegister`'s clock. Written first; it does not arm anything alone. Reads the armed instant's low word (`0` when disarmed, so `0:0` always means disarmed). |
 | `0x24` | `AlarmHighRegister` | Read/Write | The high word. Writing it **arms** the alarm at `high:low`; `0:0` disarms it. Reads the armed instant's high word (`0` when disarmed). |
+| `0x28` | `TicksHighRegister` | Read | The high word of the tick count latched by the last read of `TicksRegister` (`0` before the first): read low first, then high, as for the nanoseconds. |
 
 The nanosecond count is 64 bits, so it takes two reads: **low first, then high**. The low read
 takes the instant and keeps its high half, so the pair is one moment however much time passes

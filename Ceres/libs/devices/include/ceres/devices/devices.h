@@ -198,7 +198,7 @@ namespace ceres::devices
 	class TimerDevice : public IODevice
 	{
 	public:
-		static inline constexpr Address TicksRegister = Address(0x00);   // Read: instructions executed so far
+		static inline constexpr Address TicksRegister = Address(0x00);   // Read: the low word of the ticks so far; also latches the high word
 		static inline constexpr Address ClockRegister = Address(0x04);   // Read: seconds since the epoch
 		static inline constexpr Address CommandRegister = Address(0x08); // Write: fire after N ticks, 0 disarms
 		static inline constexpr Address MillisRegister = Address(0x0C);  // Read: milliseconds since the machine started (wraps every 49 days)
@@ -208,6 +208,7 @@ namespace ceres::devices
 		static inline constexpr Address HaltClockRegister = Address(0x1C); // Read: ticks per second while the CPU is halted; 0 when time only moves by events
 		static inline constexpr Address AlarmLowRegister = Address(0x20);  // Read/write: the low word of the alarm instant, in nanoseconds on NanosLow's clock (reads 0 when disarmed)
 		static inline constexpr Address AlarmHighRegister = Address(0x24); // Read/write: the high word; writing it arms the alarm at high:low (0:0 disarms)
+		static inline constexpr Address TicksHighRegister = Address(0x28); // Read: the high word of the tick count latched by the last read of TicksRegister
 
 		// Which interrupt the timer requests when it expires. The first user interrupt, so it needs
 		// STI to be delivered and cannot surprise a program that never asked for it.
@@ -232,6 +233,7 @@ namespace ceres::devices
 			bool periodic = false;
 			u64 period = 0;
 			u32 nanosHigh = 0;   // the half of the nanosecond count that the last low read latched
+			u32 ticksHigh = 0;   // the half of the tick count that the last TicksRegister read latched
 			u64 alarmNanos = 0;  // the armed alarm instant, 0 when disarmed
 			u32 alarmLow = 0;    // the low word written, waiting for the high one
 		};
@@ -253,6 +255,7 @@ namespace ceres::devices
 		ClockSource _millisSource;
 		NanosSource _nanosSource;
 		u32 _nanosHigh = 0;                 // latched by a read of the low word, so the pair is one instant
+		u32 _ticksHigh = 0;                 // the same for the tick count: a read of TicksRegister latches it
 		u32 _nanosResolution = 0;           // measured on first use, 0 until then
 		u32 _haltClockHz = static_cast<u32>(vm::DefaultHaltClockHz);   // what HaltClockRegister reports
 		u64 _alarmNanos = 0;                // the alarm instant on the nanosecond clock, 0 when disarmed
@@ -292,7 +295,7 @@ namespace ceres::devices
 			_period = ticksFromNow;
 		}
 
-		State captureState() const noexcept { return State{ _ticks, _remaining, _periodic, _period, _nanosHigh, _alarmNanos, _alarmLow }; }
+		State captureState() const noexcept { return State{ _ticks, _remaining, _periodic, _period, _nanosHigh, _ticksHigh, _alarmNanos, _alarmLow }; }
 
 		// A reset disarms the timer and restarts the count, as the engine restarts its own: a
 		// program that is starting over must not be interrupted by what the last one armed.
@@ -303,6 +306,7 @@ namespace ceres::devices
 			_periodic = false;
 			_period = 0;
 			_nanosHigh = 0;                                   // nothing latched yet, as at power-on
+			_ticksHigh = 0;
 			_alarmNanos = 0;
 			_alarmLow = 0;
 			_alarmPoll = 0;
@@ -317,6 +321,7 @@ namespace ceres::devices
 			_periodic = state.periodic;
 			_period = state.period;
 			_nanosHigh = state.nanosHigh;
+			_ticksHigh = state.ticksHigh;
 			_alarmNanos = state.alarmNanos;
 			_alarmLow = state.alarmLow;
 			_alarmTick = _ticks;                              // its tick is worked out again at the next look
@@ -465,8 +470,17 @@ namespace ceres::devices
 	public:
 		u32 readUnsignedWord(Address offset) override
 		{
+			// The tick count is 64 bits and read as two words, like the nanosecond one: the low read takes
+			// the count and keeps its high half, so the pair is one moment however many ticks pass between
+			// the two reads. A 32-bit count wraps in 43 s at the usual rate.
 			if (offset == TicksRegister)
+			{
+				_ticksHigh = static_cast<u32>(_ticks >> 32);
 				return static_cast<u32>(_ticks);
+			}
+
+			if (offset == TicksHighRegister)
+				return _ticksHigh;
 
 			if (offset == HaltClockRegister)
 				return _haltClockHz;
