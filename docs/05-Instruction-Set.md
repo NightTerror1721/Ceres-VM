@@ -27,7 +27,7 @@ the rest), see [Pseudo-instructions](06-Pseudo-Instructions.md).
 | Assembly | Opcode | Operands | Semantics | Flags |
 | --- | --- | --- | --- | --- |
 | `nop` | `NOP` (`0x00`) | none | Does nothing; advances the program counter. | — |
-| `halt` | `HALT` (`0x01`) | none | Sets the Halting flag. The `step()` loop then stops fetching instructions — it just ticks devices and sleeps 1 ms per iteration — until an interrupt arrives. | Halting |
+| `halt` | `HALT` (`0x01`) | none | Sets the Halting flag. The `step()` loop then stops fetching instructions until an interrupt arrives; the clock runs on at the halt clock's rate (100 million ticks a second by default) while the host sleeps until the next device event — see [Interrupts and exceptions](08-Interrupts-and-Exceptions.md#pending-interrupts-and-halt). | Halting |
 | `trap` | `TRAP` (`0x02`) | none | Advances the PC, then raises interrupt `Trap` (1). Advancing first (rather than after) means `iret` returns to the instruction *after* the `trap`, not to the `trap` itself. | Trap-related interrupt is dispatched (see [Interrupts and exceptions](08-Interrupts-and-Exceptions.md)) |
 | `reset` | `RESET` (`0x03`) | none | Raises interrupt `Reset` (0) *without* advancing the PC first. Because interrupt 0 is one of the always-deliverable "reserved" interrupts, this reliably restarts the machine regardless of the Interrupt flag. | — |
 | `int imm8` | `INT` (`0x04`) | `imm8`: interrupt number 0–255 | Advances the PC, then raises the given interrupt number (cast to `InterruptNumber`). | — |

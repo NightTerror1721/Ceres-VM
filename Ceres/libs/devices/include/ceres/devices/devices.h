@@ -180,6 +180,7 @@ namespace ceres::devices
 		static inline constexpr Address NanosLowRegister = Address(0x10);  // Read: the low word of the nanoseconds since the machine started; also latches the high word
 		static inline constexpr Address NanosHighRegister = Address(0x14); // Read: the high word latched by the last read of NanosLowRegister
 		static inline constexpr Address NanosResolutionRegister = Address(0x18); // Read: the smallest step the nanosecond clock is seen to take, in nanoseconds
+		static inline constexpr Address HaltClockRegister = Address(0x1C); // Read: ticks per second while the CPU is halted; 0 when time only moves by events
 
 		// Which interrupt the timer requests when it expires. The first user interrupt, so it needs
 		// STI to be delivered and cannot surprise a program that never asked for it.
@@ -215,6 +216,7 @@ namespace ceres::devices
 		NanosSource _nanosSource;
 		u32 _nanosHigh = 0;                 // latched by a read of the low word, so the pair is one instant
 		u32 _nanosResolution = 0;           // measured on first use, 0 until then
+		u32 _haltClockHz = static_cast<u32>(vm::DefaultHaltClockHz);   // what HaltClockRegister reports
 		std::chrono::steady_clock::time_point _started = std::chrono::steady_clock::now();
 
 	public:
@@ -288,6 +290,12 @@ namespace ceres::devices
 		// reads of the host clock ever are; a test or a debugger that fakes the clock says what it fakes.
 		void setNanosResolution(u32 nanoseconds) noexcept { _nanosResolution = nanoseconds; }
 
+		// What HaltClockRegister answers: the rate the host runs a halted machine's clock at
+		// (ExecutionEngine::setHaltClock), set by whoever sets that. A program divides a real-time wait
+		// by it to arm the timer for a halt: at the default 100 MHz, 16 ms is 1 600 000 ticks.
+		void setHaltClockRate(u32 hz) noexcept { _haltClockHz = hz; }
+		u32 haltClockRate() const noexcept { return _haltClockHz; }
+
 	private:
 		// The smallest step the host clock is seen to take between two reads, in nanoseconds. A clock
 		// that advances in 100 ns steps (the usual one on Windows) shows a run of equal readings and
@@ -331,11 +339,33 @@ namespace ceres::devices
 			}
 		}
 
+		// The expiry, for a halted machine that sleeps until it instead of ticking there.
+		u64 ticksUntilEvent() const noexcept override { return _remaining != 0 ? _remaining : vm::NoDeviceEvent; }
+
+		// `ticks` tick() calls at once. The bus never asks for more than ticksUntilEvent(), so the timer
+		// expires at most once here, on exactly the tick it would have.
+		void advance(u64 ticks) override
+		{
+			_ticks += ticks;
+			if (_remaining == 0)
+				return;
+			if (ticks < _remaining)
+			{
+				_remaining -= ticks;
+				return;
+			}
+			raiseInterrupt(Interrupt);
+			_remaining = _periodic ? _period : 0;
+		}
+
 	public:
 		u32 readUnsignedWord(Address offset) override
 		{
 			if (offset == TicksRegister)
 				return static_cast<u32>(_ticks);
+
+			if (offset == HaltClockRegister)
+				return _haltClockHz;
 
 			if (offset == ClockRegister)
 			{
@@ -809,6 +839,15 @@ namespace ceres::devices
 		}
 
 	public:
+		// A transfer lands on the tick after it was armed.
+		u64 ticksUntilEvent() const noexcept override { return _pending ? 1 : vm::NoDeviceEvent; }
+
+		void advance(u64 ticks) override
+		{
+			if (ticks != 0)
+				tick();
+		}
+
 		// A reset drops a transfer that was armed but has not landed yet.
 		void reset() override
 		{

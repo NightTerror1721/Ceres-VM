@@ -764,6 +764,9 @@ namespace ceres::debug
 		_history.beginReplay();
 		OutputHandler savedOutput = std::move(_outputHandler);
 		_outputHandler = nullptr;
+		// Ground already covered is not waited through again: a halt jumps to the event that ended it.
+		const u64 haltClock = _vm->engine().haltClock();
+		_vm->engine().setHaltClock(0);
 
 		for (const std::string& text : _history.inputsBetween(restored.value(), tick))
 			_terminal->pushInput(text);
@@ -771,6 +774,7 @@ namespace ceres::debug
 		while (currentTick() < tick && _vm->isPoweredOn())
 			stepOnce();
 
+		_vm->engine().setHaltClock(haltClock);
 		_outputHandler = std::move(savedOutput);
 		_history.endReplay();
 
@@ -851,6 +855,8 @@ namespace ceres::debug
 		_history.beginReplay();
 		OutputHandler savedOutput = std::move(_outputHandler);
 		_outputHandler = nullptr;
+		const u64 haltClock = _vm->engine().haltClock();
+		_vm->engine().setHaltClock(0);
 
 		while (currentTick() < target && _vm->isPoweredOn())
 		{
@@ -859,6 +865,7 @@ namespace ceres::debug
 				found = currentTick();
 		}
 
+		_vm->engine().setHaltClock(haltClock);
 		_outputHandler = std::move(savedOutput);
 		_history.endReplay();
 
@@ -1044,8 +1051,8 @@ namespace ceres::debug
 		for (u64 executed = 0; executed < maxInstructions; ++executed)
 		{
 			// Checked before the instruction rather than after, so a machine sitting in HALT with
-			// nothing left to wake it is reported instead of spinning out the whole budget one
-			// millisecond at a time.
+			// nothing left to wake it is reported instead of sleeping out the whole budget ten
+			// milliseconds at a time.
 			if (_vm->engine().isHalted() && !_vm->interrupts().hasPending() && !_timer->isArmed())
 				return makeStop(StopReason::Halted);
 

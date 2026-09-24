@@ -3,6 +3,7 @@
 #include <ceres/driver/host_backend.h>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -432,4 +433,34 @@ TEST(driver_text_window, terminal_and_window_together_are_refused_and_neither_be
 	char assemble[] = "asm";
 	char* wrong[] = { program, assemble, input, terminal };
 	CHECK(!parseCommandLine(4, wrong).has_value());
+}
+
+TEST(driver_window, a_program_halted_for_a_key_gets_it_from_the_next_pump)
+{
+	// The program sleeps in HALT until the keyboard's interrupt. The window only hands keys over in
+	// pump(), between slices of steps, and a halted step used to sleep a millisecond: a slice of 4096
+	// of them held the next pump back for four seconds. A halted machine now ends its slice.
+	const char* program =
+		"interrupt 19: on_key\n"
+		"@text\n"
+		"global main:\n"
+		"    sti\n"
+		".wait:\n"
+		"    halt\n"
+		"    jp .wait\n"
+		"on_key:\n"
+		"    li r0, 107\n"
+		"    la r13, 0xFF000004\n"
+		"    strb [r13 + 0], r0\n"
+		"    li r0, 1\n"
+		"    la r13, 0xFFFF0000\n"
+		"    strb [r13 + 0], r0\n"
+		"    iret\n";
+
+	const auto start = std::chrono::steady_clock::now();
+	const std::string shown = runTyped("ceres_window_halt.casm", program);
+	const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+
+	CHECK_EQ(shown, std::string{ "k" });
+	CHECK(took < 2000);
 }

@@ -98,6 +98,23 @@ stays queued until the Interrupt flag is set. This is also the mechanism by whic
 halted machine: `triggerInterrupt()` clears the Halting flag as part of dispatch, so a `halt`ed CPU
 resumes the instant a deliverable interrupt arrives.
 
+A halted step (`ExecutionEngine::haltedStep`) executes nothing, but time goes on for the devices:
+
+- **The clock runs at the halt clock's rate** (`setHaltClock`, 100 MHz by default, reported to programs
+  by the timer's `HaltClockRegister`): a tick is an instruction's worth of time, running or halted.
+- **The host sleeps until the next device event** - the timer's expiry, a DMA transfer landing - as
+  `IODevice::ticksUntilEvent()` reports it, for at most 10 ms per step so the loop around `step()` still
+  sees a shutdown or a window event. It then moves the devices on by the time that passed
+  (`IODevice::advance`), exactly to the event when it was reached.
+- **Anything raised wakes it at once**: `InterruptController::raise()` notifies a sleeping step. A
+  request that was already pending and is masked does not, so `cli; halt` sleeps instead of spinning.
+- **A clock of 0** turns real time off: a halted step jumps straight to the next device event. The
+  debugger does this while it replays history.
+
+A windowed host ends its slice of steps as soon as the machine halts, so the keys it collects in its
+next pump reach a program waiting for them in `halt` (a slice of halted steps used to hold them back
+for seconds).
+
 ## Faults the hardware raises on its own
 
 These are triggered by `ExecutionEngine` itself, not by any explicit `int`/`trap` in your program:

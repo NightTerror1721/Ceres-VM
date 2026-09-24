@@ -376,9 +376,16 @@ namespace ceres::driver
 
 			while ((vm.isPoweredOn() || vm.restartIfRequested()) && backend->pump(*keyboard, mouse, gamepad))
 			{
+				// A halted step sleeps (up to 10 ms) instead of executing, and the window's keys only reach
+				// the machine through pump(): so a halted machine ends the slice and lets the next pump
+				// deliver whatever it is waiting for. Running on would sleep through the whole slice.
 				const u64 slice = backend->instructionsPerFrame();
 				for (u64 i = 0; i < slice && vm.isPoweredOn(); ++i)
+				{
 					vm.engine().step();
+					if (vm.engine().isHalted())
+						break;
+				}
 				backend->present(display);
 
 				// A frame of the text framebuffer that the program presented for the window. Taken here, between

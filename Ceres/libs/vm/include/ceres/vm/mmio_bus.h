@@ -12,6 +12,14 @@ namespace ceres::vm
 {
 	class MmioBus;
 
+	// How fast a halted machine's clock runs: the ticks per second a device that keeps time (the
+	// timer) sees while the CPU sleeps in HALT, so a wait of N ticks is N instructions' worth of time
+	// whether the machine is running or halted. About what the interpreter executes per second.
+	inline constexpr u64 DefaultHaltClockHz = 100'000'000;
+
+	// "Nothing scheduled" for IODevice::ticksUntilEvent.
+	inline constexpr u64 NoDeviceEvent = ~u64{ 0 };
+
 	// A device's registers, reached through ordinary loads and stores instead of a separate `in`/
 	// `out` address space. Where the old port interface took a PortNumber, this one takes an
 	// `Address` already relative to the device's own slot (see MmioBus) — a device never sees the
@@ -50,6 +58,20 @@ namespace ceres::vm
 		// The default does nothing, which is also what a device that never overrides either method
 		// gets: no per-instruction cost at all, not even the call.
 		virtual void tick() {}
+
+		// How many ticks from now this device will next act on its own - raise its interrupt, land a
+		// transfer - or NoDeviceEvent when nothing is scheduled. A halted machine uses it to sleep until
+		// then instead of ticking one step at a time. Only a device that opted into tick() is asked.
+		virtual u64 ticksUntilEvent() const noexcept { return NoDeviceEvent; }
+
+		// `ticks` ticks at once, never more than ticksUntilEvent() said: exactly what that many tick()
+		// calls would do. The default makes the calls, which is right but slow for a device that is
+		// asked to skip far; every device that keeps time overrides it.
+		virtual void advance(u64 ticks)
+		{
+			for (u64 i = 0; i < ticks; ++i)
+				tick();
+		}
 
 		// The machine is starting over (the system control device's reset command): put back whatever
 		// would otherwise reach into the fresh program - an armed timer, a transfer in flight, a tone
@@ -166,6 +188,29 @@ namespace ceres::vm
 		{
 			for (usize i = 0; i < _tickedDeviceCount; ++i)
 				_tickedDevices[i]->tick();
+		}
+
+		// The nearest thing any ticked device has scheduled, in ticks; NoDeviceEvent when none has.
+		u64 ticksUntilNextEvent() const noexcept
+		{
+			u64 nearest = NoDeviceEvent;
+			for (usize i = 0; i < _tickedDeviceCount; ++i)
+			{
+				const u64 next = _tickedDevices[i]->ticksUntilEvent();
+				if (next < nearest)
+					nearest = next;
+			}
+			return nearest;
+		}
+
+		// `ticks` pulses at once, for a halted machine whose clock ran on without it: never more than
+		// ticksUntilNextEvent(), so no device skips past something it had to do.
+		void advance(u64 ticks)
+		{
+			if (ticks == 0)
+				return;
+			for (usize i = 0; i < _tickedDeviceCount; ++i)
+				_tickedDevices[i]->advance(ticks);
 		}
 
 		// Every attached device's reset(), once per device however many slots it claims.

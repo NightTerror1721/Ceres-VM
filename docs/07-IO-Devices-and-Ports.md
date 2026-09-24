@@ -136,6 +136,7 @@ machine forever, since nothing could ever wake it back up.
 | `0x10` | `NanosLowRegister` | Read | The low word of the **nanoseconds** since the machine started, from the host's steady clock. Reading it also **latches** the high word. Not deterministic; recorded and replayed. |
 | `0x14` | `NanosHighRegister` | Read | The high word latched by the last read of `NanosLowRegister` (`0` before the first). Reading it does not look at the clock. |
 | `0x18` | `NanosResolutionRegister` | Read | The smallest step, in nanoseconds, that the host clock is seen to take between two reads. |
+| `0x1C` | `HaltClockRegister` | Read | How many ticks a second the clock counts while the CPU is halted (100 000 000 by default); `0` when the host does not run it in real time (a debugger replaying history). |
 
 The nanosecond count is 64 bits, so it takes two reads: **low first, then high**. The low read
 takes the instant and keeps its high half, so the pair is one moment however much time passes
@@ -149,7 +150,8 @@ records both words of a read at the tick it happened and serves them back on a r
 
 Writing to the command register:
 
-- The low 31 bits are the number of **instructions** (not milliseconds) until the timer fires.
+- The low 31 bits are the number of **ticks** until the timer fires: instructions while the program
+  runs, and the halted clock's ticks while it is halted (below).
 - The high bit (`0x80000000`), if set, makes the timer **periodic**: it automatically re-arms itself
   with the same period every time it expires.
 - Writing `0` disarms the timer.
@@ -158,6 +160,14 @@ When the timer expires it raises `UserInterrupt0` (interrupt number 16) — see
 [Interrupts and exceptions](08-Interrupts-and-Exceptions.md). Since that's a user interrupt (not one
 of the 16 reserved/always-deliverable ones), **the Interrupt flag must be set (`sti`) or the
 interrupt is dropped** the moment it fires, never queued for later.
+
+**While halted** the machine executes nothing, but its clock keeps counting at `HaltClockRegister` ticks
+per second - an instruction's worth of time per tick - so a timer armed for N ticks fires N ticks later
+whether the program waits for it running or in `halt`. The host does not step through those ticks: it
+sleeps until the timer's expiry (at most 10 ms at a time) and wakes early for anything a device raises.
+A program that wants a real-time wait converts it with the register: 16 ms at the default rate is
+1 600 000 ticks. (The halted clock used to advance one tick per millisecond, whatever the program
+meant by a tick.)
 
 Typical wake-up-after-a-delay pattern:
 

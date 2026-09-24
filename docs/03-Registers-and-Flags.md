@@ -75,7 +75,7 @@ By the time anything downstream sees the operand it is an ordinary register, so 
 | Carry (`CF`) | `1<<2` | Arithmetic, shifts, `cmp` | `jc`, `jnc`, `adc`, `sbc` |
 | Overflow (`OF`) | `1<<3` | Signed arithmetic | `jo`, `jno` |
 | Interrupt (`IF`) | `1<<4` | `sti` / `cli` | Interrupt dispatch: interrupts 16–63 (user interrupts) are dropped while it's clear; interrupts 0–15 (reserved/system) are always deliverable regardless of this flag. `sti` takes effect after the next instruction. |
-| Halting (`HF`) | `1<<5` | `halt` | The `step()` loop, to decide whether to actually fetch/execute or just tick devices and sleep. |
+| Halting (`HF`) | `1<<5` | `halt` | The `step()` loop, to decide whether to actually fetch/execute or let the halted clock run and sleep until something happens (see [Interrupts and exceptions](08-Interrupts-and-Exceptions.md#pending-interrupts-and-halt)). |
 | Trap (`TF`) | `1<<6` | Division/modulo by zero, an unrecoverable stack fault during interrupt dispatch | Nothing reads it today — it's informational, there's no `jt`/`jnt`. |
 | Paging (`PF`) | `1<<7` | `pgon` / `pgoff` | `ExecutionEngine::translate()`, once per load, store and instruction fetch: while set, every address (outside the regions that always stay physical) goes through the MMU — see [Virtual memory and paging](27-Virtual-Memory-and-Paging.md). |
 

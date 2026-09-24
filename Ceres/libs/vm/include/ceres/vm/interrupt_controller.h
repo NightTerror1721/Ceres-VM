@@ -2,6 +2,9 @@
 
 #include <ceres/core/isa/interrupts.h>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <optional>
 
 namespace ceres::vm
@@ -20,6 +23,14 @@ namespace ceres::vm
 	private:
 		std::atomic<u64> _pending{ 0 };
 
+		// A halted machine sleeps on these until something raises a request (see waitForRaise). The
+		// count moves on every raise, so a sleeper can tell "raised since I looked" from "still pending
+		// from before" - a masked request stays pending and must not keep waking it.
+		std::atomic<u64> _raises{ 0 };
+		std::atomic<u32> _sleepers{ 0 };
+		std::mutex _sleepMutex;
+		std::condition_variable _wake;
+
 	public:
 		InterruptController() = default;
 		InterruptController(const InterruptController&) = delete;
@@ -33,6 +44,30 @@ namespace ceres::vm
 		void raise(InterruptNumber interruptNumber) noexcept
 		{
 			_pending.fetch_or(bitOf(interruptNumber), std::memory_order_release);
+			_raises.fetch_add(1);
+			// Only a halted machine waits, so the lock is paid only when someone sleeps. The count
+			// and the sleeper count are sequentially consistent, so either this raise sees the sleeper
+			// or the sleeper sees the new count before it sleeps.
+			if (_sleepers.load() != 0)
+			{
+				const std::lock_guard lock{ _sleepMutex };
+				_wake.notify_all();
+			}
+		}
+
+		// How many requests have been raised so far. Read before deciding to sleep, and handed to
+		// waitForRaise, so a raise that happens in between still wakes the sleeper.
+		u64 raiseCount() const noexcept { return _raises.load(); }
+
+		// Sleeps until a request is raised after raiseCount() returned `seen`, or until `deadline`.
+		// True when it was woken by a raise.
+		bool waitForRaise(u64 seen, std::chrono::steady_clock::time_point deadline) noexcept
+		{
+			std::unique_lock lock{ _sleepMutex };
+			_sleepers.fetch_add(1);
+			const bool raised = _wake.wait_until(lock, deadline, [&] { return _raises.load() != seen; });
+			_sleepers.fetch_sub(1);
+			return raised;
 		}
 
 		bool hasPending() const noexcept

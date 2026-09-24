@@ -1,5 +1,5 @@
 #include <ceres/vm/execution_engine.h>
-#include <thread>
+#include <chrono>
 
 namespace ceres::vm
 {
@@ -15,6 +15,72 @@ namespace ceres::vm
 		_interruptShadow = false;
 		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
 		_mmu.reset(); // No program has had the chance to point PTBR at garbage yet; leave none behind either
+	}
+
+	namespace
+	{
+		using HaltClock = std::chrono::steady_clock;
+
+		// The longest one halted step sleeps, so the host loop around step() still gets to see a
+		// shutdown, a pause or a window event while a program waits a long time.
+		constexpr auto MaxHaltedWait = std::chrono::milliseconds(10);
+
+		HaltClock::duration ticksToDuration(u64 ticks, u64 hz) noexcept
+		{
+			const u64 seconds = ticks / hz;
+			if (seconds > 3600)
+				return std::chrono::hours(1);          // far beyond any single wait: MaxHaltedWait caps it anyway
+			const u64 nanos = seconds * 1'000'000'000ull + (ticks % hz) * 1'000'000'000ull / hz;
+			return std::chrono::duration_cast<HaltClock::duration>(std::chrono::nanoseconds(nanos));
+		}
+
+		u64 durationToTicks(HaltClock::duration elapsed, u64 hz) noexcept
+		{
+			const auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count();
+			if (nanos <= 0)
+				return 0;
+			const u64 ns = static_cast<u64>(nanos);
+			return (ns / 1'000'000'000ull) * hz + (ns % 1'000'000'000ull) * hz / 1'000'000'000ull;
+		}
+	}
+
+	// A halted machine executes nothing, but its clock runs on at `_haltClockHz` ticks per second - an
+	// instruction's worth of time per tick, as if the CPU were busy - so a timer armed for N ticks
+	// fires N ticks later whether the program waits for it running or halted. The host does not step
+	// through those ticks: it sleeps until the next thing a device has scheduled (at most
+	// MaxHaltedWait at a time), wakes the moment anything raises an interrupt, and then moves the
+	// devices on by the time that actually passed - exactly to the event, when it was reached.
+	//
+	// With the clock at 0 (a debugger replaying) no real time is involved: a step jumps straight to the
+	// next device event, and with none scheduled it waits for the host to raise something.
+	void ExecutionEngine::haltedStep(u64 raisesSeen) noexcept
+	{
+		const u64 toEvent = _mmioBus.ticksUntilNextEvent();
+		const HaltClock::time_point start = HaltClock::now();
+
+		if (_haltClockHz == 0)
+		{
+			if (toEvent != NoDeviceEvent)
+				_mmioBus.advance(toEvent);
+			else
+				_interrupts.waitForRaise(raisesSeen, start + MaxHaltedWait);
+			return;
+		}
+
+		HaltClock::time_point wakeAt = start + MaxHaltedWait;
+		if (toEvent != NoDeviceEvent)
+		{
+			const HaltClock::duration untilEvent = ticksToDuration(toEvent, _haltClockHz);
+			if (untilEvent < MaxHaltedWait)
+				wakeAt = start + untilEvent;
+		}
+		if (wakeAt > start)
+			_interrupts.waitForRaise(raisesSeen, wakeAt);
+
+		u64 ticks = durationToTicks(HaltClock::now() - start, _haltClockHz);
+		if (toEvent != NoDeviceEvent && ticks >= toEvent)
+			ticks = toEvent;                      // the event happens on its own tick; the machine then wakes
+		_mmioBus.advance(ticks);
 	}
 
 	void ExecutionEngine::handleHalt() noexcept
@@ -105,6 +171,10 @@ namespace ceres::vm
 		const bool shadowed = _interruptShadow;
 		_interruptShadow = false;
 
+		// Taken before the pending request is looked at: a halted step that sleeps below must be woken by
+		// anything raised from here on, including a raise between this look and the sleep.
+		const u64 raisesSeen = _interrupts.raiseCount();
+
 		if (const auto pending = _interrupts.peek(); pending.has_value())
 		{
 			// A masked interrupt stays queued rather than being thrown away.
@@ -120,9 +190,7 @@ namespace ceres::vm
 
 		if (_flags.get<ExecutionFlag::Halting>())
 		{
-			// Nothing to run, but devices still keep time: this is how a timer eventually fires.
-			_mmioBus.tick();
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			haltedStep(raisesSeen);
 			return;
 		}
 
