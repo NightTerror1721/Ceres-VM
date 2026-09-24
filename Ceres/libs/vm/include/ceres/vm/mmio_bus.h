@@ -51,6 +51,12 @@ namespace ceres::vm
 		// gets: no per-instruction cost at all, not even the call.
 		virtual void tick() {}
 
+		// The machine is starting over (the system control device's reset command): put back whatever
+		// would otherwise reach into the fresh program - an armed timer, a transfer in flight, a tone
+		// still playing, a feature switched on. What the host plugged in or typed stays: a reset
+		// restarts the machine, it does not unplug it. The default keeps everything.
+		virtual void reset() {}
+
 	protected:
 		Memory& memory() { return *_memory; }
 		const Memory& memory() const { return *_memory; }
@@ -160,6 +166,28 @@ namespace ceres::vm
 		{
 			for (usize i = 0; i < _tickedDeviceCount; ++i)
 				_tickedDevices[i]->tick();
+		}
+
+		// Every attached device's reset(), once per device however many slots it claims.
+		void resetDevices()
+		{
+			for (usize slotIndex = 0; slotIndex < MaxDevices; ++slotIndex)
+			{
+				IODevice* device = _devices[slotIndex];
+				if (device == nullptr)
+					continue;
+				bool seen = false;
+				for (usize earlier = 0; earlier < slotIndex; ++earlier)
+				{
+					if (_devices[earlier] == device)
+					{
+						seen = true;
+						break;
+					}
+				}
+				if (!seen)
+					device->reset();
+			}
 		}
 
 		inline constexpr void attach(Address base, IODevice& device)

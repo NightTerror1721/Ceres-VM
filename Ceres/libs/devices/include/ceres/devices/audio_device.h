@@ -99,6 +99,13 @@ namespace ceres::devices
 				raiseInterrupt(Interrupt);
 		}
 
+		// A reset silences a tone the last program left playing.
+		void reset() override
+		{
+			if (_busy.load(std::memory_order_acquire))
+				stop();
+		}
+
 	private:
 		void play()
 		{

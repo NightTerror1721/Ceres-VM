@@ -5,6 +5,7 @@
 #include "bios.h"
 #include <ceres/core/format/program.h>
 #include <atomic>
+#include <optional>
 #include <expected>
 #include <string>
 
@@ -25,6 +26,14 @@ namespace ceres::vm
 		// always the thread running the step loop: a debugger's "pause" arrives from whatever
 		// thread is servicing the editor while run() is still spinning.
 		std::atomic<bool> _isPoweredOn{ false };
+
+		// A reset asked for by the program (the system control device's command 2). It cannot happen
+		// in the middle of the store that asks for it, so it stops the step loop like a shutdown and
+		// is carried out between two instructions, by run() or by a host that drives step() itself.
+		std::atomic<bool> _resetRequested{ false };
+
+		// What loadProgram() placed, kept so a reset can put the image back as it was loaded.
+		std::optional<Program> _program;
 
 	public:
 		explicit CeresVM(usize memorySize = Memory::DefaultSize) :
@@ -55,6 +64,21 @@ namespace ceres::vm
 		// This is only a stop signal; it does not publish any associated state between threads.
 		bool isPoweredOn() const noexcept { return _isPoweredOn.load(std::memory_order_relaxed); }
 		void shutdown() noexcept { _isPoweredOn.store(false, std::memory_order_relaxed); }
+
+		// Stops the step loop like shutdown(), and asks for the machine to start over once it has.
+		void requestReset() noexcept
+		{
+			_resetRequested.store(true, std::memory_order_relaxed);
+			_isPoweredOn.store(false, std::memory_order_relaxed);
+		}
+
+		bool isResetRequested() const noexcept { return _resetRequested.load(std::memory_order_relaxed); }
+
+		// Carries out a requested reset: the loaded image is put back (.data as it was loaded, .bss
+		// cleared, the vectors bound again), the CPU starts from the reset vector, pending interrupts
+		// are dropped, every device's reset() runs, and the machine is powered on again. True when it
+		// restarted; false when no reset was asked for (or there is no program to restart).
+		bool restartIfRequested() noexcept;
 
 		MmioBus& io() noexcept { return _mmioBus; }
 		InterruptController& interrupts() noexcept { return _interrupts; }

@@ -44,7 +44,7 @@ namespace ceres::driver
 
 		Impl(const MachineConfig& config, const MachineHost& host) :
 			vm(config.memorySize),
-			control([this] { vm.shutdown(); }, [this] { vm.shutdown(); })
+			control([this] { vm.shutdown(); }, [this] { vm.requestReset(); })
 		{
 			control.setFeaturesCallback([this](u32 features)
 			{
@@ -177,7 +177,9 @@ namespace ceres::driver
 		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, HostServices services, HostBackend* backend)
 	{
 		CeresVM vm{memorySize};
-		SystemControlDevice control{[&vm] { vm.shutdown(); }, [&vm] { vm.shutdown(); }};
+		// A reset starts the program again from its entry point (CeresVM::restartIfRequested): vm.run()
+		// does that on its own, and the windowed loop below between two frames.
+		SystemControlDevice control{[&vm] { vm.shutdown(); }, [&vm] { vm.requestReset(); }};
 		control.setFeaturesCallback([&vm](u32 features)
 		{
 			vm.engine().setDivisionFaults((features & SystemControlDevice::FeatureDivisionFault) != 0);
@@ -372,7 +374,7 @@ namespace ceres::driver
 				return 1;
 			}
 
-			while (vm.isPoweredOn() && backend->pump(*keyboard, mouse, gamepad))
+			while ((vm.isPoweredOn() || vm.restartIfRequested()) && backend->pump(*keyboard, mouse, gamepad))
 			{
 				const u64 slice = backend->instructionsPerFrame();
 				for (u64 i = 0; i < slice && vm.isPoweredOn(); ++i)

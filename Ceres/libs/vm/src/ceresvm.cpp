@@ -84,7 +84,25 @@ namespace ceres::vm
 
 		_engine.reset(); // Reset the execution engine to set the PC to the entry point and initialize registers/flags.
 
+		// Kept for a reset. Skipped when a reset is reloading this very program.
+		if (!_program.has_value() || &*_program != &program)
+			_program = program;
+
 		return {};
+	}
+
+	bool CeresVM::restartIfRequested() noexcept
+	{
+		if (!_resetRequested.exchange(false, std::memory_order_relaxed) || !_program.has_value())
+			return false;
+
+		// Powered off by requestReset(), so loadProgram() accepts it. It already validated this image once.
+		if (!loadProgram(*_program))
+			return false;
+		_interrupts.clearAll();       // requests raised for the program that just ended
+		_mmioBus.resetDevices();
+		_isPoweredOn.store(true, std::memory_order_release);
+		return true;
 	}
 
 	std::expected<void, std::string> CeresVM::powerOn() noexcept
@@ -101,8 +119,12 @@ namespace ceres::vm
 		if (auto powered = powerOn(); !powered)
 			return powered;
 
-		while (isPoweredOn())
-			_engine.step();
+		// A reset stops the inner loop like a shutdown does; it starts again only if one was asked for.
+		do
+		{
+			while (isPoweredOn())
+				_engine.step();
+		} while (restartIfRequested());
 
 		return {};
 	}

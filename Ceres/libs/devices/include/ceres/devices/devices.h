@@ -87,6 +87,14 @@ namespace ceres::devices
 			_resetCallback = std::move(callback);
 		}
 
+		// A reset switches every feature off again, the way the machine powers on.
+		void reset() override
+		{
+			_features = 0;
+			if (_featuresCallback)
+				_featuresCallback(0);
+		}
+
 		void setFeaturesCallback(FeaturesCallback callback)
 		{
 			_featuresCallback = std::move(callback);
@@ -241,6 +249,16 @@ namespace ceres::devices
 		}
 
 		State captureState() const noexcept { return State{ _ticks, _remaining, _periodic, _period, _nanosHigh }; }
+
+		// A reset disarms the timer and restarts the count, as the engine restarts its own: a
+		// program that is starting over must not be interrupted by what the last one armed.
+		void reset() override
+		{
+			_ticks = 0;
+			_remaining = 0;
+			_periodic = false;
+			_period = 0;
+		}
 
 		void restoreState(const State& state) noexcept
 		{
@@ -791,6 +809,14 @@ namespace ceres::devices
 		}
 
 	public:
+		// A reset drops a transfer that was armed but has not landed yet.
+		void reset() override
+		{
+			_pending = false;
+			_status = 0;
+			_transferred = 0;
+		}
+
 		// Must be unconditionally true, not "return _pending": MmioBus only re-reads needsTick() when
 		// the topology changes (attach/detach), not every instruction, so a device that flipped this
 		// on the fly could arm a transfer that then never sees the tick() that lands it.

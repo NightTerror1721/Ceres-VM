@@ -84,8 +84,20 @@ writing a command to its command register:
 | Command (low byte) | Effect |
 | --- | --- |
 | `0x01` | Shuts the machine down (invokes the shutdown callback the host registered — `ceres run` uses this to stop its run loop). |
-| `0x02` | Resets the machine (invokes the reset callback). |
+| `0x02` | Resets the machine: the program starts again from its entry point (see below). |
 | anything else | Ignored. |
+
+**Reset.** The store that asks for it finishes, the instruction after it never runs, and between the two
+the machine starts over: the image is put back as it was loaded (`.text`, `.rodata`, `.data` with its
+initial values, `.bss` cleared, the bound vectors), the CPU starts from the reset vector with fresh
+registers and flags, and pending interrupts are dropped. Every device's `reset()` runs too: the timer is
+disarmed and its count starts again, a DMA transfer that had not landed is dropped, a tone still playing
+stops, and the features register goes back to 0. What the host connected stays as it is - the terminal's
+unread input, the screens, the disk and whatever is plugged into the peripheral ports - and so does RAM
+above the image, which a program can use to tell a restart from a first start. `CeresVM::requestReset()`
+and `restartIfRequested()` are the host's side: `run()` restarts on its own, and a host that drives
+`step()` itself calls `restartIfRequested()` between steps. Under `ceres debug` a reset still ends
+the session, on purpose: silently rebooting would hide what the program asked for.
 
 **Exit status.** A halfword or word write carries a status in bits 15:8 — `(status << 8) | 1` — and
 `ceres run` exits with it as the process status. A plain byte write, which is what every program
