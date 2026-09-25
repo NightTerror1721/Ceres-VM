@@ -30,7 +30,7 @@
      `SdlBackend::present` y cuántos MIPS pierde la VM frente a `CERES_HEADLESS=1` (añade un contador temporal
      o usa un perfilador; no lo subas).
   2. Mide tiempo de arranque y memoria residente del proceso con `--memory` de 16 MiB y 1 GiB (el máximo actual).
-- **Aceptación**: [ ] Números en `BASELINE.md`, secciones «Presentación» y «Memoria».
+- **Aceptación**: [x] Números en `BASELINE.md`, secciones «Presentación» y «Memoria».
 - **Verificación**: ninguna de código (no hay cambios de código subidos).
 - **Commit**: `Record the present and memory baseline (F0.2)`
 
@@ -96,8 +96,13 @@
 - **F0.1**: medidas en [BASELINE.md](../BASELINE.md). El `mixed` da 134 MIPS; con la tabla provisional (1,61 ciclos
   por instrucción) `standard` usa el 23 % del host y `workstation` el 46 %; código sólo ALU en `workstation`, el 71 %.
   El benchmark acepta nombres como argumentos para ejecutar sólo esos.
-- **F0.1, MSVC**: el preset `msvc` (MSVC 14.50, VS 18) no compila la VM desde antes de esta tarea: `MmioBus::attach` y
-  `attachRange` (`libs/vm/include/ceres/vm/mmio_bus.h`) son `constexpr` pero toman un `std::lock_guard` y llaman a
-  `rebuildTickedDevices()`, y MSVC da C3615. GCC lo acepta (C++23, P2448). Quitar el `constexpr` basta; GitNexus da
-  HIGH por los 14 llamadores, así que queda pendiente de confirmación del usuario (F1.1 reescribe el bus de todas
-  formas). No hay clang instalado en la máquina de desarrollo; el preset `clang` no se ha probado.
+- **F0.1, MSVC**: el preset `msvc` (MSVC 14.50, VS 18) no compilaba la VM: `MmioBus::attach`, `attachRange` y
+  `detach` eran `constexpr` con un `std::lock_guard` dentro (C3615). Arreglado en `asm@4d56058`. Con eso salió
+  una carrera en el driver: el lector de un `istream` que no es `std::cin` iba en un hilo desacoplado y podía leer
+  el stream del test ya destruido, y el test de entrada por tubería esperaba mirando un bit que siempre está a 1.
+  Arreglado en `asm@ecb5aa2` (0 fallos en 20 ejecuciones con MSVC y con GCC; antes 2 de 20 con GCC). No hay clang
+  instalado en la máquina de desarrollo; el preset `clang` no se ha probado. Tras un cambio de cabeceras,
+  `build/msvc` puede quedarse con objetos viejos: si un test revienta sólo ahí, `--clean-first`.
+- **F0.2**: la ventana presenta cada 4096 instrucciones sin vsync (6 400 imágenes/s a 320×240) y eso le quita a
+  la VM el 76 % (320×240) o el 94 % (1280×720) de los MIPS; `pump` no cuesta. La RAM se reserva y se pone a cero
+  entera: 1 GiB son 138 ms de arranque y 1 GiB residente. Detalle en [BASELINE.md](../BASELINE.md).

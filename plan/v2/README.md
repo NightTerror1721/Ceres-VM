@@ -142,6 +142,11 @@ Si un comando no existe tal cual (nombre de target, ruta de salida), búscalo en
 - Un test que se cuelga deja `ceres.exe` vivo: `taskkill /IM ceres.exe /F`.
 - Hasta la fase F5, cualquier ejecución que compare fotogramas de texto necesita `CERES_HEADLESS=1` o
   `--terminal` (el `ceres.exe` con SDL abre ventana por defecto). Desde F5 se usa `--headless`.
+- El `ceres.exe` con SDL no entrega su stderr a PowerShell: para leerlo, redirige desde Bash (`2> archivo`).
+- El preset `msvc` necesita el entorno de Visual Studio: `vcvars64.bat` de
+  `C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools`, con `...\Microsoft Visual Studio\Installer` en el
+  `PATH` (vcvars llama a `vswhere`). Sin él, CMake enlaza con el `ld` de MSYS2. Si un test revienta sólo con MSVC
+  tras cambiar cabeceras, recompila con `--clean-first` antes de buscar el fallo.
 - `CHECK_EQ(a, b)` evalúa dos veces sus argumentos al fallar: no pongas llamadas con efectos dentro.
 - La STDLIB compila tests y ejemplos con `-Werror`, y Ceres-C comprueba los formatos de `printf`.
 - Una `extern` de C sobre un nombre definido por el enlazador rompe `ceres asm` de todas las unidades de la
