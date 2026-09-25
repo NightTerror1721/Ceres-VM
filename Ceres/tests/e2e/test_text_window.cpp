@@ -4,7 +4,7 @@
 
 #include "framework.h"
 #include <ceres/devices/video/display.h>
-#include <ceres/devices/storage_devices.h>
+#include <ceres/devices/video/text_framebuffer.h>
 #include <ceres/devices/video/text_renderer.h>
 #include <string>
 #include <string_view>

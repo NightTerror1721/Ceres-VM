@@ -83,7 +83,7 @@
 - **Repos**: CeresASM · **Depende de**: F1.2
 - **Archivos**: `storage/disk.{h,cpp}`; `video/text_framebuffer.{h,cpp}` para `FramebufferDevice` (se elimina en F5);
   borrar `storage_devices.h`.
-- **Aceptación**: [ ] Ninguna cabecera de `libs/devices` define más de un `IODevice`. [ ] Suites en verde.
+- **Aceptación**: [x] Ninguna cabecera de `libs/devices` define más de un `IODevice`. [x] Suites en verde.
 - **Commit**: `Split disk and text framebuffer into their own files (F1.5)`
 
 ### F1.6 · Migrar a 32 bits todos los accesos a MMIO (tres repos)

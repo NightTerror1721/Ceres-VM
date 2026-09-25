@@ -16,7 +16,7 @@
 // U+00FF, the accented letters of the western European languages) have glyphs; a control (below 0x20, or 0x7F to
 // 0x9F) is a space, as on the terminal.
 
-#include <ceres/devices/storage_devices.h>
+#include <ceres/devices/video/text_framebuffer.h>
 #include <ceres/devices/video/default_font.h>
 
 #include <vector>

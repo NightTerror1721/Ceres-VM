@@ -9,7 +9,7 @@
 #include <ceres/devices/input/keyboard.h>
 #include <ceres/devices/input/mouse.h>
 #include <ceres/devices/video/display.h>
-#include <ceres/devices/storage_devices.h>
+#include <ceres/devices/video/text_framebuffer.h>
 #include <ceres/devices/audio/audio.h>
 
 #include <filesystem>

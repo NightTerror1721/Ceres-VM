@@ -15,9 +15,9 @@
 #include <ceres/devices/input/gamepad.h>
 #include <ceres/devices/input/keyboard.h>
 #include <ceres/devices/input/mouse.h>
+#include <ceres/devices/storage/disk.h>
 #include <ceres/devices/storage/host_fs.h>
 #include <ceres/devices/storage/peripherals.h>
-#include <ceres/devices/storage_devices.h>
 #include <ceres/devices/system/dma.h>
 #include <ceres/devices/system/system_control.h>
 #include <ceres/devices/system/timer.h>
@@ -25,4 +25,5 @@
 #include <ceres/devices/video/blitter.h>
 #include <ceres/devices/video/default_font.h>
 #include <ceres/devices/video/display.h>
+#include <ceres/devices/video/text_framebuffer.h>
 #include <ceres/devices/video/text_renderer.h>

@@ -12,7 +12,8 @@
 #include "history.h"
 #include <ceres/vm/ceresvm.h>
 #include <ceres/devices/devices.h>
-#include <ceres/devices/storage_devices.h>
+#include <ceres/devices/storage/disk.h>
+#include <ceres/devices/video/text_framebuffer.h>
 #include <ceres/devices/input/gamepad.h>
 #include <ceres/devices/input/keyboard.h>
 #include <ceres/devices/input/mouse.h>
