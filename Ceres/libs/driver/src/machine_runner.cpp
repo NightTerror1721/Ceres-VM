@@ -271,6 +271,15 @@ namespace ceres::driver
 			}
 		}
 
+		// The reader of an input stream other than std::cin, joined before this returns: the stream belongs to
+		// the caller and may be gone once it does. Declared ahead of doneOnExit so that it is destroyed after it
+		// and the reader has already been told the machine is done.
+		struct JoinOnExit
+		{
+			std::thread thread;
+			~JoinOnExit() { if (thread.joinable()) thread.join(); }
+		} streamReader;
+
 		// Raised when the machine is done, so a reader parked on a full ring stops waiting for a
 		// program that will never read it.
 		const auto machineDone = std::make_shared<std::atomic<bool>>(false);
@@ -365,15 +374,18 @@ namespace ceres::driver
 		}
 		else if (services.input != nullptr)
 		{
-			// A blocked console read cannot be cancelled portably. Shared ownership prevents a stale
-			// reader from touching a destroyed device; detachFrom clears its VM connection on return.
+			// A blocked read of std::cin cannot be cancelled portably, so that reader is left behind
+			// when the machine is done; std::cin outlives it. Any other stream is the caller's and ends
+			// (a string, a file), so its reader is joined before returning (streamReader). Shared
+			// ownership prevents a stale reader from touching a destroyed device; detachFrom clears
+			// its VM connection on return.
 			//
 			// The ring holds 64 bytes and drops what does not fit, which is right for a keystroke
 			// source but wrong for a pipe: a program that is busy for a moment would lose the tail of
 			// a piped file. So this reader is the flow control - it holds the byte back until the
 			// program has taken enough. It is the ring's only producer, so room seen here cannot be
 			// taken by anyone else before the push.
-			std::thread([input = services.input, terminal, machineDone]
+			auto reader = [input = services.input, terminal, machineDone]
 			{
 				char c;
 				while (input->get(c))
@@ -389,7 +401,11 @@ namespace ceres::driver
 				// The stream ended (a pipe ran dry, or the user closed stdin): say so, so a program
 				// waiting for more can stop waiting.
 				terminal->closeInput();
-			}).detach();
+			};
+			if (services.input == &std::cin)
+				std::thread(std::move(reader)).detach();
+			else
+				streamReader.thread = std::thread(std::move(reader));
 		}
 
 		if (auto loaded = vm.loadProgram(program); !loaded)

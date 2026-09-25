@@ -290,7 +290,7 @@ TEST(driver_run, piped_input_longer_than_the_ring_is_held_back_not_dropped)
 			".next:\n"
 			"    la   r4, 3000000\n"          // patience per byte, so a lost byte ends the run
 			".poll:\n"
-			"    ldr  r5, [r6 + 0]\n"
+			"    ldr  r5, [r6 + 12]\n"            // bytes available: the status word always has bit 1 (ready for output) set
 			"    ifne r5, 0, .got\n"
 			"    sub  r4, r4, 1\n"
 			"    ifne r4, 0, .poll\n"
