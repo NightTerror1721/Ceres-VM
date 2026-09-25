@@ -390,8 +390,12 @@ li   r1, 2
 str  [r13 + 0], r1         // show it
 ```
 
-A cell holds one printable ASCII byte; anything below `0x20` or above `0x7E` is shown as a space,
-so a stray control byte cannot move the host terminal's own cursor.
+A cell holds one byte of Latin-1: printable ASCII, and `0xA0`–`0xFF` for the code points U+00A0–U+00FF
+(the accented letters of Spanish, French, German or Portuguese, `¿`, `¡`, `°`, `£`…), which the window
+draws with the same 5x7 glyphs as the standard library's font and the terminal receives in UTF-8. A control
+byte — below `0x20`, or `0x7F`–`0x9F` — is shown as a space, so a stray one cannot move the host terminal's
+own cursor. (The standard library's `fb_text` takes UTF-8 and stores each character's code point; one above
+U+00FF becomes `?`.)
 
 **Colour.** Each cell also has an attribute byte. A word written to `DataRegister` holds the character
 in bits 7:0 and the attribute in bits 15:8, so one store sets both. Attribute `0` means the terminal's

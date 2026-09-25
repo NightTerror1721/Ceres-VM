@@ -840,6 +840,23 @@ TEST(devices, a_cell_that_would_move_the_terminals_own_cursor_is_shown_as_a_spac
 	CHECK_EQ(framebuffer.toText(), std::string{ "x y\n" });
 }
 
+TEST(devices, a_latin1_cell_is_shown_as_its_code_point_in_utf8)
+{
+	Machine m{ Instruction::NOP() };
+
+	FramebufferDevice framebuffer{};
+	framebuffer.attachTo(m.vm().io());
+
+	framebuffer.writeWord(FramebufferDevice::WidthRegister, 4);
+	framebuffer.writeWord(FramebufferDevice::HeightRegister, 1);
+	framebuffer.writeWord(FramebufferDevice::DataRegister, 0xF1);   // n tilde
+	framebuffer.writeWord(FramebufferDevice::DataRegister, 'o');
+	framebuffer.writeWord(FramebufferDevice::DataRegister, 0x85);   // a C1 control: a space
+	framebuffer.writeWord(FramebufferDevice::DataRegister, 0xFF);   // y diaeresis
+
+	CHECK_EQ(framebuffer.toText(), std::string{ "\xC3\xB1o \xC3\xBF\n" });
+}
+
 TEST(devices, a_grid_larger_than_any_terminal_is_a_typo_and_is_ignored)
 {
 	Machine m{ Instruction::NOP() };

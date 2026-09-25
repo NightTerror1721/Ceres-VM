@@ -273,9 +273,27 @@ TEST(text_window, no_printable_character_draws_outside_its_cell_or_is_blank)
 	CHECK(!TextRenderer::glyphPixel('A', 1, 16));
 }
 
-TEST(text_window, a_byte_that_is_not_printable_ascii_is_a_space)
+TEST(text_window, every_latin1_character_has_a_glyph_but_the_no_break_space)
 {
-	for (u32 c : { 0u, 7u, 10u, 31u, 127u, 128u, 200u, 255u })
+	for (u32 c = 0xA0; c <= 0xFF; ++c)
+	{
+		bool any = false;
+		for (u32 y = 0; y < TextRenderer::CellHeight; ++y)
+			for (u32 x = 0; x < TextRenderer::CellWidth; ++x)
+				any = any || TextRenderer::glyphPixel(static_cast<u8>(c), x, y);
+		CHECK_EQ(any, c != 0xA0);
+	}
+	// An accented letter is its letter with the accent on top: the body of an e acute is the body of an e.
+	for (u32 y = 5; y <= 14; ++y)
+		for (u32 x = 0; x < TextRenderer::CellWidth; ++x)
+			CHECK_EQ(TextRenderer::glyphPixel(0xE9, x, y), TextRenderer::glyphPixel('e', x, y));
+	CHECK(TextRenderer::glyphPixel(0xE9, 4, 1));   // the acute's top dot, right of the middle
+	CHECK(!TextRenderer::glyphPixel('e', 4, 1));
+}
+
+TEST(text_window, a_control_byte_is_a_space)
+{
+	for (u32 c : { 0u, 7u, 10u, 31u, 127u, 128u, 150u, 159u })
 		for (u32 y = 0; y < TextRenderer::CellHeight; ++y)
 			for (u32 x = 0; x < TextRenderer::CellWidth; ++x)
 				CHECK(!TextRenderer::glyphPixel(static_cast<u8>(c), x, y));

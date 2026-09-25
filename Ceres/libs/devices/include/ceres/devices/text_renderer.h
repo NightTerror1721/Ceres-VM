@@ -12,7 +12,9 @@
 //
 // Colours: attribute 0 is the terminal's own (light grey on black); otherwise the low nibble is the foreground and
 // the high nibble the background, in the ANSI order (0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta,
-// 6 cyan, 7 white, 8-15 the bright versions). A byte that is not printable ASCII is a space, as on the terminal.
+// 6 cyan, 7 white, 8-15 the bright versions). A cell's byte is Latin-1: printable ASCII and 0xA0-0xFF (U+00A0 to
+// U+00FF, the accented letters of the western European languages) have glyphs; a control (below 0x20, or 0x7F to
+// 0x9F) is a space, as on the terminal.
 
 #include <ceres/devices/storage_devices.h>
 #include <ceres/devices/text_font.h>
@@ -55,10 +57,13 @@ namespace ceres::devices
 			return palette[index & 15u];
 		}
 
+		// Whether a cell's byte is a character with a glyph (printable ASCII or Latin-1), not a control.
+		static constexpr bool printable(u8 c) noexcept { return (c >= 0x20 && c < 0x7F) || c >= 0xA0; }
+
 		// Whether pixel (x, y) of a cell, 0 <= x < 8 and 0 <= y < 16, is part of character `c`.
 		static constexpr bool glyphPixel(u8 c, u32 x, u32 y) noexcept
 		{
-			if (c < 0x20 || c >= 0x7F || x >= CellWidth || y >= CellHeight)
+			if (!printable(c) || x >= CellWidth || y >= CellHeight)
 				return false;
 			switch (c)
 			{
@@ -74,9 +79,9 @@ namespace ceres::devices
 		// The character as the font draws it, with none of the box strokes' stretching.
 		static constexpr bool glyphPixelFont(u8 c, u32 x, u32 y) noexcept
 		{
-			if (c < 0x20 || c >= 0x7F || x < 1 || x > 5 || y < 1 || y > 14)
+			if (!printable(c) || x < 1 || x > 5 || y < 1 || y > 14)
 				return false;
-			return ((TextFontGlyphs[c - 0x20][(y - 1) / 2] >> (x - 1)) & 1u) != 0;
+			return ((TextFontGlyphs[c][(y - 1) / 2] >> (x - 1)) & 1u) != 0;
 		}
 
 		// The arms a + reaches out with, as bits of ArmLeft..ArmDown. With none, it is the font's own plus.

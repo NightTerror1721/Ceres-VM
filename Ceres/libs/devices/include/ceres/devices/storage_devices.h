@@ -383,12 +383,7 @@ namespace ceres::devices
 			{
 				const usize start = static_cast<usize>(row) * _width;
 				for (u32 column = 0; column < _width; ++column)
-				{
-					const u8 cell = _cells[start + column];
-					// A cell nobody wrote is a space, and a control character would move the
-					// terminal's own cursor rather than showing anything.
-					out.push_back(cell >= 0x20 && cell < 0x7F ? static_cast<char>(cell) : ' ');
-				}
+					appendCell(out, _cells[start + column]);
 				out.push_back('\n');
 			}
 			return out;
@@ -414,8 +409,7 @@ namespace ceres::devices
 						appendSgr(out, attribute);
 						current = attribute;
 					}
-					const u8 cell = _cells[start + column];
-					out.push_back(cell >= 0x20 && cell < 0x7F ? static_cast<char>(cell) : ' ');
+					appendCell(out, _cells[start + column]);
 				}
 				if (current != 0)
 					out += "\x1b[0m";
@@ -430,6 +424,22 @@ namespace ceres::devices
 		}
 
 	private:
+		// A cell as text. Its byte is Latin-1, so 0xA0-0xFF is the code point of the same number, which UTF-8
+		// writes in two bytes. A cell nobody wrote is a space, and a control character (below 0x20, or 0x7F to
+		// 0x9F) would move the terminal's own cursor rather than showing anything, so it is one too.
+		static void appendCell(std::string& out, u8 cell)
+		{
+			if (cell >= 0x20 && cell < 0x7F)
+				out.push_back(static_cast<char>(cell));
+			else if (cell >= 0xA0)
+			{
+				out.push_back(static_cast<char>(0xC0 | (cell >> 6)));
+				out.push_back(static_cast<char>(0x80 | (cell & 0x3F)));
+			}
+			else
+				out.push_back(' ');
+		}
+
 		static void appendSgr(std::string& out, u8 attribute)
 		{
 			if (attribute == 0)
