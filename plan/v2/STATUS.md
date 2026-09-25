@@ -18,7 +18,7 @@ Archivo: [phases/F00-especificacion.md](phases/F00-especificacion.md)
 | F0.4 | Prototipo del terminal ANSI y de un operador FM | — | TODO |  |
 | F0.5 | Cerrar decisiones con el usuario · **HUMANO** | F0.1, F0.2 | TODO |  |
 | F0.6 | Calibrar la tabla de ciclos · **HUMANO** | F0.1 | TODO |  |
-| F0.7 | Enlazar el plan desde la documentación | — | DONE |  |
+| F0.7 | Enlazar el plan desde la documentación | — | DONE | asm@6b8744d |
 
 ## F1 · Reorganización de dispositivos y del núcleo
 

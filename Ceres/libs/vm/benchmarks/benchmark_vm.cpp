@@ -97,6 +97,8 @@ namespace
 
 	// The device window the MMIO benchmark reaches: slot 1, 0xFF010000.
 	constexpr u16 DeviceSlot = 1;
+	// The LUI immediate that reaches it, taken from the bus so that the program and attach() cannot drift apart.
+	constexpr u16 DeviceBaseHigh = static_cast<u16>(MmioBus::slot(DeviceSlot).value() >> 16);
 
 	double run(const Benchmark& benchmark)
 	{
@@ -175,7 +177,7 @@ namespace
 			}, 2),
 			{}, {}, 16, 100 });
 
-		list.push_back({ "mmio", with({ Instruction::LUI(10, 0xFF00 + DeviceSlot) }),
+		list.push_back({ "mmio", with({ Instruction::LUI(10, DeviceBaseHigh) }),
 			repeat(std::array{ Instruction::STR(10, 4, 0), Instruction::LDR(6, 10, 0), Instruction::STR(10, 5, 4), Instruction::LDR(7, 10, 4) }, 4),
 			{}, {}, 16, 100, true });
 
@@ -249,7 +251,7 @@ namespace
 
 int main(int argc, char** argv)
 {
-	const std::span<char*> only(argv + 1, static_cast<usize>(argc - 1));
+	const std::span<char*> only(argv + (argc > 0 ? 1 : 0), argc > 1 ? static_cast<usize>(argc - 1) : 0);
 	double loopNsPerIteration = 0.0;
 
 	std::printf("%-12s %9s %10s %12s\n", "benchmark", "MIPS", "ns/instr", "ns/class op");

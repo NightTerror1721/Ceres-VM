@@ -12,6 +12,9 @@ namespace ceres::driver
 	// should invoke execute() with their own stream adapters or use the lower-level VM libraries.
 	struct HostServices
 	{
+		// The program's standard input. &std::cin is read on a thread of its own that may outlive the run.
+		// Any other stream is read on a thread that the run waits for before it returns, so it must come to
+		// an end on its own - a string or a file, not a pipe or a socket that can block forever.
 		std::istream* input = nullptr;
 		std::ostream* output = nullptr;
 		std::ostream* diagnostics = nullptr;
