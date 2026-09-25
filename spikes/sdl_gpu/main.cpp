@@ -177,6 +177,14 @@ namespace
 		SDL_EndGPURenderPass(pass);
 	}
 
+	SDL_GPUCommandBuffer* acquire(SDL_GPUDevice* device)
+	{
+		SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
+		if (!cmd)
+			fail("SDL_AcquireGPUCommandBuffer");
+		return cmd;
+	}
+
 	void submitAndWait(SDL_GPUDevice* device, SDL_GPUCommandBuffer* cmd)
 	{
 		SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
@@ -206,8 +214,22 @@ namespace
 		{
 			const std::string a = argv[i];
 			if (a == "--driver" && i + 1 < argc) o.driver = argv[++i];
-			else if (a == "--size" && i + 1 < argc) std::sscanf(argv[++i], "%ux%u", &o.width, &o.height);
-			else if (a == "--frames" && i + 1 < argc) o.frames = std::atoi(argv[++i]);
+			else if (a == "--size" && i + 1 < argc)
+			{
+				if (std::sscanf(argv[++i], "%ux%u", &o.width, &o.height) != 2 || o.width < 2 || o.height < 2 || o.width > 4096 || o.height > 4096)
+				{
+					std::printf("invalid --size: expected <w>x<h>, 2 to 4096 each\n");
+					std::exit(1);
+				}
+			}
+			else if (a == "--frames" && i + 1 < argc)
+			{
+				if ((o.frames = std::atoi(argv[++i])) <= 0)
+				{
+					std::printf("invalid --frames: expected a positive count\n");
+					std::exit(1);
+				}
+			}
 			else if (a == "--offscreen") o.offscreen = true;
 			else if (a == "--immediate") o.immediate = true;
 			else { std::printf("usage: sdl_gpu_spike [--driver <name>] [--size <w>x<h>] [--frames <n>] [--offscreen] [--immediate]\n"); std::exit(1); }
@@ -271,7 +293,7 @@ int main(int argc, char** argv)
 	std::vector<Uint32> pixels(static_cast<size_t>(w) * h);
 	fill(pixels, w, h, 0);
 	{
-		SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
+		SDL_GPUCommandBuffer* cmd = acquire(device);
 		upload(device, cmd, up, screen, pixels, w, h);
 		draw(cmd, target, offscreenPipe, screen, sampler);
 		SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(cmd);
@@ -307,7 +329,7 @@ int main(int argc, char** argv)
 		const Uint64 start = SDL_GetPerformanceCounter();
 		for (int frame = 0; frame < options.frames; ++frame)
 		{
-			SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
+			SDL_GPUCommandBuffer* cmd = acquire(device);
 			upload(device, cmd, up, screen, pixels, w, h);
 			draw(cmd, target, offscreenPipe, screen, sampler);
 			submitAndWait(device, cmd);
@@ -325,8 +347,8 @@ int main(int argc, char** argv)
 			fail("SDL_CreateWindow");
 		if (!SDL_ClaimWindowForGPUDevice(device, window))
 			fail("SDL_ClaimWindowForGPUDevice");
-		const bool immediate = options.immediate && SDL_WindowSupportsGPUPresentMode(device, window, SDL_GPU_PRESENTMODE_IMMEDIATE);
-		if (immediate)
+		// Labelled by what the swapchain actually got: a refused switch leaves it on vsync.
+		const bool immediate = options.immediate && SDL_WindowSupportsGPUPresentMode(device, window, SDL_GPU_PRESENTMODE_IMMEDIATE) &&
 			SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_IMMEDIATE);
 		const SDL_GPUTextureFormat swapFormat = SDL_GetGPUSwapchainTextureFormat(device, window);
 		SDL_GPUGraphicsPipeline* windowPipe = pipeline(device, vs, ps, swapFormat);
@@ -348,7 +370,7 @@ int main(int argc, char** argv)
 			fill(pixels, w, h, static_cast<Uint32>(frame));   // stands in for the machine drawing into VRAM
 			const Uint64 t0 = SDL_GetPerformanceCounter();
 			filling += seconds(tf, t0);
-			SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
+			SDL_GPUCommandBuffer* cmd = acquire(device);
 			upload(device, cmd, up, screen, pixels, w, h);
 			const Uint64 t1 = SDL_GetPerformanceCounter();
 			SDL_GPUTexture* swap = nullptr;
@@ -360,7 +382,8 @@ int main(int argc, char** argv)
 				draw(cmd, swap, windowPipe, screen, sampler);
 				++presented;
 			}
-			SDL_SubmitGPUCommandBuffer(cmd);
+			if (!SDL_SubmitGPUCommandBuffer(cmd))
+				fail("SDL_SubmitGPUCommandBuffer");
 			cpu += seconds(t0, t1) + seconds(t2, SDL_GetPerformanceCounter());   // leaves out the swapchain wait
 		}
 		const double s = seconds(start, SDL_GetPerformanceCounter());

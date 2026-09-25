@@ -1,4 +1,10 @@
 # Turns a compiled shader into a C array: cmake -DINPUT=<blob> -DOUTPUT=<header> -DNAME=<symbol> -P embed.cmake
+if(NOT INPUT OR NOT OUTPUT OR NOT NAME)
+	message(FATAL_ERROR "embed.cmake needs -DINPUT, -DOUTPUT and -DNAME")
+endif()
 file(READ "${INPUT}" hex HEX)
+if(hex STREQUAL "")
+	message(FATAL_ERROR "embed.cmake: ${INPUT} is empty")
+endif()
 string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," bytes "${hex}")
 file(WRITE "${OUTPUT}" "// Generated from ${INPUT} by embed.cmake.\nstatic const unsigned char ${NAME}[] = { ${bytes} };\n")

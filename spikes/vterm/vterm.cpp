@@ -7,8 +7,10 @@
 // sequence it met, how many times, and whether §8.2 covers it; --screen also prints the final grid as text. Exits 1
 // when some sequence is not covered.
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -57,7 +59,7 @@ namespace
 		std::size_t invalidUtf8 = 0;
 		std::size_t bells = 0;
 
-		Terminal(int cols, int rows) : _cols(cols), _rows(rows), _cells(static_cast<std::size_t>(cols * rows)), _bottom(rows - 1) {}
+		Terminal(int cols, int rows) : _cols(cols), _rows(rows), _cells(static_cast<std::size_t>(cols) * static_cast<std::size_t>(rows)), _bottom(rows - 1) {}
 
 		void write(unsigned char byte)
 		{
@@ -199,8 +201,8 @@ namespace
 			int value = -1;
 			for (char c : body)
 			{
-				if (c >= '0' && c <= '9') value = (value < 0 ? 0 : value * 10) + (c - '0');
-				else if (c == ';') { out.push_back(value); value = -1; }
+				if (c >= '0' && c <= '9') value = (value < 0 ? 0 : std::min(value, 99999) * 10) + (c - '0');
+				else if (c == ';' || c == ':') { out.push_back(value); value = -1; }   // ':' sub-parameters split too
 			}
 			out.push_back(value);
 			return out;
@@ -262,6 +264,9 @@ namespace
 
 		void erase(int mode, bool screen)
 		{
+			if (mode > 2)
+				return;   // 3J (the scrollback) and the rest are reported as missing and change nothing
+			_x = std::min(_x, _cols - 1);   // put() leaves the cursor one past the last column until the next character
 			const Cell blank{ U' ', _pen.fg, _pen.bg };
 			const int from = mode == 0 ? _x : 0;
 			const int to = mode == 1 ? _x + 1 : _cols;
@@ -340,7 +345,7 @@ int main(int argc, char** argv)
 		else if (!a.empty() && a[0] == '-') usage();
 		else files.push_back(a);
 	}
-	if (files.empty() || cols < 1 || rows < 1)
+	if (files.empty() || cols < 1 || rows < 1 || cols > 1000 || rows > 1000)
 		usage();
 
 	bool allCovered = true;
@@ -363,6 +368,8 @@ int main(int argc, char** argv)
 			std::printf("  %-8s %6zu  %s\n", s.covered ? "ok" : "MISSING", s.count, key.c_str());
 			allCovered = allCovered && s.covered;
 		}
+		if (terminal.bells != 0)
+			std::printf("  bells: %zu\n", terminal.bells);
 		if (terminal.invalidUtf8 != 0)
 			std::printf("  invalid UTF-8 sequences: %zu\n", terminal.invalidUtf8);
 		if (showScreen)

@@ -17,7 +17,7 @@ Archivo: [phases/F00-especificacion.md](phases/F00-especificacion.md)
 | F0.3 | Prototipo de SDL_GPU | — | DONE | asm@ce5a8d5 |
 | F0.4 | Prototipo del terminal ANSI y de un operador FM | — | DONE | asm@fcae02a |
 | F0.5 | Cerrar decisiones con el usuario · **HUMANO** | F0.1, F0.2 | DONE | asm@1b0fb94 |
-| F0.6 | Calibrar la tabla de ciclos · **HUMANO** | F0.1 | DONE |  |
+| F0.6 | Calibrar la tabla de ciclos · **HUMANO** | F0.1 | DONE | asm@2e101b7 |
 | F0.7 | Enlazar el plan desde la documentación | — | DONE | asm@6b8744d |
 
 ## F1 · Reorganización de dispositivos y del núcleo

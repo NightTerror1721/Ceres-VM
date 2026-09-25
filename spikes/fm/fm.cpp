@@ -5,8 +5,9 @@
 // Writes one note (A4, 2 s by default) as a 48 kHz 16-bit mono WAV, then times 8 voices x 4 operators, cycling the
 // 8 algorithms, and prints the cost per voice-sample and an FNV-1a hash of everything it rendered. The synthesis is
 // integer only (a 32-bit phase, a sine table, an attenuation table and a linear-in-dB envelope), the way the A2
-// synthesizer has to be to give the same samples on every host. The two tables are built with std::sin and
-// std::exp2 at start-up; comparing the hash between compilers checks that this rounds the same everywhere.
+// synthesizer has to be to give the same samples on every host. The two tables, though, are built with std::sin and
+// std::exp2 at start-up, and a libm is not required to round those the same everywhere: the hash compares builds,
+// and the real synthesizer should carry the tables as constants (README.md).
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -14,7 +15,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <string>
 #include <vector>
 
@@ -46,8 +46,9 @@ namespace
 
 	std::uint32_t phaseStep(int midiNote)
 	{
-		const int octave = midiNote / 12 - 1;
-		std::uint64_t milliHz = Octave4[static_cast<std::size_t>(midiNote % 12)];
+		const int note = std::clamp(midiNote, 0, 127);
+		const int octave = note / 12 - 1;
+		std::uint64_t milliHz = Octave4[static_cast<std::size_t>(note % 12)];
 		milliHz = octave >= 4 ? milliHz << (octave - 4) : milliHz >> (4 - octave);
 		return static_cast<std::uint32_t>((milliHz << 32) / (static_cast<std::uint64_t>(SampleRate) * 1000));
 	}
@@ -100,7 +101,7 @@ namespace
 		// One sample: modulation is a Q14 value added to the phase, where 16384 is two whole cycles (4 pi).
 		std::int32_t run(std::int32_t modulation)
 		{
-			const std::int32_t attenuation = std::min(Silent, envelope.step() + totalLevel);
+			const std::int32_t attenuation = std::clamp(envelope.step() + totalLevel, 0, Silent);
 			const std::uint32_t at = phase + (static_cast<std::uint32_t>(modulation) << 19);
 			phase += step;
 			return sineTable[at >> (32 - SineBits)] * gainTable[static_cast<std::size_t>(attenuation)] >> OutputBits;
@@ -134,7 +135,7 @@ namespace
 		// The eight classic 4-operator algorithms (operator 1 carries the feedback; "a>b" means a modulates b).
 		std::int32_t sample()
 		{
-			const std::int32_t fb = feedback == 0 ? 0 : (feedbackHistory[0] + feedbackHistory[1]) >> (10 - feedback);
+			const std::int32_t fb = feedback == 0 ? 0 : (feedbackHistory[0] + feedbackHistory[1]) >> (10 - std::clamp(feedback, 1, 7));
 			const std::int32_t o1 = op[0].run(fb);
 			feedbackHistory[1] = feedbackHistory[0];
 			feedbackHistory[0] = o1;
@@ -194,7 +195,8 @@ namespace
 		u32(16); u16(1); u16(1); u32(SampleRate); u32(SampleRate * 2); u16(2); u16(16);
 		std::fwrite("data", 1, 4, f); u32(bytes);
 		for (const std::int16_t s : samples) u16(static_cast<std::uint16_t>(s));
-		std::fclose(f);
+		const bool written = std::ferror(f) == 0;
+		if (std::fclose(f) != 0 || !written) { std::fprintf(stderr, "%s: write failed\n", path); std::exit(2); }
 	}
 
 	std::int16_t clip(std::int32_t v) { return static_cast<std::int16_t>(std::clamp(v, -32768, 32767)); }
@@ -209,9 +211,14 @@ int main(int argc, char** argv)
 	{
 		const std::string a = argv[i];
 		if (a == "--wav" && i + 1 < argc) wav = argv[++i];
-		else if (a == "--algorithm" && i + 1 < argc) algorithm = std::atoi(argv[++i]) & 7;
+		else if (a == "--algorithm" && i + 1 < argc) algorithm = std::atoi(argv[++i]);
 		else if (a == "--seconds" && i + 1 < argc) seconds = std::atof(argv[++i]);
 		else { std::fprintf(stderr, "usage: fm [--wav <file>] [--algorithm <0-7>] [--seconds <s>]\n"); return 2; }
+	}
+	if (algorithm < 0 || algorithm > 7 || !(seconds > 0.0 && seconds <= 3600.0))
+	{
+		std::fprintf(stderr, "fm: --algorithm is 0 to 7 and --seconds is above 0 and at most 3600\n");
+		return 2;
 	}
 	buildTables();
 
