@@ -43,7 +43,7 @@
      u32 resetValue; std::string_view description; }` y `class RegisterMap { std::string_view device; std::span<const RegisterInfo> registers; const RegisterInfo* find(u32 offset) const; }`.
   3. Añade a `IODevice` `virtual const RegisterMap& registers() const` con una implementación por defecto que
      devuelve un mapa vacío (se hace obligatoria en F1.8).
-- **Aceptación**: [ ] Compila en todos los presets. [ ] Suites en verde. [ ] `detect_changes` sólo muestra los símbolos movidos.
+- **Aceptación**: [x] Compila en todos los presets. [x] Suites en verde. [x] `detect_changes` sólo muestra los símbolos movidos.
 - **Commit**: `Move IODevice to its own header and add RegisterMap (F1.1)`
 
 ### F1.2 · `libs/devices` como biblioteca compilada y con carpetas por grupo
@@ -183,3 +183,10 @@
 - [ ] Suites en verde en los tres repos. [ ] `benchmark_vm` dentro del 1 % de `BASELINE.md`. [ ] Revisión `ocr`.
 
 ## Notas
+
+- **Riesgo**: GitNexus da HIGH en `IODevice` (21 dependientes directos: todos los dispositivos), y dará HIGH en
+  `MmioBus` y en las rutas MMIO del motor. El usuario autorizó el 2026-09-25 seguir con los HIGH de los símbolos que
+  nombra cada tarea de F1, y parar sólo ante un HIGH o CRITICAL fuera de lo previsto.
+- **F1.1**: `IODevice`, `DummyDevice`, `NoDeviceEvent` y `DefaultHaltClockHz` pasan tal cual a `io_device.h`;
+  `registers()` devuelve una tabla vacía por defecto. `RegisterAccess` es el nombre del enum de acceso (evita chocar
+  con `AccessKind` y `MmuAccess`). Verificado con GCC, MSVC y el binario SDL.

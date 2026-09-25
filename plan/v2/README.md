@@ -147,6 +147,10 @@ Si un comando no existe tal cual (nombre de target, ruta de salida), búscalo en
   `C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools`, con `...\Microsoft Visual Studio\Installer` en el
   `PATH` (vcvars llama a `vswhere`). Sin él, CMake enlaza con el `ld` de MSYS2. Si un test revienta sólo con MSVC
   tras cambiar cabeceras, recompila con `--clean-first` antes de buscar el fallo.
+- Si tras `gitnexus analyze` cualquier consulta falla con «Binder exception: Cannot find property id for n»,
+  el índice quedó mal: `gitnexus analyze --force --skip-agents-md` en la raíz del repo lo rehace (y no toca
+  `AGENTS.md`/`CLAUDE.md`). La CLI (`gitnexus impact <símbolo> --direction upstream --repo Ceres-VM`) sirve
+  igual que el servidor MCP.
 - `CHECK_EQ(a, b)` evalúa dos veces sus argumentos al fallar: no pongas llamadas con efectos dentro.
 - La STDLIB compila tests y ejemplos con `-Werror`, y Ceres-C comprueba los formatos de `printf`.
 - Una `extern` de C sobre un nombre definido por el enlazador rompe `ceres asm` de todas las unidades de la
