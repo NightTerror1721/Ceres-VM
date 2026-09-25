@@ -35,7 +35,8 @@ collide.
 | `0xFF090000` | 9 | Audio (tone generator) |
 | `0xFF0A0000` | 10 | Peripheral ports (plug-in media) |
 | `0xFF0B0000` | 11 | Host files (semihosting) |
-| `0xFF0C0000`–`0xFFFE0000` | 12–254 | Reserved for future default devices |
+| `0xFF0C0000` | 12 | Blitter (2D rectangle operations) |
+| `0xFF0D0000`–`0xFFFE0000` | 13–254 | Reserved for future default devices |
 | `0xFFFF0000` | 255 | System control |
 
 Every slot is `MmioBus::SlotSize` (0x10000 = 64 KiB) wide, computed as `MmioBus::slot(index)` —
@@ -513,10 +514,17 @@ framebuffer, pixels to the display.
 | `0x00` | `CommandRegister` | Write | `1` clears the surface to black and rewinds the cursor; `2` presents the frame. |
 | `0x04` | `WidthRegister` | Read/write | Pixel columns, up to 1280. Zero or more than that is ignored as a typo. |
 | `0x08` | `HeightRegister` | Read/write | Pixel rows, up to 720. Resizing clears the surface. |
-| `0x0C` | `DataRegister` | Write | One pixel per word write, continuing from where the last write left off. |
-| `0xF0`/`0xF4`/`0xF8` | Block registers | Write (write only) | `2` blits a run of pixels from RAM in one trigger; `BLOCK_LEN` is bytes (a multiple of 4). |
+| `0x0C` | `DataRegister` | Write | One pixel per word write (an index in the indexed mode), continuing from where the last write left off. |
+| `0x10` | `ModeRegister` | Read/write | `0` RGB32 (the default), `1` **indexed**: a pixel is one byte, an index into the palette. Switching clears the indexed pixels and rewinds the cursor. |
+| `0x14` | `PaletteIndexRegister` | Write | The palette entry (0–255) the next `PaletteData` write sets. |
+| `0x18` | `PaletteDataRegister` | Write | RGB32 for that entry; the index moves on to the next, so 256 writes set the whole palette. |
+| `0x1C` | `ScrollXRegister` | Read/write | The column shown at the left edge; what goes off one side comes back on the other. |
+| `0x20` | `ScrollYRegister` | Read/write | The row shown at the top, wrapping the same way. |
+| `0xF0`/`0xF4`/`0xF8` | Block registers | Write (write only) | `2` blits a run of pixels from RAM in one trigger; `BLOCK_LEN` is bytes (a multiple of 4, or any count in the indexed mode, a byte a pixel). |
 
-The host routes a presented frame with `setFrameSink(width, height, pixels)`; without a sink nothing
+A presented frame goes through the palette (indexed mode) and the scroll: the frame the host sees is what the
+screen shows, and `DisplayDevice::frame()` keeps the last one for a window to draw. The host routes a presented
+frame with `setFrameSink(width, height, pixels)`; without a sink nothing
 happens, so a headless build stays silent and `ceres run --window` uploads the pixels into an SDL
 texture instead (see the [SDL3 plan](29-SDL3-Integration-Plan.md)).
 
@@ -664,6 +672,34 @@ on success, minus an errno number on failure, in the C library's numbering (`ENO
 
 The C library's `fopen("host:levels/1.txt", "r")` goes through it, and `ceres/hostfs.h` wraps it one
 operation per function.
+
+### `BlitterDevice` (`0xFF0C0000`)
+
+Rectangle operations on RGB32 surfaces in RAM, done by the host rather than by the program's instructions —
+what a game's frame spends most of its time on. A surface is an address (its first pixel) and a stride (bytes
+from one row to the next); an operation is a width, a height and a command, carried out at once.
+
+| Offset | Register | Direction | Meaning |
+| --- | --- | --- | --- |
+| `0x00` | `CommandRegister` | Write | The operation (below). |
+| `0x04`/`0x08` | `DstAddress`/`DstStride` | Write | The destination surface. |
+| `0x0C`/`0x10` | `SrcAddress`/`SrcStride` | Write | The source surface (an indexed one has a byte a pixel). |
+| `0x14`/`0x18` | `Width`/`Height` | Write | The rectangle, in pixels (of the source, for a copy); at most 4096 each. |
+| `0x1C` | `ColorRegister` | Write | The fill colour, or the key a keyed copy leaves out (an index, for an indexed one). |
+| `0x20` | `ScaleRegister` | Write | 1–8: each source pixel becomes a block this size in `CopyScaled`. |
+| `0x24` | `PaletteAddressRegister` | Write | 256 RGB32 entries in RAM, for the indexed copies. |
+| `0x28` | `ControlRegister` | Read/write | Bit 0: raise interrupt 25 when an operation is done. |
+| `0x2C` | `StatusRegister` | Read | Bit 0: the last operation ran a row outside RAM and stopped there. |
+| `0x30` | `PixelsRegister` | Read | How many destination pixels the last operation wrote. |
+
+| Command | Operation |
+| --- | --- |
+| `1` | Fill: every pixel of the destination rectangle becomes `Color`. |
+| `2` | Copy: source to destination. Overlapping surfaces are fine: rows go bottom-up when the destination starts after the source, and each row as `memmove` would. |
+| `3` | Copy keyed: the same, leaving out every source pixel equal to `Color` — sprites. |
+| `4` | Copy scaled: each source pixel becomes a `Scale` × `Scale` block. |
+| `5` | Copy indexed: each source byte is looked up in the palette. |
+| `6` | Copy indexed keyed: the same, leaving out the index in `Color`. |
 
 ## Related pages
 

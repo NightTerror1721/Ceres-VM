@@ -260,7 +260,7 @@ namespace ceres::sdl
 
 				const u32 width = display.width();
 				const u32 height = display.height();
-				const auto pixels = display.pixels();
+				const auto pixels = display.frame();
 
 				if (width == 0 || height == 0 || pixels.empty())
 					return;

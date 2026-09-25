@@ -246,6 +246,8 @@ namespace ceres::debug
 		_peripherals->attachTo(_vm->io());
 		_hostFs = std::make_unique<HostFsDevice>();   // with no directory: a program asking for host files is told ENODEV
 		_hostFs->attachTo(_vm->io());
+		_blitter = std::make_unique<BlitterDevice>();
+		_blitter->attachTo(_vm->io());
 
 		setOutputHandler(_outputHandler); // Routes both the terminal and the screen
 

@@ -9,6 +9,7 @@
 #include <ceres/devices/audio_device.h>
 #include <ceres/devices/peripheral_device.h>
 #include <ceres/devices/host_fs_device.h>
+#include <ceres/devices/blitter_device.h>
 #include <ceres/vm/ceresvm.h>
 
 #include <atomic>
@@ -42,6 +43,7 @@ namespace ceres::driver
 		AudioDevice audio;
 		PeripheralDevice peripherals;
 		HostFsDevice hostFs;
+		BlitterDevice blitter;
 		std::string startupError;
 
 		Impl(const MachineConfig& config, const MachineHost& host) :
@@ -74,6 +76,7 @@ namespace ceres::driver
 			audio.attachTo(vm.io());
 			peripherals.attachTo(vm.io());
 			hostFs.attachTo(vm.io());
+			blitter.attachTo(vm.io());
 			if (!config.hostDirectory.empty() && !hostFs.setRoot(config.hostDirectory))
 				startupError = "Not a directory: " + config.hostDirectory.string();
 
@@ -113,6 +116,7 @@ namespace ceres::driver
 			audio.detachFrom(vm.io());
 			peripherals.detachFrom(vm.io());
 			hostFs.detachFrom(vm.io());
+			blitter.detachFrom(vm.io());
 			control.detachFrom(vm.io());
 		}
 	};
@@ -220,6 +224,7 @@ namespace ceres::driver
 		AudioDevice audio;
 		PeripheralDevice peripherals;
 		HostFsDevice hostFs;
+		BlitterDevice blitter;
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		framebuffer.setWindowHost(backend != nullptr && backend->showsText());
@@ -253,6 +258,7 @@ namespace ceres::driver
 			return 1;
 		}
 		hostFs.attachTo(vm.io());
+		blitter.attachTo(vm.io());
 		for (const PortAttachment& port : ports)
 		{
 			std::string error;

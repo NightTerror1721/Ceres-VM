@@ -16,6 +16,7 @@
 #include <ceres/devices/storage_devices.h>
 #include <ceres/devices/input_devices.h>
 #include <ceres/devices/display_device.h>
+#include <ceres/devices/blitter_device.h>
 #include <ceres/vm/bios.h>
 #include <ceres/core/format/memory_map.h>
 #include <filesystem>
@@ -1118,6 +1119,103 @@ TEST(devices, a_display_clear_fills_black)
 	display.writeWord(DisplayDevice::CommandRegister, DisplayDevice::CommandClear);
 
 	CHECK_EQ(display.pixels()[0], u32{ 0 });
+}
+
+TEST(devices, an_indexed_display_goes_through_its_palette_and_scrolls)
+{
+	CeresVM vm{ Memory::DefaultSize };
+	DisplayDevice display{};
+	display.attachTo(vm.io());
+	display.writeWord(DisplayDevice::WidthRegister, 3);
+	display.writeWord(DisplayDevice::HeightRegister, 2);
+	display.writeWord(DisplayDevice::ModeRegister, DisplayDevice::ModeIndexed);
+	CHECK_EQ(display.readUnsignedWord(DisplayDevice::ModeRegister), DisplayDevice::ModeIndexed);
+	display.writeWord(DisplayDevice::PaletteIndexRegister, 1);
+	display.writeWord(DisplayDevice::PaletteDataRegister, 0x00FF0000u);   // 1: red
+	display.writeWord(DisplayDevice::PaletteDataRegister, 0x0000FF00u);   // 2: green
+	const u8 indices[6] = { 1, 2, 0, 0, 0, 2 };
+	for (u32 i = 0; i < 6; ++i)
+		vm.memory().writeUnchecked<u8>(Address(0x2000 + i), indices[i]);
+	display.writeWord(DisplayDevice::BlockAddressRegister, 0x2000);
+	display.writeWord(DisplayDevice::BlockLengthRegister, 6);            // a byte a pixel
+	display.writeWord(DisplayDevice::BlockCommandRegister, DisplayDevice::BlockCommandWrite);
+	std::vector<u32> shown;
+	display.setFrameSink([&](u32, u32, std::span<const u32> pixels) { shown.assign(pixels.begin(), pixels.end()); });
+	display.writeWord(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
+	CHECK(shown.size() == 6 && shown[0] == 0x00FF0000u && shown[1] == 0x0000FF00u && shown[2] == 0u && shown[5] == 0x0000FF00u);
+	display.writeWord(DisplayDevice::ScrollXRegister, 1);                // the second column shows at the left
+	display.writeWord(DisplayDevice::ScrollYRegister, 1);                // and the second row at the top
+	display.writeWord(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
+	CHECK(shown.size() == 6 && shown[0] == 0u && shown[1] == 0x0000FF00u && shown[2] == 0u);   // row 1, from column 1, wrapping
+	CHECK(shown.size() == 6 && shown[3] == 0x0000FF00u && shown[4] == 0u && shown[5] == 0x00FF0000u);
+	CHECK(display.frame()[3] == 0x0000FF00u);                             // what a window draws
+}
+
+TEST(devices, the_blitter_fills_copies_keys_scales_and_indexes)
+{
+	CeresVM vm{ Memory::DefaultSize };
+	BlitterDevice blitter{};
+	blitter.attachTo(vm.io());
+	auto px = [&](u32 address) { return vm.memory().readUnchecked<u32>(Address(address)); };
+	using B = BlitterDevice;
+	// A 4x3 destination surface at 0x10000 (stride 16), filled.
+	blitter.writeWord(B::DstAddressRegister, 0x10000);
+	blitter.writeWord(B::DstStrideRegister, 16);
+	blitter.writeWord(B::WidthRegister, 4);
+	blitter.writeWord(B::HeightRegister, 3);
+	blitter.writeWord(B::ColorRegister, 0x00123456u);
+	blitter.writeWord(B::CommandRegister, B::CommandFill);
+	CHECK_EQ(blitter.readUnsignedWord(B::PixelsRegister), 12u);
+	CHECK(px(0x10000) == 0x00123456u && px(0x10000 + 2 * 16 + 12) == 0x00123456u);
+	// A 2x1 sprite with a transparent pixel, copied keyed at (1, 1).
+	vm.memory().writeUnchecked<u32>(Address(0x20000), 0x00FF00FFu);          // the key
+	vm.memory().writeUnchecked<u32>(Address(0x20004), 0x00ABCDEFu);
+	blitter.writeWord(B::SrcAddressRegister, 0x20000);
+	blitter.writeWord(B::SrcStrideRegister, 8);
+	blitter.writeWord(B::DstAddressRegister, 0x10000 + 16 + 4);
+	blitter.writeWord(B::WidthRegister, 2);
+	blitter.writeWord(B::HeightRegister, 1);
+	blitter.writeWord(B::ColorRegister, 0x00FF00FFu);
+	blitter.writeWord(B::CommandRegister, B::CommandCopyKeyed);
+	CHECK_EQ(blitter.readUnsignedWord(B::PixelsRegister), 1u);
+	CHECK(px(0x10000 + 16 + 4) == 0x00123456u && px(0x10000 + 16 + 8) == 0x00ABCDEFu);
+	// Scaled x2: one source pixel becomes a 2x2 block.
+	blitter.writeWord(B::SrcAddressRegister, 0x20004);
+	blitter.writeWord(B::DstAddressRegister, 0x30000);
+	blitter.writeWord(B::DstStrideRegister, 8);
+	blitter.writeWord(B::WidthRegister, 1);
+	blitter.writeWord(B::HeightRegister, 1);
+	blitter.writeWord(B::ScaleRegister, 2);
+	blitter.writeWord(B::CommandRegister, B::CommandCopyScaled);
+	CHECK_EQ(blitter.readUnsignedWord(B::PixelsRegister), 4u);
+	CHECK(px(0x30000) == 0x00ABCDEFu && px(0x30004) == 0x00ABCDEFu && px(0x30008) == 0x00ABCDEFu && px(0x3000C) == 0x00ABCDEFu);
+	// Indexed through a palette, index 0 left out.
+	vm.memory().writeUnchecked<u32>(Address(0x40000 + 3 * 4), 0x00777777u);  // palette[3]
+	vm.memory().writeUnchecked<u8>(Address(0x50000), 3);
+	vm.memory().writeUnchecked<u8>(Address(0x50001), 0);
+	blitter.writeWord(B::PaletteAddressRegister, 0x40000);
+	blitter.writeWord(B::SrcAddressRegister, 0x50000);
+	blitter.writeWord(B::SrcStrideRegister, 2);
+	blitter.writeWord(B::DstAddressRegister, 0x10000);
+	blitter.writeWord(B::DstStrideRegister, 16);
+	blitter.writeWord(B::WidthRegister, 2);
+	blitter.writeWord(B::ColorRegister, 0);
+	blitter.writeWord(B::CommandRegister, B::CommandCopyIndexedKeyed);
+	CHECK(px(0x10000) == 0x00777777u && px(0x10004) == 0x00123456u);
+	// An overlapping copy one row down: rows go bottom-up, so every row arrives intact.
+	blitter.writeWord(B::SrcAddressRegister, 0x10000);
+	blitter.writeWord(B::SrcStrideRegister, 16);
+	blitter.writeWord(B::DstAddressRegister, 0x10010);
+	blitter.writeWord(B::WidthRegister, 4);
+	blitter.writeWord(B::HeightRegister, 2);
+	blitter.writeWord(B::CommandRegister, B::CommandCopy);
+	CHECK(px(0x10010) == 0x00777777u && px(0x10020 + 8) == 0x00ABCDEFu);
+	// Outside RAM: the error bit, and the interrupt when asked for.
+	blitter.writeWord(B::ControlRegister, B::ControlInterrupt);
+	blitter.writeWord(B::DstAddressRegister, static_cast<u32>(vm.memory().size()) - 8);
+	blitter.writeWord(B::CommandRegister, B::CommandFill);
+	CHECK_EQ(blitter.readUnsignedWord(B::StatusRegister), B::StatusError);
+	CHECK((vm.interrupts().pendingMask() & (u64{ 1 } << static_cast<u8>(B::Interrupt))) != 0);
 }
 
 // --- The gamepad -------------------------------------------------------------------------------
