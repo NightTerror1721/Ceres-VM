@@ -864,3 +864,117 @@ TEST(objects, an_interrupt_bound_to_a_handler_the_link_never_receives_is_a_link_
 	}
 	CHECK(foundUndefined);
 }
+
+namespace
+{
+	// A library with code nothing calls: `unused` and `unused_too` should go, `helper` stays because `say`
+	// calls it, and `second` stays because `first` - which main calls - runs on into it without a return.
+	constexpr std::string_view CollectableLibrary =
+		"const TERM_BLOCK_ADDR = 0xFF0000F0\r\n"
+		"const TERM_BLOCK_LEN = 0xFF0000F4\r\n"
+		"const TERM_BLOCK_CMD = 0xFF0000F8\r\n"
+		"\r\n"
+		"@text\r\n"
+		"global unused:\r\n"
+		"    li r1, 1\r\n"
+		"    li r1, 2\r\n"
+		"    li r1, 3\r\n"
+		"    ret\r\n"
+		"global say:\r\n"
+		"    call helper\r\n"
+		"    la r13, TERM_BLOCK_ADDR\r\n"
+		"    str [r13 + 0], r1\r\n"
+		"    la r13, TERM_BLOCK_LEN\r\n"
+		"    str [r13 + 0], r2\r\n"
+		"    la r13, TERM_BLOCK_CMD\r\n"
+		"    li r12, 2\r\n"
+		"    str [r13 + 0], r12\r\n"
+		"    ret\r\n"
+		"global helper:\r\n"
+		"    jp skip\r\n"
+		"    li r2, 0\r\n"
+		"skip:\r\n"
+		"    ret\r\n"
+		"global first:\r\n"
+		"    li r6, 5\r\n"
+		"global second:\r\n"
+		"    add r6, r6, 1\r\n"
+		"    ret\r\n"
+		"global unused_too:\r\n"
+		"    li r1, 4\r\n"
+		"    ret\r\n";
+
+	constexpr std::string_view CollectingProgram =
+		"import \"lib.casm\"\r\n"
+		"\r\n"
+		"@rodata\r\n"
+		"    let MESSAGE: u8[] = \"kept\"\r\n"
+		"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    call first\r\n"
+		"    la r1, MESSAGE\r\n"
+		"    li r2, 4\r\n"
+		"    call say\r\n"
+		"    add r6, r6, '0'\r\n"
+		"    la r13, 0xFF000004\r\n"
+		"    strb [r13 + 0], r6\r\n"
+		"    li r0, 1\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
+		"    ret\r\n";
+}
+
+TEST(objects, gc_sections_drops_the_functions_nothing_reaches)
+{
+	ObjectWorkspace ws{ "gc" };
+	ws.write("lib.casm", CollectableLibrary);
+	ws.write("main.casm", CollectingProgram);
+	auto library = ws.assemble("lib.casm");
+	auto program = ws.assemble("main.casm");
+	CHECK(library.has_value() && program.has_value());
+	if (!library || !program) { Registry::instance().recordFailure(ws.firstError()); return; }
+	CHECK((library.value().flags & casm::ObjectFile::FlagCompleteTextRelocations) != 0);
+
+	const auto linkWith = [&](bool collect, u32* collected)
+	{
+		std::vector<casm::ObjectArchive::Member> inputs;
+		inputs.push_back(memberOf("main.cobj", program.value()));
+		inputs.push_back(memberOf("lib.cobj", library.value()));
+		casm::ObjectLinker linker;
+		auto linked = linker.link(std::move(inputs), casm::ObjectLinkOptions{ .gcSections = collect });
+		*collected = linker.bytesCollected();
+		return linked;
+	};
+	u32 none = 0, some = 0;
+	auto whole = linkWith(false, &none);
+	auto trimmed = linkWith(true, &some);
+	CHECK(whole.has_value() && trimmed.has_value());
+	if (!whole || !trimmed) return;
+	CHECK_EQ(none, 0u);
+	CHECK_EQ(some, 6u * 4u);                                         // unused (4 instructions) and unused_too (2)
+	CHECK_EQ(whole.value().header().textSize - trimmed.value().header().textSize, some);
+	CHECK_EQ(run(whole.value()), std::string{ "kept6" });
+	CHECK_EQ(run(trimmed.value()), std::string{ "kept6" });          // the same program, smaller
+}
+
+TEST(objects, an_object_without_complete_relocations_is_kept_whole)
+{
+	ObjectWorkspace ws{ "gc-old" };
+	ws.write("lib.casm", CollectableLibrary);
+	ws.write("main.casm", CollectingProgram);
+	auto library = ws.assemble("lib.casm");
+	auto program = ws.assemble("main.casm");
+	if (!library || !program) { CHECK(false); return; }
+	casm::ObjectFile old = library.value();
+	old.flags = 0;                                                   // as an older assembler wrote it
+	std::vector<casm::ObjectArchive::Member> inputs;
+	inputs.push_back(memberOf("main.cobj", program.value()));
+	inputs.push_back(memberOf("lib.cobj", std::move(old)));
+	casm::ObjectLinker linker;
+	auto linked = linker.link(std::move(inputs), casm::ObjectLinkOptions{ .gcSections = true });
+	CHECK(linked.has_value());
+	CHECK_EQ(linker.bytesCollected(), 0u);
+	if (linked)
+		CHECK_EQ(run(linked.value()), std::string{ "kept6" });
+}

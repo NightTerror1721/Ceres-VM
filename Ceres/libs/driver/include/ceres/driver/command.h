@@ -27,6 +27,7 @@ namespace ceres::driver
 		bool debugInfo = false;
 		bool debugJson = false;
 		bool symbolTable = false;   // --symtab
+		bool gcSections = false;    // --gc-sections
 	};
 
 	struct ArchiveCommand

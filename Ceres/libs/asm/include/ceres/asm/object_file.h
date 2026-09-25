@@ -44,6 +44,13 @@ namespace ceres::casm
 		// without saying which object was looking for it.
 		std::string sourceFile;
 
+		// Bit 0: every reference from this object's .text to its own .text is a relocation, the PC-relative
+		// branches included (an assembler that knows where both ends are could leave those out, and older ones
+		// did). Only then can a link move the object's functions apart - see ObjectLinkOptions::gcSections.
+		// Kept in the header's once-reserved half-word, so an older object reads as 0: not movable.
+		static inline constexpr u16 FlagCompleteTextRelocations = 1;
+		u16 flags = 0;
+
 		std::vector<u8> text;
 		std::vector<u8> rodata;
 		std::vector<u8> data;

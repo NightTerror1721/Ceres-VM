@@ -135,7 +135,7 @@ namespace ceres::casm
 
 		writeU32(out, MagicNumber);
 		writeU16(out, CurrentVersion);
-		writeU16(out, 0); // Reserved, so the header stays a whole number of words
+		writeU16(out, flags); // Once reserved (0), which is what an older object still says
 
 		writeString(out, sourceFile);
 		writeBytes(out, text);
@@ -191,9 +191,10 @@ namespace ceres::casm
 			return std::unexpected(std::format("Object file version {} is not supported (this build reads version {})",
 				version, CurrentVersion));
 
-		reader.readU16(); // Reserved
+		const u16 flags = reader.readU16();
 
 		ObjectFile object;
+		object.flags = flags;
 		object.sourceFile = reader.readString();
 		object.text = reader.readBytes();
 		object.rodata = reader.readBytes();

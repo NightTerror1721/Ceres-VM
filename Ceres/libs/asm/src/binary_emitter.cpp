@@ -611,10 +611,9 @@ namespace ceres::casm
 		if (symbol.isNull())
 			return false;
 
-		// A branch to a label in this same object is already correct: the two ends move together
-		// wherever the object's .text is placed, so the distance between them never changes.
-		if (pcRelative && !external && section == SectionType::Text)
-			return false;
+		// A branch to a label in this same object is recorded too, although the two ends move together
+		// wherever the object's .text is placed: a link that drops unused functions (--gc-sections) moves
+		// the ones it keeps closer, and has to know every distance that crosses a function's end.
 
 		Relocation relocation;
 		relocation.offset = static_cast<u32>(_textBuffer.size());

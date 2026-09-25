@@ -167,7 +167,7 @@ namespace ceres::driver
 			}
 			ObjectLinker linker;
 			auto program = linker.link(std::move(inputs), {.requireEntryPoint = true, .emitDebugInfo = command.debugInfo,
-				.emitSymbolTable = command.symbolTable});
+				.emitSymbolTable = command.symbolTable, .gcSections = command.gcSections});
 			if (!program) { for (const auto& error : linker.errors()) err << "Link error: " << error << '\n'; return 1; }
 			if (auto saved = program->saveToFile(command.output); !saved) { err << "Failed to write " << command.output.string() << ": " << saved.error() << '\n'; return 1; }
 			err << "Wrote " << command.output.string() << '\n';

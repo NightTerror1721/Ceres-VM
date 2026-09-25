@@ -139,10 +139,17 @@ namespace ceres::casm
 		}
 
 		std::vector<const ObjectArchive::Member*> members;
-		for (usize i = 0; i < inputs.size(); ++i)
 		{
-			if (selected[i])
-				members.push_back(&inputs[i]);
+			std::vector<ObjectArchive::Member*> chosen;
+			for (usize i = 0; i < inputs.size(); ++i)
+			{
+				if (selected[i])
+					chosen.push_back(&inputs[i]);
+			}
+			_bytesCollected = 0;
+			if (options.gcSections && !options.emitDebugInfo)
+				collectUnusedCode(chosen);
+			members.assign(chosen.begin(), chosen.end());
 		}
 
 		// --- Where everything goes ---------------------------------------------------------------
@@ -549,5 +556,189 @@ namespace ceres::casm
 		};
 
 		return Program::make(header, text, rodata, data, interruptVectors, debugSection);
+	}
+
+	namespace
+	{
+		// Whether the instruction ending a piece of code never lets it run on into the next: a jump or a return.
+		// Anything else - a conditional branch, a call, data kept between functions - may.
+		bool endsControl(const std::vector<u8>& text, u32 begin, u32 end)
+		{
+			// Zero words (padding) are skipped: the instruction before them is the one that decides.
+			while (end >= begin + Instruction::Size)
+			{
+				const u32 at = end - Instruction::Size;
+				const Instruction::RawType raw = static_cast<Instruction::RawType>(text[at]) |
+					(static_cast<Instruction::RawType>(text[at + 1]) << 8) |
+					(static_cast<Instruction::RawType>(text[at + 2]) << 16) |
+					(static_cast<Instruction::RawType>(text[at + 3]) << 24);
+				if (raw == 0)
+				{
+					end = at;
+					continue;
+				}
+				const Opcode opcode = Instruction(raw).opcode();
+				return opcode == Opcode::JP || opcode == Opcode::JPR || opcode == Opcode::RET || opcode == Opcode::IRET;
+			}
+			return false;
+		}
+	}
+
+	void ObjectLinker::collectUnusedCode(std::vector<ObjectArchive::Member*>& members)
+	{
+		// Each object's .text in pieces, cut at its global names.
+		struct Pieces
+		{
+			std::vector<u32> starts;          // sorted; the first is 0
+			std::vector<bool> live;
+			std::vector<usize> relocationOrder; // this object's .text relocations, by offset
+			bool movable = false;
+		};
+		std::vector<Pieces> pieces(members.size());
+		std::unordered_map<std::string, std::pair<usize, const ObjectSymbol*>> byName;
+		for (usize m = 0; m < members.size(); ++m)
+		{
+			ObjectFile& object = members[m]->object;
+			Pieces& p = pieces[m];
+			p.movable = (object.flags & ObjectFile::FlagCompleteTextRelocations) != 0;
+			p.starts.push_back(0);
+			for (const ObjectSymbol& symbol : object.symbols)
+			{
+				byName.emplace(symbol.name, std::pair{ m, &symbol });
+				if (p.movable && symbol.section == SectionType::Text && symbol.offset < object.text.size())
+					p.starts.push_back(symbol.offset);
+			}
+			std::ranges::sort(p.starts);
+			p.starts.erase(std::unique(p.starts.begin(), p.starts.end()), p.starts.end());
+			p.live.assign(p.starts.size(), false);
+			for (usize r = 0; r < object.relocations.size(); ++r)
+				if (object.relocations[r].patchedSection == SectionType::Text)
+					p.relocationOrder.push_back(r);
+			std::ranges::sort(p.relocationOrder, [&](usize a, usize b) { return object.relocations[a].offset < object.relocations[b].offset; });
+		}
+
+		const auto pieceOf = [&](usize m, u32 offset) -> usize
+		{
+			const std::vector<u32>& starts = pieces[m].starts;
+			const auto after = std::upper_bound(starts.begin(), starts.end(), offset);
+			return static_cast<usize>(after - starts.begin()) - 1;
+		};
+		const auto pieceEnd = [&](usize m, usize k) -> u32
+		{
+			return k + 1 < pieces[m].starts.size() ? pieces[m].starts[k + 1] : static_cast<u32>(members[m]->object.text.size());
+		};
+
+		std::vector<std::pair<usize, usize>> work;
+		const auto mark = [&](usize m, SectionType section, u32 offset)
+		{
+			if (section != SectionType::Text)
+				return;
+			const usize k = pieceOf(m, offset);
+			if (!pieces[m].live[k])
+			{
+				pieces[m].live[k] = true;
+				work.emplace_back(m, k);
+			}
+		};
+		const auto markName = [&](const std::string& name)
+		{
+			const auto found = byName.find(name);
+			if (found != byName.end())
+				mark(found->second.first, found->second.second->section, found->second.second->offset);
+		};
+		const auto markTarget = [&](usize m, const Relocation& relocation)
+		{
+			if (relocation.isExternal())
+				markName(relocation.symbol);
+			else
+				mark(m, relocation.section, static_cast<u32>(relocation.addend));
+		};
+
+		// The roots: where the program starts, what the interrupts run, what the data points at - and all of an
+		// object that cannot be cut.
+		markName(std::string(SymbolTable::EntryPointLabelName));
+		for (usize m = 0; m < members.size(); ++m)
+		{
+			const ObjectFile& object = members[m]->object;
+			for (const ObjectInterruptBinding& binding : object.interruptBindings)
+			{
+				if (binding.isExternal())
+					markName(binding.symbol);
+				else
+					mark(m, binding.section, binding.offset);
+			}
+			for (const Relocation& relocation : object.relocations)
+				if (relocation.patchedSection != SectionType::Text)
+					markTarget(m, relocation);
+			if (!pieces[m].movable)
+				for (usize k = 0; k < pieces[m].starts.size(); ++k)
+					mark(m, SectionType::Text, pieces[m].starts[k]);
+		}
+
+		while (!work.empty())
+		{
+			const auto [m, k] = work.back();
+			work.pop_back();
+			const ObjectFile& object = members[m]->object;
+			const u32 begin = pieces[m].starts[k];
+			const u32 end = pieceEnd(m, k);
+			const std::vector<usize>& order = pieces[m].relocationOrder;
+			auto from = std::lower_bound(order.begin(), order.end(), begin,
+				[&](usize r, u32 value) { return object.relocations[r].offset < value; });
+			for (; from != order.end() && object.relocations[*from].offset < end; ++from)
+				markTarget(m, object.relocations[*from]);
+			if (k + 1 < pieces[m].starts.size() && !endsControl(object.text, begin, end))
+				mark(m, SectionType::Text, pieces[m].starts[k + 1]);   // it may run on into the next
+		}
+
+		// Each movable object keeps its live pieces, closed up, and everything that pointed into them moves too.
+		for (usize m = 0; m < members.size(); ++m)
+		{
+			Pieces& p = pieces[m];
+			ObjectFile& object = members[m]->object;
+			if (!p.movable || std::ranges::all_of(p.live, [](bool live) { return live; }))
+				continue;
+			const u32 oldSize = static_cast<u32>(object.text.size());
+			std::vector<i64> shift(p.starts.size(), 0);
+			std::vector<u8> text;
+			for (usize k = 0; k < p.starts.size(); ++k)
+			{
+				if (!p.live[k])
+					continue;
+				const u32 begin = p.starts[k];
+				const u32 end = pieceEnd(m, k);
+				shift[k] = static_cast<i64>(text.size()) - static_cast<i64>(begin);
+				text.insert(text.end(), object.text.begin() + begin, object.text.begin() + end);
+			}
+			const auto moved = [&](u32 offset) -> u32
+			{
+				if (offset >= oldSize)
+					return static_cast<u32>(text.size()) + (offset - oldSize);   // just past the end stays just past it
+				return static_cast<u32>(static_cast<i64>(offset) + shift[pieceOf(m, offset)]);
+			};
+			const auto kept = [&](u32 offset) { return offset >= oldSize || p.live[pieceOf(m, offset)]; };
+
+			std::erase_if(object.symbols, [&](const ObjectSymbol& symbol)
+				{ return symbol.section == SectionType::Text && !kept(symbol.offset); });
+			for (ObjectSymbol& symbol : object.symbols)
+				if (symbol.section == SectionType::Text)
+					symbol.offset = moved(symbol.offset);
+
+			std::erase_if(object.relocations, [&](const Relocation& relocation)
+				{ return relocation.patchedSection == SectionType::Text && !kept(relocation.offset); });
+			for (Relocation& relocation : object.relocations)
+			{
+				if (relocation.patchedSection == SectionType::Text)
+					relocation.offset = moved(relocation.offset);
+				if (!relocation.isExternal() && relocation.section == SectionType::Text)
+					relocation.addend = static_cast<i32>(moved(static_cast<u32>(relocation.addend)));
+			}
+			for (ObjectInterruptBinding& binding : object.interruptBindings)
+				if (!binding.isExternal() && binding.section == SectionType::Text)
+					binding.offset = moved(binding.offset);
+
+			_bytesCollected += oldSize - static_cast<u32>(text.size());
+			object.text = std::move(text);
+		}
 	}
 }

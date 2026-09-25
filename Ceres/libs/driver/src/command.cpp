@@ -12,7 +12,7 @@ namespace ceres::driver
 			"\n"
 			"  ceres asm <source.casm> [<source2.casm> ...] [-o <output.cres>] [--listing] [--json]\n"
 			"                          [--debug] [--emit-debug-json] [-c]\n"
-			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab]\n"
+			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab] [--gc-sections]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
 			"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>] [--window | --terminal]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
@@ -48,6 +48,8 @@ namespace ceres::driver
 			bool usedDebugJson = false;
 			bool symbolTable = false;
 			bool usedSymbolTable = false;
+			bool gcSections = false;
+			bool usedGcSections = false;
 			bool stopOnEntry = true;
 			bool usedStopOnEntry = false;
 			bool server = false;
@@ -145,6 +147,7 @@ namespace ceres::driver
 			else if (argument == "--debug") { raw.debugInfo = true; raw.usedDebugInfo = true; }
 			else if (argument == "--emit-debug-json") { raw.debugJson = true; raw.debugInfo = true; raw.usedDebugJson = true; }
 			else if (argument == "--symtab") { raw.symbolTable = true; raw.usedSymbolTable = true; }
+			else if (argument == "--gc-sections") { raw.gcSections = true; raw.usedGcSections = true; }
 			else if (argument == "--no-stop-on-entry") { raw.stopOnEntry = false; raw.usedStopOnEntry = true; }
 			else if (argument == "--server") { raw.server = true; raw.usedServer = true; }
 			else if (argument == "--no-history") { raw.recordHistory = false; raw.usedHistory = true; }
@@ -207,6 +210,8 @@ namespace ceres::driver
 		std::vector<std::filesystem::path> inputs(raw.positional.begin() + static_cast<std::ptrdiff_t>(firstInput), raw.positional.end());
 		if (raw.usedSymbolTable && command != "link")
 			return std::unexpected(invalidOption("--symtab", command));
+		if (raw.usedGcSections && command != "link")
+			return std::unexpected(invalidOption("--gc-sections", command));
 		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir) && command != "run")
 			return std::unexpected(invalidOption(raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : "--", command));
 		if (command == "asm")
@@ -221,7 +226,7 @@ namespace ceres::driver
 			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (raw.output.empty()) return std::unexpected(ParseError{ "'ceres link' needs -o <output.cres>" });
-			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson, raw.symbolTable };
+			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson, raw.symbolTable, raw.gcSections };
 		}
 		if (command == "ar")
 		{
