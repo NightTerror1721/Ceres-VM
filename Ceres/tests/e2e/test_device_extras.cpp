@@ -820,6 +820,51 @@ TEST(device_extras, a_tone_that_ends_clears_busy_and_raises_the_interrupt_once)
 	CHECK_EQ(m.reg(10), 0x42u);
 }
 
+TEST(device_extras, a_channel_rises_holds_and_falls_through_its_envelope)
+{
+	AudioDevice audio{};
+	using A = AudioDevice;
+	const u32 base = A::ChannelBase + 2 * A::ChannelStride;   // channel 2
+	audio.writeWord(Address(base + A::ChannelFrequency), 1000);
+	audio.writeWord(Address(base + A::ChannelVolume), 255);
+	audio.writeWord(Address(base + A::ChannelWaveform), A::Square);
+	audio.writeWord(Address(base + A::ChannelAttack), 10);     // 10 ms at 10 kHz: 100 samples
+	audio.writeWord(Address(base + A::ChannelDecay), 10);
+	audio.writeWord(Address(base + A::ChannelSustain), 128);
+	audio.writeWord(Address(base + A::ChannelRelease), 10);
+	CHECK_EQ(audio.readUnsignedWord(A::ChannelCountRegister), 4u);
+	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);
+	bool woken = false;
+	audio.setChannelWake([&] { woken = true; });
+	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
+	CHECK(woken);
+	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 4u);   // bit 2
+
+	std::vector<float> out(1000, 0.0f);
+	audio.renderChannels(out.data(), 50, 10000);                 // halfway up the attack
+	CHECK(std::abs(audio.channel(2).level - 0.5f) < 0.05f);
+	std::fill(out.begin(), out.end(), 0.0f);                      // it adds to what is there
+	audio.renderChannels(out.data(), 300, 10000);                 // attack and decay done: sustaining
+	CHECK(audio.channel(2).stage == A::Channel::Sustain);
+	CHECK(std::abs(audio.channel(2).level - 128.0f / 255.0f) < 0.01f);
+	float peak = 0.0f;
+	for (float s : out) peak = std::max(peak, std::abs(s));
+	CHECK(peak > 0.1f && peak <= 0.21f);                          // a square at full volume, with headroom
+
+	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOff);
+	audio.renderChannels(out.data(), 200, 10000);                 // the release runs out
+	CHECK(audio.channel(2).stage == A::Channel::Off);
+	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);
+
+	audio.writeWord(Address(base + A::ChannelDuty), 0);          // clamped to 1
+	CHECK_EQ(audio.readUnsignedWord(Address(base + A::ChannelDuty)), 1u);
+	audio.writeWord(Address(base + A::ChannelWaveform), 99);      // a typo keeps the one there
+	CHECK_EQ(audio.readUnsignedWord(Address(base + A::ChannelWaveform)), static_cast<u32>(A::Square));
+	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
+	audio.reset();                                                // a reset silences every channel
+	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);
+}
+
 TEST(device_extras, the_tone_registers_are_clamped_and_a_typo_waveform_is_ignored)
 {
 	AudioDevice audio{};

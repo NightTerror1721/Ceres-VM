@@ -595,6 +595,20 @@ li   r1, 1
 str  [r13 + 0x14], r1  // play
 ```
 
+**Four channels**, beside that voice, for music the way the 8-bit consoles made it: each has a frequency, a
+volume, a waveform — a square of any duty, triangle, sawtooth, sine or noise — and an ADSR envelope. A
+program keys a channel on (the attack starts from the level it has, so a retrigger does not click) and off
+(the release starts); the device mixes the four itself in `renderChannels()`, which the host's audio thread
+calls for the samples it needs, so every host sounds the same and a test can listen without speakers. A
+channel keyed on asks the host to start its audio (`setChannelWake`). A reset silences them.
+
+| Offset | Register | Direction | Meaning |
+| --- | --- | --- | --- |
+| `0x20` | `ChannelCommandRegister` | Write | `channel << 8 \| command`: `1` key on, `2` key off (the release), `3` stop at once. |
+| `0x24` | `ChannelStatusRegister` | Read | Bit *n* set while channel *n* sounds (its release included). |
+| `0x28` | `ChannelCountRegister` | Read | `4`. |
+| `0x40 + n × 0x20` | per channel | Read/write | `+0x00` frequency (Hz, 20–20000), `+0x04` volume (0–255), `+0x08` waveform, `+0x0C` duty of a square (1–255 of 256; 128 is half), `+0x10` attack, `+0x14` decay and `+0x1C` release in milliseconds, `+0x18` the sustain level (0–255). |
+
 ### `PeripheralDevice` (`0xFF0A0000`)
 
 Things plugged in while the machine runs: four ports where the host connects and disconnects media - a memory

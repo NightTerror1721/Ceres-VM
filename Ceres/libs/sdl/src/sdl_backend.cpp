@@ -226,6 +226,7 @@ namespace ceres::sdl
 					_samplesLeft = tone->durationMs == 0 ? -1 : static_cast<i64>(tone->durationMs) * SampleRate / 1000;
 					_toneActive = true;
 				});
+				audio.setChannelWake([this] { ensureAudio(); });   // the channels are mixed in synthesize()
 			}
 
 			void detachAudio() override
@@ -234,7 +235,10 @@ namespace ceres::sdl
 				{
 					const std::lock_guard lock{ _audioMutex };
 					if (_audio)
+					{
 						_audio->clearToneSink();
+						_audio->setChannelWake({});
+					}
 					_audio = nullptr;
 					_toneActive = false;
 					stream = _audioStream;
@@ -454,6 +458,8 @@ namespace ceres::sdl
 							}
 						}
 					}
+					if (_audio)
+						_audio->renderChannels(samples.data(), samples.size(), SampleRate);
 				}
 				SDL_PutAudioStreamData(stream, samples.data(), frames * static_cast<int>(sizeof(float)));
 			}
