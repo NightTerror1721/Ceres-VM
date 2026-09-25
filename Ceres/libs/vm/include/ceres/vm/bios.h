@@ -37,7 +37,7 @@ namespace ceres::vm
 			write(memory, 0, Instruction::LI(0, 'E'));
 			write(memory, 1, Instruction::LUI(1, static_cast<u16>(default_mmio::Terminal.value() >> 16)));
 			write(memory, 2, Instruction::ORI(1, 1, 0x0004));
-			write(memory, 3, Instruction::STRB(1, 0, 0));
+			write(memory, 3, Instruction::STR(1, 0, 0));
 			write(memory, 4, Instruction::HALT());
 		}
 

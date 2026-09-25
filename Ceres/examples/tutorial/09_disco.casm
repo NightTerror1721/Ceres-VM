@@ -71,7 +71,7 @@ global main:
     li r4, BLOCK_READ
     str [r13 + DISK_BLOCK_CMD], r4
 
-    ldrb r3, [r13 + DISK_STATUS]
+    ldr r3, [r13 + DISK_STATUS]
     and r3, r3, ERROR_BIT
     cmp r3, 0
     jnz .error
@@ -107,7 +107,7 @@ global main:
     la r1, COUNT_MSG
     call print
     la r13, TERM
-    strb [r13 + TERM_OUT], r8
+    str [r13 + TERM_OUT], r8
     la r1, NEWLINE_MSG
     call print
 
@@ -124,7 +124,7 @@ global main:
 
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 .error:
@@ -132,7 +132,7 @@ global main:
     call print
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 print:

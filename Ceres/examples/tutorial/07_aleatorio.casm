@@ -42,9 +42,9 @@ global main:
     call next_random       // r0 = pseudo-random number 0-31
     mod r0, r0, 6           // r0 = 0-5, like a die
     add r0, r0, '0'
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     li r5, NEWLINE
-    strb [r13 + 0], r5
+    str [r13 + 0], r5
 
     add r4, r4, 1
     li r6, 8
@@ -53,7 +53,7 @@ global main:
 
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 // next_random() -> r0 = next number in the sequence (the full 32 bits, the

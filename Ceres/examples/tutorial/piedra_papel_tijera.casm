@@ -137,7 +137,7 @@ global main:
     call print_uint
     li r7, '-'
     la r13, TERM
-    strb [r13 + TERM_OUT], r7
+    str [r13 + TERM_OUT], r7
     ldv r1, score_cpu
     call print_uint
     la r1, NL
@@ -157,7 +157,7 @@ global main:
     call print
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 // -------------------------------------------------------------
@@ -193,10 +193,10 @@ print_uint:
     div r3, r1, r2          // tens
     mod r1, r1, r2          // units (r1 is reused)
     add r3, r3, '0'
-    strb [r13 + TERM_OUT], r3
+    str [r13 + TERM_OUT], r3
 .pu_single:
     add r1, r1, '0'
-    strb [r13 + TERM_OUT], r1
+    str [r13 + TERM_OUT], r1
     ret
 
 // next_random() -> r0 = next value in the LCG sequence
@@ -214,15 +214,15 @@ next_random:
 read_command:
     la r13, TERM
 .wait_first:
-    ldrb r1, [r13 + TERM_STATUS]
+    ldr r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .wait_first
-    ldrb r0, [r13 + TERM_IN]
+    ldr r0, [r13 + TERM_IN]
 .flush:
-    ldrb r1, [r13 + TERM_STATUS]
+    ldr r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .flush
-    ldrb r2, [r13 + TERM_IN]
+    ldr r2, [r13 + TERM_IN]
     cmp r2, NEWLINE
     jnz .flush
     ret

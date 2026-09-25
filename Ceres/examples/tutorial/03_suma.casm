@@ -61,14 +61,14 @@ global main:
 .single_digit:
     add r6, r6, '0'     // number -> ascii
     la r13, TERM
-    strb [r13 + TERM_OUT], r6
+    str [r13 + TERM_OUT], r6
     li r7, NEWLINE
-    strb [r13 + TERM_OUT], r7
+    str [r13 + TERM_OUT], r7
 
 .done:
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 // read_command() -> r0 = first byte of the next line typed by the user.
@@ -76,16 +76,16 @@ global main:
 read_command:
     la r13, TERM
 .wait_first:
-    ldrb r1, [r13 + TERM_STATUS]
+    ldr r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .wait_first
-    ldrb r0, [r13 + TERM_IN]     // store the first byte in r0 (return value)
+    ldr r0, [r13 + TERM_IN]     // store the first byte in r0 (return value)
 
 .flush:
-    ldrb r1, [r13 + TERM_STATUS]
+    ldr r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .flush
-    ldrb r2, [r13 + TERM_IN]
+    ldr r2, [r13 + TERM_IN]
     cmp r2, NEWLINE
     jnz .flush
     ret

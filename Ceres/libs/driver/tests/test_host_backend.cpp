@@ -193,10 +193,10 @@ TEST(driver_window, a_windowed_run_drives_the_cooperative_loop)
 			"global main:\n"
 			"    la r13, 0xFF000004\n"
 			"    li r0, 65\n"
-			"    strb [r13 + 0], r0\n"
+			"    str  [r13 + 0], r0\n"
 			"    la r13, 0xFFFF0000\n"
 			"    li r0, 1\n"
-			"    strb [r13 + 0], r0\n";
+			"    str  [r13 + 0], r0\n";
 	}
 
 	RecordingBackend* captured = nullptr;
@@ -234,12 +234,12 @@ TEST(driver_window, what_is_typed_in_the_window_reaches_a_program_reading_the_te
 		"    la   r13, 0xFF000000\n"
 		"    li   r4, 0\n"
 		".wait:\n"
-		"    ldrb r1, [r13 + 0]\n"
+		"    ldr  r1, [r13 + 0]\n"
 		"    and  r2, r1, 1\n"
 		"    cmp  r2, 0\n"
 		"    jz   .wait\n"
-		"    ldrb r3, [r13 + 8]\n"
-		"    strb [r13 + 4], r3\n"
+		"    ldr  r3, [r13 + 8]\n"
+		"    str  [r13 + 4], r3\n"
 		"    add  r4, r4, 1\n"
 		"    cmp  r4, 2\n"
 		"    jnz  .wait\n"
@@ -263,15 +263,15 @@ TEST(driver_window, a_program_that_asked_for_raw_keys_reads_them_and_the_termina
 		"    str  [r13 + 0x18], r0\n"
 		"    ldr  r5, [r13 + 0x18]\n"       // what the host granted: raw (1) and keystrokes (2)
 		"    add  r5, r5, 48\n"
-		"    strb [r13 + 4], r5\n"
+		"    str  [r13 + 4], r5\n"
 		".wait:\n"
 		"    ldr  r1, [r12 + 0]\n"
 		"    and  r2, r1, 4\n"
 		"    cmp  r2, 0\n"
 		"    jz   .wait\n"
 		"    ldr  r3, [r12 + 0x0C]\n"
-		"    strb [r13 + 4], r3\n"
-		"    ldrb r1, [r13 + 0]\n"
+		"    str  [r13 + 4], r3\n"
+		"    ldr  r1, [r13 + 0]\n"
 		"    and  r2, r1, 1\n"
 		"    cmp  r2, 0\n"
 		"    jz   .none\n"
@@ -280,7 +280,7 @@ TEST(driver_window, a_program_that_asked_for_raw_keys_reads_them_and_the_termina
 		".none:\n"
 		"    li   r3, 78\n"                  // 'N'
 		".say:\n"
-		"    strb [r13 + 4], r3\n"
+		"    str  [r13 + 4], r3\n"
 		"    la   r7, 0xFFFF0000\n"
 		"    li   r0, 1\n"
 		"    str  [r7 + 0], r0\n");
@@ -451,10 +451,10 @@ TEST(driver_window, a_program_halted_for_a_key_gets_it_from_the_next_pump)
 		"on_key:\n"
 		"    li r0, 107\n"
 		"    la r13, 0xFF000004\n"
-		"    strb [r13 + 0], r0\n"
+		"    str  [r13 + 0], r0\n"
 		"    li r0, 1\n"
 		"    la r13, 0xFFFF0000\n"
-		"    strb [r13 + 0], r0\n"
+		"    str  [r13 + 0], r0\n"
 		"    iret\n";
 
 	const auto start = std::chrono::steady_clock::now();

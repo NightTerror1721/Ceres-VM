@@ -294,7 +294,7 @@ a leaf function pays for nothing: it has no reason to touch the stack at all.
     ...
 print_char:
     la r13, 0xFF000004      // Terminal's OutputRegister
-    strb [r13 + 0], r0
+    str  [r13 + 0], r0
     jp r11                  // the return: JPR, which already existed
 ```
 
@@ -559,7 +559,7 @@ in a 64 KiB window reserved for it in the top 16 MiB of the address space
 
 ```casm
 la r1, 0xFF000004   // TerminalDevice's OutputRegister
-strb [r1 + 0], r2    // write a byte to it, exactly like any other store
+str  [r1 + 0], r2    // write to it (its low byte), exactly like any other store
 ```
 
 See [I/O devices and ports](07-IO-Devices-and-Ports.md) for the address map, the register layout

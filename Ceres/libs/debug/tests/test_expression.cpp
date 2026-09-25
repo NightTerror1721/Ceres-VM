@@ -77,7 +77,7 @@ namespace
 		"    jnz .loop\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	std::unique_ptr<debug::DebugSession> launchOrNull(const TempSource& source)

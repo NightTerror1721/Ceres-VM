@@ -139,9 +139,9 @@ const TERM_OUT = 0xFF000004
 @text
 global term_isr:
     la r13, TERM_IN
-    ldrb r1, [r13 + 0]
+    ldr  r1, [r13 + 0]
     la r13, TERM_OUT
-    strb [r13 + 0], r1
+    str  [r13 + 0], r1
     iret
 ```
 

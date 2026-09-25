@@ -160,29 +160,29 @@ TEST(driver_machine, main_receives_argc_argv_and_envp_and_the_registers_say_the_
 			"    mov r11, r2\n"                 // envp
 			"    la r13, 0xFF000004\n"
 			"    add r3, r0, 48\n"              // argc as a digit
-			"    strb [r13 + 0], r3\n"
+			"    str  [r13 + 0], r3\n"
 			"    ldr r4, [r10 + 4]\n"           // argv[1][0]
 			"    ldrb r5, [r4 + 0]\n"
-			"    strb [r13 + 0], r5\n"
+			"    str  [r13 + 0], r5\n"
 			"    ldr r4, [r11 + 0]\n"           // envp[0][0]
 			"    ldrb r5, [r4 + 0]\n"
-			"    strb [r13 + 0], r5\n"
+			"    str  [r13 + 0], r5\n"
 			"    la r12, 0xFFFF0000\n"
 			"    ldr r6, [r12 + 24]\n"          // ArgumentCountRegister
 			"    add r6, r6, 48\n"
-			"    strb [r13 + 0], r6\n"
+			"    str  [r13 + 0], r6\n"
 			"    ldr r7, [r12 + 28]\n"          // ArgumentVectorRegister: argv[2][0]
 			"    ldr r8, [r7 + 8]\n"
 			"    ldrb r9, [r8 + 0]\n"
-			"    strb [r13 + 0], r9\n"
+			"    str  [r13 + 0], r9\n"
 			"    ldr r7, [r7 + 12]\n"           // argv[argc] is a null pointer
 			"    cmp r7, 0\n"
 			"    jz .done\n"
 			"    li r9, 33\n"
-			"    strb [r13 + 0], r9\n"
+			"    str  [r13 + 0], r9\n"
 			".done:\n"
 			"    li r0, 1\n"
-			"    strb [r12 + 0], r0\n";
+			"    str  [r12 + 0], r0\n";
 	}
 	ceres::casm::Assembler assembler;
 	auto program = assembler.assemble({source});
@@ -246,10 +246,10 @@ TEST(driver_machine, host_receives_terminal_output)
 			"global main:\n"
 			"    la r13, 0xFF000004\n"
 			"    li r0, 65\n"
-			"    strb [r13 + 0], r0\n"
+			"    str  [r13 + 0], r0\n"
 			"    la r13, 0xFFFF0000\n"
 			"    li r0, 1\n"
-			"    strb [r13 + 0], r0\n";
+			"    str  [r13 + 0], r0\n";
 	}
 	ceres::casm::Assembler assembler;
 	auto program = assembler.assemble({source});
@@ -297,12 +297,12 @@ TEST(driver_run, piped_input_longer_than_the_ring_is_held_back_not_dropped)
 			"    jp   .done\n"
 			".got:\n"
 			"    ldr  r5, [r6 + 8]\n"
-			"    strb [r6 + 4], r5\n"
+			"    str  [r6 + 4], r5\n"
 			"    sub  r3, r3, 1\n"
 			"    ifne r3, 0, .next\n"
 			".done:\n"
 			"    li   r0, 1\n"
-			"    strb [r7 + 0], r0\n";
+			"    str  [r7 + 0], r0\n";
 	}
 
 	std::string sent;
@@ -331,7 +331,7 @@ TEST(driver_run, unread_input_does_not_keep_the_run_from_ending)
 			"global main:\n"
 			"    la   r7, 0xFFFF0000\n"
 			"    li   r0, 1\n"
-			"    strb [r7 + 0], r0\n";
+			"    str  [r7 + 0], r0\n";
 	}
 
 	std::istringstream input{std::string(5000, 'x')};
@@ -362,7 +362,7 @@ TEST(driver_machine, host_receives_presented_frames)
 			"    str [r13 + 0], r0\n"
 			"    la r13, 0xFFFF0000\n"
 			"    li r0, 1\n"
-			"    strb [r13 + 0], r0\n";
+			"    str  [r13 + 0], r0\n";
 	}
 	ceres::casm::Assembler assembler;
 	auto program = assembler.assemble({source});
@@ -410,12 +410,12 @@ TEST(driver_run, a_program_can_read_until_the_end_of_its_input)
 			"global main:\n"
 			"    la   r13, 0xFF000000\n"
 			".wait:\n"
-			"    ldrb r1, [r13 + 0]\n"
+			"    ldr  r1, [r13 + 0]\n"
 			"    and  r2, r1, 1\n"
 			"    cmp  r2, 0\n"
 			"    jz   .check_end\n"
-			"    ldrb r3, [r13 + 8]\n"
-			"    strb [r13 + 4], r3\n"
+			"    ldr  r3, [r13 + 8]\n"
+			"    str  [r13 + 4], r3\n"
 			"    jp   .wait\n"
 			".check_end:\n"
 			"    and  r2, r1, 4\n"

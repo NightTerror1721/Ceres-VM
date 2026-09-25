@@ -135,7 +135,7 @@ TEST(paging, a_virtual_address_above_the_end_of_ram_is_translated_too)
 		Instruction::LDR(3, 2, 8),
 		Instruction::LUI(5, 0xFF00),      // the terminal: a device, physical with no mapping at all
 		Instruction::LI(6, 'M'),
-		Instruction::STRB(5, 6, 4),
+		Instruction::STR(5, 6, 4),
 	};
 	mapCodeIdentity(m);
 	mapPage(m, PageDirectory, DataTable, 512, 0, FrameA, Mmu::PtePresent | Mmu::PteWritable);

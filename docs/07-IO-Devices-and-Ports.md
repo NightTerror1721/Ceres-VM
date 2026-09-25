@@ -140,7 +140,7 @@ alone. Both registers read all-ones when the host connected no engine.
 ```casm
 li  r0, 0x01
 la  r13, 0xFFFF0000
-strb [r13 + 0], r0    // halt the VM cleanly
+str  [r13 + 0], r0    // halt the VM cleanly
 ```
 
 Reading the command register returns all-ones like any other write-only register would.
@@ -232,7 +232,7 @@ A minimal character terminal.
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |
 | `0x00` | `StatusRegister` | Read | Bit 0 (`0x01`) set when input is available to read; bit 1 (`0x02`) is always set (the terminal is always ready to accept output in this simple implementation); bit 2 (`0x04`) set at **end of input**: the host closed the input and every byte it sent has been read. |
-| `0x04` | `OutputRegister` | Write | Writes a byte (or more, via the halfword/word/block forms) straight to the process's standard output as characters. |
+| `0x04` | `OutputRegister` | Write | A 32-bit store sends its **low byte** to the process's standard output; the rest of the word is ignored. A buffer goes through the block registers. |
 | `0x08` | `InputRegister` | Read | Reads the next byte from a small 64-byte input ring buffer (`pushInput()`, called by the host embedding the VM), or `0` if nothing is buffered. |
 | `0x0C` | `BytesAvailableRegister` | Read | How many bytes are currently buffered and unread. |
 | `0x10` | `BlockReadCountRegister` | Read | How many bytes the most recent block read actually moved into RAM (a short read is how a program learns its input ended early). |
@@ -245,14 +245,14 @@ A minimal character terminal.
 // print one character
 li  r0, 'H'
 la  r13, 0xFF000004
-strb [r13 + 0], r0
+str  [r13 + 0], r0
 
 // print the null-terminated string pointed to by r1
 .print_loop:
     ldrb r2, [r1]
     cmp r2, 0
     jz .print_end
-    strb [r13 + 0], r2   // r13 is still the OutputRegister's address
+    str  [r13 + 0], r2   // r13 is still the OutputRegister's address
     add r1, r1, 1
     jp .print_loop
 .print_end:

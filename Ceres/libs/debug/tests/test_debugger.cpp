@@ -73,7 +73,7 @@ namespace
 		"    stv total, r0\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n"
 		"\r\n"
 		"double_it:\r\n"
@@ -89,7 +89,7 @@ namespace
 		"    la r1, total\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	std::unique_ptr<debug::DebugSession> launchOrNull(const TempSource& source, bool stopOnEntry = true)
@@ -339,12 +339,12 @@ TEST(debugger, the_program_output_reaches_the_handler_byte_by_byte)
 		"global main:\r\n"
 		"    li r1, 72\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r1\r\n"
+		"    str  [r13 + 0], r1\r\n"
 		"    li r1, 105\r\n"
-		"    strb [r13 + 0], r1\r\n"
+		"    str  [r13 + 0], r1\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource source{ PrintSource, "output" };
@@ -638,7 +638,7 @@ TEST(debugger, a_watch_catches_a_write_that_changes_nothing)
 		"    stv counter, r1\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource source{ Source, "watchsame" };
@@ -668,7 +668,7 @@ TEST(debugger, a_read_watch_catches_a_load)
 		"    ldv r1, counter\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource source{ Source, "watchread" };
@@ -712,7 +712,7 @@ TEST(debugger, a_function_with_a_frame_is_unwound_rather_than_inferred)
 		"    leave\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n"
 		"level_one:\r\n"
 		"    enter 8\r\n"
@@ -750,7 +750,7 @@ TEST(debugger, a_function_with_no_frame_has_nothing_to_unwind)
 		"    nop\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource plainSource{ Source, "noframe" };

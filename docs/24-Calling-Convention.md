@@ -286,7 +286,7 @@ A function that calls nothing has no reason to touch the stack, and
 
 print_char:
     la r13, 0xFF000004      // Terminal's OutputRegister
-    strb [r13 + 0], arg0
+    str  [r13 + 0], arg0
     jp r11
 ```
 

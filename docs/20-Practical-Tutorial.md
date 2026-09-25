@@ -62,15 +62,15 @@ const TERM_IN      = 0x08
 read_command:
     la r13, TERM
 .wait_first:
-    ldrb r1, [r13 + TERM_STATUS]
+    ldr  r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .wait_first
-    ldrb r0, [r13 + TERM_IN]      // r0 = first byte (return value)
+    ldr  r0, [r13 + TERM_IN]      // r0 = first byte (return value)
 .flush:
-    ldrb r1, [r13 + TERM_STATUS]
+    ldr  r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .flush
-    ldrb r2, [r13 + TERM_IN]
+    ldr  r2, [r13 + TERM_IN]
     cmp r2, 10
     jnz .flush
     ret

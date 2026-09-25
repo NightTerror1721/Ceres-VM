@@ -367,7 +367,7 @@ TEST(devices, the_terminal_wakes_a_halted_machine_on_input)
 		Instruction::STI(),
 		Instruction::HALT(),
 		LoadBase(TerminalBase), LoadBaseLow(TerminalBase),
-		Instruction::LDRB(1, Base, Off(TerminalDevice::InputRegister)),
+		Instruction::LDR(1, Base, Off(TerminalDevice::InputRegister)),
 	};
 
 	TerminalDevice terminal{};
@@ -537,8 +537,8 @@ TEST(devices, the_interrupt_directive_installs_a_real_handler_for_terminal_input
 		"    halt\r\n" // never reached; just gives the resume point after IRET somewhere harmless
 		"term_isr:\r\n"
 		"    la r13, 0xFF000000\r\n" // Terminal's MMIO base
-		"    ldrb r1, [r13 + 8]\r\n" // InputRegister
-		"    strb [r13 + 4], r1\r\n" // OutputRegister - echo it straight back
+		"    ldr  r1, [r13 + 8]\r\n" // InputRegister
+		"    str  [r13 + 4], r1\r\n" // OutputRegister - echo it straight back
 		"    iret\r\n");
 
 	CHECK(r.ok());
@@ -574,13 +574,12 @@ TEST(devices, the_interrupt_directive_installs_a_real_handler_for_terminal_input
 
 TEST(devices, terminal_output_goes_to_the_installed_sink_instead_of_stdout)
 {
-	// A byte write and a word write, low byte first: together they cover both paths through
-	// emitByte.
+	// Two word writes: each sends its low byte, and only that - the rest of the word is not more text.
 	Machine m{
 		LoadBase(TerminalBase), LoadBaseLow(TerminalBase),
 		Instruction::LI(1, 'C'),
-		Instruction::STRB(Base, 1, Off(TerminalDevice::OutputRegister)),
-		Instruction::LI(2, 0x0000'6165), // 'e', 'a', 0, 0
+		Instruction::STR(Base, 1, Off(TerminalDevice::OutputRegister)),
+		Instruction::LI(2, 0x0000'6165), // 'e' in the low byte, 'a' above it
 		Instruction::STR(Base, 2, Off(TerminalDevice::OutputRegister)),
 	};
 
@@ -592,8 +591,7 @@ TEST(devices, terminal_output_goes_to_the_installed_sink_instead_of_stdout)
 
 	m.step(6);
 
-	CHECK_EQ(captured.size(), usize{ 5 });
-	CHECK(captured.starts_with("Cea"));
+	CHECK_EQ(captured, std::string{ "Ce" });
 }
 
 TEST(devices, a_multi_byte_character_reaches_the_sink_one_byte_at_a_time)
@@ -603,9 +601,9 @@ TEST(devices, a_multi_byte_character_reaches_the_sink_one_byte_at_a_time)
 	Machine m{
 		LoadBase(TerminalBase), LoadBaseLow(TerminalBase),
 		Instruction::LI(1, 0xC3),
-		Instruction::STRB(Base, 1, Off(TerminalDevice::OutputRegister)),
+		Instruction::STR(Base, 1, Off(TerminalDevice::OutputRegister)),
 		Instruction::LI(1, 0xA1),
-		Instruction::STRB(Base, 1, Off(TerminalDevice::OutputRegister)),
+		Instruction::STR(Base, 1, Off(TerminalDevice::OutputRegister)),
 	};
 
 	TerminalDevice terminal{};
@@ -731,7 +729,7 @@ TEST(devices, a_sector_past_the_end_of_the_disk_is_refused_rather_than_wrapped)
 		Instruction::STR(Base, 3, Off(DiskDevice::BlockLengthRegister)),
 		Instruction::LI(5, DiskDevice::BlockCommandWrite),
 		Instruction::STR(Base, 5, Off(DiskDevice::BlockCommandRegister)),
-		Instruction::LDRB(6, Base, Off(DiskDevice::StatusRegister)),
+		Instruction::LDR(6, Base, Off(DiskDevice::StatusRegister)),
 	};
 
 	DiskDevice disk{ 4 }; // Four sectors, so 9999 is nowhere

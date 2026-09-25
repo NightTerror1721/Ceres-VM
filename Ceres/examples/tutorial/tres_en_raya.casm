@@ -145,7 +145,7 @@ global main:
 .end:
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 // -------------------------------------------------------------
@@ -220,7 +220,7 @@ print_board:
     call print_cell
     li r6, NEWLINE
     la r13, TERM
-    strb [r13 + TERM_OUT], r6
+    str [r13 + TERM_OUT], r6
     la r1, SEP
     call print
 
@@ -234,7 +234,7 @@ print_board:
     call print_cell
     li r6, NEWLINE
     la r13, TERM
-    strb [r13 + TERM_OUT], r6
+    str [r13 + TERM_OUT], r6
     la r1, SEP
     call print
 
@@ -248,7 +248,7 @@ print_board:
     call print_cell
     li r6, NEWLINE
     la r13, TERM
-    strb [r13 + TERM_OUT], r6
+    str [r13 + TERM_OUT], r6
     ret
 
 // print_cell(r1 = index 0-8) -> prints " N " (empty), " X " or " O ".
@@ -259,7 +259,7 @@ print_cell:
     la r13, TERM           // built once; nothing below calls out, so it survives
 
     li r5, ' '
-    strb [r13 + TERM_OUT], r5
+    str [r13 + TERM_OUT], r5
 
     cmp r4, 0
     jz .empty
@@ -273,30 +273,30 @@ print_cell:
 .empty:
     add r5, r1, '1'        // show the cell's number (index+1)
 .print_it:
-    strb [r13 + TERM_OUT], r5
+    str [r13 + TERM_OUT], r5
     li r5, ' '
-    strb [r13 + TERM_OUT], r5
+    str [r13 + TERM_OUT], r5
     ret
 
 print_bar:
     li r6, '|'
     la r13, TERM
-    strb [r13 + TERM_OUT], r6
+    str [r13 + TERM_OUT], r6
     ret
 
 // read_command() -> r0 = first byte of the next line typed.
 read_command:
     la r13, TERM
 .wait_first:
-    ldrb r1, [r13 + TERM_STATUS]
+    ldr r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .wait_first
-    ldrb r0, [r13 + TERM_IN]
+    ldr r0, [r13 + TERM_IN]
 .flush:
-    ldrb r1, [r13 + TERM_STATUS]
+    ldr r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .flush
-    ldrb r2, [r13 + TERM_IN]
+    ldr r2, [r13 + TERM_IN]
     cmp r2, NEWLINE
     jnz .flush
     ret

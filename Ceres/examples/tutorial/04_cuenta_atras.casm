@@ -29,9 +29,9 @@ global main:
     jz .liftoff
 
     add r5, r4, '0'     // convert the counter to an ascii character
-    strb [r13 + 0], r5
+    str [r13 + 0], r5
     li r6, NEWLINE
-    strb [r13 + 0], r6
+    str [r13 + 0], r6
 
     sub r4, r4, 1
     jp .loop
@@ -42,7 +42,7 @@ global main:
 
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 print:

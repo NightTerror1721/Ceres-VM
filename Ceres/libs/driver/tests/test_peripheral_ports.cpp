@@ -60,10 +60,10 @@ namespace
 		"    ldr r2, [r1 + 0x2C]\n"
 		"    add r2, r2, 48\n"
 		"    la r3, 0xFF000004\n"
-		"    strb [r3 + 0], r2\n"
+		"    str  [r3 + 0], r2\n"
 		"    li r0, 1\n"
 		"    la r13, 0xFFFF0000\n"
-		"    strb [r13 + 0], r0\n"
+		"    str  [r13 + 0], r0\n"
 		"    ret\n";
 
 	// Reads the first byte of sector 0 of port 1 and prints it.
@@ -84,10 +84,10 @@ namespace
 		"    str [r1 + 0xF8], r2\n"
 		"    ldrb r4, [r3 + 0]\n"
 		"    la r5, 0xFF000004\n"
-		"    strb [r5 + 0], r4\n"
+		"    str  [r5 + 0], r4\n"
 		"    li r0, 1\n"
 		"    la r13, 0xFFFF0000\n"
-		"    strb [r13 + 0], r0\n"
+		"    str  [r13 + 0], r0\n"
 		"    ret\n";
 }
 
@@ -213,11 +213,11 @@ namespace
 		"    add r3, r3, 48\n"
 		"    add r6, r6, 48\n"
 		"    la r4, 0xFF000004\n"
-		"    strb [r4 + 0], r6\n"
-		"    strb [r4 + 0], r3\n"
+		"    str  [r4 + 0], r6\n"
+		"    str  [r4 + 0], r3\n"
 		"    li r0, 1\n"
 		"    la r13, 0xFFFF0000\n"
-		"    strb [r13 + 0], r0\n"
+		"    str  [r13 + 0], r0\n"
 		"    ret\n";
 }
 

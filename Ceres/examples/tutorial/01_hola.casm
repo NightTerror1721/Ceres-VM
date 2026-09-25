@@ -23,7 +23,7 @@ global main:
     call print
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 // print(r1 = pointer to a zero-terminated string) -> prints the whole string

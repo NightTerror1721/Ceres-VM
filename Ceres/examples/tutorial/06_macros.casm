@@ -1,6 +1,6 @@
 // Exercise 6: Macros and a calling convention
 //
-// Goal: stop repeating "strb [r13 + 0], r2" everywhere by defining macros,
+// Goal: stop repeating "str [r13 + 0], r2" everywhere by defining macros,
 // and see the wiki's calling convention (proc_enter/proc_leave) in action:
 // r0 = return value, r1-r3 = arguments, r4-r9 are "callee-saved" (a
 // subroutine that touches them must restore them).
@@ -23,7 +23,7 @@ const NEWLINE      = 10
 
 macro print_char $reg
     la r13, TERM
-    strb [r13 + TERM_OUT], $reg
+    str [r13 + TERM_OUT], $reg
 endmacro
 
 macro proc_enter
@@ -57,7 +57,7 @@ global main:
 
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 // ask_yes_no(r1 = question) -> r0 = 1 if the user answered 'y'/'Y'
@@ -96,16 +96,16 @@ react:
 read_command:
     la r13, TERM
 .wait_first:
-    ldrb r1, [r13 + TERM_STATUS]
+    ldr r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .wait_first
-    ldrb r0, [r13 + TERM_IN]
+    ldr r0, [r13 + TERM_IN]
 
 .flush:
-    ldrb r1, [r13 + TERM_STATUS]
+    ldr r1, [r13 + TERM_STATUS]
     and r1, r1, 1
     jz .flush
-    ldrb r2, [r13 + TERM_IN]
+    ldr r2, [r13 + TERM_IN]
     cmp r2, NEWLINE
     jnz .flush
     ret

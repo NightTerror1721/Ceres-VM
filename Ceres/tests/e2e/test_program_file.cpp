@@ -25,7 +25,7 @@ namespace
 		"    la r1, msg\r\n"
 		"    ldv r2, counter\r\n"
 		"    la r13, TERM_OUT\r\n"
-		"    strb [r13 + 0], r2\r\n"
+		"    str  [r13 + 0], r2\r\n"
 		"    ret\r\n";
 }
 

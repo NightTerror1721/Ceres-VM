@@ -206,18 +206,15 @@ namespace ceres::devices
 
 	void TerminalDevice::writeWord(Address offset, u32 value)
 	{
+		// One byte a write: the low one (plan/v2 SPEC 8.1). A whole buffer goes through the block registers.
 		if (offset == OutputRegister)
 		{
 			emitByte(static_cast<u8>(value & 0xFF));
-			emitByte(static_cast<u8>((value >> 8) & 0xFF));
-			emitByte(static_cast<u8>((value >> 16) & 0xFF));
-			emitByte(static_cast<u8>((value >> 24) & 0xFF));
 			return;
 		}
 		if (offset == ErrorOutputRegister)
 		{
-			for (u32 shift = 0; shift < 32; shift += 8)
-				emitErrorByte(static_cast<u8>((value >> shift) & 0xFF));
+			emitErrorByte(static_cast<u8>(value & 0xFF));
 			return;
 		}
 

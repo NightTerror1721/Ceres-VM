@@ -66,8 +66,7 @@ namespace
 				}
 				return;
 			}
-			for (int i = 0; i < 4; ++i)
-				writeByte(offset, static_cast<u8>((value >> (i * 8)) & 0xFF));
+			writeByte(offset, static_cast<u8>(value & 0xFF)); // one byte a write, like the real terminal
 		}
 	};
 
@@ -113,7 +112,7 @@ namespace
 	constexpr std::string_view shutdown =
 		"    la r13, 0xFFFF0000\r\n" // SystemControlDevice's MMIO base (the only register it has)
 		"    li r0, 1\r\n"
-		"    strb [r13 + 0], r0\r\n";
+		"    str  [r13 + 0], r0\r\n";
 }
 
 TEST(pipeline, a_program_prints_a_string_and_shuts_down)
@@ -172,7 +171,7 @@ TEST(pipeline, a_hand_written_jump_table_dispatches_through_rodata_and_defaults_
 			"    li r0, 63\r\n"          // '?'
 			"out:\r\n"
 			"    la r13, 0xFF000004\r\n" // Terminal's OutputRegister
-			"    strb [r13 + 0], r0\r\n"
+			"    str  [r13 + 0], r0\r\n"
 			"{}"
 			"@rodata\r\n"
 			"    let table: u32[4] = [c0, c1, c2, c3]\r\n", index, shutdown);
@@ -215,7 +214,7 @@ TEST(pipeline, a_loop_counts_down_and_terminates)
 		"    li r2, 65\r\n"           // 'A'
 		".loop:\r\n"
 		"    la r13, 0xFF000004\r\n" // Terminal's OutputRegister
-		"    strb [r13 + 0], r2\r\n"
+		"    str  [r13 + 0], r2\r\n"
 		"    add r2, r2, 1\r\n"
 		"    sub r1, r1, 1\r\n"
 		"    cmp r1, 0\r\n"
@@ -235,12 +234,12 @@ TEST(pipeline, a_subroutine_returns_to_its_caller)
 		"    call emit\r\n"
 		"    li r2, 66\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r2\r\n"
+		"    str  [r13 + 0], r2\r\n"
 		"{}"
 		"emit:\r\n"
 		"    li r2, 65\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r2\r\n"
+		"    str  [r13 + 0], r2\r\n"
 		"    ret\r\n", shutdown));
 
 	CHECK(r.assembled);
@@ -259,7 +258,7 @@ TEST(pipeline, a_global_variable_survives_a_store_and_a_load)
 		"    stv counter, r1\r\n"
 		"    ldv r2, counter\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r2\r\n"
+		"    str  [r13 + 0], r2\r\n"
 		"{}", shutdown));
 
 	CHECK(r.assembled);
@@ -277,7 +276,7 @@ TEST(pipeline, an_indexed_read_uses_its_displacement)
 		"    la r1, letters\r\n"
 		"    ldrb r2, [r1 + 2]\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r2\r\n"
+		"    str  [r13 + 0], r2\r\n"
 		"{}", shutdown));
 
 	CHECK(r.assembled);
@@ -297,7 +296,7 @@ TEST(pipeline, a_dynamically_computed_address_reaches_the_device)
 		"    li r3, 4\r\n"           // OutputRegister's offset
 		"    add r1, r1, r3\r\n"
 		"    li r2, 68\r\n"
-		"    strb [r1 + 0], r2\r\n"
+		"    str  [r1 + 0], r2\r\n"
 		"{}", shutdown));
 
 	CHECK(r.assembled);
@@ -326,7 +325,7 @@ TEST(pipeline, the_shipped_example_still_assembles_and_runs)
 		"    call print\r\n"
 		"    li r0, EXIT_CODE\r\n"
 		"    la r13, SYS_CTRL\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n"
 		"\r\n"
 		"print:\r\n"
@@ -374,26 +373,26 @@ TEST(pipeline, the_block_instructions_assemble_and_run)
 		"    mcpy r1, r2, r3\r\n"          // dst = hello
 		"    la r1, dst\r\n"
 		"    ldrb r4, [r1 + 4]\r\n"
-		"    strb [r13 + 0], r4\r\n"       // o
+		"    str  [r13 + 0], r4\r\n"       // o
 		"    li r2, 108\r\n"
 		"    li r3, 5\r\n"
 		"    mscan r1, r2, r3\r\n"         // r1 at the first l, r3 = 3
 		"    ldrb r4, [r1 + 0]\r\n"
-		"    strb [r13 + 0], r4\r\n"       // l
+		"    str  [r13 + 0], r4\r\n"       // l
 		"    add r4, r3, 48\r\n"
-		"    strb [r13 + 0], r4\r\n"       // 3
+		"    str  [r13 + 0], r4\r\n"       // 3
 		"    la r1, dst\r\n"
 		"    li r2, 65\r\n"
 		"    li r3, 3\r\n"
 		"    mset r1, r2, r3\r\n"          // dst = AAAlo
 		"    la r1, dst\r\n"
 		"    ldrb r4, [r1 + 2]\r\n"
-		"    strb [r13 + 0], r4\r\n"       // A
+		"    str  [r13 + 0], r4\r\n"       // A
 		"    la r2, src\r\n"
 		"    li r3, 5\r\n"
 		"    mcmp r1, r2, r3\r\n"          // they differ at once: r2 at src's h
 		"    ldrb r4, [r2 + 0]\r\n"
-		"    strb [r13 + 0], r4\r\n"       // h
+		"    str  [r13 + 0], r4\r\n"       // h
 		) + std::string(shutdown) + "    ret\r\n");
 	CHECK(r.assembled);
 	CHECK_EQ(r.errors, std::string{});
@@ -478,11 +477,11 @@ TEST(pipeline, the_calling_convention_holds_together)
 		"    call print_u32\r\n"
 		"    li  r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"     // main never returns; it shuts the machine down
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    halt\r\n"
 		"print_char:\r\n"                // a leaf: no frame at all
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n"
 		"print_u32:\r\n"
 		"    enter\r\n"
@@ -559,7 +558,7 @@ TEST(pipeline, the_loader_lowers_the_stack_limit_to_the_end_of_the_image)
 		"global main:\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n", "pipeline");
+		"    str  [r13 + 0], r0\r\n", "pipeline");
 
 	CHECK(a.ok());
 	if (!a.ok()) { Registry::instance().recordFailure(a.joinedErrors()); return; }
@@ -643,7 +642,7 @@ TEST(pipeline, a_pc_relative_load_and_store_actually_reach_the_variable)
 		"    stvp counter, r1\r\n"
 		"    ldvp r2, counter\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r2\r\n"
+		"    str  [r13 + 0], r2\r\n"
 		"{}", shutdown));
 
 	CHECK(r.assembled);
@@ -663,7 +662,7 @@ TEST(pipeline, a_leaf_called_with_bl_returns_without_touching_the_stack)
 		"{}"
 		"print_char:\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    jp r11\r\n", shutdown));
 
 	CHECK(r.assembled);

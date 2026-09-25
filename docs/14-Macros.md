@@ -10,12 +10,12 @@ const TERM_OUT = 0xFF000004
 macro print_char $reg, $code
     li $reg, $code
     la r13, TERM_OUT
-    strb [r13 + 0], $reg
+    str  [r13 + 0], $reg
 endmacro
 
 @text
 global main:
-    print_char r1, 72     // expands to: li r1, 72 / la r13, TERM_OUT / strb [r13 + 0], r1
+    print_char r1, 72     // expands to: li r1, 72 / la r13, TERM_OUT / str [r13 + 0], r1
 ```
 
 A macro declaration is `macro name $param1, $param2, ... <body statements> endmacro`. Parameters are
@@ -231,7 +231,7 @@ A macro is private to the file that declares it unless it carries `global`:
 global macro print_char $reg, $code     // usable by any file importing this one
     li $reg, $code
     la r13, TERM_OUT
-    strb [r13 + 0], $reg
+    str  [r13 + 0], $reg
 endmacro
 
 macro internal_helper $r                // private to this file

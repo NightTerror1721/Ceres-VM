@@ -61,17 +61,17 @@ global main:
     div r8, r4, r7        // r8 = tens
     mod r4, r4, r7        // r4 = units
     add r8, r8, '0'
-    strb [r13 + 0], r8
+    str [r13 + 0], r8
 
 .single_digit:
     add r4, r4, '0'
-    strb [r13 + 0], r4
+    str [r13 + 0], r4
     li r7, NEWLINE
-    strb [r13 + 0], r7
+    str [r13 + 0], r7
 
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 print:

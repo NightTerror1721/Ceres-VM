@@ -189,10 +189,10 @@ namespace
 		"    ldv r5, calls\r\n"
 		"    add r5, r5, '0'\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r5\r\n"
+		"    str  [r13 + 0], r5\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 }
 
@@ -726,11 +726,11 @@ TEST(objects, an_interrupt_binding_reaches_a_handler_defined_in_another_object)
 		"@text\r\n"
 		"global term_isr:\r\n"
 		"    la r13, 0xFF000000\r\n" // Terminal's MMIO base
-		"    ldrb r1, [r13 + 8]\r\n" // InputRegister
-		"    strb [r13 + 4], r1\r\n" // OutputRegister - echo it straight back
+		"    ldr  r1, [r13 + 8]\r\n" // InputRegister
+		"    str  [r13 + 4], r1\r\n" // OutputRegister - echo it straight back
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n" // SystemControl's MMIO base
-		"    strb [r13 + 0], r0\r\n" // shut the machine down from inside the handler
+		"    str  [r13 + 0], r0\r\n" // shut the machine down from inside the handler
 		"    iret\r\n");
 	ws.write("main.casm",
 		"import \"lib.casm\"\r\n"
@@ -918,10 +918,10 @@ namespace
 		"    call say\r\n"
 		"    add r6, r6, '0'\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r6\r\n"
+		"    str  [r13 + 0], r6\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 }
 
@@ -993,10 +993,10 @@ TEST(objects, gc_sections_keeps_the_object_the_last_one_runs_on_into)
 		"global carried_on:\r\n"
 		"    add r6, r6, '0'\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r6\r\n"
+		"    str  [r13 + 0], r6\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n");
 	auto first = ws.assemble("first.casm");
 	auto second = ws.assemble("second.casm");

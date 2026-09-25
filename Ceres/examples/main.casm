@@ -15,7 +15,7 @@ global main:
     call print
     li r0, EXIT_CODE
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 println:
@@ -24,7 +24,7 @@ println:
     cmp r2, 0
     jz .print_end
     la r13, TERM_OUT
-    strb [r13 + 0], r2
+    str [r13 + 0], r2
     add r1, r1, 1
     jp .print_loop
 .print_end:

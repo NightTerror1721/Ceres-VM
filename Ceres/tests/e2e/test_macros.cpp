@@ -83,7 +83,7 @@ namespace
 	constexpr std::string_view shutdown =
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n";
+		"    str  [r13 + 0], r0\r\n";
 }
 
 TEST(macros, a_macro_without_parameters_expands_in_place)
@@ -289,7 +289,7 @@ TEST(macros, an_expanded_macro_runs)
 		"macro print_char $reg, $code\r\n"
 		"    li $reg, $code\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], $reg\r\n"
+		"    str  [r13 + 0], $reg\r\n"
 		"endmacro\r\n"
 		"@text\r\n"
 		"global main:\r\n"
@@ -310,7 +310,7 @@ TEST(macros, a_hygienic_loop_inside_a_macro_runs_twice_independently)
 		"%%loop:\r\n"
 		"    li r9, $char\r\n"
 		"    la r13, 0xFF000004\r\n"
-		"    strb [r13 + 0], r9\r\n"
+		"    str  [r13 + 0], r9\r\n"
 		"    sub $reg, $reg, 1\r\n"
 		"    cmp $reg, 0\r\n"
 		"    jnz %%loop\r\n"

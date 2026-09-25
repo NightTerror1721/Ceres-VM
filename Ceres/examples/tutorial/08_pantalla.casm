@@ -73,7 +73,7 @@ global main:
 
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret
 
 // Fills the grid: '#' on the border, ' ' inside.

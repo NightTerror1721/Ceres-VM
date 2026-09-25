@@ -14,7 +14,7 @@
 // be declared here.
 import "../stdlib/call.casm"
 
-/// Terminal's OutputRegister, in its MMIO window. A `strb` to it writes one byte straight to stdout.
+/// Terminal's OutputRegister, in its MMIO window. A `str` to it writes its low byte straight to stdout.
 const TERM_OUT = 0xFF000004
 /// SystemControlDevice's MMIO base, write-only. Writing `1` to it shuts the machine down cleanly.
 const SYS_CTRL = 0xFFFF0000
@@ -32,7 +32,7 @@ const DIGIT_0  = 48
 /// @return void
 print_char:
     la r13, TERM_OUT
-    strb [r13 + 0], arg0
+    str [r13 + 0], arg0
     ret
 
 // ---------------------------------------------------------------------------------------------
@@ -172,5 +172,5 @@ global main:
 
     li  r0, 1
     la  r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     halt

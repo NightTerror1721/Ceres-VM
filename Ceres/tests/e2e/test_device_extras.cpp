@@ -169,12 +169,12 @@ TEST(device_extras, a_word_written_to_the_control_register_carries_the_exit_stat
 	CHECK_EQ(control.exitCode(), u8{ 5 });
 }
 
-TEST(device_extras, a_plain_byte_shutdown_is_still_status_zero)
+TEST(device_extras, a_plain_shutdown_is_status_zero)
 {
 	Machine m{
 		LoadBase(default_mmio::SystemControl), LoadBaseLow(default_mmio::SystemControl),
 		Instruction::LI(1, 1),
-		Instruction::STRB(Base, 1, Off(SystemControlDevice::CommandRegister)),
+		Instruction::STR(Base, 1, Off(SystemControlDevice::CommandRegister)),
 	};
 
 	bool shutDown = false;

@@ -27,17 +27,17 @@ const NEWLINE      = 10
 global main:
     la r13, TERM           // built once; every register below is [r13 + offset]
 .wait_byte:
-    ldrb r1, [r13 + TERM_STATUS]   // r1 = status bits
+    ldr r1, [r13 + TERM_STATUS]   // r1 = status bits
     and r1, r1, 1                   // we only care about the "data available" bit
     jz .wait_byte                    // if nothing is ready yet, keep waiting
 
-    ldrb r2, [r13 + TERM_IN]         // r2 = the byte the user typed
-    strb [r13 + TERM_OUT], r2         // send it right back
+    ldr r2, [r13 + TERM_IN]         // r2 = the byte the user typed
+    str [r13 + TERM_OUT], r2         // send it right back
 
     cmp r2, NEWLINE
     jnz .wait_byte         // if it wasn't the end of line, keep reading
 
     li r0, 0x01
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str [r13 + 0], r0
     ret

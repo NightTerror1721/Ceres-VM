@@ -69,7 +69,7 @@ namespace
 		"    jnz .loop\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	std::unique_ptr<debug::DebugSession> launchOrNull(const TempSource& source, bool record = true)
@@ -140,7 +140,7 @@ constexpr std::string_view ClockReader =
 	"    jnz .loop\r\n"
 	"    li r0, 1\r\n"
 	"    la r13, 0xFFFF0000\r\n"
-	"    strb [r13 + 0], r0\r\n"
+	"    str  [r13 + 0], r0\r\n"
 	"    ret\r\n";
 
 TEST(history, the_nanosecond_clock_reads_the_same_on_the_way_through_again)
@@ -195,7 +195,7 @@ constexpr std::string_view LatchAndLimit =
 	"    cmp r3, 1500\r\n"
 	"    jnz .second\r\n"
 	"    li r0, 1\r\n"
-	"    strb [r13 + 0], r0\r\n"
+	"    str  [r13 + 0], r0\r\n"
 	"    ret\r\n";
 
 TEST(history, going_back_restores_the_wake_latch_and_the_stack_limit)
@@ -242,7 +242,7 @@ constexpr std::string_view FaultHalfWay =
 	"    cmp r3, 1500\r\n"
 	"    jnz .second\r\n"
 	"    li r0, 1\r\n"
-	"    strb [r13 + 0], r0\r\n"
+	"    str  [r13 + 0], r0\r\n"
 	"    ret\r\n"
 	"fixup:\r\n"
 	"    la r2, 0x10000\r\n"
@@ -321,7 +321,7 @@ TEST(history, a_hundred_thousand_instructions_rewind_a_thousand_and_come_back_id
 		"    jnz .loop\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource source{ BigLoop, "hundredthousand" };
@@ -534,7 +534,7 @@ TEST(history, coverage_counts_every_word_and_reports_the_ones_never_reached)
 		".done:\r\n"
 		"    li r0, 1\r\n"
 		"    la r13, 0xFFFF0000\r\n"
-		"    strb [r13 + 0], r0\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 
 	TempSource source{ BranchSource, "coverage" };

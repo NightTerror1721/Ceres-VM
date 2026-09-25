@@ -24,7 +24,7 @@ global main:
     call print
     li r0, EXIT_CODE
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str  [r13 + 0], r0
     ret
 
 println:
@@ -33,7 +33,7 @@ println:
     cmp r2, 0
     jz .print_end
     la r13, TERM_OUT
-    strb [r13 + 0], r2
+    str  [r13 + 0], r2
     add r1, r1, 1
     jp .print_loop
 .print_end:
@@ -114,7 +114,7 @@ global main:
     call print
     li r0, EXIT_CODE
     la r13, SYS_CTRL
-    strb [r13 + 0], r0
+    str  [r13 + 0], r0
     ret
 ```
 
@@ -127,10 +127,10 @@ global main:
   register calling convention this file establishes purely by hand: the string pointer is passed in
   `r1` (there's no enforced calling convention in the VM itself — see
   [Known limitations](19-Known-Limitations.md)).
-- `li r0, EXIT_CODE; la r13, SYS_CTRL; strb [r13 + 0], r0` — loads the system-control device's MMIO
+- `li r0, EXIT_CODE; la r13, SYS_CTRL; str  [r13 + 0], r0` — loads the system-control device's MMIO
   base into `r13` and writes `0x01` to its command register (offset `0`), which shuts the VM down
   cleanly (see [I/O devices and ports](07-IO-Devices-and-Ports.md)).
-- `ret` here is actually unreachable in practice — the preceding `strb` already stops the machine —
+- `ret` here is actually unreachable in practice — the preceding `str` already stops the machine —
   but it's there so `main` still returns properly if it were ever called as an ordinary subroutine
   instead of being the entry point.
 
@@ -143,7 +143,7 @@ println:
     cmp r2, 0
     jz .print_end
     la r13, TERM_OUT
-    strb [r13 + 0], r2
+    str  [r13 + 0], r2
     add r1, r1, 1
     jp .print_loop
 .print_end:
@@ -167,7 +167,7 @@ These demonstrate the two different ways to write the null-terminated string poi
 
 - **`println`** loops byte by byte: load a byte (`ldrb`), compare it to zero, jump to `.print_end`
   when the terminator is found, otherwise write the byte to the terminal's `OutputRegister`
-  (`strb`) and advance the pointer. This is the "obvious" approach and works on any device, but
+  (`str`: the register's low byte is the character) and advance the pointer. This is the "obvious" approach and works on any device, but
   costs several VM instructions per character.
 - **`print`** instead computes the string's length once (`call strlen`) and then hands the whole
   block to the device at once: write the source address to `TERM_BLOCK_ADDR`, the length to
