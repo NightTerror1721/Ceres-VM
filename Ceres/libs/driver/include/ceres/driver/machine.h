@@ -20,6 +20,8 @@ namespace ceres::driver
 	struct MachineHost
 	{
 		std::function<void(std::span<const u8>)> terminalOutput;
+		// The terminal's error stream (TerminalDevice::ErrorOutputRegister); empty sends it to the host's stderr.
+		std::function<void(std::span<const u8>)> terminalError;
 		std::function<void(std::string_view)> framePresented;
 	};
 

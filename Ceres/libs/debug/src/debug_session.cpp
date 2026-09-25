@@ -168,8 +168,6 @@ namespace ceres::debug
 			new DebugSession(std::move(program.value()), std::move(debugInfo), config) };
 
 		session->_vm = std::make_unique<vm::CeresVM>(config.memorySize);
-		if (!config.sources.empty())
-			session->_vm->setProgramArguments(vm::ProgramArguments{ { config.sources.front().string() }, {} });
 		session->attachDevices();
 
 		if (auto loaded = session->_vm->loadProgram(session->_program); !loaded)
@@ -200,11 +198,9 @@ namespace ceres::debug
 		});
 		_systemControl->setStackLimitHandlers([this] { return _vm->engine().stackLimit(); },
 			[this](u32 address) { _vm->engine().setProgramStackLimit(address); });
-		_systemControl->setArgumentHandler([this](u32 which)
-		{
-			const vm::ArgumentBlock& block = _vm->argumentBlock();
-			return which == 0 ? block.count : which == 1 ? block.vector : block.environment;
-		});
+		_systemControl->setArgumentHandler([this](u32 which) { return _vm->argumentInfo(which); });
+		// The program's path is argv[0], on the first machine and on every one a restart builds.
+		_vm->setProgramArguments(vm::ProgramArguments{ { _config.sources.front().string() }, {} });
 		_systemControl->setFaultInfoHandlers([this] { return _vm->engine().faultAddress(); }, [this] { return _vm->engine().faultAccess(); });
 		_systemControl->attachTo(_vm->io());
 
@@ -306,8 +302,9 @@ namespace ceres::debug
 			});
 			_terminal->setErrorSink([this](u8 byte)   // the error stream goes to the editor too
 			{
-				if (_outputHandler)
-					_outputHandler(std::span<const u8>(&byte, 1));
+				const OutputHandler& handler = _errorHandler ? _errorHandler : _outputHandler;
+				if (handler)
+					handler(std::span<const u8>(&byte, 1));
 			});
 		}
 		else
@@ -315,6 +312,11 @@ namespace ceres::debug
 			_terminal->clearOutputSink();
 			_terminal->setErrorSink({});
 		}
+	}
+
+	void DebugSession::setErrorHandler(OutputHandler handler)
+	{
+		_errorHandler = std::move(handler);
 	}
 
 	void DebugSession::pushInput(std::string_view text)

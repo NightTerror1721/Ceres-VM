@@ -136,6 +136,7 @@ namespace ceres::devices
 			if (name.size() > MaxPathLength)
 				return std::unexpected(ErrNameTooLong);
 			std::filesystem::path result = _root;
+			std::filesystem::path relative;
 			usize start = 0;
 			while (start < name.size())                    // "" is the root; one trailing slash is allowed
 			{
@@ -148,6 +149,16 @@ namespace ceres::devices
 				result /= std::filesystem::path(std::u8string(part.begin(), part.end()));
 				start = end + 1;
 			}
+			// A link inside the directory must not lead out of it: what the name resolves to, following links,
+			// has to be under the root's own resolution too.
+			std::error_code error;
+			const std::filesystem::path real = std::filesystem::weakly_canonical(result, error);
+			const std::filesystem::path realRoot = std::filesystem::weakly_canonical(_root, error);
+			if (error)
+				return std::unexpected(ErrAccess);
+			auto [rootEnd, realAt] = std::mismatch(realRoot.begin(), realRoot.end(), real.begin(), real.end());
+			if (rootEnd != realRoot.end())
+				return std::unexpected(ErrAccess);
 			return result;
 		}
 
@@ -163,7 +174,8 @@ namespace ceres::devices
 			for (u32 i = 0; i < bytes.size(); ++i)
 				if (bytes[i] == 0)
 					return std::string(reinterpret_cast<const char*>(bytes.data()), i);
-			return std::unexpected(ErrNameTooLong);
+			// No NUL: past the limit, or the name runs off the end of RAM - a bad pointer, not a long name.
+			return std::unexpected(available == MaxPathLength + 1 ? ErrNameTooLong : ErrInvalid);
 		}
 
 		static i32 errnoOf(const std::error_code& error)
@@ -209,15 +221,18 @@ namespace ceres::devices
 			{
 				if (!(flags & OpenCreate) || !(flags & OpenWrite))
 					return -ErrNoEntry;
-				std::ofstream create(*path, std::ios::binary);   // an empty file, so in|out can open it
+				if (!std::filesystem::is_directory(path->parent_path(), error))
+					return -ErrNoEntry;                    // as open(O_CREAT) says for a missing directory
+			}
+			if (!exists || ((flags & OpenWrite) && (flags & OpenTruncate)))
+			{
+				std::ofstream create(*path, std::ios::binary | std::ios::trunc);   // empty, so in|out can open it
 				if (!create)
 					return -ErrAccess;
 			}
-			std::ios::openmode mode = std::ios::binary;
-			if (flags & OpenRead) mode |= std::ios::in;
+			// Always in|out for a writer (out alone truncates, and has no read position to seek or measure by).
+			std::ios::openmode mode = std::ios::binary | std::ios::in;
 			if (flags & OpenWrite) mode |= std::ios::out;
-			if ((flags & OpenWrite) && (flags & OpenTruncate)) mode |= std::ios::trunc;
-			if ((flags & OpenWrite) && !(flags & OpenTruncate)) mode |= std::ios::in;   // out alone truncates
 			auto file = std::make_unique<OpenFile>();
 			file->stream.open(*path, mode);
 			if (!file->stream)

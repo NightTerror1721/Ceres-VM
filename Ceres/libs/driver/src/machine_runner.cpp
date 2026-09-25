@@ -25,13 +25,6 @@ namespace ceres::driver
 	using namespace fmt;
 	using namespace vm;
 
-	// The system control device's argument registers: 0 argc, 1 argv, 2 envp (CeresVM::argumentBlock).
-	static u32 argumentInfo(const CeresVM& vm, u32 which)
-	{
-		const ArgumentBlock& block = vm.argumentBlock();
-		return which == 0 ? block.count : which == 1 ? block.vector : block.environment;
-	}
-
 	class Machine::Impl
 	{
 	public:
@@ -62,7 +55,7 @@ namespace ceres::driver
 			control.setStackLimitHandlers([this] { return vm.engine().stackLimit(); },
 				[this](u32 address) { vm.engine().setProgramStackLimit(address); });
 			control.setFaultInfoHandlers([this] { return vm.engine().faultAddress(); }, [this] { return vm.engine().faultAccess(); });
-			control.setArgumentHandler([this](u32 which) { return argumentInfo(vm, which); });
+			control.setArgumentHandler([this](u32 which) { return vm.argumentInfo(which); });
 			vm.setProgramArguments(vm::ProgramArguments{ config.arguments, config.environment });
 			control.attachTo(vm.io());
 			terminal.attachTo(vm.io());
@@ -84,6 +77,11 @@ namespace ceres::driver
 			if (!config.hostDirectory.empty() && !hostFs.setRoot(config.hostDirectory))
 				startupError = "Not a directory: " + config.hostDirectory.string();
 
+			if (host.terminalError)
+				terminal.setErrorSink([sink = host.terminalError](u8 byte)
+				{
+					sink(std::span<const u8>(&byte, 1));
+				});
 			if (host.terminalOutput)
 				terminal.setOutputSink([sink = host.terminalOutput](u8 byte)
 				{
@@ -114,6 +112,7 @@ namespace ceres::driver
 			gamepad.detachFrom(vm.io());
 			audio.detachFrom(vm.io());
 			peripherals.detachFrom(vm.io());
+			hostFs.detachFrom(vm.io());
 			control.detachFrom(vm.io());
 		}
 	};
@@ -206,7 +205,7 @@ namespace ceres::driver
 		control.setStackLimitHandlers([&vm] { return vm.engine().stackLimit(); },
 			[&vm](u32 address) { vm.engine().setProgramStackLimit(address); });
 		control.setFaultInfoHandlers([&vm] { return vm.engine().faultAddress(); }, [&vm] { return vm.engine().faultAccess(); });
-		control.setArgumentHandler([&vm](u32 which) { return argumentInfo(vm, which); });
+		control.setArgumentHandler([&vm](u32 which) { return vm.argumentInfo(which); });
 		auto terminal = std::make_shared<TerminalDevice>();
 		TimerDevice timer;
 		DmaController dma;

@@ -62,7 +62,9 @@ namespace ceres::driver
 			std::vector<std::string> arguments;
 			std::vector<std::string> environment;
 			std::filesystem::path hostDirectory;
-			bool usedArguments = false;       // --, --env or --host-dir: they belong to run alone
+			bool usedDashDash = false;        // --, --env and --host-dir belong to run alone
+			bool usedEnv = false;
+			bool usedHostDir = false;
 			bool window = false;
 			bool usedWindow = false;
 			bool terminal = false;
@@ -111,7 +113,7 @@ namespace ceres::driver
 				// The rest is the program's, options or not.
 				for (++i; i < argc; ++i)
 					raw.arguments.emplace_back(argv[i]);
-				raw.usedArguments = true;
+				raw.usedDashDash = true;
 				break;
 			}
 			if (argument == "--env")
@@ -122,14 +124,14 @@ namespace ceres::driver
 				if (text.find('=') == std::string_view::npos || text.front() == '=')
 					return std::unexpected(ParseError{ "'--env' takes <name>=<value>, for example --env HOME=/save" });
 				raw.environment.emplace_back(text);
-				raw.usedArguments = true;
+				raw.usedEnv = true;
 			}
 			else if (argument == "--host-dir")
 			{
 				auto value = nextValue(argument);
 				if (!value) return std::unexpected(value.error());
 				raw.hostDirectory = *value;
-				raw.usedArguments = true;
+				raw.usedHostDir = true;
 			}
 			else if (argument == "-o" || argument == "--output")
 			{
@@ -205,8 +207,8 @@ namespace ceres::driver
 		std::vector<std::filesystem::path> inputs(raw.positional.begin() + static_cast<std::ptrdiff_t>(firstInput), raw.positional.end());
 		if (raw.usedSymbolTable && command != "link")
 			return std::unexpected(invalidOption("--symtab", command));
-		if (raw.usedArguments && command != "run")
-			return std::unexpected(invalidOption(!raw.arguments.empty() ? "--" : !raw.environment.empty() ? "--env" : "--host-dir", command));
+		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir) && command != "run")
+			return std::unexpected(invalidOption(raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : "--", command));
 		if (command == "asm")
 		{
 			if (raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)

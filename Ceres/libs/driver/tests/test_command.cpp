@@ -109,6 +109,20 @@ TEST(driver_command, run_takes_the_program_arguments_after_a_double_dash_and_env
 	char bare[] = "HOME";
 	char* badArgv[] = { program, run, input, env, bare };
 	CHECK(!parseCommandLine(5, badArgv).has_value());   // NAME=value
+
+	char hostDir[] = "--host-dir";
+	char dir[] = "saves";
+	char* hostArgv[] = { program, run, input, hostDir, dir };
+	auto host = parseCommandLine(5, hostArgv);
+	const auto* hosted = host ? std::get_if<RunCommand>(&*host) : nullptr;
+	CHECK(hosted != nullptr && hosted->hostDirectory == std::filesystem::path("saves"));
+	char* asmHostArgv[] = { program, asmCommand, input, hostDir, dir };
+	auto refused = parseCommandLine(5, asmHostArgv);
+	CHECK(!refused.has_value());
+	CHECK(!refused && refused.error().message.find("--host-dir") != std::string::npos);   // names what was there
+	char* lonelyArgv[] = { program, asmCommand, input, dashes };
+	auto lonely = parseCommandLine(4, lonelyArgv);
+	CHECK(!lonely && lonely.error().message.find("'--'") != std::string::npos);
 }
 
 TEST(driver_machine, main_receives_argc_argv_and_envp_and_the_registers_say_the_same)

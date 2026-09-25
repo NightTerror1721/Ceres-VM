@@ -260,6 +260,7 @@ namespace ceres::debug
 		bool _terminated = false;
 
 		OutputHandler _outputHandler;
+		OutputHandler _errorHandler;
 		LogHandler _logHandler;
 
 		// Filled by the interrupt observer during a step and consumed right after it.
@@ -377,6 +378,8 @@ namespace ceres::debug
 		// Bytes the program writes to the terminal's output port. Set before start(), or the
 		// first few will have gone to stdout already.
 		void setOutputHandler(OutputHandler handler);
+		// Bytes the program writes to the terminal's error stream. Without one they go to the output handler.
+		void setErrorHandler(OutputHandler handler);
 		void setLogHandler(LogHandler handler) { _logHandler = std::move(handler); }
 		void pushInput(std::string_view text);
 

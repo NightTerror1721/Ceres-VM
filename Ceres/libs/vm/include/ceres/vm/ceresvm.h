@@ -83,6 +83,11 @@ namespace ceres::vm
 		void setProgramArguments(ProgramArguments arguments) noexcept { _arguments = std::move(arguments); }
 		const ProgramArguments& programArguments() const noexcept { return _arguments; }
 		const ArgumentBlock& argumentBlock() const noexcept { return _argumentBlock; }
+		// What the system control device's argument registers read: 0 argc, 1 argv, 2 envp, else 0.
+		u32 argumentInfo(u32 which) const noexcept
+		{
+			return which == 0 ? _argumentBlock.count : which == 1 ? _argumentBlock.vector : which == 2 ? _argumentBlock.environment : 0u;
+		}
 
 		std::expected<void, std::string> run() noexcept;
 

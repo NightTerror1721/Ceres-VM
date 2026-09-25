@@ -549,6 +549,7 @@ TEST(debugger, restarting_puts_the_machine_back_at_the_entry_point)
 	CHECK_EQ(event.address, TextStart);
 	CHECK_EQ(session->registers().executedInstructions, u64{ 0 });
 	CHECK_EQ(session->registers().general[1], session->machine().argumentBlock().vector);   // r1 is argv again, not what the run left
+	CHECK_EQ(session->machine().argumentBlock().count, 1u);                               // and argv[0], the program, is still there
 	CHECK(session->isRunning());
 }
 

@@ -203,6 +203,41 @@ TEST(host_fs, a_directory_is_listed_in_order_and_files_are_renamed_and_removed)
 	CHECK_EQ(rig.onPath(H::CommandRemove, ""), -H::ErrInvalid);   // never the root itself
 }
 
+TEST(host_fs, a_file_opened_for_writing_alone_can_still_be_sought_and_measured)
+{
+	Rig rig{ "ceres_hostfs_wo" };
+	CHECK(rig.dev.setRoot(rig.dir));
+	const i32 w = rig.open("out.txt", H::OpenWrite | H::OpenCreate | H::OpenTruncate);
+	CHECK(w >= 0);
+	rig.put(Data, "0123456789");
+	CHECK_EQ(rig.transfer(H::CommandWrite, w, 10), 10);
+	CHECK_EQ(rig.run(H::CommandFileSize), 10);
+	rig.dev.writeWord(H::OffsetRegister, 0);
+	rig.dev.writeWord(H::ArgumentRegister, 2);               // to the end
+	CHECK_EQ(rig.run(H::CommandSeek), 10);
+	CHECK_EQ(rig.open("no/such/dir/x.txt", H::OpenWrite | H::OpenCreate), -H::ErrNoEntry);
+}
+
+TEST(host_fs, a_link_inside_the_directory_does_not_lead_out_of_it)
+{
+	Rig rig{ "ceres_hostfs_link" };
+	CHECK(rig.dev.setRoot(rig.dir));
+	const auto outside = std::filesystem::temp_directory_path() / "ceres_hostfs_outside";
+	std::error_code error;
+	std::filesystem::create_directories(outside, error);
+	std::ofstream(outside / "secret.txt") << "secret";
+	std::filesystem::create_directory_symlink(outside, rig.dir / "link", error);
+	if (error)
+	{
+		std::filesystem::remove_all(outside, error);
+		return;                                             // no symlinks here (Windows without the privilege)
+	}
+	CHECK_EQ(rig.open("link/secret.txt", H::OpenRead), -H::ErrAccess);
+	rig.dev.reset();
+	std::filesystem::remove(rig.dir / "link", error);
+	std::filesystem::remove_all(outside, error);
+}
+
 TEST(host_fs, the_open_files_run_out_at_eight)
 {
 	Rig rig{ "ceres_hostfs_many" };

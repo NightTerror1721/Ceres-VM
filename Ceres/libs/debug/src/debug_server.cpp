@@ -306,6 +306,14 @@ namespace ceres::debug
 			});
 		});
 
+		_session.setErrorHandler([this](std::span<const u8> bytes)
+		{
+			emitEvent("output", json::Object{
+				{ "category", json::Value("stderr") },
+				{ "hex", json::Value(hexEncode(bytes)) }
+			});
+		});
+
 		// A logpoint is the debugger talking, not the program, so it goes to the console category
 		// where an editor renders it differently.
 		_session.setLogHandler([this](std::string_view text)
