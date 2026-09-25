@@ -68,7 +68,7 @@
 - **Archivos**: crear `system/system_control.{h,cpp}`, `system/timer.{h,cpp}`, `system/dma.{h,cpp}`,
   `terminal/terminal.{h,cpp}`; `devices.h` pasa a ser sólo la cabecera agregada.
 - **Pasos**: como F1.2. Los nombres de clase no cambian todavía (`TerminalDevice` se sustituye en F5).
-- **Aceptación**: [ ] `devices.h` no define ninguna clase. [ ] Suites en verde.
+- **Aceptación**: [x] `devices.h` no define ninguna clase. [x] Suites en verde.
 - **Commit**: `Split system control, timer, DMA and terminal into their own files (F1.3)`
 
 ### F1.4 · Partir `input_devices.h`
