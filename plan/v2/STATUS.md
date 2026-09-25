@@ -28,8 +28,8 @@ Archivo: [phases/F01-dispositivos-y-nucleo.md](phases/F01-dispositivos-y-nucleo.
 | --- | --- | --- | --- | --- |
 | F1.1 | Separar `IODevice` y añadir `RegisterMap` | fase: F0 (F0.5 cerrada para P05 y P06) | DONE | asm@8b227a4 |
 | F1.2 | `libs/devices` como biblioteca compilada y con carpetas por grupo | F1.1 | DONE | asm@5e1d7bb |
-| F1.3 | Partir `devices.h`: sistema y terminal | F1.2 | DONE |  |
-| F1.4 | Partir `input_devices.h` | F1.2 | TODO |  |
+| F1.3 | Partir `devices.h`: sistema y terminal | F1.2 | DONE | asm@6414d80 |
+| F1.4 | Partir `input_devices.h` | F1.2 | DONE |  |
 | F1.5 | Partir `storage_devices.h` | F1.2 | TODO |  |
 | F1.6 | Migrar a 32 bits todos los accesos a MMIO (tres repos) | F1.5 | TODO |  |
 | F1.7 | Bus de 32 bits: `read`/`write` y `FaultReason` | F1.6 | TODO |  |

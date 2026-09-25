@@ -14,7 +14,9 @@
 #include <ceres/vm/ceresvm.h>
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage_devices.h>
-#include <ceres/devices/input_devices.h>
+#include <ceres/devices/input/gamepad.h>
+#include <ceres/devices/input/keyboard.h>
+#include <ceres/devices/input/mouse.h>
 #include <ceres/devices/video/display.h>
 #include <ceres/devices/video/blitter.h>
 #include <ceres/vm/bios.h>

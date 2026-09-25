@@ -8,7 +8,7 @@
 #include <ceres/vm/ceresvm.h>
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage_devices.h>
-#include <ceres/devices/input_devices.h>
+#include <ceres/devices/input/keyboard.h>
 #include <ceres/devices/audio/audio.h>
 #include <ceres/vm/bios.h>
 #include <ceres/core/format/memory_map.h>

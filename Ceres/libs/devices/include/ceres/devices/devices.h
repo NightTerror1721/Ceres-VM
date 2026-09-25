@@ -12,7 +12,9 @@
 // `inm` used to give it, just addressed like everything else now.
 
 #include <ceres/devices/audio/audio.h>
-#include <ceres/devices/input_devices.h>
+#include <ceres/devices/input/gamepad.h>
+#include <ceres/devices/input/keyboard.h>
+#include <ceres/devices/input/mouse.h>
 #include <ceres/devices/storage/host_fs.h>
 #include <ceres/devices/storage/peripherals.h>
 #include <ceres/devices/storage_devices.h>

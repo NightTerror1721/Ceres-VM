@@ -5,7 +5,9 @@
 // SDL, so a windowed host lives in a separate library (libs/sdl) and is handed in as a HostBackend.
 // The default is HeadlessBackend, which pumps nothing and shows nothing.
 
-#include <ceres/devices/input_devices.h>
+#include <ceres/devices/input/gamepad.h>
+#include <ceres/devices/input/keyboard.h>
+#include <ceres/devices/input/mouse.h>
 #include <ceres/devices/video/display.h>
 #include <ceres/devices/storage_devices.h>
 #include <ceres/devices/audio/audio.h>

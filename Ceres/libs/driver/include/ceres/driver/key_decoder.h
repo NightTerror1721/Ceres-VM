@@ -9,7 +9,7 @@
 // a sequence, which only a pause after it can say - the reader calls flushPending() when the input goes quiet.
 
 #include <ceres/core/base/types.h>
-#include <ceres/devices/input_devices.h>
+#include <ceres/devices/input/keyboard.h>
 
 #include <vector>
 

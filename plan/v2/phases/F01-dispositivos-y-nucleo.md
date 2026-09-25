@@ -75,7 +75,7 @@
 
 - **Repos**: CeresASM · **Depende de**: F1.2
 - **Archivos**: `input/keyboard.{h,cpp}`, `input/mouse.{h,cpp}`, `input/gamepad.{h,cpp}`; borrar `input_devices.h`.
-- **Aceptación**: [ ] Suites en verde.
+- **Aceptación**: [x] Suites en verde.
 - **Commit**: `Split the input devices into their own files (F1.4)`
 
 ### F1.5 · Partir `storage_devices.h`

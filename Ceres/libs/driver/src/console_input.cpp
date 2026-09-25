@@ -1,6 +1,6 @@
 #include "console_input.h"
 
-#include <ceres/devices/input_devices.h>
+#include <ceres/devices/input/keyboard.h>
 #include <ceres/driver/key_decoder.h>
 
 #include <atomic>
