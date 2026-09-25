@@ -192,6 +192,7 @@ namespace ceres::devices
 		// Writing N to the command register fires the timer N instructions later. Writing 0 disarms
 		// it. The high bit asks for a periodic timer that re-arms itself after each expiry.
 		void write(Address offset, u32 value) override;
+		const RegisterMap& registers() const override;
 
 	};
 }

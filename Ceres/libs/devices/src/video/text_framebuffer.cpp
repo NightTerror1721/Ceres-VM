@@ -2,6 +2,22 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Command",      RegisterAccess::Write,     0x0, false, "1 clears the grid, 2 presents it." },
+			{ 0x04, "Width",        RegisterAccess::ReadWrite, 0x0, false, "Columns of the grid." },
+			{ 0x08, "Height",       RegisterAccess::ReadWrite, 0x0, false, "Rows of the grid." },
+			{ 0x0C, "Data",         RegisterAccess::Write,     0x0, false, "One cell at the cursor: character and attribute." },
+			{ 0x10, "Mode",         RegisterAccess::ReadWrite, 0x0, false, "Where a presented frame goes - ModeAuto, ModeTerminal or ModeWindow." },
+			{ 0x14, "Output",       RegisterAccess::Read,      0x0, false, "Where it goes right now - OutputTerminal or OutputWindow." },
+			{ 0xF0, "BlockAddress", RegisterAccess::Write,     0x0, false, "RAM address of the characters or attributes to copy in." },
+			{ 0xF4, "BlockLength",  RegisterAccess::Write,     0x0, false, "Bytes to copy: one a cell." },
+			{ 0xF8, "BlockCommand", RegisterAccess::Write,     0x0, false, "2 copies characters into the grid, 3 copies attributes (one byte a cell)." },
+		};
+	}
+
 	bool FramebufferDevice::takeWindowFrame(Frame& out)
 	{
 		if (!_hasWindowFrame)
@@ -192,5 +208,11 @@ namespace ceres::devices
 
 		std::fputs(text.c_str(), stdout);
 		std::fflush(stdout);
+	}
+
+	const RegisterMap& FramebufferDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "text-framebuffer", Registers };
+		return map;
 	}
 }

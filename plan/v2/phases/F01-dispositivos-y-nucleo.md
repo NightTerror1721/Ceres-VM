@@ -132,8 +132,8 @@
   2. Debugger: `dev` lista los dispositivos adjuntos; `dev <nombre>` muestra cada registro con nombre, acceso y
      valor actual (leer un registro con efectos, como una cola, no debe consumirla: usa un `peek` del estado).
   3. `ceres run --strict-mmio`: un offset no declarado da `MemoryFault` con motivo `MmioUndeclared`.
-- **Aceptación**: [ ] Test que recorre todos los dispositivos y comprueba que su tabla no tiene offsets
-  duplicados ni desalineados. [ ] Test de `--strict-mmio`.
+- **Aceptación**: [x] Test que recorre todos los dispositivos y comprueba que su tabla no tiene offsets
+  duplicados ni desalineados. [x] Test de `--strict-mmio`.
 - **Commit**: `Declare every device's registers in a table (F1.8)`
 
 ### F1.9 · Un test por dispositivo
@@ -210,3 +210,10 @@
   motivo de fallo vive en el motor (`faultReason()`, `fault_reason.h`) y lo guarda el historial del debugger.
   `FaultReason` sólo lleva hoy `Alignment`, `MmioWidth` y `MmioBlock`; el resto llega con F3 y F4. Los
   `read()`/`write()` privados de HostFs pasan a `readFile()`/`writeFile()` para no confundirse con los de `IODevice`.
+- **F1.8**: las 14 tablas (177 registros) se generaron con un script (un solo uso) que toma el acceso del propio
+  código de `read`/`write` y las descripciones de los comentarios, y se revisaron a mano. `RegisterInfo` lleva además
+  `readHasEffect` (colas y latches): `dev` no los lee y muestra `(not read)`. La regla D19 (offset no declarado: lee 0)
+  la aplica el bus con una máscara de 64 bits por slot (offsets < `0x100`) calculada al conectar el dispositivo;
+  `benchmark_vm` mmio 89,7 MIPS (BASELINE 87,7). `--strict-mmio` sólo en `run`; lo comprueba el motor cuando está
+  activo. `DummyDevice`, sin usuarios, se eliminó. Encontrado de paso (no es de F1): un fallo sin manejador deja
+  `ceres run` colgado tras imprimir «EE» (la BIOS hace HALT); se propuso como tarea aparte.

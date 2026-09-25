@@ -4,6 +4,26 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Status",       RegisterAccess::Read,      0x0, false, "EventPending, Ready, Error." },
+			{ 0x04, "PortCount",    RegisterAccess::Read,      0x0, false, "How many ports there are." },
+			{ 0x08, "PortSelect",   RegisterAccess::ReadWrite, 0x0, false, "The port the registers below are about." },
+			{ 0x0C, "Event",        RegisterAccess::Read,      0x0, true,  "Takes the next event off the queue, or 0 when there is none." },
+			{ 0x10, "Command",      RegisterAccess::Write,     0x0, false, "CommandEject or CommandFlush, for the selected port." },
+			{ 0x20, "PortStatus",   RegisterAccess::Read,      0x0, false, "Present, WriteProtected, Error, for the selected port." },
+			{ 0x24, "PortType",     RegisterAccess::Read,      0x0, false, "TypeNone, TypeStorage or TypeCartridge." },
+			{ 0x28, "PortId",       RegisterAccess::Read,      0x0, false, "An identifier of the medium (0 when there is none)." },
+			{ 0x2C, "PortSectors",  RegisterAccess::Read,      0x0, false, "How many sectors the medium has." },
+			{ 0x30, "Sector",       RegisterAccess::ReadWrite, 0x0, false, "The sector a transfer is about." },
+			{ 0xF0, "BlockAddress", RegisterAccess::Write,     0x0, false, "RAM address of the sector buffer, for the selected port." },
+			{ 0xF4, "BlockLength",  RegisterAccess::Write,     0x0, false, "Bytes to move: at most one sector." },
+			{ 0xF8, "BlockCommand", RegisterAccess::Write,     0x0, false, "1 reads the sector into RAM, 2 writes RAM to the sector." },
+		};
+	}
+
 	PeripheralDevice::~PeripheralDevice()
 	{
 		// Media that were still plugged in when the machine ended keep what was written to them
@@ -264,5 +284,11 @@ namespace ceres::devices
 			else
 				_error = true;
 		}
+	}
+
+	const RegisterMap& PeripheralDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "peripherals", Registers };
+		return map;
 	}
 }

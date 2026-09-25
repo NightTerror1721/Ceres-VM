@@ -95,6 +95,8 @@ namespace ceres::vm
 		u32 _faultAddress = 0;
 		u32 _faultAccess = 0;
 		FaultReason _faultReason = FaultReason::None;
+		// --strict-mmio: an offset a device does not declare faults instead of reading 0 (plan/v2 SPEC 5.1).
+		bool _strictMmio = false;
 
 		// Whether a division by zero raises the DivisionByZero interrupt. Off unless the program
 		// switches it on through the system control device, so a program written without it keeps
@@ -247,6 +249,9 @@ namespace ceres::vm
 		u32 faultAccess() const noexcept { return _faultAccess; }
 		// Why: a FaultReason (plan/v2 SPEC 5.4), what SystemControl's FaultReason register reports.
 		u32 faultReason() const noexcept { return static_cast<u32>(_faultReason); }
+
+		void setStrictMmio(bool strict) noexcept { _strictMmio = strict; }
+		bool strictMmio() const noexcept { return _strictMmio; }
 		// Only for restoring a snapshot: a rewind to before a fault must not still report it.
 		void setFaultRegisters(u32 address, u32 access, u32 reason = 0) noexcept { _faultAddress = address; _faultAccess = access; _faultReason = static_cast<FaultReason>(reason); }
 		// Whether the machine stopped for want of stack (_stoppedForGood). A debugger keeps it in its
@@ -403,7 +408,13 @@ namespace ceres::vm
 					triggerInterrupt(InterruptNumber::MemoryFault);
 					return T{};
 				}
-				else if constexpr (FloatingPoint<T>)
+				if (_strictMmio && !_mmioBus.declares(*physical)) [[unlikely]]
+				{
+					noteFault(address, FaultAccess::Read, static_cast<u32>(sizeof(T)), FaultReason::MmioUndeclared);
+					triggerInterrupt(InterruptNumber::MemoryFault);
+					return T{};
+				}
+				if constexpr (FloatingPoint<T>)
 					return std::bit_cast<T>(_mmioBus.read(*physical));
 				else
 					return static_cast<T>(_mmioBus.read(*physical));
@@ -448,8 +459,15 @@ namespace ceres::vm
 				{
 					noteFault(address, FaultAccess::Write, static_cast<u32>(sizeof(T)), FaultReason::MmioWidth);
 					triggerInterrupt(InterruptNumber::MemoryFault);
+					return;
 				}
-				else if constexpr (FloatingPoint<T>)
+				if (_strictMmio && !_mmioBus.declares(*physical)) [[unlikely]]
+				{
+					noteFault(address, FaultAccess::Write, static_cast<u32>(sizeof(T)), FaultReason::MmioUndeclared);
+					triggerInterrupt(InterruptNumber::MemoryFault);
+					return;
+				}
+				if constexpr (FloatingPoint<T>)
 					_mmioBus.write(*physical, std::bit_cast<u32>(value));
 				else
 					_mmioBus.write(*physical, static_cast<u32>(value));

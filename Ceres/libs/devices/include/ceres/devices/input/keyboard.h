@@ -147,6 +147,7 @@ namespace ceres::devices
 	public:
 		u32 read(Address offset) override;
 		void write(Address offset, u32 value) override;
+		const RegisterMap& registers() const override;
 	};
 
 	// What a keystroke is as bytes on a terminal: a character as UTF-8, and each named key as the byte or the

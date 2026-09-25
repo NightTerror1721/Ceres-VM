@@ -45,11 +45,24 @@ Every slot is `MmioBus::SlotSize` (0x10000 = 64 KiB) wide, computed as `MmioBus:
 
 ## Behaviour of an unattached slot
 
-- **Reading** an unattached slot returns all-ones: `0xFF` for a byte, `0xFFFF` for a halfword,
-  `0xFFFFFFFF` for a word — the same convention an unattached port used.
+- **Reading** an unattached slot returns `0xFFFFFFFF` — the same convention an unattached port used.
 - **Writing** to an unattached slot is silently discarded — no fault, no effect.
 
 ## Register layout
+
+Every register is **32 bits wide and takes an aligned 32-bit access only** (`ldr`, `str`, `fldr`, `fstr`):
+
+| Access | Result |
+| --- | --- |
+| A byte or halfword load or store (`ldrb`, `ldrh`, `ldrsb`, `ldrsh`, `strb`, `strh`) | `MemoryFault` |
+| A misaligned word access | `AlignmentFault` |
+| `mcpy`, `mset`, `mcmp` or `mscan` touching a device | `MemoryFault` |
+| An offset the device does not declare | Reads `0`, the write is dropped; with `ceres run --strict-mmio`, a `MemoryFault` |
+
+The system control device's `FaultReasonRegister` says which rule a fault broke. Each device declares its
+registers in a table (name, offset, access, meaning); the debugger's `dev <name>` shows it with the current
+values ([The debugger](22-Debugger.md)). A register that carries a byte, like the terminal's output, uses the
+word's low byte.
 
 Every device follows the same convention: scalar registers sit at low, word-aligned offsets (`0x00`,
 `0x04`, `0x08`, ...) inside its slot. A device that also moves blocks of memory — the disk, the

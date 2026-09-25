@@ -102,5 +102,6 @@ namespace ceres::devices
 
 
 		void write(Address offset, u32 value) override;
+		const RegisterMap& registers() const override;
 	};
 }

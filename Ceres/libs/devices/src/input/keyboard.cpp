@@ -2,6 +2,21 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Status",         RegisterAccess::Read,      0x0, false, "Bit 0 an event, bit 1 a typed character, bit 2 a keystroke is waiting." },
+			{ 0x04, "Event",          RegisterAccess::Read,      0x0, true,  "Pops one event; bits 30:0 = code, bit 31 = 1 if pressed, 0 if released." },
+			{ 0x08, "Text",           RegisterAccess::Read,      0x0, true,  "Pops one typed character as a Unicode code point; 0 when empty." },
+			{ 0x0C, "Key",            RegisterAccess::Read,      0x0, true,  "Pops the next keystroke, in the order it was typed; 0 when empty." },
+			{ 0x10, "BlockReadCount", RegisterAccess::Read,      0x0, false, "Events drained by the last block read." },
+			{ 0xF0, "BlockAddress",   RegisterAccess::Write,     0x0, false, "RAM address to drain events into, four bytes each." },
+			{ 0xF4, "BlockLength",    RegisterAccess::Write,     0x0, false, "Bytes of room at that address." },
+			{ 0xF8, "BlockCommand",   RegisterAccess::Write,     0x0, false, "1 drains the event queue into RAM." },
+		};
+	}
+
 	void KeyboardDevice::pushKey(u32 code, bool pressed)
 	{
 		if (pressed && scancode::isNamedKey(code & EventCodeMask))
@@ -235,5 +250,11 @@ namespace ceres::devices
 			case scancode::PageDown: return "\x1b[6~";
 			default: return {};
 		}
+	}
+
+	const RegisterMap& KeyboardDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "keyboard", Registers };
+		return map;
 	}
 }

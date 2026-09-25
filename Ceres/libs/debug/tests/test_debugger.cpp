@@ -57,7 +57,7 @@ namespace
 	//  7     stv r0, total
 	//  8     li r0, 1
 	//  9     la r13, 0xFFFF0000   (SystemControlDevice's MMIO base)
-	// 10     strb [r13 + 0], r0
+	// 10     str  [r13 + 0], r0
 	// 11     ret
 	// 12
 	// 13 double_it:
@@ -780,4 +780,27 @@ TEST(debugger, the_debugged_machine_has_every_device_attached)
 	CHECK(io.isAttached(vm::default_mmio::Display));
 	CHECK(io.isAttached(vm::default_mmio::Gamepad));
 	CHECK(io.isAttached(vm::default_mmio::SystemControl));
+}
+
+TEST(debugger, dev_lists_the_devices_and_shows_a_devices_registers)
+{
+	TempSource source{ CallSource, "dev" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+	session->start();
+
+	const std::string list = session->listDevices();
+	CHECK(list.find("terminal") != std::string::npos);
+	CHECK(list.find("system-control") != std::string::npos);
+	CHECK(list.find("0xFFFF0000") != std::string::npos);
+
+	const auto timer = session->describeDevice("timer");
+	CHECK(timer.has_value());
+	if (!timer) return;
+	CHECK(timer->find("Ticks") != std::string::npos);
+	CHECK(timer->find("(not read)") != std::string::npos);      // reading Ticks latches the high word
+	CHECK(timer->find("AlarmHigh") != std::string::npos);
+
+	CHECK(!session->describeDevice("no-such-device").has_value());
 }

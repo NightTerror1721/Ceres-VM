@@ -4,6 +4,25 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Command",      RegisterAccess::Write,     0x0,   false, "1 = clear, 2 = present." },
+			{ 0x04, "Width",        RegisterAccess::ReadWrite, 0x140, false, "Pixel columns." },
+			{ 0x08, "Height",       RegisterAccess::ReadWrite, 0xC8,  false, "Pixel rows." },
+			{ 0x0C, "Data",         RegisterAccess::Write,     0x0,   false, "One pixel (RGB32, or an index) at the cursor." },
+			{ 0x10, "Mode",         RegisterAccess::ReadWrite, 0x0,   false, "0 RGB32, 1 indexed (8 bits a pixel)" },
+			{ 0x14, "PaletteIndex", RegisterAccess::Write,     0x0,   false, "The palette entry PaletteData sets next." },
+			{ 0x18, "PaletteData",  RegisterAccess::Write,     0x0,   false, "RGB32 for that entry, then the next." },
+			{ 0x1C, "ScrollX",      RegisterAccess::ReadWrite, 0x0,   false, "The column shown at the left edge." },
+			{ 0x20, "ScrollY",      RegisterAccess::ReadWrite, 0x0,   false, "The row shown at the top." },
+			{ 0xF0, "BlockAddress", RegisterAccess::Write,     0x0,   false, "RAM address to blit from." },
+			{ 0xF4, "BlockLength",  RegisterAccess::Write,     0x0,   false, "Bytes to blit (a multiple of 4)" },
+			{ 0xF8, "BlockCommand", RegisterAccess::Write,     0x0,   false, "2 = blit pixels into the buffer." },
+		};
+	}
+
 	u32 DisplayDevice::read(Address offset)
 	{
 		if (offset == WidthRegister) return _width;
@@ -135,5 +154,11 @@ namespace ceres::devices
 
 		if (_sink)
 			_sink(_width, _height, frame());
+	}
+
+	const RegisterMap& DisplayDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "display", Registers };
+		return map;
 	}
 }

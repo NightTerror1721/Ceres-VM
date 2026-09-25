@@ -3,6 +3,54 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Status",            RegisterAccess::Read,      0x0, false, "Bit 0 = a tone is playing." },
+			{ 0x04, "Frequency",         RegisterAccess::ReadWrite, 0x0, false, "Hz." },
+			{ 0x08, "Duration",          RegisterAccess::ReadWrite, 0x0, false, "Milliseconds, 0 = until stopped." },
+			{ 0x0C, "Volume",            RegisterAccess::ReadWrite, 0x0, false, "0..255." },
+			{ 0x10, "Waveform",          RegisterAccess::ReadWrite, 0x0, false, "A Waveform." },
+			{ 0x14, "Command",           RegisterAccess::Write,     0x0, false, "1 = play, 2 = stop." },
+			{ 0x20, "ChannelCommand",    RegisterAccess::Write,     0x0, false, "Channel << 8 | 1 key on, 2 key off, 3 stop." },
+			{ 0x24, "ChannelStatus",     RegisterAccess::Read,      0x0, false, "Bit n = channel n is sounding." },
+			{ 0x28, "ChannelCount",      RegisterAccess::Read,      0x4, false, "How many channels (4)" },
+			{ 0x40, "Channel0Frequency", RegisterAccess::ReadWrite, 0x0, false, "Channel 0. Hz." },
+			{ 0x44, "Channel0Volume",    RegisterAccess::ReadWrite, 0x0, false, "Channel 0. 0..255." },
+			{ 0x48, "Channel0Waveform",  RegisterAccess::ReadWrite, 0x0, false, "Channel 0. A Waveform." },
+			{ 0x4C, "Channel0Duty",      RegisterAccess::ReadWrite, 0x0, false, "Channel 0. A square wave's high part, 1..255 of 256 (128: half)." },
+			{ 0x50, "Channel0Attack",    RegisterAccess::ReadWrite, 0x0, false, "Channel 0. Milliseconds to reach full level." },
+			{ 0x54, "Channel0Decay",     RegisterAccess::ReadWrite, 0x0, false, "Channel 0. Milliseconds to fall to the sustain level." },
+			{ 0x58, "Channel0Sustain",   RegisterAccess::ReadWrite, 0x0, false, "Channel 0. 0..255, the level while the key is held." },
+			{ 0x5C, "Channel0Release",   RegisterAccess::ReadWrite, 0x0, false, "Channel 0. Milliseconds to fall silent after key off." },
+			{ 0x60, "Channel1Frequency", RegisterAccess::ReadWrite, 0x0, false, "Channel 1. Hz." },
+			{ 0x64, "Channel1Volume",    RegisterAccess::ReadWrite, 0x0, false, "Channel 1. 0..255." },
+			{ 0x68, "Channel1Waveform",  RegisterAccess::ReadWrite, 0x0, false, "Channel 1. A Waveform." },
+			{ 0x6C, "Channel1Duty",      RegisterAccess::ReadWrite, 0x0, false, "Channel 1. A square wave's high part, 1..255 of 256 (128: half)." },
+			{ 0x70, "Channel1Attack",    RegisterAccess::ReadWrite, 0x0, false, "Channel 1. Milliseconds to reach full level." },
+			{ 0x74, "Channel1Decay",     RegisterAccess::ReadWrite, 0x0, false, "Channel 1. Milliseconds to fall to the sustain level." },
+			{ 0x78, "Channel1Sustain",   RegisterAccess::ReadWrite, 0x0, false, "Channel 1. 0..255, the level while the key is held." },
+			{ 0x7C, "Channel1Release",   RegisterAccess::ReadWrite, 0x0, false, "Channel 1. Milliseconds to fall silent after key off." },
+			{ 0x80, "Channel2Frequency", RegisterAccess::ReadWrite, 0x0, false, "Channel 2. Hz." },
+			{ 0x84, "Channel2Volume",    RegisterAccess::ReadWrite, 0x0, false, "Channel 2. 0..255." },
+			{ 0x88, "Channel2Waveform",  RegisterAccess::ReadWrite, 0x0, false, "Channel 2. A Waveform." },
+			{ 0x8C, "Channel2Duty",      RegisterAccess::ReadWrite, 0x0, false, "Channel 2. A square wave's high part, 1..255 of 256 (128: half)." },
+			{ 0x90, "Channel2Attack",    RegisterAccess::ReadWrite, 0x0, false, "Channel 2. Milliseconds to reach full level." },
+			{ 0x94, "Channel2Decay",     RegisterAccess::ReadWrite, 0x0, false, "Channel 2. Milliseconds to fall to the sustain level." },
+			{ 0x98, "Channel2Sustain",   RegisterAccess::ReadWrite, 0x0, false, "Channel 2. 0..255, the level while the key is held." },
+			{ 0x9C, "Channel2Release",   RegisterAccess::ReadWrite, 0x0, false, "Channel 2. Milliseconds to fall silent after key off." },
+			{ 0xA0, "Channel3Frequency", RegisterAccess::ReadWrite, 0x0, false, "Channel 3. Hz." },
+			{ 0xA4, "Channel3Volume",    RegisterAccess::ReadWrite, 0x0, false, "Channel 3. 0..255." },
+			{ 0xA8, "Channel3Waveform",  RegisterAccess::ReadWrite, 0x0, false, "Channel 3. A Waveform." },
+			{ 0xAC, "Channel3Duty",      RegisterAccess::ReadWrite, 0x0, false, "Channel 3. A square wave's high part, 1..255 of 256 (128: half)." },
+			{ 0xB0, "Channel3Attack",    RegisterAccess::ReadWrite, 0x0, false, "Channel 3. Milliseconds to reach full level." },
+			{ 0xB4, "Channel3Decay",     RegisterAccess::ReadWrite, 0x0, false, "Channel 3. Milliseconds to fall to the sustain level." },
+			{ 0xB8, "Channel3Sustain",   RegisterAccess::ReadWrite, 0x0, false, "Channel 3. 0..255, the level while the key is held." },
+			{ 0xBC, "Channel3Release",   RegisterAccess::ReadWrite, 0x0, false, "Channel 3. Milliseconds to fall silent after key off." },
+		};
+	}
+
 	void AudioDevice::renderChannels(float* out, usize frames, u32 sampleRate)
 	{
 		if (sampleRate == 0)
@@ -204,5 +252,11 @@ namespace ceres::devices
 		else if (field == &c->duty) value = clamp(value, 1, 255);
 		else if (field == &c->waveform && value >= WaveformCount) return;   // a typo keeps the one there
 		*field = value;
+	}
+
+	const RegisterMap& AudioDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "audio", Registers };
+		return map;
 	}
 }

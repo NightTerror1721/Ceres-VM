@@ -30,6 +30,15 @@ namespace
 		u32 _word = 0;
 
 		u32 read(Address) override { return _word; }
+		const RegisterMap& registers() const override
+		{
+			static constexpr RegisterInfo table[] = {
+				{ 0x00, "Word0", RegisterAccess::ReadWrite, 0, false, "" },
+				{ 0x04, "Word1", RegisterAccess::ReadWrite, 0, false, "" },
+			};
+			static constexpr RegisterMap map{ "register-file", table };
+			return map;
+		}
 
 		void write(Address, u32 value) override { _word = value; }
 	};

@@ -165,6 +165,7 @@ namespace ceres::devices
 
 
 		void write(Address offset, u32 value) override;
+		const RegisterMap& registers() const override;
 
 	private:
 		void resize(u32 width, u32 height);

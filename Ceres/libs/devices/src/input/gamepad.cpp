@@ -2,6 +2,21 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Status",       RegisterAccess::Read,      0x0, true,  "Bit 0 = state changed since the last status read (consumed on read)." },
+			{ 0x04, "Buttons",      RegisterAccess::Read,      0x0, false, "Button bitmask." },
+			{ 0x08, "LeftX",        RegisterAccess::Read,      0x0, false, "Signed left stick X (-32768..32767)." },
+			{ 0x0C, "LeftY",        RegisterAccess::Read,      0x0, false, "Signed left stick Y." },
+			{ 0x10, "RightX",       RegisterAccess::Read,      0x0, false, "Signed right stick X." },
+			{ 0x14, "RightY",       RegisterAccess::Read,      0x0, false, "Signed right stick Y." },
+			{ 0x18, "LeftTrigger",  RegisterAccess::Read,      0x0, false, "Left trigger (0..32767)." },
+			{ 0x1C, "RightTrigger", RegisterAccess::Read,      0x0, false, "Right trigger (0..32767)." },
+		};
+	}
+
 	void GamepadDevice::pushState(u16 buttons, i16 leftX, i16 leftY, i16 rightX, i16 rightY, u16 leftTrigger, u16 rightTrigger)
 	{
 		bool changed = false;
@@ -43,5 +58,11 @@ namespace ceres::devices
 		if (offset == LeftTriggerRegister) return _leftTrigger;
 		if (offset == RightTriggerRegister) return _rightTrigger;
 		return 0;
+	}
+
+	const RegisterMap& GamepadDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "gamepad", Registers };
+		return map;
 	}
 }

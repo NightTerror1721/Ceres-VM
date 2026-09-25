@@ -56,6 +56,7 @@ does. `DebugCLI` is one front end over it; the editor integration is another.
 | `attach <n> <file> [cart]` | Plug a file into peripheral port `n` (a cartridge is read only) |
 | `detach <n>` | Pull the medium out of port `n` |
 | `ports` | What each peripheral port holds |
+| `dev [name]` | The devices on the bus; with a name, each register's access, current value and meaning. A register whose read would pop a queue or latch a word shows `(not read)` |
 | `q` | Quit |
 
 ## A session

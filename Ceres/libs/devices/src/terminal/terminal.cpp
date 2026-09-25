@@ -3,6 +3,24 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Status",         RegisterAccess::Read,      0x2, false, "Bit 0 input available, bit 1 ready for output, bit 2 end of input." },
+			{ 0x04, "Output",         RegisterAccess::Write,     0x0, false, "The low byte goes to the output stream." },
+			{ 0x08, "Input",          RegisterAccess::Read,      0x0, true,  "The next input byte, or 0 when there is none." },
+			{ 0x0C, "BytesAvailable", RegisterAccess::Read,      0x0, false, "Bytes currently sitting unread in the input ring." },
+			{ 0x10, "BlockReadCount", RegisterAccess::Read,      0x0, false, "Bytes the most recent block-read actually moved into RAM." },
+			{ 0x14, "DroppedInput",   RegisterAccess::Read,      0x0, false, "Input bytes discarded by a full ring (truncated to 32 bits)." },
+			{ 0x18, "Mode",           RegisterAccess::ReadWrite, 0x0, false, "Write ModeRaw to ask the host for keys as they are pressed (no line editing, no echo); read what the host granted." },
+			{ 0x1C, "ErrorOutput",    RegisterAccess::Write,     0x0, false, "The low byte goes to the error stream." },
+			{ 0xF0, "BlockAddress",   RegisterAccess::Write,     0x0, false, "RAM address of a block transfer." },
+			{ 0xF4, "BlockLength",    RegisterAccess::Write,     0x0, false, "Bytes in a block transfer." },
+			{ 0xF8, "BlockCommand",   RegisterAccess::Write,     0x0, false, "1 reads input into RAM, 2 writes RAM to the output, 3 to the error stream." },
+		};
+	}
+
 	void TerminalDevice::pushInput(std::span<const u8> input)
 	{
 		const std::lock_guard lock{_inputMutex};
@@ -217,5 +235,11 @@ namespace ceres::devices
 			else if (value == BlockCommandWriteError)
 				blockWrite(Address(_blockAddress), _blockLength, true);
 		}
+	}
+
+	const RegisterMap& TerminalDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "terminal", Registers };
+		return map;
 	}
 }

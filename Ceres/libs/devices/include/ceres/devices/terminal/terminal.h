@@ -186,6 +186,7 @@ namespace ceres::devices
 	public:
 		u32 read(Address offset) override;
 		void write(Address offset, u32 value) override;
+		const RegisterMap& registers() const override;
 
 	private:
 		// The status word and the next input byte: the two registers whose reads are more than a field.

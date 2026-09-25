@@ -4,6 +4,20 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Status",       RegisterAccess::Read,      0x0, false, "Bit 0 ready, bit 1 the last transfer failed (a sector outside the disk, a bad length)." },
+			{ 0x04, "Command",      RegisterAccess::Write,     0x0, false, "1 flushes the disk to its host file." },
+			{ 0x08, "Sector",       RegisterAccess::ReadWrite, 0x0, false, "The sector the next block transfer reads or writes." },
+			{ 0x0C, "SectorCount",  RegisterAccess::Read,      0x0, false, "How many sectors the disk has." },
+			{ 0xF0, "BlockAddress", RegisterAccess::Write,     0x0, false, "RAM address of the sector buffer." },
+			{ 0xF4, "BlockLength",  RegisterAccess::Write,     0x0, false, "Bytes to move: at most one sector." },
+			{ 0xF8, "BlockCommand", RegisterAccess::Write,     0x0, false, "1 reads the sector into RAM, 2 writes RAM to the sector." },
+		};
+	}
+
 	DiskDevice::~DiskDevice()
 	{
 		// A program that forgets to flush still gets its writes; losing them would make the
@@ -137,5 +151,11 @@ namespace ceres::devices
 			else if (value == BlockCommandWrite)
 				blockWrite(Address(_blockAddress), _blockLength);
 		}
+	}
+
+	const RegisterMap& DiskDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "disk", Registers };
+		return map;
 	}
 }

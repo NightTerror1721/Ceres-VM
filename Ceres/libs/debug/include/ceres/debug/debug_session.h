@@ -394,6 +394,12 @@ namespace ceres::debug
 		bool attachPeripheral(u32 port, const std::filesystem::path& path, bool cartridge, std::string* error = nullptr);
 		bool detachPeripheral(u32 port);
 		std::string describePeripheral(u32 port) const;
+		// The devices on the bus, one line each: slot, base address, name, how many registers it declares.
+		std::string listDevices() const;
+		// Every register of the device called `name` (as listDevices shows it), with its access, its current value
+		// and what it does; nullopt when no device has that name. A register whose read changes the device (a
+		// queue, a latch) is not read: showing it must not change what the program sees next.
+		std::optional<std::string> describeDevice(std::string_view name) const;
 		void pushKey(u32 code, bool pressed = true);
 		void pushMouse(i32 dx, i32 dy, u8 buttons = 0, i8 wheel = 0);
 

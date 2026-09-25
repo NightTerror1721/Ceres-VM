@@ -146,5 +146,6 @@ namespace ceres::devices
 	public:
 		u32 read(Address offset) override { u32 v; return readable(offset, v) ? v : 0xFFFFFFFF; }
 		void write(Address offset, u32 value) override;
+		const RegisterMap& registers() const override;
 	};
 }

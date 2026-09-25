@@ -1367,6 +1367,76 @@ TEST(devices, a_word_access_to_a_device_register_still_works)
 	CHECK_EQ(seen.reason, 0u);
 }
 
+TEST(devices, every_device_declares_a_sound_register_table)
+{
+	TerminalDevice terminal{};
+	TimerDevice timer{};
+	SystemControlDevice control{};
+	DmaController dma{};
+	DiskDevice disk{ 4 };
+	FramebufferDevice framebuffer{};
+	KeyboardDevice keyboard{};
+	MouseDevice mouse{};
+	DisplayDevice display{};
+	GamepadDevice gamepad{};
+	AudioDevice audio{};
+	PeripheralDevice peripherals{};
+	HostFsDevice hostFs{};
+	BlitterDevice blitter{};
+	const std::array<const IODevice*, 14> devices{ &terminal, &timer, &control, &dma, &disk, &framebuffer, &keyboard, &mouse,
+		&display, &gamepad, &audio, &peripherals, &hostFs, &blitter };
+
+	std::vector<std::string_view> names;
+	for (const IODevice* device : devices)
+	{
+		const RegisterMap& map = device->registers();
+		CHECK(!map.device().empty());
+		CHECK(!map.empty());
+		names.push_back(map.device());
+		u32 previous = 0;
+		bool first = true;
+		for (const RegisterInfo& info : map.registers())
+		{
+			CHECK_EQ(info.offset % 4, 0u);                    // a register is a whole aligned word
+			CHECK(info.offset < 0x100);                        // what the bus's per-slot mask covers
+			CHECK(first || info.offset > previous);            // in order, so no offset is declared twice
+			CHECK(!info.name.empty());
+			CHECK(!info.description.empty());
+			CHECK(map.find(info.offset) == &info);
+			previous = info.offset;
+			first = false;
+		}
+	}
+	std::ranges::sort(names);
+	CHECK(std::ranges::adjacent_find(names) == names.end());  // `dev <name>` finds one device
+}
+
+TEST(devices, an_undeclared_offset_reads_zero_and_under_strict_mmio_faults)
+{
+	// 0x40 is no register of the terminal's. Through the bus it reads 0 (and a write is dropped) unless the
+	// machine is strict, when it is a MemoryFault of its own reason.
+	const FaultSeen lenient = runAgainstTheTerminal({ LoadBase(TerminalBase), LoadBaseLow(TerminalBase),
+		Instruction::LI(1, 7), Instruction::LDR(1, Base, 0x40), Instruction::STR(Base, 1, 0x40) }, 5);
+	CHECK_EQ(lenient.taken, TookNothing);
+
+	Machine m{ LoadBase(TerminalBase), LoadBaseLow(TerminalBase), Instruction::LI(1, 7), Instruction::LDR(1, Base, 0x40) };
+	TerminalDevice terminal{};
+	terminal.attachTo(m.vm().io());
+	m.step(4);
+	CHECK_EQ(m.reg(1), 0u);
+
+	Machine strict{ LoadBase(TerminalBase), LoadBaseLow(TerminalBase), Instruction::LDR(1, Base, 0x40) };
+	strict.installHandler(InterruptNumber::MemoryFault, Address(0x800), { Instruction::LI(9, TookMemoryFault), Instruction::HALT() });
+	strict.vm().engine().setStrictMmio(true);
+	TerminalDevice strictTerminal{};
+	strictTerminal.attachTo(strict.vm().io());
+	strict.step(5);
+	CHECK_EQ(strict.reg(9), TookMemoryFault);
+	CHECK_EQ(strict.vm().engine().faultReason(), static_cast<u32>(FaultReason::MmioUndeclared));
+	strictTerminal.detachFrom(strict.vm().io());
+	terminal.detachFrom(m.vm().io());
+}
+
 TEST(devices, a_block_instruction_that_touches_a_device_is_a_memory_fault)
 {
 	// r2 a buffer in RAM, r3 a count, r4 a byte; Base (r13) the terminal.

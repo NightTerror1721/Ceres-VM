@@ -2,6 +2,20 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Status",  RegisterAccess::Read,      0x0, true,  "Bit 0 = new motion/button data since the last status read." },
+			{ 0x04, "DeltaX",  RegisterAccess::Read,      0x0, true,  "Signed movement in X since the last read (consumed on read)." },
+			{ 0x08, "DeltaY",  RegisterAccess::Read,      0x0, true,  "Signed movement in Y since the last read (consumed on read)." },
+			{ 0x0C, "X",       RegisterAccess::Read,      0x0, false, "Absolute X." },
+			{ 0x10, "Y",       RegisterAccess::Read,      0x0, false, "Absolute Y." },
+			{ 0x14, "Buttons", RegisterAccess::Read,      0x0, false, "Button mask." },
+			{ 0x18, "Wheel",   RegisterAccess::Read,      0x0, true,  "Wheel movement since the last read (consumed on read)." },
+		};
+	}
+
 	void MouseDevice::pushMotion(i32 dx, i32 dy, u8 buttons, i8 wheel)
 	{
 		// Only a push that changes something is news: a button event with the same mask, or a wheel event
@@ -39,5 +53,11 @@ namespace ceres::devices
 		if (offset == ButtonsRegister) { const std::lock_guard lock{_mutex}; return _buttons; }
 		if (offset == WheelRegister) { const std::lock_guard lock{_mutex}; const i32 v = _wheelDelta; _wheelDelta = 0; return static_cast<u32>(v); }
 		return 0;
+	}
+
+	const RegisterMap& MouseDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "mouse", Registers };
+		return map;
 	}
 }

@@ -27,6 +27,19 @@ namespace
 			bus.attach(default_mmio::Terminal, *this);
 		}
 
+		// What the programs these tests run reach: the output register and the block trio.
+		const RegisterMap& registers() const override
+		{
+			static constexpr RegisterInfo table[] = {
+				{ 0x04, "Output", RegisterAccess::Write, 0, false, "" },
+				{ 0xF0, "BlockAddress", RegisterAccess::Write, 0, false, "" },
+				{ 0xF4, "BlockLength", RegisterAccess::Write, 0, false, "" },
+				{ 0xF8, "BlockCommand", RegisterAccess::Write, 0, false, "" },
+			};
+			static constexpr RegisterMap map{ "capturing-terminal", table };
+			return map;
+		}
+
 		u32 read(Address) override { return 0; }
 
 		void putByte(Address offset, u8 value)

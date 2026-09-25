@@ -149,6 +149,8 @@ namespace ceres::debug
 			"    attach <n> <file> [cart]  plug a file into peripheral port n (a cartridge is read only)\n"
 			"    detach <n>          pull the medium out of port n\n"
 			"    ports               what each peripheral port holds\n"
+			"    dev [name]          the devices on the bus; with a name, its registers and their values\n"
+			"                        ('(not read)' marks a register whose read would pop a queue or latch a word)\n"
 			"\n"
 			"    q            quit\n";
 	}
@@ -1018,6 +1020,17 @@ namespace ceres::debug
 		{
 			for (u32 port = 0; port < PeripheralDevice::PortCount; ++port)
 				std::cout << std::format("  {}: {}\n", port, _session.describePeripheral(port));
+			return true;
+		}
+
+		if (command == "dev")
+		{
+			if (argument(1).empty())
+				std::cout << _session.listDevices();
+			else if (const auto shown = _session.describeDevice(argument(1)))
+				std::cout << *shown;
+			else
+				std::cout << "  No device called '" << argument(1) << "'. 'dev' lists them.\n";
 			return true;
 		}
 

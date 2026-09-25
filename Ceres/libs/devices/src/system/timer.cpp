@@ -2,6 +2,24 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Ticks",           RegisterAccess::Read,      0x0, true,  "The low word of the ticks so far; also latches the high word." },
+			{ 0x04, "Clock",           RegisterAccess::Read,      0x0, false, "Seconds since the epoch." },
+			{ 0x08, "Command",         RegisterAccess::Write,     0x0, false, "Arms the timer to fire after that many ticks; 0 disarms it." },
+			{ 0x0C, "Millis",          RegisterAccess::Read,      0x0, false, "Milliseconds since the machine started (wraps every 49 days)" },
+			{ 0x10, "NanosLow",        RegisterAccess::Read,      0x0, true,  "The low word of the nanoseconds since the machine started; also latches the high word." },
+			{ 0x14, "NanosHigh",       RegisterAccess::Read,      0x0, false, "The high word latched by the last read of NanosLowRegister." },
+			{ 0x18, "NanosResolution", RegisterAccess::Read,      0x0, false, "The smallest step the nanosecond clock is seen to take, in nanoseconds." },
+			{ 0x1C, "HaltClock",       RegisterAccess::Read,      0x0, false, "Ticks per second while the CPU is halted; 0 when time only moves by events." },
+			{ 0x20, "AlarmLow",        RegisterAccess::ReadWrite, 0x0, false, "The low word of the alarm instant, in nanoseconds on NanosLow's clock (reads 0 when disarmed)" },
+			{ 0x24, "AlarmHigh",       RegisterAccess::ReadWrite, 0x0, false, "The high word; writing it arms the alarm at high:low (0:0 disarms)" },
+			{ 0x28, "TicksHigh",       RegisterAccess::Read,      0x0, false, "The high word of the tick count latched by the last read of TicksRegister." },
+		};
+	}
+
 	void TimerDevice::arm(u64 ticksFromNow, bool periodic) noexcept
 	{
 		_remaining = ticksFromNow;
@@ -211,5 +229,11 @@ namespace ceres::devices
 		const u64 count = value & 0x7FFFFFFFu;
 
 		arm(count, periodic && count > 0);
+	}
+
+	const RegisterMap& TimerDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "timer", Registers };
+		return map;
 	}
 }

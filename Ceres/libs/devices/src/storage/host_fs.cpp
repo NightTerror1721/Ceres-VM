@@ -4,6 +4,21 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Status",   RegisterAccess::Read,      0x0, false, "Bit 0 a host directory is attached." },
+			{ 0x04, "Command",  RegisterAccess::Write,     0x0, false, "The operation, carried out at once." },
+			{ 0x08, "Handle",   RegisterAccess::ReadWrite, 0x0, false, "The open file an operation acts on." },
+			{ 0x0C, "Address",  RegisterAccess::Write,     0x0, false, "RAM address of a path (NUL-terminated) or of data." },
+			{ 0x10, "Length",   RegisterAccess::Write,     0x0, false, "Bytes to move, or the size of a buffer." },
+			{ 0x14, "Argument", RegisterAccess::Write,     0x0, false, "Open flags, seek whence, an entry index, a second path." },
+			{ 0x18, "Offset",   RegisterAccess::Write,     0x0, false, "A seek offset (signed), or where a listed name goes." },
+			{ 0x1C, "Result",   RegisterAccess::Read,      0x0, false, "What the last operation gave, or minus an errno." },
+		};
+	}
+
 	bool HostFsDevice::setRoot(const std::filesystem::path& directory)
 	{
 		std::error_code error;
@@ -353,5 +368,11 @@ namespace ceres::devices
 		else if (offset == LengthRegister) _length = value;
 		else if (offset == ArgumentRegister) _argument = value;
 		else if (offset == OffsetRegister) _offset = value;
+	}
+
+	const RegisterMap& HostFsDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "host-fs", Registers };
+		return map;
 	}
 }

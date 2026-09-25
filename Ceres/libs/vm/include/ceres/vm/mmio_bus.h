@@ -32,6 +32,9 @@ namespace ceres::vm
 
 	private:
 		std::array<IODevice*, MaxDevices> _devices{};
+		// Bit k of a slot's word: the register at offset 4k is declared (offsets below 0x100, where every device
+		// keeps its registers today; one above is looked up in its table). Built on attach, so an access tests a bit.
+		std::array<u64, MaxDevices> _declared{};
 		// Rebuilt only when the topology changes. The execution engine ticks this list after
 		// every instruction, so it must not scan the entire MMIO address space each time.
 		std::array<IODevice*, MaxDevices> _tickedDevices{};
@@ -141,10 +144,29 @@ namespace ceres::vm
 			}
 		}
 
+	private:
+		static u64 declaredMask(const IODevice& device)
+		{
+			u64 mask = 0;
+			for (const RegisterInfo& info : device.registers().registers())
+				if (info.offset < 0x100 && info.offset % 4 == 0)
+					mask |= u64{ 1 } << (info.offset / 4);
+			return mask;
+		}
+
+		forceinline bool declares(u32 index, u32 offset) const
+		{
+			if (offset < 0x100) [[likely]]
+				return ((_declared[index] >> (offset / 4)) & 1u) != 0;
+			return _devices[index]->registers().find(offset) != nullptr;
+		}
+
+	public:
 		void attach(Address base, IODevice& device)
 		{
 			const u32 index = (base.value() - BaseValue) / SlotSize;
 			_devices[index] = &device;
+			_declared[index] = declaredMask(device);
 			const std::lock_guard lock{device._connectionMutex};
 			device._memory = &_memory;
 			device._interrupts = &_interrupts;
@@ -155,9 +177,11 @@ namespace ceres::vm
 		{
 			const u32 first = (firstBase.value() - BaseValue) / SlotSize;
 			const u32 last = (lastBase.value() - BaseValue) / SlotSize;
+			const u64 mask = declaredMask(device);
 			for (u32 index = first; index <= last; ++index)
 			{
 				_devices[index] = &device;
+				_declared[index] = mask;
 				const std::lock_guard lock{device._connectionMutex};
 				device._memory = &_memory;
 				device._interrupts = &_interrupts;
@@ -171,6 +195,7 @@ namespace ceres::vm
 			if (IODevice* device = _devices[index])
 			{
 				_devices[index] = nullptr;
+				_declared[index] = 0;
 				if (std::find(_devices.begin(), _devices.end(), device) == _devices.end())
 				{
 					const std::lock_guard lock{device->_connectionMutex};
@@ -189,20 +214,35 @@ namespace ceres::vm
 
 	public:
 		// One aligned 32-bit access: the execution engine has already faulted every other kind (plan/v2 SPEC 5.1).
+		// An offset the device does not declare reads 0 and ignores the write (plan/v2 SPEC 5.1, D19).
 		forceinline u32 read(Address address)
 		{
 			const u32 relative = address.value() - BaseValue;
-			if (IODevice* device = _devices[relative / SlotSize])
-				return device->read(Address(relative % SlotSize));
+			const u32 index = relative / SlotSize;
+			if (IODevice* device = _devices[index])
+				return declares(index, relative % SlotSize) ? device->read(Address(relative % SlotSize)) : 0u;
 			return 0xFFFFFFFF; // an empty slot reads all ones, as an unattached port always did
 		}
 
 		forceinline void write(Address address, u32 value)
 		{
 			const u32 relative = address.value() - BaseValue;
-			if (IODevice* device = _devices[relative / SlotSize])
+			const u32 index = relative / SlotSize;
+			if (IODevice* device = _devices[index]; device != nullptr && declares(index, relative % SlotSize))
 				device->write(Address(relative % SlotSize), value);
 			// Writing an empty slot is silently discarded, as it always was.
+		}
+
+		// The device in slot `index` (0-255), or nullptr: for a debugger listing what is attached.
+		IODevice* deviceAt(usize index) const noexcept { return index < MaxDevices ? _devices[index] : nullptr; }
+
+		// Whether an access here reaches a declared register, or an empty slot: false only for an offset the
+		// attached device does not declare. What --strict-mmio faults on.
+		forceinline bool declares(Address address) const
+		{
+			const u32 relative = address.value() - BaseValue;
+			const u32 index = relative / SlotSize;
+			return _devices[index] == nullptr || declares(index, relative % SlotSize);
 		}
 	};
 

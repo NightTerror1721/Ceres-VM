@@ -3,6 +3,19 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Source",      RegisterAccess::Write,     0x0, false, "Source physical address." },
+			{ 0x04, "Destination", RegisterAccess::Write,     0x0, false, "Destination physical address." },
+			{ 0x08, "Length",      RegisterAccess::Write,     0x0, false, "Bytes to move." },
+			{ 0x0C, "Command",     RegisterAccess::Write,     0x0, false, "1 starts the transfer latched above." },
+			{ 0x10, "Status",      RegisterAccess::Read,      0x0, false, "Busy / Done bits." },
+			{ 0x14, "Transferred", RegisterAccess::Read,      0x0, false, "Bytes the last completed transfer actually moved." },
+		};
+	}
+
 	void DmaController::advance(u64 ticks)
 	{
 		if (ticks != 0)
@@ -56,5 +69,11 @@ namespace ceres::devices
 			_pending = true;
 			_status = StatusBusy;
 		}
+	}
+
+	const RegisterMap& DmaController::registers() const
+	{
+		static constexpr RegisterMap map{ "dma", Registers };
+		return map;
 	}
 }

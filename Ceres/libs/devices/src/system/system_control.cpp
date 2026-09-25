@@ -2,6 +2,23 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Command",        RegisterAccess::Write,     0x0, false, "Low byte: 1 shut down, 2 reset; the next byte is the exit status." },
+			{ 0x04, "MemorySize",     RegisterAccess::Read,      0x0, false, "How many bytes of RAM the machine has." },
+			{ 0x08, "Features",       RegisterAccess::ReadWrite, 0x0, false, "Switches for behaviour that is off by default." },
+			{ 0x0C, "StackLimit",     RegisterAccess::ReadWrite, 0x0, false, "The lowest address the stack may reach; below it a push raises StackOverflow." },
+			{ 0x10, "FaultAddress",   RegisterAccess::Read,      0x0, false, "The data address of the last memory fault." },
+			{ 0x14, "FaultAccess",    RegisterAccess::Read,      0x0, false, "That fault: 1 read, 2 write, 3 fetch in bits 7:0, the size in bytes above." },
+			{ 0x18, "ArgumentCount",  RegisterAccess::Read,      0x0, false, "argc, as main received it." },
+			{ 0x1C, "ArgumentVector", RegisterAccess::Read,      0x0, false, "The address of argv." },
+			{ 0x20, "Environment",    RegisterAccess::Read,      0x0, false, "The address of envp." },
+			{ 0x2C, "FaultReason",    RegisterAccess::Read,      0x0, false, "Why the last memory fault happened: a FaultReason (plan/v2 SPEC 5.4)." },
+		};
+	}
+
 	void SystemControlDevice::reset()
 	{
 		_features = 0;
@@ -95,5 +112,11 @@ namespace ceres::devices
 		{
 			_stackLimitSetter(value);
 		}
+	}
+
+	const RegisterMap& SystemControlDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "system-control", Registers };
+		return map;
 	}
 }

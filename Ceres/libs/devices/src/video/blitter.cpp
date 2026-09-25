@@ -4,6 +4,26 @@
 
 namespace ceres::devices
 {
+	namespace
+	{
+		// Every register of the device (plan/v2 SPEC 5.3), in offset order.
+		constexpr RegisterInfo Registers[] = {
+			{ 0x00, "Command",        RegisterAccess::Write,     0x0, false, "The operation." },
+			{ 0x04, "DstAddress",     RegisterAccess::Write,     0x0, false, "The destination's first pixel." },
+			{ 0x08, "DstStride",      RegisterAccess::Write,     0x0, false, "Bytes between its rows." },
+			{ 0x0C, "SrcAddress",     RegisterAccess::Write,     0x0, false, "The source's first pixel." },
+			{ 0x10, "SrcStride",      RegisterAccess::Write,     0x0, false, "Bytes between the source rows." },
+			{ 0x14, "Width",          RegisterAccess::Write,     0x0, false, "Pixels (of the source, for a copy)" },
+			{ 0x18, "Height",         RegisterAccess::Write,     0x0, false, "Rows (of the source, for a copy)." },
+			{ 0x1C, "Color",          RegisterAccess::Write,     0x0, false, "The fill colour, or the key." },
+			{ 0x20, "Scale",          RegisterAccess::Write,     0x0, false, "1..8, for CopyScaled." },
+			{ 0x24, "PaletteAddress", RegisterAccess::Write,     0x0, false, "256 RGB32 entries in RAM." },
+			{ 0x28, "Control",        RegisterAccess::ReadWrite, 0x0, false, "Bit 0 interrupt when done." },
+			{ 0x2C, "Status",         RegisterAccess::Read,      0x0, false, "Bit 0 the last operation failed." },
+			{ 0x30, "Pixels",         RegisterAccess::Read,      0x0, false, "Pixels the last one wrote." },
+		};
+	}
+
 	void BlitterDevice::reset()
 	{
 		_control = 0;
@@ -163,5 +183,11 @@ namespace ceres::devices
 		else if (offset == ScaleRegister) _scale = value;
 		else if (offset == PaletteAddressRegister) _palette = value;
 		else if (offset == ControlRegister) _control = value;
+	}
+
+	const RegisterMap& BlitterDevice::registers() const
+	{
+		static constexpr RegisterMap map{ "blitter", Registers };
+		return map;
 	}
 }

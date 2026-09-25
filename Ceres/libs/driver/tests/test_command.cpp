@@ -107,6 +107,55 @@ TEST(driver_command, gc_sections_belongs_to_link_alone)
 	CHECK(!parseCommandLine(4, runArgv).has_value());
 }
 
+TEST(driver_command, strict_mmio_belongs_to_run_alone)
+{
+	char program[] = "ceres";
+	char run[] = "run";
+	char profile[] = "profile";
+	char input[] = "main.casm";
+	char strict[] = "--strict-mmio";
+	char* runArgv[] = { program, run, input, strict };
+	auto parsed = parseCommandLine(4, runArgv);
+	const auto* command = parsed ? std::get_if<RunCommand>(&*parsed) : nullptr;
+	CHECK(command != nullptr && command->strictMmio);
+
+	char* profileArgv[] = { program, profile, input, strict };
+	CHECK(!parseCommandLine(4, profileArgv).has_value());
+}
+
+TEST(driver_run, strict_mmio_turns_an_undeclared_device_register_into_a_fault)
+{
+	// 0x40 in the terminal's slot is no register of its. Without --strict-mmio it reads 0 and the program
+	// shuts down with status 0; with it, the load is a MemoryFault, whose handler shuts down with status 7.
+	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_strict_test.casm";
+	{
+		std::ofstream file{source};
+		file << "interrupt MemoryFault: on_fault\n"
+			"@text\n"
+			"global main:\n"
+			"    la   r13, 0xFF000040\n"
+			"    ldr  r1, [r13 + 0]\n"
+			"    la   r13, 0xFFFF0000\n"
+			"    li   r0, 1\n"
+			"    str  [r13 + 0], r0\n"
+			"on_fault:\n"
+			"    la   r13, 0xFFFF0000\n"
+			"    la   r0, 0x0701\n"            // shut down, status 7
+			"    str  [r13 + 0], r0\n";
+	}
+	std::istringstream input;
+	std::ostringstream output;
+	std::ostringstream diagnostics;
+	const int lenient = execute(RunCommand{.input = source}, {&input, &output, &diagnostics});
+	RunCommand strictRun{.input = source};
+	strictRun.strictMmio = true;
+	const int strict = execute(strictRun, {&input, &output, &diagnostics});
+	std::filesystem::remove(source);
+
+	CHECK_EQ(lenient, 0);
+	CHECK_EQ(strict, 7);
+}
+
 TEST(driver_command, run_takes_the_program_arguments_after_a_double_dash_and_env)
 {
 	char program[] = "ceres";

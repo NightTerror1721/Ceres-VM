@@ -74,13 +74,9 @@ namespace ceres::vm
 		// restarts the machine, it does not unplug it. The default keeps everything.
 		virtual void reset() {}
 
-		// The device's registers, declared in one table (register_map.h). Empty until every device declares its
-		// own (plan/v2 F1.8), when this becomes pure.
-		virtual const RegisterMap& registers() const
-		{
-			static constexpr RegisterMap none{};
-			return none;
-		}
+		// The device's registers, declared in one table (register_map.h, plan/v2 SPEC 5.3). The bus reads it when
+		// the device is attached: an offset missing from it reads 0 and ignores writes, or faults under --strict-mmio.
+		virtual const RegisterMap& registers() const = 0;
 
 	protected:
 		Memory& memory() { return *_memory; }
@@ -98,9 +94,4 @@ namespace ceres::vm
 		friend class MmioBus;
 	};
 
-	class DummyDevice final : public IODevice
-	{
-		u32 read(Address) override { return 0xFFFFFFFF; }
-		void write(Address, u32) override {}
-	};
 }

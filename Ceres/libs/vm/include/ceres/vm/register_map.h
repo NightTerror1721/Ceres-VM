@@ -15,14 +15,17 @@ namespace ceres::vm
 		WriteOneToClear, // reading gives the bits; writing a 1 clears that bit
 	};
 
-	// One register of a device: where it is in the device's slot, what it is called, how it is reached,
-	// what it holds after a reset and one sentence on what it does.
+	// One register of a device: where it is in the device's slot, what it is called, how it is reached, what
+	// a read gives after a reset (when that does not depend on the machine or the host; 0 otherwise), whether
+	// reading it changes the device (a queue popped, a word latched: a debugger must not read it just to show
+	// it) and one sentence on what it does.
 	struct RegisterInfo
 	{
 		u32 offset;
 		std::string_view name;
 		RegisterAccess access;
 		u32 resetValue;
+		bool readHasEffect;
 		std::string_view description;
 	};
 

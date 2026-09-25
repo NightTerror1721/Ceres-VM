@@ -185,6 +185,48 @@ namespace ceres::debug
 
 	std::string DebugSession::describePeripheral(u32 port) const { return _peripherals ? _peripherals->describe(port) : "no such port"; }
 
+	std::string DebugSession::listDevices() const
+	{
+		std::string out;
+		const vm::IODevice* previous = nullptr;
+		for (usize slot = 0; slot < vm::MmioBus::MaxDevices; ++slot)
+		{
+			const vm::IODevice* device = _vm->io().deviceAt(slot);
+			if (device == nullptr || device == previous)
+				continue;                                          // one line for a device over several slots
+			previous = device;
+			const vm::RegisterMap& map = device->registers();
+			out += std::format("  slot {:3}  0x{:08X}  {:<18} {} registers\n", slot, vm::MmioBus::slot(static_cast<u32>(slot)).value(),
+				map.device(), map.registers().size());
+		}
+		return out;
+	}
+
+	std::optional<std::string> DebugSession::describeDevice(std::string_view name) const
+	{
+		for (usize slot = 0; slot < vm::MmioBus::MaxDevices; ++slot)
+		{
+			vm::IODevice* device = _vm->io().deviceAt(slot);
+			if (device == nullptr || device->registers().device() != name)
+				continue;
+			std::string out = std::format("  {} at 0x{:08X}\n", name, vm::MmioBus::slot(static_cast<u32>(slot)).value());
+			for (const vm::RegisterInfo& info : device->registers().registers())
+			{
+				const char* access = info.access == vm::RegisterAccess::Read ? "R " : info.access == vm::RegisterAccess::Write ? " W" : "RW";
+				std::string value;
+				if (info.access == vm::RegisterAccess::Write)
+					value = "-";
+				else if (info.readHasEffect)
+					value = "(not read)";
+				else
+					value = std::format("0x{:08X}", device->read(Address(info.offset)));
+				out += std::format("    0x{:02X}  {:<18} {}  {:<10}  {}\n", info.offset, info.name, access, value, info.description);
+			}
+			return out;
+		}
+		return std::nullopt;
+	}
+
 	void DebugSession::attachDevices()
 	{
 		// Both control commands end the session: a program asking for a reset while under a

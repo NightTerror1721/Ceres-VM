@@ -14,7 +14,7 @@ namespace ceres::driver
 			"                          [--debug] [--emit-debug-json] [-c]\n"
 			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab] [--gc-sections]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
-			"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>] [--window | --terminal]\n"
+			"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>] [--window | --terminal] [--strict-mmio]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
 			"                                  [--env <name>=<value>]... [--host-dir <dir>] [-- <argument>...]\n"
 			"  ceres profile <file.casm|file.cres> [--memory <bytes>]\n"
@@ -67,6 +67,7 @@ namespace ceres::driver
 			bool usedDashDash = false;        // --, --env and --host-dir belong to run alone
 			bool usedEnv = false;
 			bool usedHostDir = false;
+			bool strictMmio = false;
 			bool window = false;
 			bool usedWindow = false;
 			bool terminal = false;
@@ -178,6 +179,7 @@ namespace ceres::driver
 			}
 			else if (argument == "--window") { raw.window = true; raw.usedWindow = true; }
 			else if (argument == "--terminal") { raw.terminal = true; raw.usedTerminal = true; }
+			else if (argument == "--strict-mmio") raw.strictMmio = true;
 			else if (argument == "--memory")
 			{
 				auto value = nextValue(argument);
@@ -212,8 +214,8 @@ namespace ceres::driver
 			return std::unexpected(invalidOption("--symtab", command));
 		if (raw.usedGcSections && command != "link")
 			return std::unexpected(invalidOption("--gc-sections", command));
-		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir) && command != "run")
-			return std::unexpected(invalidOption(raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : "--", command));
+		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio) && command != "run")
+			return std::unexpected(invalidOption(raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : raw.strictMmio ? "--strict-mmio" : "--", command));
 		if (command == "asm")
 		{
 			if (raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
@@ -247,7 +249,7 @@ namespace ceres::driver
 			if (raw.window && raw.terminal)
 				return std::unexpected(ParseError{ "'--window' and '--terminal' are opposites: pick one" });
 			return RunCommand{ std::move(inputs.front()), raw.memorySize, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal,
-				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory) };
+				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory), raw.strictMmio };
 		}
 		if (command == "profile")
 		{
