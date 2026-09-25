@@ -210,7 +210,7 @@
   motivo de fallo vive en el motor (`faultReason()`, `fault_reason.h`) y lo guarda el historial del debugger.
   `FaultReason` sólo lleva hoy `Alignment`, `MmioWidth` y `MmioBlock`; el resto llega con F3 y F4. Los
   `read()`/`write()` privados de HostFs pasan a `readFile()`/`writeFile()` para no confundirse con los de `IODevice`.
-- **F1.8**: las 14 tablas (177 registros) se generaron con un script (un solo uso) que toma el acceso del propio
+- **F1.8**: las 14 tablas (164 registros) se generaron con un script (un solo uso) que toma el acceso del propio
   código de `read`/`write` y las descripciones de los comentarios, y se revisaron a mano. `RegisterInfo` lleva además
   `readHasEffect` (colas y latches): `dev` no los lee y muestra `(not read)`. La regla D19 (offset no declarado: lee 0)
   la aplica el bus con una máscara de 64 bits por slot (offsets < `0x100`) calculada al conectar el dispositivo;

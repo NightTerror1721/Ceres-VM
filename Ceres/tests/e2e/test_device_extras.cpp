@@ -13,6 +13,8 @@
 #include <ceres/devices/audio/audio.h>
 #include <ceres/vm/bios.h>
 #include <ceres/core/format/memory_map.h>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -223,6 +225,19 @@ TEST(device_extras, the_control_register_stays_unreadable_and_unknown_offsets_re
 	SystemControlDevice control{};
 	CHECK_EQ(control.read(SystemControlDevice::CommandRegister), 0xFFFFFFFFu);
 	CHECK_EQ(control.read(Address(0x40)), 0xFFFFFFFFu);
+}
+
+TEST(device_extras, an_empty_disk_image_is_a_new_disk_of_the_asked_size)
+{
+	// A zero-byte file is a disk nobody has written yet, not a disk of no sectors.
+	const auto path = std::filesystem::temp_directory_path() / "ceres_empty_disk.img";
+	{ std::ofstream file(path, std::ios::binary | std::ios::trunc); }
+	{
+		DiskDevice disk{};
+		CHECK(disk.open(path, 4));
+		CHECK_EQ(disk.read(DiskDevice::SectorCountRegister), 4u);
+	}
+	std::filesystem::remove(path);
 }
 
 TEST(device_extras, the_disk_reports_how_many_sectors_it_has)

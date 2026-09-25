@@ -259,17 +259,20 @@ TEST(history, going_back_restores_the_fault_registers_and_the_stop_for_good)
 	session->resume(600);                       // in the first loop: no fault yet
 	const u64 moment = session->currentTick();
 	CHECK_EQ(session->machine().engine().faultAddress(), 0u);
+	CHECK_EQ(session->machine().engine().faultReason(), 0u);
 	CHECK(!session->machine().engine().stoppedForGood());
 
 	session->resume(3000);                      // past the fault
 	CHECK_EQ(session->machine().engine().faultAddress(), 0x10001u);
 	CHECK_EQ(session->machine().engine().faultAccess() & 0xFFu, 1u);   // a read
+	CHECK_EQ(session->machine().engine().faultReason(), 1u);            // Alignment
 	session->machine().engine().setStoppedForGood(true);
 
 	session->runToTick(moment);
 	CHECK_EQ(session->currentTick(), moment);
 	CHECK_EQ(session->machine().engine().faultAddress(), 0u);
 	CHECK_EQ(session->machine().engine().faultAccess(), 0u);
+	CHECK_EQ(session->machine().engine().faultReason(), 0u);
 	CHECK(!session->machine().engine().stoppedForGood());
 }
 

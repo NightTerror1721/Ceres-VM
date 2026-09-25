@@ -147,6 +147,27 @@ TEST(paging, a_virtual_address_above_the_end_of_ram_is_translated_too)
 	CHECK_EQ(m.vm().engine().interruptDepth(), 0u);   // no page fault, not even for the device
 }
 
+TEST(paging, a_misaligned_access_to_a_device_mapped_elsewhere_is_still_a_width_fault)
+{
+	// The page at 0x80000000 is the terminal's frame. A misaligned word load through it breaks the device rule,
+	// not the RAM one: the reason says so even though the virtual address is nowhere near the device window.
+	Machine m{
+		Instruction::LI(1, static_cast<u16>(PageDirectory)),
+		Instruction::MTP(1),
+		Instruction::PGON(),
+		Instruction::LUI(2, 0x8000),      // r2 = 0x80000000, mapped onto 0xFF000000
+		Instruction::LDR(3, 2, 2),
+	};
+	mapCodeIdentity(m);
+	mapPage(m, PageDirectory, DataTable, 512, 0, 0xFF000000u, Mmu::PtePresent | Mmu::PteWritable);
+	m.installHandler(InterruptNumber::AlignmentFault, Address(0x800), { Instruction::LI(9, 2), Instruction::HALT() });
+
+	m.step(7);
+
+	CHECK_EQ(m.reg(9), 2u);
+	CHECK_EQ(m.vm().engine().faultReason(), static_cast<u32>(FaultReason::MmioWidth));
+}
+
 TEST(paging, disabled_by_default_addresses_stay_physical)
 {
 	// No MTP, no PGON: a fresh machine behaves exactly as it did before the MMU existed.

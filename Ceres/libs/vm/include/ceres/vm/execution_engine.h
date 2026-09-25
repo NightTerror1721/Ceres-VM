@@ -365,6 +365,18 @@ namespace ceres::vm
 			_faultReason = reason;
 		}
 
+		// Whether an access to `address` would land on a device: the window itself (never translated), or a page a
+		// program mapped onto it. Asked only when an access has already faulted, so it only looks (Mmu::probe).
+		bool reachesDevice(Address address) const noexcept
+		{
+			if (MmioBus::contains(address))
+				return true;
+			if (!_flags.get<ExecutionFlag::Paging>())
+				return false;
+			const auto physical = _mmu.probe(_memory, address);
+			return physical.has_value() && MmioBus::contains(*physical);
+		}
+
 		template <typename T>
 		forceinline bool checkAlignment(Address address, FaultAccess access = FaultAccess::Read) noexcept
 		{
@@ -377,8 +389,7 @@ namespace ceres::vm
 				if ((address.value() % sizeof(T)) == 0)
 					return true;
 
-				// A device is always identity-mapped, so the virtual address tells whether it is one.
-				noteFault(address, access, static_cast<u32>(sizeof(T)), MmioBus::contains(address) ? FaultReason::MmioWidth : FaultReason::Alignment);
+				noteFault(address, access, static_cast<u32>(sizeof(T)), reachesDevice(address) ? FaultReason::MmioWidth : FaultReason::Alignment);
 				triggerInterrupt(InterruptNumber::AlignmentFault);
 				return false;
 			}

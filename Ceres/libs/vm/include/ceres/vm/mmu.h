@@ -168,6 +168,25 @@ namespace ceres::vm
 			return Address(hit->frameBase | offset);
 		}
 
+		// Where `virtualAddress` leads, looking only: no TLB entry installed, no Accessed or Dirty bit set, no
+		// fault address recorded, and no permission checked. For telling what a faulting access was aimed at.
+		std::optional<Address> probe(const Memory& memory, Address virtualAddress) const noexcept
+		{
+			const u32 va = virtualAddress.value();
+			const u32 vpn = va >> PageShift;
+			const u32 offset = va & (PageSize - 1);
+			for (const TlbEntry& entry : _tlb)
+				if (entry.valid && entry.vpn == vpn)
+					return Address(entry.frameBase | offset);
+			const u32 dirEntry = memory.readUnchecked<u32>(Address(_ptbr + ((va >> 22) & (DirectoryEntries - 1)) * sizeof(u32)));
+			if (!(dirEntry & PtePresent))
+				return std::nullopt;
+			const u32 pte = memory.readUnchecked<u32>(Address((dirEntry & PteFrameMask) + ((va >> 12) & (TableEntries - 1)) * sizeof(u32)));
+			if (!(pte & PtePresent))
+				return std::nullopt;
+			return Address((pte & PteFrameMask) | offset);
+		}
+
 	private:
 		// The two-level walk itself, run only on a TLB miss. Present/permission failures return
 		// nullptr; the caller turns that into the recorded fault. A successful walk installs (or

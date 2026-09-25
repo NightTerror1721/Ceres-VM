@@ -28,7 +28,10 @@ namespace ceres::devices
 	bool DiskDevice::open(const std::filesystem::path& path, u32 sectors)
 	{
 		std::error_code error;
-		if (std::filesystem::exists(path, error))
+		const bool exists = std::filesystem::exists(path, error);
+		if (error)
+			return false;                              // it could not even be looked at: not "it is not there"
+		if (exists)
 		{
 			std::ifstream file(path, std::ios::binary);
 			if (!file)
@@ -42,8 +45,10 @@ namespace ceres::devices
 		}
 
 		// A short file is padded rather than refused: a disk with a partial last sector is a
-		// disk, and rounding it up is what every image format does anyway.
-		if (_image.size() % SectorSize != 0)
+		// disk, and rounding it up is what every image format does anyway. An empty one is a new disk.
+		if (_image.empty())
+			_image.assign(static_cast<usize>(sectors) * SectorSize, 0);
+		else if (_image.size() % SectorSize != 0)
 			_image.resize(((_image.size() / SectorSize) + 1) * SectorSize, 0);
 
 		_path = path;
@@ -62,6 +67,9 @@ namespace ceres::devices
 			return false;
 
 		file.write(reinterpret_cast<const char*>(_image.data()), static_cast<std::streamsize>(_image.size()));
+		file.flush();
+		if (!file)
+			return false;                              // still dirty: a later flush tries again
 		_dirty = false;
 		return true;
 	}

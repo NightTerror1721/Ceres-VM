@@ -21,7 +21,7 @@ namespace ceres::devices
 	//   str  [r_disk + BLOCK_LEN], r2      // 512
 	//   li   r3, 1
 	//   str  [r_disk + BLOCK_CMD], r3       // 1 = read sector -> buffer
-	//   ldrb r4, [r_status]
+	//   ldr  r4, [r_status]
 	class DiskDevice final : public IODevice
 	{
 	public:
