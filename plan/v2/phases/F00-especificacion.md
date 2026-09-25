@@ -86,7 +86,7 @@
 - **Archivos**: `docs/README.md`, `docs/29-SDL3-Integration-Plan.md`.
 - **Pasos**: enlaza `plan/v2/README.md` desde el índice de docs; marca el doc 29 como histórico, sustituido por
   el plan v2.
-- **Aceptación**: [ ] Enlaces correctos.
+- **Aceptación**: [x] Enlaces correctos.
 - **Commit**: `Point the docs at the v2 plan (F0.7)`
 
 ## Notas

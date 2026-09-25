@@ -2,6 +2,10 @@
 
 [← Back to index](README.md)
 
+> **Documento histórico.** Este plan ya se llevó a cabo y queda **sustituido por el plan de la Máquina Ceres v2**
+> ([`plan/v2/README.md`](../plan/v2/README.md)), que rehace la ventana, el vídeo, la entrada y el audio. Se conserva
+> como registro de cómo entró SDL3; no lo uses como guía para cambios nuevos.
+
 > **Estado:** propuesta de diseño, aún sin implementar. Este documento presenta el plan y **dos
 > propuestas alternativas** (A y B) más un paso 0 recomendado.
 

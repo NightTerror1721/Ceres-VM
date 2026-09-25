@@ -43,6 +43,14 @@ the assembler does internally at each stage of the build.
 26. [Interrupt vector binding](26-Interrupt-Vector-Binding.md) — the `interrupt NUMBER: handler` declaration, and how a program gets its own handler installed instead of the BIOS's.
 27. [Virtual memory and paging](27-Virtual-Memory-and-Paging.md) — the MMU: two-level page tables, the TLB, `pgon`/`pgoff`, and `PageFault`.
 28. [Roadmap educativa y retro](28-Roadmap-Educativo-y-Retro.md) — mejoras y ampliaciones para aprender arquitectura, practicar con kernels y crear pequeños juegos retro.
+29. [SDL3 integration plan](29-SDL3-Integration-Plan.md) — historical: how the SDL3 window came in. Superseded by the v2 plan below.
+
+### The v2 machine (in progress)
+
+- [Máquina Ceres v2: implementation plan](../plan/v2/README.md) — the refactor under way: RAM, VRAM and device
+  map, fixed CPU and GPU clocks, 64-bit operations on register pairs, a simulated GPU with video levels V0–V6,
+  audio levels A0–A4, and a virtual terminal drawn in the window. Its [SPEC](../plan/v2/SPEC.md) is normative;
+  where it and these pages disagree, these pages describe the machine as it is today.
 
 ### Learn by doing
 
