@@ -69,6 +69,7 @@ namespace ceres::casm
 	std::optional<Program> ObjectLinker::link(std::vector<ObjectArchive::Member> inputs, const ObjectLinkOptions& options)
 	{
 		_errors.clear();
+		_bytesCollected = 0;
 
 		if (inputs.empty())
 		{
@@ -146,7 +147,6 @@ namespace ceres::casm
 				if (selected[i])
 					chosen.push_back(&inputs[i]);
 			}
-			_bytesCollected = 0;
 			if (options.gcSections && !options.emitDebugInfo)
 				collectUnusedCode(chosen);
 			members.assign(chosen.begin(), chosen.end());
@@ -596,6 +596,7 @@ namespace ceres::casm
 		};
 		std::vector<Pieces> pieces(members.size());
 		std::unordered_map<std::string, std::pair<usize, const ObjectSymbol*>> byName;
+		bool defined_twice = false;
 		for (usize m = 0; m < members.size(); ++m)
 		{
 			ObjectFile& object = members[m]->object;
@@ -604,7 +605,7 @@ namespace ceres::casm
 			p.starts.push_back(0);
 			for (const ObjectSymbol& symbol : object.symbols)
 			{
-				byName.emplace(symbol.name, std::pair{ m, &symbol });
+				defined_twice |= !byName.emplace(symbol.name, std::pair{ m, &symbol }).second;
 				if (p.movable && symbol.section == SectionType::Text && symbol.offset < object.text.size())
 					p.starts.push_back(symbol.offset);
 			}
@@ -616,6 +617,10 @@ namespace ceres::casm
 					p.relocationOrder.push_back(r);
 			std::ranges::sort(p.relocationOrder, [&](usize a, usize b) { return object.relocations[a].offset < object.relocations[b].offset; });
 		}
+		// A name defined twice is an error the link reports once every name is in place: collecting first could
+		// drop one of the two and hide it.
+		if (defined_twice)
+			return;
 
 		const auto pieceOf = [&](usize m, u32 offset) -> usize
 		{
@@ -655,8 +660,12 @@ namespace ceres::casm
 		};
 
 		// The roots: where the program starts, what the interrupts run, what the data points at - and all of an
-		// object that cannot be cut.
-		markName(std::string(SymbolTable::EntryPointLabelName));
+		// object that cannot be cut. With no entry point this is a library, and every global name is what it is for.
+		if (byName.contains(std::string(SymbolTable::EntryPointLabelName)))
+			markName(std::string(SymbolTable::EntryPointLabelName));
+		else
+			for (const auto& [name, where] : byName)
+				mark(where.first, where.second->section, where.second->offset);
 		for (usize m = 0; m < members.size(); ++m)
 		{
 			const ObjectFile& object = members[m]->object;
@@ -687,8 +696,18 @@ namespace ceres::casm
 				[&](usize r, u32 value) { return object.relocations[r].offset < value; });
 			for (; from != order.end() && object.relocations[*from].offset < end; ++from)
 				markTarget(m, object.relocations[*from]);
-			if (k + 1 < pieces[m].starts.size() && !endsControl(object.text, begin, end))
-				mark(m, SectionType::Text, pieces[m].starts[k + 1]);   // it may run on into the next
+			if (!endsControl(object.text, begin, end))                  // it may run on into the next piece
+			{
+				if (k + 1 < pieces[m].starts.size())
+					mark(m, SectionType::Text, pieces[m].starts[k + 1]);
+				else                                                    // the next object's, laid out right after
+					for (usize next = m + 1; next < members.size(); ++next)
+						if (!members[next]->object.text.empty())
+						{
+							mark(next, SectionType::Text, 0);
+							break;
+						}
+			}
 		}
 
 		// Each movable object keeps its live pieces, closed up, and everything that pointed into them moves too.

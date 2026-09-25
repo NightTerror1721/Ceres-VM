@@ -83,6 +83,30 @@ TEST(driver_command, symtab_belongs_to_link_alone)
 	CHECK(!parseCommandLine(4, runArgv).has_value());
 }
 
+TEST(driver_command, gc_sections_belongs_to_link_alone)
+{
+	char program[] = "ceres";
+	char link[] = "link";
+	char run[] = "run";
+	char input[] = "main.cobj";
+	char dashO[] = "-o";
+	char output[] = "main.cres";
+	char gc[] = "--gc-sections";
+	char* linkArgv[] = { program, link, input, dashO, output, gc };
+	auto linked = parseCommandLine(6, linkArgv);
+	CHECK(linked.has_value());
+	const auto* command = linked ? std::get_if<LinkCommand>(&*linked) : nullptr;
+	CHECK(command != nullptr && command->gcSections);
+
+	char* plainArgv[] = { program, link, input, dashO, output };
+	auto plain = parseCommandLine(5, plainArgv);
+	const auto* without = plain ? std::get_if<LinkCommand>(&*plain) : nullptr;
+	CHECK(without != nullptr && !without->gcSections);
+
+	char* runArgv[] = { program, run, input, gc };
+	CHECK(!parseCommandLine(4, runArgv).has_value());
+}
+
 TEST(driver_command, run_takes_the_program_arguments_after_a_double_dash_and_env)
 {
 	char program[] = "ceres";

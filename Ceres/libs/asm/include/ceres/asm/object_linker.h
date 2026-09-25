@@ -33,9 +33,10 @@ namespace ceres::casm
 		// Drops the functions nothing reaches. An object's .text is cut at its global names into pieces, and a
 		// piece is kept when the entry point, an interrupt binding, a word in .rodata or .data, or a kept piece
 		// refers to it - or when the piece before it is kept and does not end in a jump or a return, since it
-		// could run on into it. Only an object that records every reference within its .text is cut
-		// (ObjectFile::FlagCompleteTextRelocations); any other is kept whole. Off with emitDebugInfo, whose
-		// tables would still point where the code was.
+		// could run on into it (the piece before an object's first is the previous object's last). Only an
+		// object that records every reference within its .text is cut (ObjectFile::FlagCompleteTextRelocations);
+		// any other is kept whole. With no entry point (a library) every global name is kept. Off with
+		// emitDebugInfo, whose tables would still point where the code was, and when a name is defined twice.
 		bool gcSections = false;
 	};
 

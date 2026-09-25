@@ -952,10 +952,84 @@ TEST(objects, gc_sections_drops_the_functions_nothing_reaches)
 	CHECK(whole.has_value() && trimmed.has_value());
 	if (!whole || !trimmed) return;
 	CHECK_EQ(none, 0u);
-	CHECK_EQ(some, 6u * 4u);                                         // unused (4 instructions) and unused_too (2)
+	CHECK_EQ(some, 6u * Instruction::Size);                          // unused (4 instructions) and unused_too (2)
 	CHECK_EQ(whole.value().header().textSize - trimmed.value().header().textSize, some);
 	CHECK_EQ(run(whole.value()), std::string{ "kept6" });
 	CHECK_EQ(run(trimmed.value()), std::string{ "kept6" });          // the same program, smaller
+
+	// Not with debug tables, which would still point where the code was.
+	{
+		std::vector<casm::ObjectArchive::Member> inputs;
+		inputs.push_back(memberOf("main.cobj", program.value()));
+		inputs.push_back(memberOf("lib.cobj", library.value()));
+		casm::ObjectLinker linker;
+		auto debug = linker.link(std::move(inputs), casm::ObjectLinkOptions{ .emitDebugInfo = true, .gcSections = true });
+		CHECK(debug.has_value());
+		CHECK_EQ(linker.bytesCollected(), 0u);
+		if (debug)
+			CHECK_EQ(debug.value().header().textSize, whole.value().header().textSize);
+	}
+	// A library has no entry point: what it exports is what it is for.
+	{
+		std::vector<casm::ObjectArchive::Member> inputs;
+		inputs.push_back(memberOf("lib.cobj", library.value()));
+		casm::ObjectLinker linker;
+		auto packaged = linker.link(std::move(inputs), casm::ObjectLinkOptions{ .requireEntryPoint = false, .gcSections = true });
+		CHECK(packaged.has_value());
+		CHECK_EQ(linker.bytesCollected(), 0u);
+	}
+}
+
+TEST(objects, gc_sections_keeps_the_object_the_last_one_runs_on_into)
+{
+	// main does not end in a return: it runs on into the next object's code, which nothing names.
+	ObjectWorkspace ws{ "gc_fall" };
+	ws.write("first.casm",
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r6, 7\r\n");
+	ws.write("second.casm",
+		"@text\r\n"
+		"global carried_on:\r\n"
+		"    add r6, r6, '0'\r\n"
+		"    la r13, 0xFF000004\r\n"
+		"    strb [r13 + 0], r6\r\n"
+		"    li r0, 1\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    strb [r13 + 0], r0\r\n"
+		"    ret\r\n");
+	auto first = ws.assemble("first.casm");
+	auto second = ws.assemble("second.casm");
+	CHECK(first.has_value() && second.has_value());
+	if (!first || !second) { Registry::instance().recordFailure(ws.firstError()); return; }
+	std::vector<casm::ObjectArchive::Member> inputs;
+	inputs.push_back(memberOf("first.cobj", first.value()));
+	inputs.push_back(memberOf("second.cobj", second.value()));
+	casm::ObjectLinker linker;
+	auto linked = linker.link(std::move(inputs), casm::ObjectLinkOptions{ .gcSections = true });
+	CHECK(linked.has_value());
+	CHECK_EQ(linker.bytesCollected(), 0u);
+	if (linked)
+		CHECK_EQ(run(linked.value()), std::string{ "7" });
+}
+
+TEST(objects, gc_sections_does_not_hide_a_name_defined_twice)
+{
+	ObjectWorkspace ws{ "gc_twice" };
+	ws.write("main.casm", "@text\r\nglobal main:\r\n    ret\r\n");
+	ws.write("one.casm", "@text\r\nglobal helper:\r\n    ret\r\n");
+	ws.write("two.casm", "@text\r\nglobal helper:\r\n    li r0, 1\r\n    ret\r\n");
+	auto main = ws.assemble("main.casm");
+	auto one = ws.assemble("one.casm");
+	auto two = ws.assemble("two.casm");
+	CHECK(main.has_value() && one.has_value() && two.has_value());
+	if (!main || !one || !two) { Registry::instance().recordFailure(ws.firstError()); return; }
+	std::vector<casm::ObjectArchive::Member> inputs;
+	inputs.push_back(memberOf("main.cobj", main.value()));
+	inputs.push_back(memberOf("one.cobj", one.value()));
+	inputs.push_back(memberOf("two.cobj", two.value()));
+	casm::ObjectLinker linker;
+	CHECK(!linker.link(std::move(inputs), casm::ObjectLinkOptions{ .gcSections = true }).has_value());   // helper, twice
 }
 
 TEST(objects, an_object_without_complete_relocations_is_kept_whole)
