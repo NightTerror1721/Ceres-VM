@@ -157,7 +157,7 @@
      escriben los bytes en little-endian en un búfer; corrige `binary_emitter.h:133` igual.
   4. Tests: `static_assert` por campo; ida y vuelta con vectores fijos; decodificar una secuencia de bytes
      invertida con `std::byteswap` para simular un host big-endian.
-- **Aceptación**: [ ] Ningún `reinterpret_cast` sobre el valor de una instrucción. [ ] Mismo código generado en el
+- **Aceptación**: [x] Ningún `reinterpret_cast` sobre el valor de una instrucción. [x] Mismo código generado en el
   bucle de ejecución (comprueba `benchmark_vm`).
 - **Commit**: `Declare instruction fields in one table and serialize them little-endian (F1.10)`
 
@@ -222,3 +222,9 @@
   compartido en `device_test_machine.h`) y 20 en e2e (reglas del bus, alineación, división, contador de
   instrucciones, escritura de estado del debugger y la directiva `interrupt` con CASM). El reparto lo hizo un script
   que asigna cada test al dispositivo que más nombra.
+- **F1.10**: `Instruction::asBytes` (las dos sobrecargas) pasa a `bytes()`, `fromBytes()` y `encode()`; `binary_emitter`
+  guarda también los escalares en little-endian con `std::bit_cast`. `benchmark_vm` igual o por encima en todas las
+  clases (mixed 139,6). Los tests viven en la suite nueva `core` (`libs/core/tests`). **Pendiente, fuera de F1**:
+  `program.cpp` lee y escribe la `ProgramHeader` y las tablas de depuración con `reinterpret_cast` sobre el struct,
+  es decir, en el orden de bytes del host; un `.cres` escrito en un host big-endian no se leería en otro
+  little-endian. Encaja en F4 (formato del ejecutable y cargador).

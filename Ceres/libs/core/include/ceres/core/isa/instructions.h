@@ -2,6 +2,10 @@
 
 #include "opcodes.h"
 #include "address.h"
+#include "fields.h"
+#include <ceres/core/base/endian.h>
+#include <array>
+#include <vector>
 #include <compare>
 #include <span>
 
@@ -16,24 +20,7 @@ namespace ceres::isa
 		static inline constexpr Address SizeInBytes = Address(Size);
 
 	private:
-		static inline constexpr RawType OpcodeMask = 0xFF000000;
-		static inline constexpr RawType Imm24Mask = 0x00FFFFFF;
-		// Twenty bits, which is what is left of a displacement once Rd has taken 23:20. BL needs a
-		// register operand and a target in the same word, so it trades reach for the register.
-		static inline constexpr RawType Imm20Mask = 0x000FFFFF;
-		static inline constexpr RawType Imm16Mask = 0x0000FFFF;
-		static inline constexpr RawType Imm8Mask = 0x000000FF;
-		static inline constexpr RawType RdMask = 0x00F00000;
-		static inline constexpr RawType RsMask = 0x000F0000;
-		static inline constexpr RawType RtMask = 0x0000F000;
 		static inline constexpr RawType RegisterMask = 0x0F; // 4 bits for register indices
-		static inline constexpr RawType OpcodeShift = 24;
-		static inline constexpr RawType RdShift = 20;
-		static inline constexpr RawType RsShift = 16;
-		static inline constexpr RawType RtShift = 12;
-		static inline constexpr RawType FdShift = RdShift; // For floating-point registers, reuse Rd position
-		static inline constexpr RawType FsShift = RsShift; // For floating-point registers, reuse Rs position
-		static inline constexpr RawType FtShift = RtShift; // For floating-point registers, reuse Rt position
 
 	private:
 		RawType _raw = 0;
@@ -55,40 +42,61 @@ namespace ceres::isa
 
 		forceinline constexpr RawType raw() const noexcept { return _raw; }
 
-		forceinline constexpr Opcode opcode() const noexcept { return static_cast<Opcode>((_raw & OpcodeMask) >> OpcodeShift); }
-		forceinline constexpr u24 imm24() const noexcept { return static_cast<u24>(_raw & Imm24Mask); }
-        forceinline constexpr i24 simm24() const noexcept { return static_cast<i24>(_raw & Imm24Mask); }
+		// Every field comes from the table in fields.h: shifts and masks on the value, the same on every host.
+		forceinline constexpr Opcode opcode() const noexcept { return static_cast<Opcode>(fields::Opcode::get(_raw)); }
+		forceinline constexpr u24 imm24() const noexcept { return static_cast<u24>(fields::Imm24::get(_raw)); }
+		forceinline constexpr i24 simm24() const noexcept { return static_cast<i24>(fields::Imm24::get(_raw)); }
 		// Sign-extended by hand: there is no i20 type, and the field is a displacement.
 		forceinline constexpr i32 simm20() const noexcept
 		{
-			const u32 value = _raw & Imm20Mask;
-			return static_cast<i32>(value & 0x00080000u ? value | ~Imm20Mask : value);
+			const u32 value = fields::Imm20::get(_raw);
+			return static_cast<i32>(value & 0x00080000u ? value | ~fields::Imm20::Mask : value);
 		}
-		forceinline constexpr u16 imm16() const noexcept { return _raw & Imm16Mask; }
-		forceinline constexpr i16 simm16() const noexcept { return static_cast<i16>(_raw & Imm16Mask); }
-		forceinline constexpr u8 imm8() const noexcept { return _raw & Imm8Mask; }
-		forceinline constexpr u8 rd() const noexcept { return static_cast<u8>((_raw & RdMask) >> RdShift); }
-		forceinline constexpr u8 rs() const noexcept { return static_cast<u8>((_raw & RsMask) >> RsShift); }
-		forceinline constexpr u8 rt() const noexcept { return static_cast<u8>((_raw & RtMask) >> RtShift); }
-		forceinline constexpr u8 fd() const noexcept { return static_cast<u8>((_raw & RdMask) >> FdShift); } // For floating-point registers
-		forceinline constexpr u8 fs() const noexcept { return static_cast<u8>((_raw & RsMask) >> FsShift); } // For floating-point registers
-		forceinline constexpr u8 ft() const noexcept { return static_cast<u8>((_raw & RtMask) >> FtShift); } // For floating-point registers
+		forceinline constexpr u16 imm16() const noexcept { return static_cast<u16>(fields::Imm16::get(_raw)); }
+		forceinline constexpr i16 simm16() const noexcept { return static_cast<i16>(fields::Imm16::get(_raw)); }
+		forceinline constexpr u8 imm8() const noexcept { return static_cast<u8>(fields::Imm8::get(_raw)); }
 
-		forceinline constexpr void setOpcode(Opcode opcode) noexcept { _raw = (_raw & ~OpcodeMask) | (static_cast<RawType>(opcode) << OpcodeShift); }
-		forceinline constexpr void setImm24(u24 imm24) noexcept { _raw = (_raw & ~Imm24Mask) | (static_cast<RawType>(imm24) & Imm24Mask); }
-		forceinline constexpr void setSImm24(i24 simm24) noexcept { _raw = (_raw & ~Imm24Mask) | (static_cast<RawType>(simm24) & Imm24Mask); }
-		forceinline constexpr void setSImm20(i32 simm20) noexcept { _raw = (_raw & ~Imm20Mask) | (static_cast<RawType>(simm20) & Imm20Mask); }
-		forceinline constexpr void setImm16(u16 imm16) noexcept { _raw = (_raw & ~Imm16Mask) | (imm16 & Imm16Mask); }
-		forceinline constexpr void setSImm16(i16 simm16) noexcept { _raw = (_raw & ~Imm16Mask) | (static_cast<u16>(simm16) & Imm16Mask); }
-		forceinline constexpr void setImm8(u8 imm8) noexcept { _raw = (_raw & ~Imm8Mask) | (imm8 & Imm8Mask); }
-		forceinline constexpr void setRd(u8 rd) noexcept { _raw = (_raw & ~RdMask) | ((rd & RegisterMask) << RdShift); }
-		forceinline constexpr void setRs(u8 rs) noexcept { _raw = (_raw & ~RsMask) | ((rs & RegisterMask) << RsShift); }
-		forceinline constexpr void setRt(u8 rt) noexcept { _raw = (_raw & ~RtMask) | ((rt & RegisterMask) << RtShift); }
-		forceinline constexpr void setFd(u8 fd) noexcept { _raw = (_raw & ~RdMask) | ((fd & RegisterMask) << FdShift); } // For floating-point registers
-		forceinline constexpr void setFs(u8 fs) noexcept { _raw = (_raw & ~RsMask) | ((fs & RegisterMask) << FsShift); } // For floating-point registers
-		forceinline constexpr void setFt(u8 ft) noexcept { _raw = (_raw & ~RtMask) | ((ft & RegisterMask) << FtShift); } // For floating-point registers
+		forceinline constexpr u8 rd() const noexcept { return static_cast<u8>(fields::Rd::get(_raw)); }
+		forceinline constexpr u8 rs() const noexcept { return static_cast<u8>(fields::Rs::get(_raw)); }
+		forceinline constexpr u8 rt() const noexcept { return static_cast<u8>(fields::Rt::get(_raw)); }
+		forceinline constexpr u8 fd() const noexcept { return rd(); } // For floating-point registers
+		forceinline constexpr u8 fs() const noexcept { return rs(); } // For floating-point registers
+		forceinline constexpr u8 ft() const noexcept { return rt(); } // For floating-point registers
 
-		std::span<const u8> asBytes() const noexcept { return std::span<const u8>(reinterpret_cast<const u8*>(&_raw), Size); }
+		forceinline constexpr void setOpcode(Opcode opcode) noexcept { _raw = fields::Opcode::set(_raw, static_cast<RawType>(opcode)); }
+		forceinline constexpr void setImm24(u24 imm24) noexcept { _raw = fields::Imm24::set(_raw, static_cast<RawType>(imm24)); }
+		forceinline constexpr void setSImm24(i24 simm24) noexcept { _raw = fields::Imm24::set(_raw, static_cast<RawType>(simm24)); }
+		forceinline constexpr void setSImm20(i32 simm20) noexcept { _raw = fields::Imm20::set(_raw, static_cast<RawType>(simm20)); }
+		forceinline constexpr void setImm16(u16 imm16) noexcept { _raw = fields::Imm16::set(_raw, imm16); }
+		forceinline constexpr void setSImm16(i16 simm16) noexcept { _raw = fields::Imm16::set(_raw, static_cast<u16>(simm16)); }
+		forceinline constexpr void setImm8(u8 imm8) noexcept { _raw = fields::Imm8::set(_raw, imm8); }
+
+		forceinline constexpr void setRd(u8 rd) noexcept { _raw = fields::Rd::set(_raw, rd); }
+		forceinline constexpr void setRs(u8 rs) noexcept { _raw = fields::Rs::set(_raw, rs); }
+		forceinline constexpr void setRt(u8 rt) noexcept { _raw = fields::Rt::set(_raw, rt); }
+		forceinline constexpr void setFd(u8 fd) noexcept { setRd(fd); } // For floating-point registers
+		forceinline constexpr void setFs(u8 fs) noexcept { setRs(fs); } // For floating-point registers
+		forceinline constexpr void setFt(u8 ft) noexcept { setRt(ft); } // For floating-point registers
+
+		// The instruction as it is stored: four bytes, low byte first, on any host.
+		constexpr std::array<u8, Size> bytes() const noexcept
+		{
+			std::array<u8, Size> out{};
+			storeLittleEndian32(out.data(), _raw);
+			return out;
+		}
+
+		// The instruction stored at `bytes` (four of them, low byte first).
+		static constexpr Instruction fromBytes(const u8* bytes) noexcept { return Instruction(loadLittleEndian32(bytes)); }
+
+		// A run of instructions as they are stored, for a program image.
+		static std::vector<u8> encode(std::span<const Instruction> instructions)
+		{
+			std::vector<u8> out(instructions.size() * Size);
+			for (usize i = 0; i < instructions.size(); ++i)
+				storeLittleEndian32(out.data() + i * Size, instructions[i].raw());
+			return out;
+		}
 
 	public:
 		forceinline operator RawType() const noexcept { return _raw; }
@@ -96,43 +104,39 @@ namespace ceres::isa
 	public:
 		static constexpr Instruction make(Opcode opcode) noexcept
 		{
-			return Instruction(static_cast<RawType>(opcode) << OpcodeShift);
+			return Instruction(fields::Opcode::set(0, static_cast<RawType>(opcode)));
 		}
 
 		static constexpr Instruction make(Opcode opcode, u24 imm24) noexcept
 		{
-			return Instruction((static_cast<RawType>(opcode) << OpcodeShift) | (static_cast<u32>(imm24) & Imm24Mask));
+			return Instruction(fields::Imm24::set(make(opcode).raw(), static_cast<u32>(imm24)));
 		}
+
 		static constexpr Instruction make(Opcode opcode, i24 simm24) noexcept
 		{
-			return Instruction((static_cast<RawType>(opcode) << OpcodeShift) | (static_cast<u32>(simm24) & Imm24Mask));
+			return Instruction(fields::Imm24::set(make(opcode).raw(), static_cast<u32>(simm24)));
 		}
 
 		static constexpr Instruction make(Opcode opcode, u8 imm8) noexcept
 		{
-			return Instruction((static_cast<RawType>(opcode) << OpcodeShift) | (imm8 & Imm8Mask));
+			return Instruction(fields::Imm8::set(make(opcode).raw(), imm8));
 		}
 
 		static constexpr Instruction make(Opcode opcode, u8 rd, u8 rs, u16 imm16 = 0) noexcept
 		{
-			return Instruction((static_cast<RawType>(opcode) << OpcodeShift) |
-				((rd & RegisterMask) << RdShift) |
-				((rs & RegisterMask) << RsShift) |
-				((imm16 & Imm16Mask)));
+			RawType raw = make(opcode).raw();
+			raw = fields::Rd::set(raw, rd);
+			raw = fields::Rs::set(raw, rs);
+			return Instruction(fields::Imm16::set(raw, imm16));
 		}
 
 		static constexpr Instruction make(Opcode opcode, u8 rd, u8 rs, u8 rt, u8 imm8 = 0) noexcept
 		{
-			return Instruction((static_cast<RawType>(opcode) << OpcodeShift) |
-				((rd & RegisterMask) << RdShift) |
-				((rs & RegisterMask) << RsShift) |
-				((rt & RegisterMask) << RtShift) |
-				((imm8 & Imm8Mask)));
-		}
-
-		static constexpr std::span<const u8> asBytes(std::span<const Instruction> instructions) noexcept
-		{
-			return std::span<const u8>(reinterpret_cast<const u8*>(instructions.data()), instructions.size() * Size);
+			RawType raw = make(opcode).raw();
+			raw = fields::Rd::set(raw, rd);
+			raw = fields::Rs::set(raw, rs);
+			raw = fields::Rt::set(raw, rt);
+			return Instruction(fields::Imm8::set(raw, imm8));
 		}
 
 	public:

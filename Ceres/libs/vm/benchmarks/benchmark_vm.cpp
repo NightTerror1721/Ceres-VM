@@ -95,7 +95,8 @@ namespace
 		header.version = ProgramHeader::CurrentVersion;
 		header.entryPoint = Memory::UnrestrictedSegmentStart.value();
 		header.textSize = static_cast<u32>(code.size() * Instruction::Size);
-		return Program::make(header, Instruction::asBytes(code), {}, {});
+		const std::vector<u8> text = Instruction::encode(code);
+		return Program::make(header, text, {}, {});
 	}
 
 	// The device window the MMIO benchmark reaches: slot 1, 0xFF010000.

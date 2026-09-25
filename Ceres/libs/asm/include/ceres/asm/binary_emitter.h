@@ -5,6 +5,9 @@
 #include <ceres/core/format/debug_info.h>
 #include <ceres/core/format/program.h>
 #include <ceres/core/isa/instructions.h>
+#include <ceres/core/base/endian.h>
+#include <bit>
+#include <type_traits>
 
 namespace ceres::casm
 {
@@ -119,7 +122,7 @@ namespace ceres::casm
 		{
 			if constexpr (SameAs<T, Instruction>)
 			{
-				auto raw = value.asBytes();
+				const auto raw = value.bytes();
 				buffer.insert(buffer.end(), raw.begin(), raw.end());
 			}
 			else if constexpr (SameAs<T, std::string>)
@@ -129,8 +132,11 @@ namespace ceres::casm
 			}
 			else if constexpr (Arithmetic<T> && sizeof(T) <= 4)
 			{
-				// For arithmetic types (integers and floats) of size <= 4 bytes, we can directly copy the bytes
-				const u8* bytes = reinterpret_cast<const u8*>(&value);
+				// An integer or a float of up to four bytes, low byte first whatever the host: its bits as an
+				// unsigned integer of the same size, stored little-endian (plan/v2 SPEC 6.6).
+				using Bits = std::conditional_t<sizeof(T) == 1, u8, std::conditional_t<sizeof(T) == 2, u16, u32>>;
+				u8 bytes[sizeof(T)];
+				storeLittleEndian(bytes, std::bit_cast<Bits>(value));
 				buffer.insert(buffer.end(), bytes, bytes + sizeof(T));
 			}
 			else
