@@ -59,7 +59,7 @@
      (dejando `inline` sólo lo trivial o crítico en rendimiento, y dilo en un comentario).
   2. Actualiza los `#include` de todos los usuarios (lista en «Punto de partida»).
   3. Deja `devices.h` como cabecera agregada que incluye todas las nuevas, para no romper a quien la use.
-- **Aceptación**: [ ] `libs/devices/src` tiene un `.cpp` por dispositivo movido. [ ] Suites en verde.
+- **Aceptación**: [x] `libs/devices/src` tiene un `.cpp` por dispositivo movido. [x] Suites en verde.
 - **Commit**: `Give each simple device its own folder and source file (F1.2)`
 
 ### F1.3 · Partir `devices.h`: sistema y terminal
@@ -190,3 +190,9 @@
 - **F1.1**: `IODevice`, `DummyDevice`, `NoDeviceEvent` y `DefaultHaltClockHz` pasan tal cual a `io_device.h`;
   `registers()` devuelve una tabla vacía por defecto. `RegisterAccess` es el nombre del enum de acceso (evita chocar
   con `AccessKind` y `MmuAccess`). Verificado con GCC, MSVC y el binario SDL.
+- **F1.2**: los cuerpos se movieron con un separador en Python (un solo uso, no está en el repo) que se apoya en el
+  estilo del código: firma, `{` y `}` en su propia línea a la sangría del miembro. Quedan en la cabecera los cuerpos
+  de una línea, lo `constexpr`, lo `forceinline`, las plantillas y los métodos de clases anidadas. Git sigue viendo
+  los renombrados salvo `host_fs.h`, que al quedarse casi sin cuerpo cae por debajo del 50 % de parecido:
+  `git log --follow -M30% -- Ceres/libs/devices/include/ceres/devices/storage/host_fs.h` sigue su historia. Las
+  referencias a los nombres viejos en `docs/01-Overview.md` y `docs/07-IO-Devices-and-Ports.md` se rehacen en F1.12.

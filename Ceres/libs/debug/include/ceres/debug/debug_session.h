@@ -14,11 +14,11 @@
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage_devices.h>
 #include <ceres/devices/input_devices.h>
-#include <ceres/devices/display_device.h>
-#include <ceres/devices/audio_device.h>
-#include <ceres/devices/peripheral_device.h>
-#include <ceres/devices/host_fs_device.h>
-#include <ceres/devices/blitter_device.h>
+#include <ceres/devices/video/display.h>
+#include <ceres/devices/audio/audio.h>
+#include <ceres/devices/storage/peripherals.h>
+#include <ceres/devices/storage/host_fs.h>
+#include <ceres/devices/video/blitter.h>
 #include <ceres/core/format/program.h>
 #include <ceres/core/format/debug_info.h>
 #include <atomic>

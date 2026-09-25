@@ -4,7 +4,7 @@
 
 #include "framework.h"
 #include <ceres/vm/ceresvm.h>
-#include <ceres/devices/host_fs_device.h>
+#include <ceres/devices/storage/host_fs.h>
 #include <ceres/devices/devices.h>
 #include <filesystem>
 #include <fstream>

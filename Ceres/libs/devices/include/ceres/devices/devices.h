@@ -1,6 +1,17 @@
 #pragma once
 
 #include <ceres/vm/mmio_bus.h>
+// Every device, for a user that wants them all. Each device also has a header of its own (plan/v2 F1),
+// grouped by what it does: audio/, input/, storage/, system/, terminal/, video/.
+#include <ceres/devices/audio/audio.h>
+#include <ceres/devices/input_devices.h>
+#include <ceres/devices/storage/host_fs.h>
+#include <ceres/devices/storage/peripherals.h>
+#include <ceres/devices/storage_devices.h>
+#include <ceres/devices/video/blitter.h>
+#include <ceres/devices/video/default_font.h>
+#include <ceres/devices/video/display.h>
+#include <ceres/devices/video/text_renderer.h>
 #include <print>
 #include <atomic>
 #include <span>

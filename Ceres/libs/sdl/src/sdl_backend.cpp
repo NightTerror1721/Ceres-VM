@@ -1,6 +1,6 @@
 #include <ceres/sdl/sdl_backend.h>
 
-#include <ceres/devices/text_renderer.h>
+#include <ceres/devices/video/text_renderer.h>
 
 #define SDL_MAIN_HANDLED
 #include <SDL3/SDL.h>

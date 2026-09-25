@@ -26,8 +26,8 @@ Archivo: [phases/F01-dispositivos-y-nucleo.md](phases/F01-dispositivos-y-nucleo.
 
 | ID | Tarea | Depende de | Estado | Commits |
 | --- | --- | --- | --- | --- |
-| F1.1 | Separar `IODevice` y añadir `RegisterMap` | fase: F0 (F0.5 cerrada para P05 y P06) | DONE |  |
-| F1.2 | `libs/devices` como biblioteca compilada y con carpetas por grupo | F1.1 | TODO |  |
+| F1.1 | Separar `IODevice` y añadir `RegisterMap` | fase: F0 (F0.5 cerrada para P05 y P06) | DONE | asm@8b227a4 |
+| F1.2 | `libs/devices` como biblioteca compilada y con carpetas por grupo | F1.1 | DONE |  |
 | F1.3 | Partir `devices.h`: sistema y terminal | F1.2 | TODO |  |
 | F1.4 | Partir `input_devices.h` | F1.2 | TODO |  |
 | F1.5 | Partir `storage_devices.h` | F1.2 | TODO |  |

@@ -3,9 +3,9 @@
 // and TextRenderer turns it into pixels, so what would be shown can be checked to the pixel.
 
 #include "framework.h"
-#include <ceres/devices/display_device.h>
+#include <ceres/devices/video/display.h>
 #include <ceres/devices/storage_devices.h>
-#include <ceres/devices/text_renderer.h>
+#include <ceres/devices/video/text_renderer.h>
 #include <string>
 #include <string_view>
 #include <vector>

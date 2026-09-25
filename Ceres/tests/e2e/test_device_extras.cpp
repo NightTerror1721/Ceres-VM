@@ -9,7 +9,7 @@
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage_devices.h>
 #include <ceres/devices/input_devices.h>
-#include <ceres/devices/audio_device.h>
+#include <ceres/devices/audio/audio.h>
 #include <ceres/vm/bios.h>
 #include <ceres/core/format/memory_map.h>
 #include <optional>

@@ -6,9 +6,9 @@
 // The default is HeadlessBackend, which pumps nothing and shows nothing.
 
 #include <ceres/devices/input_devices.h>
-#include <ceres/devices/display_device.h>
+#include <ceres/devices/video/display.h>
 #include <ceres/devices/storage_devices.h>
-#include <ceres/devices/audio_device.h>
+#include <ceres/devices/audio/audio.h>
 
 #include <filesystem>
 #include <functional>

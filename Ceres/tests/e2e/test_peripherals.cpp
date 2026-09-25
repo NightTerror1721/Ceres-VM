@@ -4,7 +4,7 @@
 
 #include "framework.h"
 #include <ceres/vm/ceresvm.h>
-#include <ceres/devices/peripheral_device.h>
+#include <ceres/devices/storage/peripherals.h>
 #include <filesystem>
 #include <fstream>
 #include <string>

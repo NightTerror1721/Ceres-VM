@@ -4,7 +4,7 @@
 // cell's colours. Pure - a frame in, 0x00RRGGBB pixels out - so what a window shows can be checked without
 // one, and the host only has to upload the result.
 //
-// The glyphs are the standard library's 5x7 dot-matrix shapes (text_font.h), each dot drawn two pixels tall and
+// The glyphs are the standard library's 5x7 dot-matrix shapes (default_font.h), each dot drawn two pixels tall and
 // one wide, centred in the cell with a pixel of margin above, below and to the left. The strokes that build a
 // box (| - _ =) run right to the edge of the cell instead, so the frames a text interface draws with them join up
 // rather than showing as dashes. A + is a corner or a crossing: it reaches only toward the neighbours that a
@@ -17,7 +17,7 @@
 // 0x9F) is a space, as on the terminal.
 
 #include <ceres/devices/storage_devices.h>
-#include <ceres/devices/text_font.h>
+#include <ceres/devices/video/default_font.h>
 
 #include <vector>
 
@@ -30,22 +30,16 @@ namespace ceres::devices
 		static bool joinsVertically(u8 c) noexcept { return c == '|' || c == '+'; }
 
 		// Which sides of the + at (row, column) have a stroke to join.
-		static u32 armsOf(const FramebufferDevice::Frame& frame, u32 row, u32 column) noexcept
-		{
-			const auto at = [&](u32 r, u32 c) { return frame.cells[static_cast<usize>(r) * frame.width + c]; };
-			u32 arms = 0;
-			if (column > 0 && joinsHorizontally(at(row, column - 1))) arms |= ArmLeft;
-			if (column + 1 < frame.width && joinsHorizontally(at(row, column + 1))) arms |= ArmRight;
-			if (row > 0 && joinsVertically(at(row - 1, column))) arms |= ArmUp;
-			if (row + 1 < frame.height && joinsVertically(at(row + 1, column))) arms |= ArmDown;
-			return arms;
-		}
+		static u32 armsOf(const FramebufferDevice::Frame& frame, u32 row, u32 column) noexcept;
 
 	public:
 		static inline constexpr u32 CellWidth = 8;
 		static inline constexpr u32 CellHeight = 16;
 		static inline constexpr u32 DefaultForeground = 7;
 		static inline constexpr u32 DefaultBackground = 0;
+
+		// The per-pixel helpers below stay here, constexpr: the renderer calls them for every pixel of every cell,
+		// and the compiler can fold them into its loops only when it sees their bodies.
 
 		// 0x00RRGGBB for an entry of the 16-colour palette: the classic VGA one (yellow is brown, the second
 		// eight are the bright ones).
@@ -104,36 +98,6 @@ namespace ceres::devices
 		static constexpr u32 imageHeight(const FramebufferDevice::Frame& frame) noexcept { return frame.height * CellHeight; }
 
 		// Draws the frame into `pixels` (resized to imageWidth x imageHeight, row by row).
-		static void render(const FramebufferDevice::Frame& frame, std::vector<u32>& pixels)
-		{
-			const u32 width = imageWidth(frame);
-			const u32 height = imageHeight(frame);
-			pixels.assign(static_cast<usize>(width) * height, colour(DefaultBackground));
-			if (frame.cells.size() < static_cast<usize>(frame.width) * frame.height ||
-				frame.attributes.size() < frame.cells.size())
-				return;
-
-			for (u32 row = 0; row < frame.height; ++row)
-			{
-				for (u32 column = 0; column < frame.width; ++column)
-				{
-					const usize index = static_cast<usize>(row) * frame.width + column;
-					const u8 attribute = frame.attributes[index];
-					const u32 foreground = attribute == 0 ? colour(DefaultForeground) : colour(attribute & 0x0Fu);
-					const u32 background = attribute == 0 ? colour(DefaultBackground) : colour(static_cast<u32>(attribute) >> 4);
-					const u8 character = frame.cells[index];
-					const u32 arms = character == '+' ? armsOf(frame, row, column) : 0;
-					for (u32 y = 0; y < CellHeight; ++y)
-					{
-						u32* line = pixels.data() + static_cast<usize>(row * CellHeight + y) * width + column * CellWidth;
-						for (u32 x = 0; x < CellWidth; ++x)
-						{
-							const bool lit = character == '+' ? plusPixel(arms, x, y) : glyphPixel(character, x, y);
-							line[x] = lit ? foreground : background;
-						}
-					}
-				}
-			}
-		}
+		static void render(const FramebufferDevice::Frame& frame, std::vector<u32>& pixels);
 	};
 }
