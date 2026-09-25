@@ -238,7 +238,7 @@ namespace ceres::vm
 			}
 		}
 
-		inline constexpr void attach(Address base, IODevice& device)
+		void attach(Address base, IODevice& device)
 		{
 			const u32 index = (base.value() - BaseValue) / SlotSize;
 			_devices[index] = &device;
@@ -248,7 +248,7 @@ namespace ceres::vm
 			rebuildTickedDevices();
 		}
 
-		inline constexpr void attachRange(Address firstBase, Address lastBase, IODevice& device)
+		void attachRange(Address firstBase, Address lastBase, IODevice& device)
 		{
 			const u32 first = (firstBase.value() - BaseValue) / SlotSize;
 			const u32 last = (lastBase.value() - BaseValue) / SlotSize;
@@ -262,7 +262,7 @@ namespace ceres::vm
 			rebuildTickedDevices();
 		}
 
-		inline constexpr void detach(Address base)
+		void detach(Address base)
 		{
 			const u32 index = (base.value() - BaseValue) / SlotSize;
 			if (IODevice* device = _devices[index])
