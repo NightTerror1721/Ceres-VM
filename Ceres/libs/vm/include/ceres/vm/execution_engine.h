@@ -785,7 +785,7 @@ namespace ceres::vm
 
 		// The float sibling of executeUnsignedMod/executeSignedMod: same trap-on-zero convention as
 		// every other division-shaped instruction (see executeFloatDiv), even though IEEE fmod(x, 0)
-		// is well-defined as NaN - consistency with the rest of the divide family wins here.
+		// is well-defined as NaN - unless FeatureIeeeDivide is on, and then it is that NaN.
 		forceinline void executeFloatMod(const u8 regDest, const f32 a, const f32 b) noexcept
 		{
 			if (b == 0.0f && !_ieeeDivide)
@@ -1194,7 +1194,8 @@ namespace ceres::vm
 		// Estimates in name only: a software-interpreted VM has no cycle cost to save by answering
 		// approximately, so these give an exact reciprocal rather than faking the low precision a
 		// real FPU's lookup-table hardware would produce. They keep the trap-on-zero convention the
-		// rest of the divide family uses, since 1/0 is exactly the case that family already guards.
+		// rest of the divide family uses, since 1/0 is exactly the case that family already guards -
+		// while FeatureIeeeDivide is off; with it on they give IEEE's infinity.
 		forceinline void FRECIPE(const Instruction inst) noexcept
 		{
 			const f32 value = getFloatReg(inst.fs());

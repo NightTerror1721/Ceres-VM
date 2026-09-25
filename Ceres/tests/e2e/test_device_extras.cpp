@@ -413,13 +413,25 @@ TEST(device_extras, an_ieee_float_division_by_zero_gives_infinity_or_nan)
 	CHECK(m.flags().trap());       // the DIV at the end still does
 }
 
-TEST(device_extras, the_features_register_switches_ieee_division)
+TEST(device_extras, a_program_switches_ieee_division_on_through_the_control_device)
 {
+	Machine m{
+		LoadBase(default_mmio::SystemControl), LoadBaseLow(default_mmio::SystemControl),
+		Instruction::LI(1, static_cast<u16>(SystemControlDevice::FeatureIeeeDivide)),
+		Instruction::STR(Base, 1, Off(SystemControlDevice::FeaturesRegister)),
+	};
+
 	SystemControlDevice control{};
-	u32 seen = 0;
-	control.setFeaturesCallback([&](u32 features) { seen = features; });
-	control.writeWord(SystemControlDevice::FeaturesRegister, SystemControlDevice::FeatureIeeeDivide);
-	CHECK_EQ(seen, SystemControlDevice::FeatureIeeeDivide);
+	control.setFeaturesCallback([&](u32 features)
+	{
+		m.vm().engine().setDivisionFaults((features & SystemControlDevice::FeatureDivisionFault) != 0);
+		m.vm().engine().setIeeeDivide((features & SystemControlDevice::FeatureIeeeDivide) != 0);
+	});
+	control.attachTo(m.vm().io());
+	m.step(4);
+
+	CHECK(m.vm().engine().ieeeDivide());
+	CHECK(!m.vm().engine().divisionFaults());
 	CHECK_EQ(SystemControlDevice::FeatureIeeeDivide, 2u);
 }
 
@@ -883,6 +895,11 @@ TEST(device_extras, a_channel_rises_holds_and_falls_through_its_envelope)
 	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);
 	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
 	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);   // no host renders it: nothing to wait for
+	bool asked = false;
+	audio.setChannelWake([&] { asked = true; return false; });                 // a host whose sound failed to open
+	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
+	CHECK(asked);
+	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);   // asked, and told nobody renders it
 	bool woken = false;
 	audio.setChannelWake([&] { woken = true; return true; });
 	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
