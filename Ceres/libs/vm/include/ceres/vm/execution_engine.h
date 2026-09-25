@@ -292,15 +292,18 @@ namespace ceres::vm
 			if (!_flags.get<ExecutionFlag::Paging>()) [[likely]]
 				return address;
 
-			// The null page and the BIOS (below 0x400) and the system stack (the top SystemStackSize
-			// bytes) are VM-owned memory that no program's page table describes - they stay physical
-			// whether or not paging is on, the same way they are already reached through the unchecked
-			// path rather than the checked one. This is not just convenience: without it, a page fault
-			// taken while the system stack itself happened to be unmapped would recurse into dispatching
-			// the very fault it is trying to save a frame for, and a program that forgot to map its own
-			// fault vectors could never even reach the BIOS's default handler to fail safely.
+			// The null page and the BIOS (below 0x400), the system stack (the top SystemStackSize bytes
+			// of RAM) and the devices (0xFF000000 up) are VM-owned that no program's page table
+			// describes - they stay physical whether or not paging is on, the same way they are already
+			// reached through the unchecked path rather than the checked one. This is not just
+			// convenience: without it, a page fault taken while the system stack itself happened to be
+			// unmapped would recurse into dispatching the very fault it is trying to save a frame for,
+			// and a program that forgot to map its own fault vectors could never even reach the BIOS's
+			// default handler to fail safely. Everything else is virtual, above the end of RAM too: a
+			// program can put a page at 0x80000000 on a 16 MiB machine.
 			const u32 raw = address.value();
-			if (raw < Memory::UnrestrictedSegmentStartValue || raw >= systemStackFloor())
+			if (raw < Memory::UnrestrictedSegmentStartValue || (raw >= systemStackFloor() && raw < _memory.size()) ||
+				raw >= MmioBus::BaseValue)
 				return address;
 
 			if (const auto physical = _mmu.translate(_memory, address, access))

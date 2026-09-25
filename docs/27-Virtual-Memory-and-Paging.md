@@ -99,7 +99,11 @@ Three regions never go through translation, whether or not paging is on:
   not just convenient: without it, a page fault taken while the system stack itself happened to be
   unmapped would recurse into dispatching the very fault it was trying to save a frame for.
 
-Everything from `0x00000400` up to the system stack floor is the paged region. A program that turns
+- **The devices** (`0xFF000000` up, the MMIO slots — see [I/O devices](07-IO-Devices-and-Ports.md)):
+  a driver reaches its registers at the same address with paging on or off.
+
+Everything else is the paged region: from `0x00000400` up to the system stack floor, and from the end of
+RAM up to the devices — a program can map a page at `0x80000000` on a machine with 16 MiB. A program that turns
 paging on has to identity-map (or otherwise map, with Executable set) whatever page it is currently
 running out of — the *very next instruction fetch* after `pgon` is already translated, exactly like
 enabling paging on real hardware.

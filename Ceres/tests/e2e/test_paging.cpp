@@ -122,6 +122,31 @@ TEST(paging, a_mapped_page_translates_reads_and_writes_to_its_physical_frame)
 	CHECK_EQ(m.memory().readUnchecked<u32>(Address(FrameA)), 0x1234u);
 }
 
+TEST(paging, a_virtual_address_above_the_end_of_ram_is_translated_too)
+{
+	// 0x80000000 is far past this machine's 16 MiB, and still a page like any other (directory slot 512).
+	Machine m{
+		Instruction::LI(1, static_cast<u16>(PageDirectory)),
+		Instruction::MTP(1),
+		Instruction::PGON(),
+		Instruction::LUI(2, 0x8000),      // r2 = 0x80000000
+		Instruction::LI(4, 0x4321),
+		Instruction::STR(2, 4, 8),
+		Instruction::LDR(3, 2, 8),
+		Instruction::LUI(5, 0xFF00),      // the terminal: a device, physical with no mapping at all
+		Instruction::LI(6, 'M'),
+		Instruction::STRB(5, 6, 4),
+	};
+	mapCodeIdentity(m);
+	mapPage(m, PageDirectory, DataTable, 512, 0, FrameA, Mmu::PtePresent | Mmu::PteWritable);
+
+	m.step(10);
+
+	CHECK_EQ(m.reg(3), 0x4321u);
+	CHECK_EQ(m.memory().readUnchecked<u32>(Address(FrameA + 8)), 0x4321u);
+	CHECK_EQ(m.vm().engine().interruptDepth(), 0u);   // no page fault, not even for the device
+}
+
 TEST(paging, disabled_by_default_addresses_stay_physical)
 {
 	// No MTP, no PGON: a fresh machine behaves exactly as it did before the MMU existed.
