@@ -57,7 +57,7 @@
   1. `vterm`: interpreta la salida real de dos ejemplos de la STDLIB que usan `tui.h` y `ansi.h` con el
      subconjunto ANSI de SPEC §8.2 y comprueba que no queda ninguna secuencia sin cubrir. Anota las que falten.
   2. `fm`: un operador FM de 4 operadores que genera un WAV de una nota, para validar el coste por muestra.
-- **Aceptación**: [ ] Lista de secuencias ANSI que emite la STDLIB, con las no cubiertas señaladas; WAV de prueba.
+- **Aceptación**: [x] Lista de secuencias ANSI que emite la STDLIB, con las no cubiertas señaladas; WAV de prueba.
 - **Commit**: `Add terminal and FM spikes outside the build (F0.4)`
 
 ### F0.5 · Cerrar decisiones con el usuario · `HUMANO`
@@ -111,3 +111,8 @@
   Windows SDK no genera SPIR-V; hace falta el del Vulkan SDK o una release de DXC antes de F12. SDL 3.4.16 no deja
   forzar WARP (sólo sale en máquinas sin GPU). Recomendación: shaders precompilados en el repo. Detalle en
   [spikes/sdl_gpu/README.md](../../../spikes/sdl_gpu/README.md).
+- **F0.4**: las 116 salidas esperadas de la STDLIB caben en el subconjunto ANSI de §8.2 (ninguna secuencia de
+  fuera; `tui.h` no emite ANSI, lo pone la VM al volcar el framebuffer de texto). §8.3 no fija qué bytes da cada
+  tecla en modo raw: se propone la tabla actual de `keystrokeToTerminalBytes` (a decidir en F0.5). La FM de 4
+  operadores en enteros cuesta 4,5–6,5 ns por muestra de voz (8 voces: menos del 0,3 % de un núcleo) y da el mismo
+  hash con GCC y MSVC. Detalle en `spikes/vterm/README.md` y `spikes/fm/README.md`.
