@@ -77,7 +77,7 @@
   1. Con las medidas de F0.1, comprueba que `standard` (50 MHz) se sostiene en tiempo real con margen (el mixto
      necesita menos del 70 % de los MIPS medidos) y que los costes relativos son razonables.
   2. Propón al usuario la tabla ajustada; al aceptarla, pasa SPEC §3.2 a NORMATIVA y cierra P02.
-- **Aceptación**: [ ] SPEC §3.2 NORMATIVA; P02 cerrada.
+- **Aceptación**: [x] SPEC §3.2 NORMATIVA; P02 cerrada.
 - **Commit**: `Settle the cycle table (F0.6)`
 
 ### F0.7 · Enlazar el plan desde la documentación
@@ -119,3 +119,7 @@
 - **F0.5**: el usuario aceptó la opción por defecto de P01 y P03–P11, y la tabla de teclas de F0.4. Son las
   decisiones D15–D25. La SPEC ya recogía P03, P05, P06, P09, P10 y P11; se añadieron P04 (§7.1), P07 (§7.1, con la
   disposición de la celda de 16 bits), P08 (§8.2) y las teclas (§8.3).
+- **F0.6**: la tabla de §3.2 queda como estaba (D26). Puerta: el mixto necesita 31 MIPS en `standard` (23 % de los
+  134 medidos, menos del 70 %). Riesgo apuntado para F2: con código sólo ALU, `workstation` pide 100 MIPS de unos
+  140 (71 %), y el planificador de eventos todavía no está medido; si F2 no llega, `workstation` irá algo más lento
+  que el tiempo real en ese caso, sin perder determinismo.

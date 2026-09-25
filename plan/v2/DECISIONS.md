@@ -36,12 +36,12 @@ decisión en el commit.
 | D23 | `double` es binary64 por defecto en Ceres-C; `-fshort-double` lo hace `float` (P10) | 2026-09-25 | usuario (opción por defecto, F0.5) |
 | D24 | Valores de 64 bits en la ABI en pares alineados a registro par (P11) | 2026-09-25 | usuario (opción por defecto, F0.5) |
 | D25 | Bytes de cada tecla en el terminal: la tabla actual de la VM (`ESC[A`…`ESC[6~`), fijada en SPEC §8.3 (surgió en F0.4) | 2026-09-25 | usuario (opción por defecto, F0.5) |
+| D26 | Tabla de ciclos: la de SPEC §3.2 sin cambios, ahora normativa; cumple la puerta de F0.6 con margen (P02) | 2026-09-25 | usuario (opción por defecto, F0.6) |
 
 ## Pendientes
 
 | ID | Pregunta | Por defecto | Se cierra en | Bloquea |
 | --- | --- | --- | --- | --- |
-| P02 | Tabla de ciclos: la de SPEC §3.2 calibrada, o una más simple (todo 1 salvo memoria y división) | La de SPEC §3.2, calibrada con las medidas de F0.1 | F0.6 | F2.1 |
 | P12 | FM de A2: 4 operadores (tipo OPN) o 2 (tipo OPL2) | 4 operadores | F9.0 | F9.4 |
 | P13 | Códecs de A4: IMA-ADPCM y QOA, u otro | IMA-ADPCM y QOA | F11.0 | F11.4 |
 | P14 | Banco General MIDI de muestras para A3: cuál y con qué licencia (se verifica antes de incluirlo) | Uno con licencia libre verificada (candidato: FluidR3_GM) | F11.0 | F11.3 |

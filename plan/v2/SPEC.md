@@ -47,7 +47,7 @@ diga otra cosa; los offsets de registro son relativos a la base del slot.
 - Instrucciones de bloque (`mcpy`, `mset`, `mcmp`, `mscan`): rápidas sobre RAM y VRAM; sobre MMIO, `MemoryFault`
   (motivo `MmioBlock`).
 
-## 3. Relojes (NORMATIVA salvo la tabla de ciclos, PROVISIONAL hasta F0.6)
+## 3. Relojes (NORMATIVA)
 
 ### 3.1 Dominios
 
@@ -62,7 +62,11 @@ diga otra cosa; los offsets de registro son relativos a la base del slot.
 Conversión entre dominios con razones enteras y resto acumulado (sin coma flotante, sin deriva).
 Ejemplo: 50 MHz / 60 Hz = 833 333 ciclos por fotograma y resto 20; el resto se suma al siguiente.
 
-### 3.2 Ciclos por instrucción (PROVISIONAL, se calibra en F0.6)
+### 3.2 Ciclos por instrucción (NORMATIVA desde F0.6, D26)
+
+Calibrada con las medidas de F0.1 ([BASELINE.md](BASELINE.md)): con esta tabla, un programa mixto gasta 1,61 ciclos
+por instrucción y `standard` (50 MHz) usa el 23 % del intérprete en el host de desarrollo; `workstation`, el 46 %.
+Los costes modelan la máquina simulada, no el host (allí una división cuesta lo mismo que una suma).
 
 | Clase | Ciclos |
 | --- | --- |
