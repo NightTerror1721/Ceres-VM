@@ -226,7 +226,7 @@ namespace ceres::sdl
 					_samplesLeft = tone->durationMs == 0 ? -1 : static_cast<i64>(tone->durationMs) * SampleRate / 1000;
 					_toneActive = true;
 				});
-				audio.setChannelWake([this] { ensureAudio(); });   // the channels are mixed in synthesize()
+				audio.setChannelWake([this] { return ensureAudio(); });   // the channels are mixed in synthesize()
 			}
 
 			void detachAudio() override

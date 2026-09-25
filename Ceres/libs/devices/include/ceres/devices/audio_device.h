@@ -87,8 +87,10 @@ namespace ceres::devices
 
 		// What the host is asked to do: play this, or (an empty value) fall silent.
 		using ToneSink = std::function<void(const std::optional<Tone>&)>;
-		// Called when a channel starts to sound: the host makes sure its audio is running (renderChannels).
-		using ChannelWake = std::function<void()>;
+		// Called when a channel is keyed on: the host makes sure its audio is running (renderChannels), and says
+		// whether it is. Without a host that renders them - none attached, or its sound failed to open - a channel
+		// keyed on stays silent, so its status bit never has a program waiting on an envelope nobody runs.
+		using ChannelWake = std::function<bool()>;
 
 		struct Channel
 		{
@@ -245,14 +247,15 @@ namespace ceres::devices
 			const u32 command = value & 0xFFu;
 			if (index >= ChannelCount)
 				return;
-			bool woke = false;
+			// Asked before the lock is taken: a host starting its audio may wait for its callback, which takes it.
+			const bool rendered = command == ChannelKeyOn && _wake && _wake();
 			{
 				const std::lock_guard lock{ _channelMutex };
 				Channel& c = _channels[index];
 				if (command == ChannelKeyOn)
 				{
-					c.stage = Channel::Attack;               // from the level it has: a retrigger does not click
-					woke = true;
+					if (rendered)
+						c.stage = Channel::Attack;           // from the level it has: a retrigger does not click
 				}
 				else if (command == ChannelKeyOff && c.stage != Channel::Off)
 				{
@@ -265,8 +268,6 @@ namespace ceres::devices
 					c.level = 0.0f;
 				}
 			}
-			if (woke && _wake)
-				_wake();
 		}
 
 		bool channelRegister(Address offset, u32*& field, Channel*& c)

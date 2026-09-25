@@ -150,6 +150,7 @@ namespace ceres::devices
 				_mode = value == ModeIndexed ? ModeIndexed : ModeRgb32;
 				_indexed.assign(_mode == ModeIndexed ? _pixels.size() : 0, 0);
 				_cursor = 0;
+				_composed = false;                        // the frame was composed for the other mode
 				return;
 			}
 			if (offset == PaletteIndexRegister) { _paletteIndex = value & 255u; return; }
@@ -180,6 +181,7 @@ namespace ceres::devices
 			_scrollX %= _width;
 			_scrollY %= _height;
 			_cursor = 0;
+			_composed = false;                            // a composed frame of the old size would be read at the new one
 		}
 
 		void clear()
@@ -187,6 +189,7 @@ namespace ceres::devices
 			std::fill(_pixels.begin(), _pixels.end(), 0u);
 			std::fill(_indexed.begin(), _indexed.end(), u8{ 0 });
 			_cursor = 0;
+			_composed = false;
 		}
 
 		// A run of pixels starting where the last write left off, so a whole frame is one trigger.

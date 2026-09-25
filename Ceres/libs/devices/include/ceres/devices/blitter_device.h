@@ -89,6 +89,16 @@ namespace ceres::devices
 			return memory().peekMutBytes(Address(address), bytes);
 		}
 
+		// Row y of a surface at `base` with `stride` bytes a row. A stride that would carry the address past 4 GiB is
+		// out of RAM like any other, rather than wrapping round to some address inside it.
+		std::span<u8> rowOf(u32 base, u32 y, u32 stride, u32 bytes)
+		{
+			const u64 address = static_cast<u64>(base) + static_cast<u64>(y) * stride;
+			if (address > 0xFFFFFFFFull)
+				return {};
+			return row(static_cast<u32>(address), bytes);
+		}
+
 		static u32 load(const u8* p) { u32 v; std::memcpy(&v, p, 4); return v; }
 		static void store(u8* p, u32 v) { std::memcpy(p, &v, 4); }
 
@@ -96,7 +106,7 @@ namespace ceres::devices
 		{
 			for (u32 y = 0; y < _height; ++y)
 			{
-				auto d = row(_dst + y * _dstStride, _width * 4u);
+				auto d = rowOf(_dst, y, _dstStride, _width * 4u);
 				if (d.empty())
 					return false;
 				for (u32 x = 0; x < _width; ++x)
@@ -113,8 +123,8 @@ namespace ceres::devices
 			for (u32 i = 0; i < _height; ++i)
 			{
 				const u32 y = backwards ? _height - 1 - i : i;
-				auto s = row(_src + y * _srcStride, _width * 4u);
-				auto d = row(_dst + y * _dstStride, _width * 4u);
+				auto s = rowOf(_src, y, _srcStride, _width * 4u);
+				auto d = rowOf(_dst, y, _dstStride, _width * 4u);
 				if (s.empty() || d.empty())
 					return false;
 				if (!keyed)
@@ -141,13 +151,13 @@ namespace ceres::devices
 			const u32 scale = std::clamp(_scale, 1u, MaxScale);
 			for (u32 y = 0; y < _height; ++y)
 			{
-				auto s = row(_src + y * _srcStride, _width * 4u);
+				auto s = rowOf(_src, y, _srcStride, _width * 4u);
 				if (s.empty())
 					return false;
 				std::vector<u8> line(s.begin(), s.end());
 				for (u32 k = 0; k < scale; ++k)
 				{
-					auto d = row(_dst + (y * scale + k) * _dstStride, _width * scale * 4u);
+					auto d = rowOf(_dst, y * scale + k, _dstStride, _width * scale * 4u);
 					if (d.empty())
 						return false;
 					for (u32 x = 0; x < _width; ++x)
@@ -164,18 +174,22 @@ namespace ceres::devices
 
 		bool copyIndexed(bool keyed)
 		{
-			auto palette = row(_palette, 256u * 4u);
-			if (palette.empty())
+			auto table = row(_palette, 256u * 4u);
+			if (table.empty())
 				return false;
+			// The palette and each source row as they were before this copy wrote anything: either may lie in the
+			// destination.
+			const std::vector<u8> palette(table.begin(), table.end());
 			for (u32 y = 0; y < _height; ++y)
 			{
-				auto s = row(_src + y * _srcStride, _width);
-				auto d = row(_dst + y * _dstStride, _width * 4u);
+				auto s = rowOf(_src, y, _srcStride, _width);
+				auto d = rowOf(_dst, y, _dstStride, _width * 4u);
 				if (s.empty() || d.empty())
 					return false;
+				const std::vector<u8> line(s.begin(), s.end());
 				for (u32 x = 0; x < _width; ++x)
 				{
-					const u8 index = s[x];
+					const u8 index = line[x];
 					if (keyed && index == (_color & 0xFFu))
 						continue;
 					store(d.data() + x * 4u, load(palette.data() + index * 4u));

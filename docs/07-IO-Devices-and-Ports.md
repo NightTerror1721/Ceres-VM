@@ -604,7 +604,9 @@ volume, a waveform — a square of any duty, triangle, sawtooth, sine or noise �
 program keys a channel on (the attack starts from the level it has, so a retrigger does not click) and off
 (the release starts); the device mixes the four itself in `renderChannels()`, which the host's audio thread
 calls for the samples it needs, so every host sounds the same and a test can listen without speakers. A
-channel keyed on asks the host to start its audio (`setChannelWake`). A reset silences them.
+channel keyed on asks the host to start its audio (`setChannelWake`); where no host renders the channels —
+none is attached, as in a headless run, or its sound failed to open — a key-on leaves the channel silent, so
+its status bit never keeps a program waiting. A reset silences them.
 
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |

@@ -834,8 +834,10 @@ TEST(device_extras, a_channel_rises_holds_and_falls_through_its_envelope)
 	audio.writeWord(Address(base + A::ChannelRelease), 10);
 	CHECK_EQ(audio.readUnsignedWord(A::ChannelCountRegister), 4u);
 	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);
+	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
+	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);   // no host renders it: nothing to wait for
 	bool woken = false;
-	audio.setChannelWake([&] { woken = true; });
+	audio.setChannelWake([&] { woken = true; return true; });
 	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
 	CHECK(woken);
 	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 4u);   // bit 2
