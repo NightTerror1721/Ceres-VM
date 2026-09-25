@@ -168,7 +168,7 @@
   registrarlo en ctest.
 - **Pasos**: el test falla si una cabecera de `libs/devices/include` declara más de una clase derivada de
   `IODevice`, si le falta su `.cpp` en `src/` o si le falta su `test_*.cpp`.
-- **Aceptación**: [ ] El test pasa hoy y falla si se añade una segunda clase a un archivo (compruébalo a mano).
+- **Aceptación**: [x] El test pasa hoy y falla si se añade una segunda clase a un archivo (compruébalo a mano).
 - **Commit**: `Check that every device keeps its own files (F1.11)`
 
 ### F1.12 · Documentación de dispositivos y bus
@@ -228,3 +228,5 @@
   `program.cpp` lee y escribe la `ProgramHeader` y las tablas de depuración con `reinterpret_cast` sobre el struct,
   es decir, en el orden de bytes del host; un `.cres` escrito en un host big-endian no se leería en otro
   little-endian. Encaja en F4 (formato del ejecutable y cargador).
+- **F1.11**: `tests/cli/check_device_layout.cmake`, registrado como `device_layout` en ctest (se registra aunque no
+  haya binario `ceres`). Comprobado a mano: falla con una segunda clase `IODevice` en `mouse.h` y sin `test_dma.cpp`.

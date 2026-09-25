@@ -1,0 +1,51 @@
+# One device per file (plan/v2 F1): every header under libs/devices/include/ceres/devices/<group>/ declares at most
+# one class derived from IODevice, and a header that declares one has its source file in src/<group>/ and its
+# test file in tests/. devices.h, the aggregate, declares none.
+#
+#   cmake -DDEVICES_DIR=<Ceres/libs/devices> -P check_device_layout.cmake
+if(NOT DEFINED DEVICES_DIR)
+	message(FATAL_ERROR "DEVICES_DIR is required")
+endif()
+
+set(device_class "class[ \t\r\n]+[A-Za-z_0-9]+[ \t\r\n]+(final[ \t\r\n]+)?:[ \t\r\n]*public[ \t\r\n]+(vm::)?IODevice")
+set(problems "")
+set(devices 0)
+
+file(GLOB top_level "${DEVICES_DIR}/include/ceres/devices/*.h")
+foreach(header IN LISTS top_level)
+	file(READ "${header}" text)
+	string(REGEX MATCHALL "${device_class}" found "${text}")
+	if(found)
+		string(APPEND problems "  ${header}: a device outside a group folder\n")
+	endif()
+endforeach()
+
+file(GLOB headers "${DEVICES_DIR}/include/ceres/devices/*/*.h")
+foreach(header IN LISTS headers)
+	file(READ "${header}" text)
+	string(REGEX MATCHALL "${device_class}" found "${text}")
+	list(LENGTH found count)
+	if(count GREATER 1)
+		string(APPEND problems "  ${header}: ${count} devices in one header\n")
+	endif()
+	if(count EQUAL 1)
+		math(EXPR devices "${devices} + 1")
+		get_filename_component(name "${header}" NAME_WE)
+		get_filename_component(group_dir "${header}" DIRECTORY)
+		get_filename_component(group "${group_dir}" NAME)
+		if(NOT EXISTS "${DEVICES_DIR}/src/${group}/${name}.cpp")
+			string(APPEND problems "  ${header}: no src/${group}/${name}.cpp\n")
+		endif()
+		if(NOT EXISTS "${DEVICES_DIR}/tests/test_${name}.cpp")
+			string(APPEND problems "  ${header}: no tests/test_${name}.cpp\n")
+		endif()
+	endif()
+endforeach()
+
+if(devices EQUAL 0)
+	string(APPEND problems "  no device header found under ${DEVICES_DIR}/include/ceres/devices\n")
+endif()
+if(problems)
+	message(FATAL_ERROR "One device per file, with its source and its test:\n${problems}")
+endif()
+message(STATUS "${devices} devices, each in its own header with its source and its test")
