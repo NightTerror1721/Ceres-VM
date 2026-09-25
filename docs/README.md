@@ -44,6 +44,7 @@ the assembler does internally at each stage of the build.
 27. [Virtual memory and paging](27-Virtual-Memory-and-Paging.md) — the MMU: two-level page tables, the TLB, `pgon`/`pgoff`, and `PageFault`.
 28. [Roadmap educativa y retro](28-Roadmap-Educativo-y-Retro.md) — mejoras y ampliaciones para aprender arquitectura, practicar con kernels y crear pequeños juegos retro.
 29. [SDL3 integration plan](29-SDL3-Integration-Plan.md) — historical: how the SDL3 window came in. Superseded by the v2 plan below.
+35. [Devices and the bus](35-Devices-and-Bus.md) — 32-bit registers, fault reasons, the register table every device declares, one device per file, and how to add one.
 
 ### The v2 machine (in progress)
 

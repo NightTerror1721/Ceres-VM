@@ -36,8 +36,8 @@ Archivo: [phases/F01-dispositivos-y-nucleo.md](phases/F01-dispositivos-y-nucleo.
 | F1.8 | Tabla de registros en cada dispositivo, `dev` y `--strict-mmio` | F1.7 | DONE | asm@b8e4a6e |
 | F1.9 | Un test por dispositivo | F1.8 | DONE | asm@4c19eee |
 | F1.10 | Campos de instrucción declarativos y serialización little-endian | fase: F0 (F0.5 cerrada para P05 y P06) | DONE | asm@082f4e9 |
-| F1.11 | Comprobación automática de «un dispositivo por archivo» | F1.9 | DONE |  |
-| F1.12 | Documentación de dispositivos y bus | F1.8 | TODO |  |
+| F1.11 | Comprobación automática de «un dispositivo por archivo» | F1.9 | DONE | asm@8cabb11 |
+| F1.12 | Documentación de dispositivos y bus | F1.8 | DONE |  |
 
 ## F2 · Relojes y planificador de eventos
 

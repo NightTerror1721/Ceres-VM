@@ -74,7 +74,7 @@ to assemble, run, or disassemble.
 | [`interrupt_controller.h`](../Ceres/libs/vm/include/ceres/vm/interrupt_controller.h) | The queue of pending interrupts that devices use to signal the CPU. |
 | [`mmu.h`](../Ceres/libs/vm/include/ceres/vm/mmu.h) | The two-level page table walk, the TLB, and `PageFault` — see [Virtual memory and paging](27-Virtual-Memory-and-Paging.md). |
 | [`mmio_bus.h`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h) | The 256 MMIO slots and the mechanism for attaching `IODevice`s to them — see [I/O devices and ports](07-IO-Devices-and-Ports.md). |
-| [`devices.h`](../Ceres/libs/devices/include/ceres/devices/devices.h) | The devices that exist today: `SystemControlDevice`, `TimerDevice`, `TerminalDevice`, `DmaController` — plus the keyboard and mouse in `input_devices.h`, the disk and framebuffer in `storage_devices.h`, and the pixel display in `display_device.h`. |
+| [`devices.h`](../Ceres/libs/devices/include/ceres/devices/devices.h) | Every device, one header each in a group folder (`audio/`, `input/`, `storage/`, `system/`, `terminal/`, `video/`) with its `.cpp` and its test; `devices.h` includes them all. See [Devices and the bus](35-Devices-and-Bus.md). |
 | [`bios.h`](../Ceres/libs/vm/include/ceres/vm/bios.h) | The minimal BIOS: writes the vector table and a fault stub into the protected segment. |
 | [`program.h`/`.cpp`](../Ceres/libs/core/src/format/program.cpp) | The `Program` container (header + sections) and its serialization to/from `.cres`. |
 | [`ceresvm.h`/`.cpp`](../Ceres/libs/vm/src/ceresvm.cpp) | The high-level `CeresVM` class that ties together memory, execution engine, the MMIO bus and interrupts, and knows how to load a `Program`. |

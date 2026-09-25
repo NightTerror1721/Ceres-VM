@@ -7,7 +7,8 @@ stores (`ldr`/`str` and the rest — see [Instruction set](05-Instruction-Set.md
 a window reserved for them at the top of the physical address space. `MmioBus` (in
 [`mmio_bus.h`](../Ceres/libs/vm/include/ceres/vm/mmio_bus.h)) holds up to 256 devices, each in its own 64 KiB slot,
 and dispatches a load or store that lands inside one to whichever device claims it — or synthesizes a
-default response if nothing is attached there.
+default response if nothing is attached there. How a device is built, the access rules the bus enforces and how
+to add one: [Devices and the bus](35-Devices-and-Bus.md).
 
 This costs nothing: `Memory::MaxSize` is 1 GiB, and the MMIO window sits at `0xFF000000`, which no
 configuration of RAM can ever reach. A device's registers and a program's own memory can never
@@ -121,9 +122,8 @@ and `restartIfRequested()` are the host's side: `run()` restarts on its own, and
 `step()` itself calls `restartIfRequested()` between steps. Under `ceres debug` a reset still ends
 the session, on purpose: silently rebooting would hide what the program asked for.
 
-**Exit status.** A halfword or word write carries a status in bits 15:8 — `(status << 8) | 1` — and
-`ceres run` exits with it as the process status. A plain byte write, which is what every program
-written before this existed does, means status 0.
+**Exit status.** The command word carries a status in bits 15:8 — `(status << 8) | 1` — and
+`ceres run` exits with it as the process status. The command alone (`1`) means status 0.
 
 ```casm
 li  r0, 0x0701        // status 7, shut down
@@ -320,7 +320,7 @@ this is exactly what [`examples/main.casm`](../Ceres/examples/main.casm)'s `prin
 ### `DiskDevice` (`0xFF020000`)
 
 Block storage in sectors of 512 bytes, in
-[`storage_devices.h`](../Ceres/libs/devices/include/ceres/devices/storage_devices.h). One sector moves at a time: the
+[`storage/disk.h`](../Ceres/libs/devices/include/ceres/devices/storage/disk.h). One sector moves at a time: the
 sector register selects which, and the block registers move it.
 
 | Offset | Register | Direction | Meaning |
@@ -383,10 +383,10 @@ error and gives that frame and every later one to the terminal.
 The frame the window draws is the grid **as it was when the program presented it**, not as it is when the host
 gets round to drawing it (between slices of instructions), so a program that starts on its next frame does not tear
 this one; presenting twice in a slice shows the later. In the window each cell is 8 x 16 pixels of a bitmap font
-(the standard library's 5x7 dot-matrix shapes, `text_font.h`) in the 16-colour palette the attribute picks
+(the standard library's 5x7 dot-matrix shapes, `video/default_font.h`) in the 16-colour palette the attribute picks
 (attribute 0 is light grey on black); the strokes of `| - _ =` run to the edge of their cell and a `+` reaches only
 toward the strokes it can join, so a box drawn with them is a box. The window's size follows the grid, at the
-largest whole scale that fits 1280 x 720, and stays crisp when resized. `TextRenderer` (`text_renderer.h`) does the
+largest whole scale that fits 1280 x 720, and stays crisp when resized. `TextRenderer` (`video/text_renderer.h`) does the
 drawing and needs no window, which is how it is tested.
 
 The window closes when the machine stops, like the terminal's output stays: a program that wants its last
