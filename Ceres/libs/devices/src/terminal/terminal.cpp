@@ -1,4 +1,5 @@
 #include <ceres/devices/terminal/terminal.h>
+#include <print>
 
 namespace ceres::devices
 {

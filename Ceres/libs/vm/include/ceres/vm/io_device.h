@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ceres/core/base/types.h>
 #include <ceres/core/isa/address.h>
 #include "memory.h"
 #include "interrupt_controller.h"

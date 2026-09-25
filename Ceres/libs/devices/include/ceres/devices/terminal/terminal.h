@@ -3,12 +3,13 @@
 // The terminal: the program's standard input, output and error streams.
 
 #include <ceres/vm/mmio_bus.h>
+#include <array>
 #include <atomic>
-#include <chrono>
+#include <cstdio>
 #include <functional>
 #include <mutex>
-#include <print>
 #include <span>
+#include <string_view>
 
 namespace ceres::devices
 {

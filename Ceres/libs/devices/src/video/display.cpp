@@ -1,4 +1,6 @@
 #include <ceres/devices/video/display.h>
+#include <algorithm>
+#include <cstring>
 
 namespace ceres::devices
 {

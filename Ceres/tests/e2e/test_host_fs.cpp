@@ -143,6 +143,30 @@ TEST(host_fs, a_file_is_written_read_back_sought_and_measured)
 	CHECK_EQ(rig.transfer(H::CommandRead, r, 1), -H::ErrBadHandle);
 }
 
+TEST(host_fs, reads_and_writes_on_one_handle_share_one_position)
+{
+	// As on a POSIX descriptor: after reading two bytes a write lands at the third, and a read after that
+	// write carries on past what it wrote.
+	Rig rig{ "ceres_hostfs_shared_position" };
+	CHECK(rig.dev.setRoot(rig.dir));
+	const i32 f = rig.open("mixed.txt", H::OpenWrite | H::OpenCreate | H::OpenTruncate);
+	CHECK(f >= 0);
+	rig.put(Data, "abcdef");
+	CHECK_EQ(rig.transfer(H::CommandWrite, f, 6), 6);
+	rig.dev.writeWord(H::OffsetRegister, 0);
+	rig.dev.writeWord(H::ArgumentRegister, 0);                  // from the start
+	CHECK_EQ(rig.run(H::CommandSeek), 0);
+	CHECK_EQ(rig.transfer(H::CommandRead, f, 2), 2);
+	CHECK_EQ(rig.get(Data, 2), std::string("ab"));
+	rig.put(Data, "XY");
+	CHECK_EQ(rig.transfer(H::CommandWrite, f, 2), 2);
+	CHECK_EQ(rig.transfer(H::CommandRead, f, 2), 2);
+	CHECK_EQ(rig.get(Data, 2), std::string("ef"));
+	rig.dev.writeWord(H::HandleRegister, static_cast<u32>(f));
+	CHECK_EQ(rig.run(H::CommandClose), 0);
+	CHECK_EQ(contentsOf(rig.dir / "mixed.txt"), std::string("abXYef"));
+}
+
 TEST(host_fs, nothing_outside_the_directory_can_be_named)
 {
 	Rig rig{ "ceres_hostfs_escape" };

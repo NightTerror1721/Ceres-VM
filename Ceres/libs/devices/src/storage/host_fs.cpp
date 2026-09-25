@@ -1,4 +1,6 @@
 #include <ceres/devices/storage/host_fs.h>
+#include <algorithm>
+#include <vector>
 
 namespace ceres::devices
 {
@@ -25,7 +27,6 @@ namespace ceres::devices
 		if (name.size() > MaxPathLength)
 			return std::unexpected(ErrNameTooLong);
 		std::filesystem::path result = _root;
-		std::filesystem::path relative;
 		usize start = 0;
 		while (start < name.size())                    // "" is the root; one trailing slash is allowed
 		{
@@ -45,7 +46,7 @@ namespace ceres::devices
 		const std::filesystem::path realRoot = std::filesystem::weakly_canonical(_root, error);
 		if (error)
 			return std::unexpected(ErrAccess);
-		auto [rootEnd, realAt] = std::mismatch(realRoot.begin(), realRoot.end(), real.begin(), real.end());
+		const auto rootEnd = std::mismatch(realRoot.begin(), realRoot.end(), real.begin(), real.end()).first;
 		if (rootEnd != realRoot.end())
 			return std::unexpected(ErrAccess);
 		return result;
@@ -94,6 +95,8 @@ namespace ceres::devices
 
 		std::error_code error;
 		const bool exists = std::filesystem::exists(*path, error);
+		if (error)
+			return -errnoOf(error);               // a real failure, not "it is not there"
 		if (exists && std::filesystem::is_directory(*path, error))
 			return -ErrIsDirectory;
 		if (exists && (flags & OpenCreate) && (flags & OpenExclusive))
@@ -132,8 +135,13 @@ namespace ceres::devices
 		auto buffer = memory().peekMutBytes(Address(_address), size);
 		file->stream.clear();
 		file->stream.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
+		const bool failed = file->stream.bad();
 		const std::streamsize got = file->stream.gcount();
 		file->stream.clear();                      // a short read at the end is not an error
+		if (failed)
+			return -ErrIo;
+		// One position for both directions, as a POSIX descriptor has: a write that follows starts here.
+		file->stream.seekp(file->stream.tellg());
 		return static_cast<i32>(got);
 	}
 
@@ -154,6 +162,7 @@ namespace ceres::devices
 			file->stream.clear();
 			return -ErrIo;
 		}
+		file->stream.seekg(file->stream.tellp());   // a read that follows continues from here
 		return static_cast<i32>(size);
 	}
 
@@ -255,8 +264,10 @@ namespace ceres::devices
 		if (!std::filesystem::is_directory(*path, error))
 			return std::filesystem::exists(*path, error) ? -ErrNotDirectory : -ErrNoEntry;
 		std::vector<std::string> names;
-		for (const auto& entry : std::filesystem::directory_iterator(*path, error))
+		// Advanced with increment(error): the ++ of a range for throws on a failure part-way through.
+		for (std::filesystem::directory_iterator it(*path, error), end; !error && it != end; it.increment(error))
 		{
+			const std::filesystem::directory_entry& entry = *it;
 			const std::u8string utf8 = entry.path().filename().u8string();
 			std::string text(utf8.begin(), utf8.end());
 			if (entry.is_directory(error))

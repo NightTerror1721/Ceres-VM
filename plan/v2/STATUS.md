@@ -30,8 +30,8 @@ Archivo: [phases/F01-dispositivos-y-nucleo.md](phases/F01-dispositivos-y-nucleo.
 | F1.2 | `libs/devices` como biblioteca compilada y con carpetas por grupo | F1.1 | DONE | asm@5e1d7bb |
 | F1.3 | Partir `devices.h`: sistema y terminal | F1.2 | DONE | asm@6414d80 |
 | F1.4 | Partir `input_devices.h` | F1.2 | DONE | asm@0c47dc3 |
-| F1.5 | Partir `storage_devices.h` | F1.2 | DONE |  |
-| F1.6 | Migrar a 32 bits todos los accesos a MMIO (tres repos) | F1.5 | TODO |  |
+| F1.5 | Partir `storage_devices.h` | F1.2 | DONE | asm@9e72814 |
+| F1.6 | Migrar a 32 bits todos los accesos a MMIO (tres repos) | F1.5 | DONE | asm@d3e0e90 cc@72d5922 lib@e919227 |
 | F1.7 | Bus de 32 bits: `read`/`write` y `FaultReason` | F1.6 | TODO |  |
 | F1.8 | Tabla de registros en cada dispositivo, `dev` y `--strict-mmio` | F1.7 | TODO |  |
 | F1.9 | Un test por dispositivo | F1.8 | TODO |  |

@@ -1,4 +1,5 @@
 #include <ceres/devices/system/dma.h>
+#include <algorithm>
 
 namespace ceres::devices
 {

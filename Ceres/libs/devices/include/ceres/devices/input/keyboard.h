@@ -8,7 +8,6 @@
 #include <atomic>
 #include <functional>
 #include <mutex>
-#include <span>
 #include <string>
 #include <string_view>
 
@@ -125,7 +124,8 @@ namespace ceres::devices
 		void pushText(std::string_view utf8);
 
 		// Called with each keystroke as it is queued, from the host's thread. A windowed host uses it to hand
-		// the keystrokes to the terminal as bytes as well, for a program that reads its input that way.
+		// the keystrokes to the terminal as bytes as well, for a program that reads its input that way. Set it
+		// before input starts: it is not guarded against a keystroke arriving on another thread meanwhile.
 		void setKeystrokeSink(std::function<void(u32)> sink) { _keystrokeSink = std::move(sink); }
 
 		u64 droppedEvents() const noexcept { return _droppedEvents.load(std::memory_order_relaxed); }

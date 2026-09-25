@@ -3,13 +3,7 @@
 // The gamepad: buttons, sticks and triggers, polled.
 
 #include <ceres/vm/mmio_bus.h>
-#include <array>
-#include <atomic>
-#include <functional>
 #include <mutex>
-#include <span>
-#include <string>
-#include <string_view>
 
 namespace ceres::devices
 {

@@ -1,4 +1,6 @@
 #include <ceres/devices/storage/peripherals.h>
+#include <algorithm>
+#include <fstream>
 
 namespace ceres::devices
 {

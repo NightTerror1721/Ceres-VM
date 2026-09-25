@@ -4,17 +4,23 @@ namespace ceres::devices
 {
 	void MouseDevice::pushMotion(i32 dx, i32 dy, u8 buttons, i8 wheel)
 	{
+		// Only a push that changes something is news: a button event with the same mask, or a wheel event
+		// that moved nothing, raises nothing (docs/07), as the gamepad does.
+		bool changed = false;
 		{
 			const std::lock_guard lock{_mutex};
+			changed = dx != 0 || dy != 0 || wheel != 0 || buttons != _buttons;
 			_dx += dx;
 			_dy += dy;
 			_x += dx;
 			_y += dy;
 			_wheelDelta += wheel;
 			_buttons = buttons;
-			_updated = true;
+			if (changed)
+				_updated = true;
 		}
-		raiseInterrupt(Interrupt);
+		if (changed)
+			raiseInterrupt(Interrupt);
 	}
 
 	u32 MouseDevice::readUnsignedWord(Address offset)

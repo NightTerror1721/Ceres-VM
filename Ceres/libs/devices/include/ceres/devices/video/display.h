@@ -11,8 +11,6 @@
 // presented, wrapping round, so a background larger than the screen - or a scrolling one - costs no copy.
 
 #include <ceres/vm/mmio_bus.h>
-#include <algorithm>
-#include <cstring>
 #include <functional>
 #include <span>
 #include <vector>

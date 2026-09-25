@@ -3,13 +3,7 @@
 // The mouse: movement as a delta and as a position, buttons and wheel.
 
 #include <ceres/vm/mmio_bus.h>
-#include <array>
-#include <atomic>
-#include <functional>
 #include <mutex>
-#include <span>
-#include <string>
-#include <string_view>
 
 namespace ceres::devices
 {

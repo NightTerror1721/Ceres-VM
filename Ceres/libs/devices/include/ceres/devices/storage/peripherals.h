@@ -21,14 +21,10 @@
 //   str  [r_dev + BLOCK_CMD], r5          // 1 = read sector -> RAM
 
 #include <ceres/vm/mmio_bus.h>
-#include <algorithm>
 #include <array>
-#include <cstdio>
 #include <deque>
 #include <filesystem>
-#include <fstream>
 #include <mutex>
-#include <span>
 #include <string>
 #include <utility>
 #include <vector>

@@ -15,7 +15,6 @@
 #include <ceres/vm/mmio_bus.h>
 #include <array>
 #include <atomic>
-#include <cmath>
 #include <functional>
 #include <mutex>
 #include <optional>

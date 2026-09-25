@@ -1,4 +1,5 @@
 #include <ceres/devices/audio/audio.h>
+#include <cmath>
 
 namespace ceres::devices
 {

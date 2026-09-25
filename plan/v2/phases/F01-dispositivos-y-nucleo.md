@@ -101,7 +101,7 @@
   3. **STDLIB**: en `include/ceres.h`, elimina `mmio_r8`, `mmio_r16`, `mmio_w8`, `mmio_w16` y deja `mmio_r32`/`mmio_w32`;
      en `src/ceres/sys.c`, `read_port`/`write_port` siempre de 32 bits; quita los `*_TYPE` de puerto de las
      cabeceras que los definan; regenera los `.casm` de la librería (build normal).
-- **Aceptación**: [ ] `grep` no encuentra accesos de menos de 32 bits a `0xFF......` en los tres repos. [ ] Las tres suites en verde.
+- **Aceptación**: [x] `grep` no encuentra accesos de menos de 32 bits a `0xFF......` en los tres repos. [x] Las tres suites en verde.
 - **Verificación**: las tres suites.
 - **Commit** (uno por repo): `Reach every device register with a 32-bit access (F1.6)`
 
@@ -196,3 +196,12 @@
   los renombrados salvo `host_fs.h`, que al quedarse casi sin cuerpo cae por debajo del 50 % de parecido:
   `git log --follow -M30% -- Ceres/libs/devices/include/ceres/devices/storage/host_fs.h` sigue su historia. Las
   referencias a los nombres viejos en `docs/01-Overview.md` y `docs/07-IO-Devices-and-Ports.md` se rehacen en F1.12.
+- **F1.6**: el «Punto de partida» no contaba con que `TerminalDevice::writeWord(Output)` emitía los CUATRO bytes de
+  la palabra; cambiar `strb` por `str` habría añadido tres NUL a cada carácter. Se resolvió según SPEC §8.1 (NORMATIVA):
+  `Output` y `ErrorOutput` toman sólo el byte bajo (asm@d3e0e90), con su test y el doc 07 al día. Los accesos se
+  encontraron con una VM instrumentada (no subida) que apuntaba cada acceso MMIO estrecho con su PC, pasando las tres
+  suites: CeresASM (terminal y SystemControl en ejemplos, tutoriales, fragmentos de tests, docs y la BIOS), Ceres-C
+  (el puntero `char*` al terminal y el apagado sin valor de `main` en el codegen) y la STDLIB (`sys_exit`,
+  `sys_reset`; `putchar` usaba `strb` aunque los tests no llegaban a ejecutarlo). Tras la migración, las tres
+  suites y todos los ejemplos de CeresASM hacen cero accesos estrechos. `examples/rps_tui.c` de la STDLIB (sin
+  versionar) no se ha revisado. `read_port`/`write_port` de la STDLIB pierden el argumento de tipo.

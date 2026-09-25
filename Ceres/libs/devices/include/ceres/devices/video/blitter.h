@@ -17,10 +17,8 @@
 // meanwhile.
 
 #include <ceres/vm/mmio_bus.h>
-#include <algorithm>
 #include <cstring>
 #include <span>
-#include <vector>
 
 namespace ceres::devices
 {

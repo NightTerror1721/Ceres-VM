@@ -781,6 +781,17 @@ TEST(device_extras, a_malformed_utf8_sequence_is_skipped_not_guessed_at)
 	CHECK_EQ(keyboard.availableText(), usize{ 0 });
 }
 
+TEST(device_extras, a_lead_byte_no_utf8_has_is_skipped_too)
+{
+	// 0xF8 starts no UTF-8 sequence. Read as a three-byte lead it would swallow the two continuation bytes
+	// after it and queue a character nobody typed.
+	KeyboardDevice keyboard{};
+	keyboard.pushText(std::string_view{ "\xF8" "\x80\x80" "z" });
+
+	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::TextRegister), u32{ 'z' });
+	CHECK_EQ(keyboard.availableText(), usize{ 0 });
+}
+
 TEST(device_extras, typed_text_raises_the_keyboards_interrupt_and_a_full_queue_drops_it)
 {
 	Machine m{ Instruction::STI(), Instruction::NOP(), Instruction::NOP(), Instruction::NOP() };

@@ -1,4 +1,6 @@
 #include <ceres/devices/video/blitter.h>
+#include <algorithm>
+#include <vector>
 
 namespace ceres::devices
 {

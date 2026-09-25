@@ -1059,6 +1059,17 @@ TEST(devices, the_mouse_reports_buttons_and_wheel)
 	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::WheelRegister), u32{ 0 }); // Consumed.
 }
 
+TEST(devices, a_mouse_push_that_changes_nothing_is_not_news)
+{
+	MouseDevice mouse{};
+	mouse.pushMotion(3, 0, MouseDevice::ButtonLeft, 0);
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::StatusRegister), u32{ MouseDevice::StatusDataReady });
+
+	// The same button mask again, no motion, no wheel: a program waiting for news would only spin on it.
+	mouse.pushMotion(0, 0, MouseDevice::ButtonLeft, 0);
+	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::StatusRegister), u32{ 0 });
+}
+
 // --- The pixel display -------------------------------------------------------------------------
 
 TEST(devices, the_display_shows_the_pixels_it_was_given)

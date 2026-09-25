@@ -19,7 +19,6 @@
 //   ldr r2, [r_host + RESULT]               // the handle, or -ENOENT
 
 #include <ceres/vm/mmio_bus.h>
-#include <algorithm>
 #include <array>
 #include <expected>
 #include <filesystem>
@@ -28,7 +27,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <vector>
 
 namespace ceres::devices
 {

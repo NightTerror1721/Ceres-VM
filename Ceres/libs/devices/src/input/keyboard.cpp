@@ -49,9 +49,9 @@ namespace ceres::devices
 			u32 length = 1;
 			u32 codePoint = lead;
 			if (lead >= 0xF0 && lead < 0xF8) { length = 4; codePoint = lead & 0x07u; }
-			else if (lead >= 0xE0) { length = 3; codePoint = lead & 0x0Fu; }
-			else if (lead >= 0xC0) { length = 2; codePoint = lead & 0x1Fu; }
-			else if (lead >= 0x80) { ++i; continue; }
+			else if (lead >= 0xE0 && lead < 0xF0) { length = 3; codePoint = lead & 0x0Fu; }
+			else if (lead >= 0xC0 && lead < 0xE0) { length = 2; codePoint = lead & 0x1Fu; }
+			else if (lead >= 0x80) { ++i; continue; }   // a stray continuation byte, or a lead no UTF-8 has (0xF8-0xFF)
 
 			if (length > 1)
 			{
@@ -197,43 +197,43 @@ namespace ceres::devices
 
 	std::string keystrokeToTerminalBytes(u32 keystroke)
 	{
-	if ((keystroke & KeyboardDevice::KeyNamed) == 0)
-	{
-		std::string out;
-		if (keystroke < 0x80) out += static_cast<char>(keystroke);
-		else if (keystroke < 0x800) { out += static_cast<char>(0xC0 | (keystroke >> 6)); out += static_cast<char>(0x80 | (keystroke & 0x3F)); }
-		else if (keystroke < 0x10000)
+		if ((keystroke & KeyboardDevice::KeyNamed) == 0)
 		{
-			out += static_cast<char>(0xE0 | (keystroke >> 12));
-			out += static_cast<char>(0x80 | ((keystroke >> 6) & 0x3F));
-			out += static_cast<char>(0x80 | (keystroke & 0x3F));
+			std::string out;
+			if (keystroke < 0x80) out += static_cast<char>(keystroke);
+			else if (keystroke < 0x800) { out += static_cast<char>(0xC0 | (keystroke >> 6)); out += static_cast<char>(0x80 | (keystroke & 0x3F)); }
+			else if (keystroke < 0x10000)
+			{
+				out += static_cast<char>(0xE0 | (keystroke >> 12));
+				out += static_cast<char>(0x80 | ((keystroke >> 6) & 0x3F));
+				out += static_cast<char>(0x80 | (keystroke & 0x3F));
+			}
+			else
+			{
+				out += static_cast<char>(0xF0 | (keystroke >> 18));
+				out += static_cast<char>(0x80 | ((keystroke >> 12) & 0x3F));
+				out += static_cast<char>(0x80 | ((keystroke >> 6) & 0x3F));
+				out += static_cast<char>(0x80 | (keystroke & 0x3F));
+			}
+			return out;
 		}
-		else
+		switch (keystroke & ~KeyboardDevice::KeyNamed)
 		{
-			out += static_cast<char>(0xF0 | (keystroke >> 18));
-			out += static_cast<char>(0x80 | ((keystroke >> 12) & 0x3F));
-			out += static_cast<char>(0x80 | ((keystroke >> 6) & 0x3F));
-			out += static_cast<char>(0x80 | (keystroke & 0x3F));
+			case scancode::Return: case scancode::KeypadEnter: return "\n";
+			case scancode::Escape: return "\x1b";
+			case scancode::Backspace: return "\b";
+			case scancode::Tab: return "\t";
+			case scancode::Up: return "\x1b[A";
+			case scancode::Down: return "\x1b[B";
+			case scancode::Right: return "\x1b[C";
+			case scancode::Left: return "\x1b[D";
+			case scancode::Home: return "\x1b[H";
+			case scancode::End: return "\x1b[F";
+			case scancode::Insert: return "\x1b[2~";
+			case scancode::Delete: return "\x1b[3~";
+			case scancode::PageUp: return "\x1b[5~";
+			case scancode::PageDown: return "\x1b[6~";
+			default: return {};
 		}
-		return out;
-	}
-	switch (keystroke & ~KeyboardDevice::KeyNamed)
-	{
-		case scancode::Return: case scancode::KeypadEnter: return "\n";
-		case scancode::Escape: return "\x1b";
-		case scancode::Backspace: return "\b";
-		case scancode::Tab: return "\t";
-		case scancode::Up: return "\x1b[A";
-		case scancode::Down: return "\x1b[B";
-		case scancode::Right: return "\x1b[C";
-		case scancode::Left: return "\x1b[D";
-		case scancode::Home: return "\x1b[H";
-		case scancode::End: return "\x1b[F";
-		case scancode::Insert: return "\x1b[2~";
-		case scancode::Delete: return "\x1b[3~";
-		case scancode::PageUp: return "\x1b[5~";
-		case scancode::PageDown: return "\x1b[6~";
-		default: return {};
-	}
 	}
 }
