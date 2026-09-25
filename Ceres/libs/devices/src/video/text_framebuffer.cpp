@@ -82,7 +82,7 @@ namespace ceres::devices
 			std::to_string(bg < 8 ? 40 + bg : 100 + (bg - 8)) + 'm';
 	}
 
-	u32 FramebufferDevice::readUnsignedWord(Address offset)
+	u32 FramebufferDevice::read(Address offset)
 	{
 		if (offset == WidthRegister) return _width;
 		if (offset == HeightRegister) return _height;
@@ -91,7 +91,7 @@ namespace ceres::devices
 		return 0;
 	}
 
-	void FramebufferDevice::writeWord(Address offset, u32 value)
+	void FramebufferDevice::write(Address offset, u32 value)
 	{
 		if (offset == WidthRegister) { resize(value, _height); return; }
 		if (offset == HeightRegister) { resize(_width, value); return; }

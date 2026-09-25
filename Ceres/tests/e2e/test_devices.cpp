@@ -425,10 +425,10 @@ TEST(devices, the_terminal_reports_how_many_bytes_are_available)
 
 	terminal.pushInput("AB");
 	CHECK_EQ(terminal.availableBytes(), usize{ 2 });
-	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BytesAvailableRegister), u32{ 2 });
+	CHECK_EQ(terminal.read(TerminalDevice::BytesAvailableRegister), u32{ 2 });
 
-	terminal.readUnsignedByte(TerminalDevice::InputRegister);
-	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BytesAvailableRegister), u32{ 1 });
+	terminal.read(TerminalDevice::InputRegister);
+	CHECK_EQ(terminal.read(TerminalDevice::BytesAvailableRegister), u32{ 1 });
 }
 
 TEST(devices, a_block_read_reports_how_many_bytes_it_actually_moved)
@@ -440,11 +440,11 @@ TEST(devices, a_block_read_reports_how_many_bytes_it_actually_moved)
 	terminal.attachTo(vm.io());
 	terminal.pushInput("ABCDE");
 
-	terminal.writeWord(TerminalDevice::BlockAddressRegister, 0x1000);
-	terminal.writeWord(TerminalDevice::BlockLengthRegister, 10);
-	terminal.writeWord(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
+	terminal.write(TerminalDevice::BlockAddressRegister, 0x1000);
+	terminal.write(TerminalDevice::BlockLengthRegister, 10);
+	terminal.write(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
 
-	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BlockReadCountRegister), u32{ 5 });
+	CHECK_EQ(terminal.read(TerminalDevice::BlockReadCountRegister), u32{ 5 });
 	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x1000)), u8{ 'A' });
 	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x1004)), u8{ 'E' });
 	CHECK_EQ(terminal.availableBytes(), usize{ 0 });
@@ -457,11 +457,11 @@ TEST(devices, a_zero_length_block_read_reports_nothing_moved)
 	terminal.attachTo(vm.io());
 	terminal.pushInput("X");
 
-	terminal.writeWord(TerminalDevice::BlockAddressRegister, 0x1000);
-	terminal.writeWord(TerminalDevice::BlockLengthRegister, 0);
-	terminal.writeWord(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
+	terminal.write(TerminalDevice::BlockAddressRegister, 0x1000);
+	terminal.write(TerminalDevice::BlockLengthRegister, 0);
+	terminal.write(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
 
-	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BlockReadCountRegister), u32{ 0 });
+	CHECK_EQ(terminal.read(TerminalDevice::BlockReadCountRegister), u32{ 0 });
 	CHECK_EQ(terminal.availableBytes(), usize{ 1 }); // Nothing was consumed.
 }
 
@@ -474,11 +474,11 @@ TEST(devices, a_block_read_to_an_out_of_range_address_moves_nothing_instead_of_t
 	terminal.attachTo(vm.io());
 	terminal.pushInput("ABCDE");
 
-	terminal.writeWord(TerminalDevice::BlockAddressRegister, 0xF0000000u);
-	terminal.writeWord(TerminalDevice::BlockLengthRegister, 5);
-	terminal.writeWord(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
+	terminal.write(TerminalDevice::BlockAddressRegister, 0xF0000000u);
+	terminal.write(TerminalDevice::BlockLengthRegister, 5);
+	terminal.write(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
 
-	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BlockReadCountRegister), u32{ 0 });
+	CHECK_EQ(terminal.read(TerminalDevice::BlockReadCountRegister), u32{ 0 });
 	CHECK_EQ(terminal.availableBytes(), usize{ 5 }); // Nothing was consumed.
 }
 
@@ -492,11 +492,11 @@ TEST(devices, a_block_read_is_clamped_to_the_end_of_ram)
 	terminal.pushInput("ABCDEFGHIJ");
 
 	const u32 lastWord = static_cast<u32>(vm.memory().size()) - 4u;
-	terminal.writeWord(TerminalDevice::BlockAddressRegister, lastWord);
-	terminal.writeWord(TerminalDevice::BlockLengthRegister, 100);
-	terminal.writeWord(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
+	terminal.write(TerminalDevice::BlockAddressRegister, lastWord);
+	terminal.write(TerminalDevice::BlockLengthRegister, 100);
+	terminal.write(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandRead);
 
-	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::BlockReadCountRegister), u32{ 4 });
+	CHECK_EQ(terminal.read(TerminalDevice::BlockReadCountRegister), u32{ 4 });
 	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(lastWord)), u8{ 'A' });
 	CHECK_EQ(terminal.availableBytes(), usize{ 6 });
 }
@@ -508,7 +508,7 @@ TEST(devices, the_terminal_reports_dropped_input_bytes_to_the_program)
 
 	terminal.pushInput(input);
 
-	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::DroppedInputRegister), u32{ 9 });
+	CHECK_EQ(terminal.read(TerminalDevice::DroppedInputRegister), u32{ 9 });
 }
 
 TEST(devices, terminal_snapshot_and_restore_preserve_unread_input)
@@ -517,11 +517,11 @@ TEST(devices, terminal_snapshot_and_restore_preserve_unread_input)
 	terminal.pushInput("AB");
 
 	const auto snapshot = terminal.captureState();
-	CHECK_EQ(terminal.readUnsignedByte(TerminalDevice::InputRegister), static_cast<u8>('A'));
+	CHECK_EQ(terminal.read(TerminalDevice::InputRegister), u32{ 'A' });
 
 	terminal.restoreState(snapshot);
-	CHECK_EQ(terminal.readUnsignedByte(TerminalDevice::InputRegister), static_cast<u8>('A'));
-	CHECK_EQ(terminal.readUnsignedByte(TerminalDevice::InputRegister), static_cast<u8>('B'));
+	CHECK_EQ(terminal.read(TerminalDevice::InputRegister), u32{ 'A' });
+	CHECK_EQ(terminal.read(TerminalDevice::InputRegister), u32{ 'B' });
 }
 
 TEST(devices, the_interrupt_directive_installs_a_real_handler_for_terminal_input)
@@ -832,11 +832,11 @@ TEST(devices, a_cell_that_would_move_the_terminals_own_cursor_is_shown_as_a_spac
 	FramebufferDevice framebuffer{};
 	framebuffer.attachTo(m.vm().io());
 
-	framebuffer.writeWord(FramebufferDevice::WidthRegister, 3);
-	framebuffer.writeWord(FramebufferDevice::HeightRegister, 1);
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 'x');
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 0x07); // a bell
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 'y');
+	framebuffer.write(FramebufferDevice::WidthRegister, 3);
+	framebuffer.write(FramebufferDevice::HeightRegister, 1);
+	framebuffer.write(FramebufferDevice::DataRegister, 'x');
+	framebuffer.write(FramebufferDevice::DataRegister, 0x07); // a bell
+	framebuffer.write(FramebufferDevice::DataRegister, 'y');
 
 	CHECK_EQ(framebuffer.toText(), std::string{ "x y\n" });
 }
@@ -848,12 +848,12 @@ TEST(devices, a_latin1_cell_is_shown_as_its_code_point_in_utf8)
 	FramebufferDevice framebuffer{};
 	framebuffer.attachTo(m.vm().io());
 
-	framebuffer.writeWord(FramebufferDevice::WidthRegister, 4);
-	framebuffer.writeWord(FramebufferDevice::HeightRegister, 1);
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 0xF1);   // n tilde
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 'o');
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 0x85);   // a C1 control: a space
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 0xFF);   // y diaeresis
+	framebuffer.write(FramebufferDevice::WidthRegister, 4);
+	framebuffer.write(FramebufferDevice::HeightRegister, 1);
+	framebuffer.write(FramebufferDevice::DataRegister, 0xF1);   // n tilde
+	framebuffer.write(FramebufferDevice::DataRegister, 'o');
+	framebuffer.write(FramebufferDevice::DataRegister, 0x85);   // a C1 control: a space
+	framebuffer.write(FramebufferDevice::DataRegister, 0xFF);   // y diaeresis
 
 	CHECK_EQ(framebuffer.toText(), std::string{ "\xC3\xB1o \xC3\xBF\n" });
 }
@@ -866,10 +866,10 @@ TEST(devices, a_grid_larger_than_any_terminal_is_a_typo_and_is_ignored)
 	framebuffer.attachTo(m.vm().io());
 
 	const u32 before = framebuffer.width();
-	framebuffer.writeWord(FramebufferDevice::WidthRegister, 100000);
+	framebuffer.write(FramebufferDevice::WidthRegister, 100000);
 	CHECK_EQ(framebuffer.width(), before);
 
-	framebuffer.writeWord(FramebufferDevice::HeightRegister, 0);
+	framebuffer.write(FramebufferDevice::HeightRegister, 0);
 	CHECK_EQ(framebuffer.height(), u32{ 20 });
 }
 
@@ -884,18 +884,18 @@ TEST(devices, a_dma_transfer_reports_how_many_bytes_it_moved)
 
 	fill(m.memory(), SourceBuffer, "HELLO");
 
-	dma.writeWord(DmaController::SourceRegister, SourceBuffer);
-	dma.writeWord(DmaController::DestinationRegister, DestinationBuffer);
-	dma.writeWord(DmaController::LengthRegister, 5);
-	dma.writeWord(DmaController::CommandRegister, DmaController::CommandStart);
+	dma.write(DmaController::SourceRegister, SourceBuffer);
+	dma.write(DmaController::DestinationRegister, DestinationBuffer);
+	dma.write(DmaController::LengthRegister, 5);
+	dma.write(DmaController::CommandRegister, DmaController::CommandStart);
 
-	CHECK_EQ(dma.readUnsignedWord(DmaController::StatusRegister) & DmaController::StatusBusy, DmaController::StatusBusy);
+	CHECK_EQ(dma.read(DmaController::StatusRegister) & DmaController::StatusBusy, DmaController::StatusBusy);
 
 	// The copy lands on the next tick, not on the arming instruction itself.
 	m.step(1);
 
-	CHECK_EQ(dma.readUnsignedWord(DmaController::StatusRegister) & DmaController::StatusDone, DmaController::StatusDone);
-	CHECK_EQ(dma.readUnsignedWord(DmaController::TransferredRegister), u32{ 5 });
+	CHECK_EQ(dma.read(DmaController::StatusRegister) & DmaController::StatusDone, DmaController::StatusDone);
+	CHECK_EQ(dma.read(DmaController::TransferredRegister), u32{ 5 });
 	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 5), std::string{ "HELLO" });
 }
 
@@ -910,15 +910,15 @@ TEST(devices, a_dma_transfer_past_the_end_of_memory_is_clamped_not_fatal)
 	const u32 lastBytes = static_cast<u32>(m.memory().size()) - 4u;
 	fill(m.memory(), lastBytes, "WXYZ");
 
-	dma.writeWord(DmaController::SourceRegister, lastBytes);
-	dma.writeWord(DmaController::DestinationRegister, DestinationBuffer);
-	dma.writeWord(DmaController::LengthRegister, 100);
-	dma.writeWord(DmaController::CommandRegister, DmaController::CommandStart);
+	dma.write(DmaController::SourceRegister, lastBytes);
+	dma.write(DmaController::DestinationRegister, DestinationBuffer);
+	dma.write(DmaController::LengthRegister, 100);
+	dma.write(DmaController::CommandRegister, DmaController::CommandStart);
 
 	m.step(1);
 
-	CHECK_EQ(dma.readUnsignedWord(DmaController::StatusRegister) & DmaController::StatusDone, DmaController::StatusDone);
-	CHECK_EQ(dma.readUnsignedWord(DmaController::TransferredRegister), u32{ 4 });
+	CHECK_EQ(dma.read(DmaController::StatusRegister) & DmaController::StatusDone, DmaController::StatusDone);
+	CHECK_EQ(dma.read(DmaController::TransferredRegister), u32{ 4 });
 	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 4), std::string{ "WXYZ" });
 }
 
@@ -928,15 +928,15 @@ TEST(devices, the_keyboard_reports_press_and_release_events)
 {
 	KeyboardDevice keyboard{};
 
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::StatusRegister), u32{ 0 });
+	CHECK_EQ(keyboard.read(KeyboardDevice::StatusRegister), u32{ 0 });
 
 	keyboard.pushKey('A', true);
 	keyboard.pushKey('A', false);
 
 	// Bits 30:0 are the code, bit 31 is the pressed flag.
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 'A' | KeyboardDevice::EventPressed });
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 'A' });
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 0 }); // Empty again.
+	CHECK_EQ(keyboard.read(KeyboardDevice::EventRegister), u32{ 'A' | KeyboardDevice::EventPressed });
+	CHECK_EQ(keyboard.read(KeyboardDevice::EventRegister), u32{ 'A' });
+	CHECK_EQ(keyboard.read(KeyboardDevice::EventRegister), u32{ 0 }); // Empty again.
 }
 
 TEST(devices, the_keyboard_reports_how_many_events_are_available)
@@ -948,9 +948,9 @@ TEST(devices, the_keyboard_reports_how_many_events_are_available)
 	keyboard.pushKey('b');
 
 	CHECK_EQ(keyboard.availableEvents(), usize{ 2 });
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::StatusRegister) & KeyboardDevice::StatusDataReady, KeyboardDevice::StatusDataReady);
+	CHECK_EQ(keyboard.read(KeyboardDevice::StatusRegister) & KeyboardDevice::StatusDataReady, KeyboardDevice::StatusDataReady);
 
-	keyboard.readUnsignedWord(KeyboardDevice::EventRegister);
+	keyboard.read(KeyboardDevice::EventRegister);
 	CHECK_EQ(keyboard.availableEvents(), usize{ 1 });
 }
 
@@ -964,11 +964,11 @@ TEST(devices, a_keyboard_block_read_drains_events_and_counts_them)
 	keyboard.pushKey('b');
 	keyboard.pushKey('c');
 
-	keyboard.writeWord(KeyboardDevice::BlockAddressRegister, 0x3000);
-	keyboard.writeWord(KeyboardDevice::BlockLengthRegister, 8); // room for two 4-byte events
-	keyboard.writeWord(KeyboardDevice::BlockCommandRegister, KeyboardDevice::BlockCommandRead);
+	keyboard.write(KeyboardDevice::BlockAddressRegister, 0x3000);
+	keyboard.write(KeyboardDevice::BlockLengthRegister, 8); // room for two 4-byte events
+	keyboard.write(KeyboardDevice::BlockCommandRegister, KeyboardDevice::BlockCommandRead);
 
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::BlockReadCountRegister), u32{ 2 });
+	CHECK_EQ(keyboard.read(KeyboardDevice::BlockReadCountRegister), u32{ 2 });
 	// One 32-bit event per four bytes, little-endian: 'a' pressed is 0x80000061.
 	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3000)), u8{ 0x61 });
 	CHECK_EQ(vm.memory().readUnchecked<u8>(Address(0x3001)), u8{ 0x00 });
@@ -984,10 +984,10 @@ TEST(devices, a_keyboard_event_keeps_a_code_wider_than_eight_bits)
 
 	// SDL scancodes go past 255; the code must survive round-trip in the low 31 bits.
 	keyboard.pushKey(0x12345678u, true);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 0x12345678u | KeyboardDevice::EventPressed });
+	CHECK_EQ(keyboard.read(KeyboardDevice::EventRegister), u32{ 0x12345678u | KeyboardDevice::EventPressed });
 
 	keyboard.pushKey(0x12345678u, false);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), u32{ 0x12345678u });
+	CHECK_EQ(keyboard.read(KeyboardDevice::EventRegister), u32{ 0x12345678u });
 }
 
 TEST(devices, pushing_a_key_raises_the_keyboards_interrupt)
@@ -1014,16 +1014,16 @@ TEST(devices, the_mouse_reports_deltas_and_absolute_position)
 {
 	MouseDevice mouse{};
 
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::StatusRegister), u32{ 0 });
+	CHECK_EQ(mouse.read(MouseDevice::StatusRegister), u32{ 0 });
 
 	mouse.pushMotion(5, -3, MouseDevice::ButtonLeft, 0);
 
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::StatusRegister), MouseDevice::StatusDataReady);
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::DeltaXRegister), u32{ 5 });
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::DeltaYRegister), static_cast<u32>(-3));
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::XRegister), u32{ 5 });
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::YRegister), static_cast<u32>(-3));
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::ButtonsRegister), u32{ MouseDevice::ButtonLeft });
+	CHECK_EQ(mouse.read(MouseDevice::StatusRegister), MouseDevice::StatusDataReady);
+	CHECK_EQ(mouse.read(MouseDevice::DeltaXRegister), u32{ 5 });
+	CHECK_EQ(mouse.read(MouseDevice::DeltaYRegister), static_cast<u32>(-3));
+	CHECK_EQ(mouse.read(MouseDevice::XRegister), u32{ 5 });
+	CHECK_EQ(mouse.read(MouseDevice::YRegister), static_cast<u32>(-3));
+	CHECK_EQ(mouse.read(MouseDevice::ButtonsRegister), u32{ MouseDevice::ButtonLeft });
 }
 
 TEST(devices, mouse_deltas_are_consumed_on_read_but_position_is_not)
@@ -1032,9 +1032,9 @@ TEST(devices, mouse_deltas_are_consumed_on_read_but_position_is_not)
 
 	mouse.pushMotion(2, 2);
 
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::DeltaXRegister), u32{ 2 });
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::DeltaXRegister), u32{ 0 }); // Consumed.
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::XRegister), u32{ 2 });      // Absolute persists.
+	CHECK_EQ(mouse.read(MouseDevice::DeltaXRegister), u32{ 2 });
+	CHECK_EQ(mouse.read(MouseDevice::DeltaXRegister), u32{ 0 }); // Consumed.
+	CHECK_EQ(mouse.read(MouseDevice::XRegister), u32{ 2 });      // Absolute persists.
 }
 
 TEST(devices, the_mouse_accumulates_motion_across_push_calls)
@@ -1044,8 +1044,8 @@ TEST(devices, the_mouse_accumulates_motion_across_push_calls)
 	mouse.pushMotion(1, 1);
 	mouse.pushMotion(2, 2);
 
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::DeltaXRegister), u32{ 3 }); // Accumulated delta.
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::XRegister), u32{ 3 });      // Accumulated position.
+	CHECK_EQ(mouse.read(MouseDevice::DeltaXRegister), u32{ 3 }); // Accumulated delta.
+	CHECK_EQ(mouse.read(MouseDevice::XRegister), u32{ 3 });      // Accumulated position.
 }
 
 TEST(devices, the_mouse_reports_buttons_and_wheel)
@@ -1054,20 +1054,20 @@ TEST(devices, the_mouse_reports_buttons_and_wheel)
 
 	mouse.pushMotion(0, 0, MouseDevice::ButtonRight | MouseDevice::ButtonMiddle, 2);
 
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::ButtonsRegister), u32{ MouseDevice::ButtonRight | MouseDevice::ButtonMiddle });
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::WheelRegister), u32{ 2 });
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::WheelRegister), u32{ 0 }); // Consumed.
+	CHECK_EQ(mouse.read(MouseDevice::ButtonsRegister), u32{ MouseDevice::ButtonRight | MouseDevice::ButtonMiddle });
+	CHECK_EQ(mouse.read(MouseDevice::WheelRegister), u32{ 2 });
+	CHECK_EQ(mouse.read(MouseDevice::WheelRegister), u32{ 0 }); // Consumed.
 }
 
 TEST(devices, a_mouse_push_that_changes_nothing_is_not_news)
 {
 	MouseDevice mouse{};
 	mouse.pushMotion(3, 0, MouseDevice::ButtonLeft, 0);
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::StatusRegister), u32{ MouseDevice::StatusDataReady });
+	CHECK_EQ(mouse.read(MouseDevice::StatusRegister), u32{ MouseDevice::StatusDataReady });
 
 	// The same button mask again, no motion, no wheel: a program waiting for news would only spin on it.
 	mouse.pushMotion(0, 0, MouseDevice::ButtonLeft, 0);
-	CHECK_EQ(mouse.readUnsignedWord(MouseDevice::StatusRegister), u32{ 0 });
+	CHECK_EQ(mouse.read(MouseDevice::StatusRegister), u32{ 0 });
 }
 
 // --- The pixel display -------------------------------------------------------------------------
@@ -1078,16 +1078,16 @@ TEST(devices, the_display_shows_the_pixels_it_was_given)
 	DisplayDevice display{};
 	display.attachTo(vm.io());
 
-	display.writeWord(DisplayDevice::WidthRegister, 2);
-	display.writeWord(DisplayDevice::HeightRegister, 1);
+	display.write(DisplayDevice::WidthRegister, 2);
+	display.write(DisplayDevice::HeightRegister, 1);
 
 	// Two pixels in RAM, 0x00RRGGBB: red then green.
 	vm.memory().writeUnchecked<u32>(Address(SourceBuffer), 0x00FF0000u);
 	vm.memory().writeUnchecked<u32>(Address(SourceBuffer + 4), 0x0000FF00u);
 
-	display.writeWord(DisplayDevice::BlockAddressRegister, SourceBuffer);
-	display.writeWord(DisplayDevice::BlockLengthRegister, 8); // two pixels
-	display.writeWord(DisplayDevice::BlockCommandRegister, DisplayDevice::BlockCommandWrite);
+	display.write(DisplayDevice::BlockAddressRegister, SourceBuffer);
+	display.write(DisplayDevice::BlockLengthRegister, 8); // two pixels
+	display.write(DisplayDevice::BlockCommandRegister, DisplayDevice::BlockCommandWrite);
 
 	u32 shownWidth = 0, shownHeight = 0;
 	std::vector<u32> shown;
@@ -1098,7 +1098,7 @@ TEST(devices, the_display_shows_the_pixels_it_was_given)
 		shown.assign(pixels.begin(), pixels.end());
 	});
 
-	display.writeWord(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
+	display.write(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
 
 	CHECK_EQ(shownWidth, u32{ 2 });
 	CHECK_EQ(shownHeight, u32{ 1 });
@@ -1114,11 +1114,11 @@ TEST(devices, a_display_pixel_can_be_written_one_at_a_time)
 {
 	DisplayDevice display{};
 
-	display.writeWord(DisplayDevice::WidthRegister, 3);
-	display.writeWord(DisplayDevice::HeightRegister, 1);
+	display.write(DisplayDevice::WidthRegister, 3);
+	display.write(DisplayDevice::HeightRegister, 1);
 
-	display.writeWord(DisplayDevice::DataRegister, 0x00112233u);
-	display.writeWord(DisplayDevice::DataRegister, 0x00445566u);
+	display.write(DisplayDevice::DataRegister, 0x00112233u);
+	display.write(DisplayDevice::DataRegister, 0x00445566u);
 
 	CHECK_EQ(display.pixels()[0], u32{ 0x00112233u });
 	CHECK_EQ(display.pixels()[1], u32{ 0x00445566u });
@@ -1130,10 +1130,10 @@ TEST(devices, a_display_surface_larger_than_any_screen_is_a_typo_and_is_ignored)
 	DisplayDevice display{};
 
 	const u32 before = display.width();
-	display.writeWord(DisplayDevice::WidthRegister, 100000);
+	display.write(DisplayDevice::WidthRegister, 100000);
 	CHECK_EQ(display.width(), before);
 
-	display.writeWord(DisplayDevice::HeightRegister, 0);
+	display.write(DisplayDevice::HeightRegister, 0);
 	CHECK_EQ(display.height(), u32{ 200 });
 }
 
@@ -1141,11 +1141,11 @@ TEST(devices, a_display_clear_fills_black)
 {
 	DisplayDevice display{};
 
-	display.writeWord(DisplayDevice::WidthRegister, 2);
-	display.writeWord(DisplayDevice::HeightRegister, 1);
-	display.writeWord(DisplayDevice::DataRegister, 0x00FFFFFFu); // white
+	display.write(DisplayDevice::WidthRegister, 2);
+	display.write(DisplayDevice::HeightRegister, 1);
+	display.write(DisplayDevice::DataRegister, 0x00FFFFFFu); // white
 
-	display.writeWord(DisplayDevice::CommandRegister, DisplayDevice::CommandClear);
+	display.write(DisplayDevice::CommandRegister, DisplayDevice::CommandClear);
 
 	CHECK_EQ(display.pixels()[0], u32{ 0 });
 }
@@ -1155,26 +1155,26 @@ TEST(devices, an_indexed_display_goes_through_its_palette_and_scrolls)
 	CeresVM vm{ Memory::DefaultSize };
 	DisplayDevice display{};
 	display.attachTo(vm.io());
-	display.writeWord(DisplayDevice::WidthRegister, 3);
-	display.writeWord(DisplayDevice::HeightRegister, 2);
-	display.writeWord(DisplayDevice::ModeRegister, DisplayDevice::ModeIndexed);
-	CHECK_EQ(display.readUnsignedWord(DisplayDevice::ModeRegister), DisplayDevice::ModeIndexed);
-	display.writeWord(DisplayDevice::PaletteIndexRegister, 1);
-	display.writeWord(DisplayDevice::PaletteDataRegister, 0x00FF0000u);   // 1: red
-	display.writeWord(DisplayDevice::PaletteDataRegister, 0x0000FF00u);   // 2: green
+	display.write(DisplayDevice::WidthRegister, 3);
+	display.write(DisplayDevice::HeightRegister, 2);
+	display.write(DisplayDevice::ModeRegister, DisplayDevice::ModeIndexed);
+	CHECK_EQ(display.read(DisplayDevice::ModeRegister), DisplayDevice::ModeIndexed);
+	display.write(DisplayDevice::PaletteIndexRegister, 1);
+	display.write(DisplayDevice::PaletteDataRegister, 0x00FF0000u);   // 1: red
+	display.write(DisplayDevice::PaletteDataRegister, 0x0000FF00u);   // 2: green
 	const u8 indices[6] = { 1, 2, 0, 0, 0, 2 };
 	for (u32 i = 0; i < 6; ++i)
 		vm.memory().writeUnchecked<u8>(Address(0x2000 + i), indices[i]);
-	display.writeWord(DisplayDevice::BlockAddressRegister, 0x2000);
-	display.writeWord(DisplayDevice::BlockLengthRegister, 6);            // a byte a pixel
-	display.writeWord(DisplayDevice::BlockCommandRegister, DisplayDevice::BlockCommandWrite);
+	display.write(DisplayDevice::BlockAddressRegister, 0x2000);
+	display.write(DisplayDevice::BlockLengthRegister, 6);            // a byte a pixel
+	display.write(DisplayDevice::BlockCommandRegister, DisplayDevice::BlockCommandWrite);
 	std::vector<u32> shown;
 	display.setFrameSink([&](u32, u32, std::span<const u32> pixels) { shown.assign(pixels.begin(), pixels.end()); });
-	display.writeWord(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
+	display.write(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
 	CHECK(shown.size() == 6 && shown[0] == 0x00FF0000u && shown[1] == 0x0000FF00u && shown[2] == 0u && shown[5] == 0x0000FF00u);
-	display.writeWord(DisplayDevice::ScrollXRegister, 1);                // the second column shows at the left
-	display.writeWord(DisplayDevice::ScrollYRegister, 1);                // and the second row at the top
-	display.writeWord(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
+	display.write(DisplayDevice::ScrollXRegister, 1);                // the second column shows at the left
+	display.write(DisplayDevice::ScrollYRegister, 1);                // and the second row at the top
+	display.write(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
 	CHECK(shown.size() == 6 && shown[0] == 0u && shown[1] == 0x0000FF00u && shown[2] == 0u);   // row 1, from column 1, wrapping
 	CHECK(shown.size() == 6 && shown[3] == 0x0000FF00u && shown[4] == 0u && shown[5] == 0x00FF0000u);
 	CHECK(display.frame()[3] == 0x0000FF00u);                             // what a window draws
@@ -1188,62 +1188,62 @@ TEST(devices, the_blitter_fills_copies_keys_scales_and_indexes)
 	auto px = [&](u32 address) { return vm.memory().readUnchecked<u32>(Address(address)); };
 	using B = BlitterDevice;
 	// A 4x3 destination surface at 0x10000 (stride 16), filled.
-	blitter.writeWord(B::DstAddressRegister, 0x10000);
-	blitter.writeWord(B::DstStrideRegister, 16);
-	blitter.writeWord(B::WidthRegister, 4);
-	blitter.writeWord(B::HeightRegister, 3);
-	blitter.writeWord(B::ColorRegister, 0x00123456u);
-	blitter.writeWord(B::CommandRegister, B::CommandFill);
-	CHECK_EQ(blitter.readUnsignedWord(B::PixelsRegister), 12u);
+	blitter.write(B::DstAddressRegister, 0x10000);
+	blitter.write(B::DstStrideRegister, 16);
+	blitter.write(B::WidthRegister, 4);
+	blitter.write(B::HeightRegister, 3);
+	blitter.write(B::ColorRegister, 0x00123456u);
+	blitter.write(B::CommandRegister, B::CommandFill);
+	CHECK_EQ(blitter.read(B::PixelsRegister), 12u);
 	CHECK(px(0x10000) == 0x00123456u && px(0x10000 + 2 * 16 + 12) == 0x00123456u);
 	// A 2x1 sprite with a transparent pixel, copied keyed at (1, 1).
 	vm.memory().writeUnchecked<u32>(Address(0x20000), 0x00FF00FFu);          // the key
 	vm.memory().writeUnchecked<u32>(Address(0x20004), 0x00ABCDEFu);
-	blitter.writeWord(B::SrcAddressRegister, 0x20000);
-	blitter.writeWord(B::SrcStrideRegister, 8);
-	blitter.writeWord(B::DstAddressRegister, 0x10000 + 16 + 4);
-	blitter.writeWord(B::WidthRegister, 2);
-	blitter.writeWord(B::HeightRegister, 1);
-	blitter.writeWord(B::ColorRegister, 0x00FF00FFu);
-	blitter.writeWord(B::CommandRegister, B::CommandCopyKeyed);
-	CHECK_EQ(blitter.readUnsignedWord(B::PixelsRegister), 1u);
+	blitter.write(B::SrcAddressRegister, 0x20000);
+	blitter.write(B::SrcStrideRegister, 8);
+	blitter.write(B::DstAddressRegister, 0x10000 + 16 + 4);
+	blitter.write(B::WidthRegister, 2);
+	blitter.write(B::HeightRegister, 1);
+	blitter.write(B::ColorRegister, 0x00FF00FFu);
+	blitter.write(B::CommandRegister, B::CommandCopyKeyed);
+	CHECK_EQ(blitter.read(B::PixelsRegister), 1u);
 	CHECK(px(0x10000 + 16 + 4) == 0x00123456u && px(0x10000 + 16 + 8) == 0x00ABCDEFu);
 	// Scaled x2: one source pixel becomes a 2x2 block.
-	blitter.writeWord(B::SrcAddressRegister, 0x20004);
-	blitter.writeWord(B::DstAddressRegister, 0x30000);
-	blitter.writeWord(B::DstStrideRegister, 8);
-	blitter.writeWord(B::WidthRegister, 1);
-	blitter.writeWord(B::HeightRegister, 1);
-	blitter.writeWord(B::ScaleRegister, 2);
-	blitter.writeWord(B::CommandRegister, B::CommandCopyScaled);
-	CHECK_EQ(blitter.readUnsignedWord(B::PixelsRegister), 4u);
+	blitter.write(B::SrcAddressRegister, 0x20004);
+	blitter.write(B::DstAddressRegister, 0x30000);
+	blitter.write(B::DstStrideRegister, 8);
+	blitter.write(B::WidthRegister, 1);
+	blitter.write(B::HeightRegister, 1);
+	blitter.write(B::ScaleRegister, 2);
+	blitter.write(B::CommandRegister, B::CommandCopyScaled);
+	CHECK_EQ(blitter.read(B::PixelsRegister), 4u);
 	CHECK(px(0x30000) == 0x00ABCDEFu && px(0x30004) == 0x00ABCDEFu && px(0x30008) == 0x00ABCDEFu && px(0x3000C) == 0x00ABCDEFu);
 	// Indexed through a palette, index 0 left out.
 	vm.memory().writeUnchecked<u32>(Address(0x40000 + 3 * 4), 0x00777777u);  // palette[3]
 	vm.memory().writeUnchecked<u8>(Address(0x50000), 3);
 	vm.memory().writeUnchecked<u8>(Address(0x50001), 0);
-	blitter.writeWord(B::PaletteAddressRegister, 0x40000);
-	blitter.writeWord(B::SrcAddressRegister, 0x50000);
-	blitter.writeWord(B::SrcStrideRegister, 2);
-	blitter.writeWord(B::DstAddressRegister, 0x10000);
-	blitter.writeWord(B::DstStrideRegister, 16);
-	blitter.writeWord(B::WidthRegister, 2);
-	blitter.writeWord(B::ColorRegister, 0);
-	blitter.writeWord(B::CommandRegister, B::CommandCopyIndexedKeyed);
+	blitter.write(B::PaletteAddressRegister, 0x40000);
+	blitter.write(B::SrcAddressRegister, 0x50000);
+	blitter.write(B::SrcStrideRegister, 2);
+	blitter.write(B::DstAddressRegister, 0x10000);
+	blitter.write(B::DstStrideRegister, 16);
+	blitter.write(B::WidthRegister, 2);
+	blitter.write(B::ColorRegister, 0);
+	blitter.write(B::CommandRegister, B::CommandCopyIndexedKeyed);
 	CHECK(px(0x10000) == 0x00777777u && px(0x10004) == 0x00123456u);
 	// An overlapping copy one row down: rows go bottom-up, so every row arrives intact.
-	blitter.writeWord(B::SrcAddressRegister, 0x10000);
-	blitter.writeWord(B::SrcStrideRegister, 16);
-	blitter.writeWord(B::DstAddressRegister, 0x10010);
-	blitter.writeWord(B::WidthRegister, 4);
-	blitter.writeWord(B::HeightRegister, 2);
-	blitter.writeWord(B::CommandRegister, B::CommandCopy);
+	blitter.write(B::SrcAddressRegister, 0x10000);
+	blitter.write(B::SrcStrideRegister, 16);
+	blitter.write(B::DstAddressRegister, 0x10010);
+	blitter.write(B::WidthRegister, 4);
+	blitter.write(B::HeightRegister, 2);
+	blitter.write(B::CommandRegister, B::CommandCopy);
 	CHECK(px(0x10010) == 0x00777777u && px(0x10020 + 8) == 0x00ABCDEFu);
 	// Outside RAM: the error bit, and the interrupt when asked for.
-	blitter.writeWord(B::ControlRegister, B::ControlInterrupt);
-	blitter.writeWord(B::DstAddressRegister, static_cast<u32>(vm.memory().size()) - 8);
-	blitter.writeWord(B::CommandRegister, B::CommandFill);
-	CHECK_EQ(blitter.readUnsignedWord(B::StatusRegister), B::StatusError);
+	blitter.write(B::ControlRegister, B::ControlInterrupt);
+	blitter.write(B::DstAddressRegister, static_cast<u32>(vm.memory().size()) - 8);
+	blitter.write(B::CommandRegister, B::CommandFill);
+	CHECK_EQ(blitter.read(B::StatusRegister), B::StatusError);
 	CHECK((vm.interrupts().pendingMask() & (u64{ 1 } << static_cast<u8>(B::Interrupt))) != 0);
 }
 
@@ -1255,30 +1255,30 @@ TEST(devices, the_gamepad_reports_buttons_and_axes)
 
 	gamepad.pushState(GamepadDevice::ButtonSouth | GamepadDevice::ButtonDpadRight, -100, 200, 0, -32768, 32767, 0);
 
-	CHECK_EQ(gamepad.readUnsignedWord(GamepadDevice::ButtonsRegister),
+	CHECK_EQ(gamepad.read(GamepadDevice::ButtonsRegister),
 		u32{ GamepadDevice::ButtonSouth | GamepadDevice::ButtonDpadRight });
-	CHECK_EQ(gamepad.readUnsignedWord(GamepadDevice::LeftXRegister), static_cast<u32>(-100));
-	CHECK_EQ(gamepad.readUnsignedWord(GamepadDevice::LeftYRegister), u32{ 200 });
-	CHECK_EQ(gamepad.readUnsignedWord(GamepadDevice::RightYRegister), static_cast<u32>(-32768));
-	CHECK_EQ(gamepad.readUnsignedWord(GamepadDevice::LeftTriggerRegister), u32{ 32767 });
-	CHECK_EQ(gamepad.readUnsignedWord(GamepadDevice::RightTriggerRegister), u32{ 0 });
+	CHECK_EQ(gamepad.read(GamepadDevice::LeftXRegister), static_cast<u32>(-100));
+	CHECK_EQ(gamepad.read(GamepadDevice::LeftYRegister), u32{ 200 });
+	CHECK_EQ(gamepad.read(GamepadDevice::RightYRegister), static_cast<u32>(-32768));
+	CHECK_EQ(gamepad.read(GamepadDevice::LeftTriggerRegister), u32{ 32767 });
+	CHECK_EQ(gamepad.read(GamepadDevice::RightTriggerRegister), u32{ 0 });
 }
 
 TEST(devices, a_gamepad_state_change_is_reported_until_read)
 {
 	GamepadDevice gamepad{};
 
-	CHECK_EQ(gamepad.readUnsignedWord(GamepadDevice::StatusRegister), u32{ 0 });
+	CHECK_EQ(gamepad.read(GamepadDevice::StatusRegister), u32{ 0 });
 
 	// The resting state is not a change.
 	gamepad.pushState(0, 0, 0, 0, 0, 0, 0);
-	CHECK_EQ(gamepad.readUnsignedWord(GamepadDevice::StatusRegister), u32{ 0 });
+	CHECK_EQ(gamepad.read(GamepadDevice::StatusRegister), u32{ 0 });
 
 	gamepad.pushState(GamepadDevice::ButtonSouth, 0, 0, 0, 0, 0, 0);
-	CHECK_EQ(gamepad.readUnsignedWord(GamepadDevice::StatusRegister) & GamepadDevice::StatusChanged, GamepadDevice::StatusChanged);
+	CHECK_EQ(gamepad.read(GamepadDevice::StatusRegister) & GamepadDevice::StatusChanged, GamepadDevice::StatusChanged);
 
 	// Reading the status consumes the change.
-	CHECK_EQ(gamepad.readUnsignedWord(GamepadDevice::StatusRegister), u32{ 0 });
+	CHECK_EQ(gamepad.read(GamepadDevice::StatusRegister), u32{ 0 });
 }
 
 TEST(devices, a_gamepad_state_change_raises_the_gamepads_interrupt)
@@ -1297,4 +1297,85 @@ TEST(devices, a_gamepad_state_change_raises_the_gamepads_interrupt)
 	m.step(3);
 
 	CHECK_EQ(m.reg(9), 0x71u);
+}
+
+// --- Device registers take 32-bit accesses only (plan/v2 SPEC 5.1) -------------------------------
+
+namespace
+{
+	constexpr u32 TookNothing = 0;
+	constexpr u32 TookMemoryFault = 1;
+	constexpr u32 TookAlignmentFault = 2;
+
+	struct FaultSeen
+	{
+		u32 taken = TookNothing;
+		u32 reason = 0;
+	};
+
+	// Runs `program` (`steps` instructions) with the terminal attached and a handler on each of the two faults
+	// that leaves its mark in r9, and reports which one ran and the reason the engine gave.
+	FaultSeen runAgainstTheTerminal(std::initializer_list<Instruction> program, usize steps)
+	{
+		Machine m{ program };
+		m.installHandler(InterruptNumber::MemoryFault, Address(0x800), { Instruction::LI(9, TookMemoryFault), Instruction::HALT() });
+		m.installHandler(InterruptNumber::AlignmentFault, Address(0x840), { Instruction::LI(9, TookAlignmentFault), Instruction::HALT() });
+		TerminalDevice terminal{};
+		terminal.setOutputSink([](u8) {});            // what a working store writes is not the point here
+		terminal.attachTo(m.vm().io());
+		m.step(steps + 2);
+		const FaultSeen seen{ m.reg(9), m.vm().engine().faultReason() };
+		terminal.detachFrom(m.vm().io());
+		return seen;
+	}
+
+	constexpr u32 MmioWidth = static_cast<u32>(FaultReason::MmioWidth);
+	constexpr u32 MmioBlock = static_cast<u32>(FaultReason::MmioBlock);
+}
+
+TEST(devices, a_byte_or_halfword_access_to_a_device_register_is_a_memory_fault)
+{
+	for (const Instruction narrow : { Instruction::LDRB(1, Base, 0), Instruction::LDRSB(1, Base, 0), Instruction::LDRH(1, Base, 0),
+			 Instruction::LDRSH(1, Base, 0), Instruction::STRB(Base, 1, 4), Instruction::STRH(Base, 1, 4) })
+	{
+		const FaultSeen seen = runAgainstTheTerminal({ LoadBase(TerminalBase), LoadBaseLow(TerminalBase), narrow }, 3);
+		CHECK_EQ(seen.taken, TookMemoryFault);
+		CHECK_EQ(seen.reason, MmioWidth);
+	}
+}
+
+TEST(devices, a_misaligned_word_access_to_a_device_is_an_alignment_fault_of_width)
+{
+	const FaultSeen seen = runAgainstTheTerminal({ LoadBase(TerminalBase), LoadBaseLow(TerminalBase), Instruction::LDR(1, Base, 2) }, 3);
+	CHECK_EQ(seen.taken, TookAlignmentFault);
+	CHECK_EQ(seen.reason, MmioWidth);
+}
+
+TEST(devices, a_misaligned_word_access_to_ram_says_alignment)
+{
+	const FaultSeen seen = runAgainstTheTerminal({ Instruction::LI(1, 0x601), Instruction::LDR(2, 1, 0) }, 2);
+	CHECK_EQ(seen.taken, TookAlignmentFault);
+	CHECK_EQ(seen.reason, static_cast<u32>(FaultReason::Alignment));
+}
+
+TEST(devices, a_word_access_to_a_device_register_still_works)
+{
+	const FaultSeen seen = runAgainstTheTerminal({ LoadBase(TerminalBase), LoadBaseLow(TerminalBase),
+		Instruction::LDR(1, Base, Off(TerminalDevice::StatusRegister)), Instruction::LI(2, 'w'),
+		Instruction::STR(Base, 2, Off(TerminalDevice::OutputRegister)) }, 5);
+	CHECK_EQ(seen.taken, TookNothing);
+	CHECK_EQ(seen.reason, 0u);
+}
+
+TEST(devices, a_block_instruction_that_touches_a_device_is_a_memory_fault)
+{
+	// r2 a buffer in RAM, r3 a count, r4 a byte; Base (r13) the terminal.
+	for (const Instruction block : { Instruction::MCPY(Base, 2, 3), Instruction::MCPY(2, Base, 3), Instruction::MSET(Base, 4, 3),
+			 Instruction::MCMP(Base, 2, 3), Instruction::MSCAN(Base, 4, 3) })
+	{
+		const FaultSeen seen = runAgainstTheTerminal({ LoadBase(TerminalBase), LoadBaseLow(TerminalBase),
+			Instruction::LI(2, 0x600), Instruction::LI(3, 4), Instruction::LI(4, 0x41), block }, 6);
+		CHECK_EQ(seen.taken, TookMemoryFault);
+		CHECK_EQ(seen.reason, MmioBlock);
+	}
 }

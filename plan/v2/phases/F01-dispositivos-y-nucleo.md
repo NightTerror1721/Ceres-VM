@@ -120,7 +120,7 @@
      aún no existen (F3). Las instrucciones de bloque sobre MMIO fallan con `MmioBlock`.
   3. Añade a SystemControl el registro `FaultReason` (`0x2C`) y conéctalo al motor como `FaultAddress`/`FaultAccess`.
   4. Tests nuevos: cada tipo de acceso prohibido da su fallo y su motivo; un `ldr`/`str` sigue funcionando.
-- **Aceptación**: [ ] Ningún dispositivo implementa accesores de 8 o 16 bits. [ ] Tests de fallo pasan. [ ] `benchmark_vm` sin pérdida > 1 %.
+- **Aceptación**: [x] Ningún dispositivo implementa accesores de 8 o 16 bits. [x] Tests de fallo pasan. [x] `benchmark_vm` sin pérdida > 1 %.
 - **Commit**: `Make device registers 32-bit only (F1.7)`
 
 ### F1.8 · Tabla de registros en cada dispositivo, `dev` y `--strict-mmio`
@@ -205,3 +205,8 @@
   `sys_reset`; `putchar` usaba `strb` aunque los tests no llegaban a ejecutarlo). Tras la migración, las tres
   suites y todos los ejemplos de CeresASM hacen cero accesos estrechos. `examples/rps_tui.c` de la STDLIB (sin
   versionar) no se ha revisado. `read_port`/`write_port` de la STDLIB pierden el argumento de tipo.
+- **F1.7**: `benchmark_vm` (gcc-ipo, mediana de 3) queda igual o por encima de BASELINE en todas las clases:
+  mmio 87,8 (87,7), ram 109,5 (108,4), mixed 137,5 (134,3); la mayor bajada, push-pop 107,7 (107,9), un 0,2 %. El
+  motivo de fallo vive en el motor (`faultReason()`, `fault_reason.h`) y lo guarda el historial del debugger.
+  `FaultReason` sólo lleva hoy `Alignment`, `MmioWidth` y `MmioBlock`; el resto llega con F3 y F4. Los
+  `read()`/`write()` privados de HostFs pasan a `readFile()`/`writeFile()` para no confundirse con los de `IODevice`.

@@ -145,15 +145,8 @@ namespace ceres::devices
 		void blockRead(Address ramAddress, u32 size);
 
 	public:
-		u32 readUnsignedWord(Address offset) override;
-		u8 readUnsignedByte(Address offset) override { return static_cast<u8>(readUnsignedWord(offset)); }
-		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedByte(offset)); }
-		u16 readUnsignedHalfword(Address offset) override { return static_cast<u16>(readUnsignedWord(offset)); }
-		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedHalfword(offset)); }
-
-		void writeWord(Address offset, u32 value) override;
-		void writeByte(Address offset, u8 value) override { writeWord(offset, value); }
-		void writeHalfword(Address offset, u16 value) override { writeWord(offset, value); }
+		u32 read(Address offset) override;
+		void write(Address offset, u32 value) override;
 	};
 
 	// What a keystroke is as bytes on a terminal: a character as UTF-8, and each named key as the byte or the

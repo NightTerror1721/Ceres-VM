@@ -126,7 +126,7 @@ namespace ceres::devices
 		return static_cast<i32>(slot);
 	}
 
-	i32 HostFsDevice::read()
+	i32 HostFsDevice::readFile()
 	{
 		OpenFile* file = fileAt(_handle);
 		if (!file) return -ErrBadHandle;
@@ -145,7 +145,7 @@ namespace ceres::devices
 		return static_cast<i32>(got);
 	}
 
-	i32 HostFsDevice::write()
+	i32 HostFsDevice::writeFile()
 	{
 		OpenFile* file = fileAt(_handle);
 		if (!file) return -ErrBadHandle;
@@ -324,8 +324,8 @@ namespace ceres::devices
 				_result = -ErrBadHandle;
 			}
 			break;
-		case CommandRead: _result = read(); break;
-		case CommandWrite: _result = write(); break;
+		case CommandRead: _result = readFile(); break;
+		case CommandWrite: _result = writeFile(); break;
 		case CommandSeek: _result = seek(); break;
 		case CommandFileSize: _result = fileSize(); break;
 		case CommandRemove: _result = remove(); break;
@@ -337,7 +337,7 @@ namespace ceres::devices
 		}
 	}
 
-	u32 HostFsDevice::readUnsignedWord(Address offset)
+	u32 HostFsDevice::read(Address offset)
 	{
 		if (offset == StatusRegister) return _root.empty() ? 0u : StatusAttached;
 		if (offset == HandleRegister) return _handle;
@@ -345,7 +345,7 @@ namespace ceres::devices
 		return 0xFFFFFFFF;
 	}
 
-	void HostFsDevice::writeWord(Address offset, u32 value)
+	void HostFsDevice::write(Address offset, u32 value)
 	{
 		if (offset == CommandRegister) command(value);
 		else if (offset == HandleRegister) _handle = value;

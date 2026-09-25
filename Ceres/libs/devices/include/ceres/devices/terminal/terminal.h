@@ -184,15 +184,11 @@ namespace ceres::devices
 		void blockWrite(Address ramAddress, u32 size, bool error = false);
 
 	public:
-		u8 readUnsignedByte(Address offset) override;
-		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedByte(offset)); }
-		u16 readUnsignedHalfword(Address offset) override { return static_cast<u16>(readUnsignedByte(offset)); }
-		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedHalfword(offset)); }
+		u32 read(Address offset) override;
+		void write(Address offset, u32 value) override;
 
-		u32 readUnsignedWord(Address offset) override;
-
-		void writeByte(Address offset, u8 value) override;
-		void writeHalfword(Address offset, u16 value) override;
-		void writeWord(Address offset, u32 value) override;
+	private:
+		// The status word and the next input byte: the two registers whose reads are more than a field.
+		u32 readStatusOrInput(Address offset);
 	};
 }

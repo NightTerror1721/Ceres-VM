@@ -161,17 +161,10 @@ namespace ceres::devices
 		static void appendSgr(std::string& out, u8 attribute);
 
 	public:
-		u8 readUnsignedByte(Address offset) override { return static_cast<u8>(readUnsignedWord(offset)); }
-		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedWord(offset)); }
-		u16 readUnsignedHalfword(Address offset) override { return static_cast<u16>(readUnsignedWord(offset)); }
-		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedWord(offset)); }
+		u32 read(Address offset) override;
 
-		u32 readUnsignedWord(Address offset) override;
 
-		void writeByte(Address offset, u8 value) override { writeWord(offset, value); }
-		void writeHalfword(Address offset, u16 value) override { writeWord(offset, value); }
-
-		void writeWord(Address offset, u32 value) override;
+		void write(Address offset, u32 value) override;
 
 	private:
 		void resize(u32 width, u32 height);

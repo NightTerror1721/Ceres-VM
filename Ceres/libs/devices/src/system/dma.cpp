@@ -37,7 +37,7 @@ namespace ceres::devices
 		raiseInterrupt(Interrupt);
 	}
 
-	u32 DmaController::readUnsignedWord(Address offset)
+	u32 DmaController::read(Address offset)
 	{
 		if (offset == StatusRegister)
 			return _status;
@@ -46,7 +46,7 @@ namespace ceres::devices
 		return 0;
 	}
 
-	void DmaController::writeWord(Address offset, u32 value)
+	void DmaController::write(Address offset, u32 value)
 	{
 		if (offset == SourceRegister) { _source = value; return; }
 		if (offset == DestinationRegister) { _destination = value; return; }

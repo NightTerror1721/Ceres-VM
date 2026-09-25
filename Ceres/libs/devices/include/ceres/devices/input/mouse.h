@@ -67,14 +67,7 @@ namespace ceres::devices
 		void pushMotion(i32 dx, i32 dy, u8 buttons = 0, i8 wheel = 0);
 
 	public:
-		u32 readUnsignedWord(Address offset) override;
-		u8 readUnsignedByte(Address offset) override { return static_cast<u8>(readUnsignedWord(offset)); }
-		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedByte(offset)); }
-		u16 readUnsignedHalfword(Address offset) override { return static_cast<u16>(readUnsignedWord(offset)); }
-		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedHalfword(offset)); }
-
-		void writeByte(Address, u8) override {}
-		void writeHalfword(Address, u16) override {}
-		void writeWord(Address, u32) override {}
+		u32 read(Address offset) override;
+		void write(Address, u32) override {}
 	};
 }

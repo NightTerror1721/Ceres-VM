@@ -120,7 +120,7 @@ namespace ceres::devices
 		_remaining = _periodic ? _period : 0;
 	}
 
-	u32 TimerDevice::readUnsignedWord(Address offset)
+	u32 TimerDevice::read(Address offset)
 	{
 		// The tick count is 64 bits and read as two words, like the nanosecond one: the low read takes
 		// the count and keeps its high half, so the pair is one moment however many ticks pass between
@@ -185,7 +185,7 @@ namespace ceres::devices
 		return 0xFFFFFFFF;
 	}
 
-	void TimerDevice::writeWord(Address offset, u32 value)
+	void TimerDevice::write(Address offset, u32 value)
 	{
 		// The alarm: an absolute instant on the nanosecond clock, written low word first - the high
 		// word is what arms it, so the two halves are one instant. When the instant comes the alarm

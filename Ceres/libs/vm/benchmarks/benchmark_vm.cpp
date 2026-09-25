@@ -29,15 +29,9 @@ namespace
 	{
 		u32 _word = 0;
 
-		u8 readUnsignedByte(Address) override { return static_cast<u8>(_word); }
-		i8 readSignedByte(Address) override { return static_cast<i8>(_word); }
-		u16 readUnsignedHalfword(Address) override { return static_cast<u16>(_word); }
-		i16 readSignedHalfword(Address) override { return static_cast<i16>(_word); }
-		u32 readUnsignedWord(Address) override { return _word; }
+		u32 read(Address) override { return _word; }
 
-		void writeByte(Address, u8 value) override { _word = value; }
-		void writeHalfword(Address, u16 value) override { _word = value; }
-		void writeWord(Address, u32 value) override { _word = value; }
+		void write(Address, u32 value) override { _word = value; }
 	};
 
 	struct Benchmark

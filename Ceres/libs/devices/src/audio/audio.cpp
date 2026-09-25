@@ -145,7 +145,7 @@ namespace ceres::devices
 		}
 	}
 
-	u32 AudioDevice::readUnsignedWord(Address offset)
+	u32 AudioDevice::read(Address offset)
 	{
 		if (offset == StatusRegister) return isBusy() ? StatusBusy : 0;
 		if (offset == FrequencyRegister) return _tone.frequency;
@@ -169,7 +169,7 @@ namespace ceres::devices
 		return 0;
 	}
 
-	void AudioDevice::writeWord(Address offset, u32 value)
+	void AudioDevice::write(Address offset, u32 value)
 	{
 		if (offset == FrequencyRegister) { _tone.frequency = clamp(value, MinFrequency, MaxFrequency); return; }
 		if (offset == DurationRegister) { _tone.durationMs = value; return; }

@@ -44,7 +44,11 @@ enum class InterruptNumber : u8
 `MemoryFault` (3) is raised by a store whose target overlaps the loaded program's `.text` or lies in
 the vector table or the BIOS (below `0x400`) — see
 [Memory → `.text` is read-only](02-Memory.md#text-is-read-only) and
-[Memory → the vector table and the BIOS are read-only](02-Memory.md#the-vector-table-and-the-bios-are-read-only). `PageFault` (7) is
+[Memory → the vector table and the BIOS are read-only](02-Memory.md#the-vector-table-and-the-bios-are-read-only). It is raised as well by
+a byte or halfword access to a device register, and by a block instruction (`mcpy`, `mset`, `mcmp`, `mscan`) that
+touches a device: device registers take aligned 32-bit accesses only. A misaligned word access to a device is an
+`AlignmentFault` (6). The system control device's `FaultReasonRegister` (`0x2C`) says which rule the fault broke
+([I/O devices and ports](07-IO-Devices-and-Ports.md)). `PageFault` (7) is
 raised by the MMU on a not-present or permission-violating translation, and only ever fires once a
 program has turned paging on — see [Virtual memory and paging](27-Virtual-Memory-and-Paging.md). Of
 the reserved numbers, `Syscall` (15) is defined but nothing raises it yet.

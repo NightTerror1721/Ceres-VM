@@ -195,7 +195,7 @@ namespace ceres::devices
 		return true;
 	}
 
-	u32 PeripheralDevice::readUnsignedWord(Address offset)
+	u32 PeripheralDevice::read(Address offset)
 	{
 		std::lock_guard<std::mutex> lock(_lock);
 		const Port& port = _ports[_selected];
@@ -220,7 +220,7 @@ namespace ceres::devices
 		return 0;
 	}
 
-	void PeripheralDevice::writeWord(Address offset, u32 value)
+	void PeripheralDevice::write(Address offset, u32 value)
 	{
 		std::lock_guard<std::mutex> lock(_lock);
 

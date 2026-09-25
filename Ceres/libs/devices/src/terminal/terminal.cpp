@@ -142,11 +142,11 @@ namespace ceres::devices
 		}
 	}
 
-	u8 TerminalDevice::readUnsignedByte(Address offset)
+	u32 TerminalDevice::readStatusOrInput(Address offset)
 	{
 		if (offset == StatusRegister)
 		{
-			u8 status = 0;
+			u32 status = 0;
 			if (_head.load(std::memory_order_acquire) != _tail.load(std::memory_order_acquire))
 				status |= RxReadyMask; // Set RxReady if input is available.
 			else if (_inputClosed.load(std::memory_order_acquire))
@@ -162,7 +162,7 @@ namespace ceres::devices
 			if (currentHead == _tail.load(std::memory_order_acquire))
 				return 0; // No input available, return 0.
 
-			u8 value = _buffer[currentHead];
+			const u32 value = _buffer[currentHead];
 			_head.store((currentHead + 1) % InputBufferCapacity, std::memory_order_release);
 			return value;
 		}
@@ -170,7 +170,7 @@ namespace ceres::devices
 		return 0xFF; // Undefined register.
 	}
 
-	u32 TerminalDevice::readUnsignedWord(Address offset)
+	u32 TerminalDevice::read(Address offset)
 	{
 		if (offset == BytesAvailableRegister)
 			return static_cast<u32>(availableBytes());
@@ -180,32 +180,10 @@ namespace ceres::devices
 			return static_cast<u32>(_droppedInputBytes.load(std::memory_order_relaxed));
 		if (offset == ModeRegister)
 			return _modeGranted.load(std::memory_order_acquire);
-		return static_cast<u32>(readUnsignedByte(offset));
+		return readStatusOrInput(offset);
 	}
 
-	void TerminalDevice::writeByte(Address offset, u8 value)
-	{
-		if (offset == OutputRegister)
-			emitByte(value);
-		else if (offset == ErrorOutputRegister)
-			emitErrorByte(value);
-	}
-
-	void TerminalDevice::writeHalfword(Address offset, u16 value)
-	{
-		if (offset == OutputRegister)
-		{
-			emitByte(static_cast<u8>(value & 0xFF)); // Output the lower byte as a character.
-			emitByte(static_cast<u8>((value >> 8) & 0xFF)); // Output the upper byte as a character.
-		}
-		else if (offset == ErrorOutputRegister)
-		{
-			emitErrorByte(static_cast<u8>(value & 0xFF));
-			emitErrorByte(static_cast<u8>((value >> 8) & 0xFF));
-		}
-	}
-
-	void TerminalDevice::writeWord(Address offset, u32 value)
+	void TerminalDevice::write(Address offset, u32 value)
 	{
 		// One byte a write: the low one (plan/v2 SPEC 8.1). A whole buffer goes through the block registers.
 		if (offset == OutputRegister)

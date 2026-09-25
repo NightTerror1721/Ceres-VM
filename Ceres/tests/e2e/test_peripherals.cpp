@@ -28,8 +28,8 @@ namespace
 
 		Rig() { dev.attachTo(vm.io()); }
 
-		u32 read(Address reg) { return dev.readUnsignedWord(reg); }
-		void write(Address reg, u32 value) { dev.writeWord(reg, value); }
+		u32 read(Address reg) { return dev.read(reg); }
+		void write(Address reg, u32 value) { dev.write(reg, value); }
 		void select(u32 port) { write(P::PortSelectRegister, port); }
 
 		// A transfer of `length` bytes of the selected port's `sector`, between it and RAM at Buffer.

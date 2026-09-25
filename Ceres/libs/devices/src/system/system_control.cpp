@@ -15,10 +15,11 @@ namespace ceres::devices
 		_stackLimitSetter = std::move(setter);
 	}
 
-	void SystemControlDevice::setFaultInfoHandlers(FaultInfoGetter address, FaultInfoGetter access)
+	void SystemControlDevice::setFaultInfoHandlers(FaultInfoGetter address, FaultInfoGetter access, FaultInfoGetter reason)
 	{
 		_faultAddressGetter = std::move(address);
 		_faultAccessGetter = std::move(access);
+		_faultReasonGetter = std::move(reason);
 	}
 
 	void SystemControlDevice::command(u32 value)
@@ -64,6 +65,11 @@ namespace ceres::devices
 			value = _faultAccessGetter();
 			return true;
 		}
+		if (offset == FaultReasonRegister && _faultReasonGetter)
+		{
+			value = _faultReasonGetter();
+			return true;
+		}
 		if (offset == ArgumentCountRegister || offset == ArgumentVectorRegister || offset == EnvironmentRegister)
 		{
 			const u32 which = (offset.value() - ArgumentCountRegister.value()) / 4u;
@@ -73,7 +79,7 @@ namespace ceres::devices
 		return false;
 	}
 
-	void SystemControlDevice::writeWord(Address offset, u32 value)
+	void SystemControlDevice::write(Address offset, u32 value)
 	{
 		if (offset == CommandRegister)
 		{

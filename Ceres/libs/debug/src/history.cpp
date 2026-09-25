@@ -57,6 +57,7 @@ namespace ceres::debug
 		snapshot.stoppedForGood = machine.engine().stoppedForGood();
 		snapshot.faultAddress = machine.engine().faultAddress();
 		snapshot.faultAccess = machine.engine().faultAccess();
+		snapshot.faultReason = machine.engine().faultReason();
 		snapshot.timer = timer.captureState();
 		snapshot.terminal = terminal.captureState();
 
@@ -127,7 +128,7 @@ namespace ceres::debug
 		engine.setWakeEvent(chosen->wakeEvent);   // after the mask: restoring it may count as raises
 		engine.setProgramStackLimit(chosen->stackLimit);
 		engine.setStoppedForGood(chosen->stoppedForGood);
-		engine.setFaultRegisters(chosen->faultAddress, chosen->faultAccess);
+		engine.setFaultRegisters(chosen->faultAddress, chosen->faultAccess, chosen->faultReason);
 		timer.restoreState(chosen->timer);
 		terminal.restoreState(chosen->terminal);
 

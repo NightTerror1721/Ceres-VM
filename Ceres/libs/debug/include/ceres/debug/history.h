@@ -59,6 +59,7 @@ namespace ceres::debug
 			bool stoppedForGood = false;   // stopped for want of stack: no HALT wakes (ExecutionEngine::stoppedForGood)
 			u32 faultAddress = 0;     // the last memory fault, as SystemControl reads it back
 			u32 faultAccess = 0;
+			u32 faultReason = 0;
 			TimerDevice::State timer;
 			TerminalDevice::State terminal;
 			// Page index to contents, for every page that differs from the base image.

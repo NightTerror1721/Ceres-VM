@@ -51,6 +51,9 @@ namespace ceres::devices
 		static inline constexpr Address ArgumentCountRegister = Address(0x18);
 		static inline constexpr Address ArgumentVectorRegister = Address(0x1C);
 		static inline constexpr Address EnvironmentRegister = Address(0x20);
+		// Read-only: why the last memory fault happened - a vm::FaultReason (plan/v2 SPEC 5.4): 5 for a device
+		// register reached by anything but an aligned 32-bit access, 6 for a block instruction that touched a device.
+		static inline constexpr Address FaultReasonRegister = Address(0x2C);
 
 		static inline constexpr u32 CommandShutdown = 0x01;
 		static inline constexpr u32 CommandReset = 0x02;
@@ -71,6 +74,7 @@ namespace ceres::devices
 		StackLimitSetter _stackLimitSetter;
 		FaultInfoGetter _faultAddressGetter;
 		FaultInfoGetter _faultAccessGetter;
+		FaultInfoGetter _faultReasonGetter;
 		ArgumentInfoGetter _argumentGetter;
 		u32 _features = 0;
 		std::atomic<u8> _exitCode{ 0 };
@@ -119,7 +123,7 @@ namespace ceres::devices
 
 		void setStackLimitHandlers(StackLimitGetter getter, StackLimitSetter setter);
 
-		void setFaultInfoHandlers(FaultInfoGetter address, FaultInfoGetter access);
+		void setFaultInfoHandlers(FaultInfoGetter address, FaultInfoGetter access, FaultInfoGetter reason);
 
 		void setArgumentHandler(ArgumentInfoGetter getter)
 		{
@@ -140,14 +144,7 @@ namespace ceres::devices
 		bool readable(Address offset, u32& value) const;
 
 	public:
-		u8 readUnsignedByte(Address offset) override { u32 v; return readable(offset, v) ? static_cast<u8>(v) : 0xFF; }
-		i8 readSignedByte(Address offset) override { return static_cast<i8>(readUnsignedByte(offset)); }
-		u16 readUnsignedHalfword(Address offset) override { u32 v; return readable(offset, v) ? static_cast<u16>(v) : 0xFFFF; }
-		i16 readSignedHalfword(Address offset) override { return static_cast<i16>(readUnsignedHalfword(offset)); }
-		u32 readUnsignedWord(Address offset) override { u32 v; return readable(offset, v) ? v : 0xFFFFFFFF; }
-
-		void writeByte(Address offset, u8 value) override { writeWord(offset, value); }
-		void writeHalfword(Address offset, u16 value) override { writeWord(offset, value); }
-		void writeWord(Address offset, u32 value) override;
+		u32 read(Address offset) override { u32 v; return readable(offset, v) ? v : 0xFFFFFFFF; }
+		void write(Address offset, u32 value) override;
 	};
 }

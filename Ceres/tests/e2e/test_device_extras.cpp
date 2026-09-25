@@ -92,7 +92,7 @@ namespace
 TEST(device_extras, an_open_terminal_never_reports_the_end_of_input)
 {
 	TerminalDevice terminal{};
-	CHECK_EQ(terminal.readUnsignedByte(TerminalDevice::StatusRegister) & TerminalDevice::StatusEndOfInput, 0u);
+	CHECK_EQ(terminal.read(TerminalDevice::StatusRegister) & TerminalDevice::StatusEndOfInput, 0u);
 	CHECK(!terminal.isInputClosed());
 }
 
@@ -103,14 +103,14 @@ TEST(device_extras, a_closed_terminal_reports_the_end_only_once_its_input_is_dra
 	terminal.closeInput();
 
 	// Data first: the program still has bytes to read, so this is not the end yet.
-	u32 status = terminal.readUnsignedByte(TerminalDevice::StatusRegister);
+	u32 status = terminal.read(TerminalDevice::StatusRegister);
 	CHECK_EQ(status & TerminalDevice::StatusInputAvailable, TerminalDevice::StatusInputAvailable);
 	CHECK_EQ(status & TerminalDevice::StatusEndOfInput, 0u);
 
-	CHECK_EQ(terminal.readUnsignedByte(TerminalDevice::InputRegister), u8{ 'a' });
-	CHECK_EQ(terminal.readUnsignedByte(TerminalDevice::InputRegister), u8{ 'b' });
+	CHECK_EQ(terminal.read(TerminalDevice::InputRegister), u32{ 'a' });
+	CHECK_EQ(terminal.read(TerminalDevice::InputRegister), u32{ 'b' });
 
-	status = terminal.readUnsignedByte(TerminalDevice::StatusRegister);
+	status = terminal.read(TerminalDevice::StatusRegister);
 	CHECK_EQ(status & TerminalDevice::StatusInputAvailable, 0u);
 	CHECK_EQ(status & TerminalDevice::StatusEndOfInput, TerminalDevice::StatusEndOfInput);
 	// Output stays ready: closing the input says nothing about the screen.
@@ -186,10 +186,10 @@ TEST(device_extras, a_plain_shutdown_is_status_zero)
 	CHECK_EQ(control.exitCode(), u8{ 0 });
 }
 
-TEST(device_extras, a_halfword_shutdown_carries_the_status_too)
+TEST(device_extras, a_word_shutdown_carries_the_status_in_its_second_byte)
 {
 	SystemControlDevice control{ [] {}, {} };
-	control.writeHalfword(SystemControlDevice::CommandRegister, 0x2A01);
+	control.write(SystemControlDevice::CommandRegister, 0x2A01);
 	CHECK_EQ(control.exitCode(), u8{ 42 });
 }
 
@@ -197,7 +197,7 @@ TEST(device_extras, a_reset_does_not_change_the_status)
 {
 	bool reset = false;
 	SystemControlDevice control{ [] {}, [&] { reset = true; } };
-	control.writeWord(SystemControlDevice::CommandRegister, 0x0702);
+	control.write(SystemControlDevice::CommandRegister, 0x0702);
 	CHECK(reset);
 	CHECK_EQ(control.exitCode(), u8{ 0 });
 }
@@ -221,18 +221,17 @@ TEST(device_extras, the_control_device_reports_how_much_ram_there_is)
 TEST(device_extras, the_control_register_stays_unreadable_and_unknown_offsets_read_all_ones)
 {
 	SystemControlDevice control{};
-	CHECK_EQ(control.readUnsignedWord(SystemControlDevice::CommandRegister), 0xFFFFFFFFu);
-	CHECK_EQ(control.readUnsignedWord(Address(0x40)), 0xFFFFFFFFu);
-	CHECK_EQ(control.readUnsignedByte(Address(0x40)), u8{ 0xFF });
+	CHECK_EQ(control.read(SystemControlDevice::CommandRegister), 0xFFFFFFFFu);
+	CHECK_EQ(control.read(Address(0x40)), 0xFFFFFFFFu);
 }
 
 TEST(device_extras, the_disk_reports_how_many_sectors_it_has)
 {
 	DiskDevice disk{ 10 };
-	CHECK_EQ(disk.readUnsignedWord(DiskDevice::SectorCountRegister), 10u);
+	CHECK_EQ(disk.read(DiskDevice::SectorCountRegister), 10u);
 
 	DiskDevice big{ 1000 };
-	CHECK_EQ(big.readUnsignedWord(DiskDevice::SectorCountRegister), 1000u);
+	CHECK_EQ(big.read(DiskDevice::SectorCountRegister), 1000u);
 }
 
 TEST(device_extras, the_features_register_holds_what_was_written_and_tells_the_host)
@@ -242,10 +241,10 @@ TEST(device_extras, the_features_register_holds_what_was_written_and_tells_the_h
 	control.setFeaturesCallback([&](u32 features) { seen = features; });
 
 	CHECK_EQ(control.features(), 0u);
-	control.writeWord(SystemControlDevice::FeaturesRegister, SystemControlDevice::FeatureDivisionFault);
+	control.write(SystemControlDevice::FeaturesRegister, SystemControlDevice::FeatureDivisionFault);
 
 	CHECK_EQ(seen, SystemControlDevice::FeatureDivisionFault);
-	CHECK_EQ(control.readUnsignedWord(SystemControlDevice::FeaturesRegister), SystemControlDevice::FeatureDivisionFault);
+	CHECK_EQ(control.read(SystemControlDevice::FeaturesRegister), SystemControlDevice::FeatureDivisionFault);
 }
 
 // --- STI takes effect one instruction late ------------------------------------------------------
@@ -492,7 +491,7 @@ TEST(device_extras, a_program_moves_the_stack_limit_through_the_control_device)
 	m.vm().engine().setStackLimit(image);
 
 	SystemControlDevice control{};
-	CHECK_EQ(control.readUnsignedWord(SystemControlDevice::StackLimitRegister), 0xFFFFFFFFu);   // no engine connected
+	CHECK_EQ(control.read(SystemControlDevice::StackLimitRegister), 0xFFFFFFFFu);   // no engine connected
 	control.setStackLimitHandlers([&] { return m.vm().engine().stackLimit(); },
 		[&](u32 address) { m.vm().engine().setProgramStackLimit(address); });
 	control.attachTo(m.vm().io());
@@ -520,10 +519,11 @@ TEST(device_extras, a_block_instruction_costs_the_clock_its_length_in_ticks)
 TEST(device_extras, the_control_device_reads_the_last_fault_back)
 {
 	SystemControlDevice control{};
-	CHECK_EQ(control.readUnsignedWord(SystemControlDevice::FaultAddressRegister), 0xFFFFFFFFu);   // nothing connected
-	control.setFaultInfoHandlers([] { return 0x801u; }, [] { return 2u | (4u << 8); });
-	CHECK_EQ(control.readUnsignedWord(SystemControlDevice::FaultAddressRegister), 0x801u);
-	CHECK_EQ(control.readUnsignedWord(SystemControlDevice::FaultAccessRegister), 2u | (4u << 8));
+	CHECK_EQ(control.read(SystemControlDevice::FaultAddressRegister), 0xFFFFFFFFu);   // nothing connected
+	control.setFaultInfoHandlers([] { return 0x801u; }, [] { return 2u | (4u << 8); }, [] { return 1u; });
+	CHECK_EQ(control.read(SystemControlDevice::FaultAddressRegister), 0x801u);
+	CHECK_EQ(control.read(SystemControlDevice::FaultAccessRegister), 2u | (4u << 8));
+	CHECK_EQ(control.read(SystemControlDevice::FaultReasonRegister), 1u);
 }
 
 // --- A millisecond clock -----------------------------------------------------------------------
@@ -531,8 +531,8 @@ TEST(device_extras, the_control_device_reads_the_last_fault_back)
 TEST(device_extras, the_millisecond_register_never_goes_backwards)
 {
 	TimerDevice timer{};
-	const u32 first = timer.readUnsignedWord(TimerDevice::MillisRegister);
-	const u32 second = timer.readUnsignedWord(TimerDevice::MillisRegister);
+	const u32 first = timer.read(TimerDevice::MillisRegister);
+	const u32 second = timer.read(TimerDevice::MillisRegister);
 	CHECK(second >= first);
 	CHECK(first < 60000u); // Counts from the machine's start, not the epoch
 }
@@ -541,10 +541,10 @@ TEST(device_extras, the_millisecond_clock_can_be_replaced_for_a_replay)
 {
 	TimerDevice timer{};
 	timer.setMillisSource([] { return u32{ 1234 }; });
-	CHECK_EQ(timer.readUnsignedWord(TimerDevice::MillisRegister), 1234u);
+	CHECK_EQ(timer.read(TimerDevice::MillisRegister), 1234u);
 
 	timer.clearMillisSource();
-	CHECK(timer.readUnsignedWord(TimerDevice::MillisRegister) != 1234u);
+	CHECK(timer.read(TimerDevice::MillisRegister) != 1234u);
 }
 
 // --- A nanosecond clock ------------------------------------------------------------------------
@@ -554,8 +554,8 @@ namespace
 	// Reads the pair the way a program does: the low word first, which latches the high word.
 	u64 readNanos(TimerDevice& timer)
 	{
-		const u32 low = timer.readUnsignedWord(TimerDevice::NanosLowRegister);
-		const u32 high = timer.readUnsignedWord(TimerDevice::NanosHighRegister);
+		const u32 low = timer.read(TimerDevice::NanosLowRegister);
+		const u32 high = timer.read(TimerDevice::NanosHighRegister);
 		return (static_cast<u64>(high) << 32) | low;
 	}
 }
@@ -582,16 +582,16 @@ TEST(device_extras, the_high_word_stays_with_the_low_word_it_was_latched_by)
 	TimerDevice timer{};
 	timer.setNanosSource([&now] { return now; });
 
-	const u32 low = timer.readUnsignedWord(TimerDevice::NanosLowRegister);
+	const u32 low = timer.read(TimerDevice::NanosLowRegister);
 	now = 0x0000000200000010ull; // The next instant carries into the high word
-	const u32 high = timer.readUnsignedWord(TimerDevice::NanosHighRegister);
+	const u32 high = timer.read(TimerDevice::NanosHighRegister);
 
 	CHECK_EQ(low, 0xFFFFFFF0u);
 	CHECK_EQ(high, 1u);
 
 	// The next low read latches the new instant.
-	const u32 nextLow = timer.readUnsignedWord(TimerDevice::NanosLowRegister);
-	const u32 nextHigh = timer.readUnsignedWord(TimerDevice::NanosHighRegister);
+	const u32 nextLow = timer.read(TimerDevice::NanosLowRegister);
+	const u32 nextHigh = timer.read(TimerDevice::NanosHighRegister);
 	CHECK_EQ(nextLow, 0x10u);
 	CHECK_EQ(nextHigh, 2u);
 }
@@ -602,12 +602,12 @@ TEST(device_extras, reading_the_high_word_alone_does_not_look_at_the_clock)
 	TimerDevice timer{};
 	timer.setNanosSource([&asked] { ++asked; return u64{ 7 }; });
 
-	CHECK_EQ(timer.readUnsignedWord(TimerDevice::NanosHighRegister), 0u); // Nothing latched yet
+	CHECK_EQ(timer.read(TimerDevice::NanosHighRegister), 0u); // Nothing latched yet
 	CHECK_EQ(asked, 0);
 
-	timer.readUnsignedWord(TimerDevice::NanosLowRegister);
+	timer.read(TimerDevice::NanosLowRegister);
 	CHECK_EQ(asked, 1);
-	timer.readUnsignedWord(TimerDevice::NanosHighRegister);
+	timer.read(TimerDevice::NanosHighRegister);
 	CHECK_EQ(asked, 1);
 }
 
@@ -617,32 +617,32 @@ TEST(device_extras, a_snapshot_of_the_timer_keeps_the_latched_high_word)
 	// exactly this when it puts a machine back between the two reads of a pair.
 	TimerDevice timer{};
 	timer.setNanosSource([] { return 0x0000000500000009ull; });
-	timer.readUnsignedWord(TimerDevice::NanosLowRegister);
+	timer.read(TimerDevice::NanosLowRegister);
 	const auto state = timer.captureState();
 
 	TimerDevice other{};
 	other.restoreState(state);
-	CHECK_EQ(other.readUnsignedWord(TimerDevice::NanosHighRegister), 5u);
+	CHECK_EQ(other.read(TimerDevice::NanosHighRegister), 5u);
 }
 
 TEST(device_extras, the_resolution_is_a_real_step_of_the_host_clock)
 {
 	TimerDevice timer{};
-	const u32 resolution = timer.readUnsignedWord(TimerDevice::NanosResolutionRegister);
+	const u32 resolution = timer.read(TimerDevice::NanosResolutionRegister);
 	CHECK(resolution >= 1u);
 	CHECK(resolution <= 1000000u); // A clock coarser than a millisecond would not be worth a nanosecond register
-	CHECK_EQ(timer.readUnsignedWord(TimerDevice::NanosResolutionRegister), resolution); // Measured once
+	CHECK_EQ(timer.read(TimerDevice::NanosResolutionRegister), resolution); // Measured once
 
 	timer.setNanosResolution(100);
-	CHECK_EQ(timer.readUnsignedWord(TimerDevice::NanosResolutionRegister), 100u);
+	CHECK_EQ(timer.read(TimerDevice::NanosResolutionRegister), 100u);
 }
 
 TEST(device_extras, writing_to_the_nanosecond_registers_changes_nothing)
 {
 	TimerDevice timer{};
-	timer.writeWord(TimerDevice::NanosLowRegister, 5);
-	timer.writeWord(TimerDevice::NanosHighRegister, 5);
-	timer.writeWord(TimerDevice::NanosResolutionRegister, 5);
+	timer.write(TimerDevice::NanosLowRegister, 5);
+	timer.write(TimerDevice::NanosHighRegister, 5);
+	timer.write(TimerDevice::NanosResolutionRegister, 5);
 	CHECK(!timer.isArmed());
 	CHECK(readNanos(timer) < 4000000000ull);
 }
@@ -652,15 +652,15 @@ TEST(device_extras, writing_to_the_nanosecond_registers_changes_nothing)
 TEST(device_extras, a_grid_without_colour_is_shown_as_plain_text)
 {
 	FramebufferDevice framebuffer{};
-	framebuffer.writeWord(FramebufferDevice::WidthRegister, 3);
-	framebuffer.writeWord(FramebufferDevice::HeightRegister, 1);
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
+	framebuffer.write(FramebufferDevice::WidthRegister, 3);
+	framebuffer.write(FramebufferDevice::HeightRegister, 1);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
 	for (char c : std::string_view{ "abc" })
-		framebuffer.writeWord(FramebufferDevice::DataRegister, static_cast<u8>(c));
+		framebuffer.write(FramebufferDevice::DataRegister, static_cast<u8>(c));
 
 	std::string shown;
 	framebuffer.setPresentSink([&](std::string_view frame) { shown = frame; });
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
 
 	CHECK_EQ(shown, std::string{ "abc\n" });
 	CHECK(!framebuffer.hasAttributes());
@@ -669,18 +669,18 @@ TEST(device_extras, a_grid_without_colour_is_shown_as_plain_text)
 TEST(device_extras, a_cells_attribute_sits_above_its_character_in_the_data_word)
 {
 	FramebufferDevice framebuffer{};
-	framebuffer.writeWord(FramebufferDevice::WidthRegister, 3);
-	framebuffer.writeWord(FramebufferDevice::HeightRegister, 1);
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
+	framebuffer.write(FramebufferDevice::WidthRegister, 3);
+	framebuffer.write(FramebufferDevice::HeightRegister, 1);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
 
 	// Blue on red, blue on red, then the terminal's own colours.
-	framebuffer.writeWord(FramebufferDevice::DataRegister, (0x14u << FramebufferDevice::AttributeShift) | 'a');
-	framebuffer.writeWord(FramebufferDevice::DataRegister, (0x14u << FramebufferDevice::AttributeShift) | 'b');
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 'c');
+	framebuffer.write(FramebufferDevice::DataRegister, (0x14u << FramebufferDevice::AttributeShift) | 'a');
+	framebuffer.write(FramebufferDevice::DataRegister, (0x14u << FramebufferDevice::AttributeShift) | 'b');
+	framebuffer.write(FramebufferDevice::DataRegister, 'c');
 
 	std::string shown;
 	framebuffer.setPresentSink([&](std::string_view frame) { shown = frame; });
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
 
 	CHECK_EQ(shown, std::string{ "\x1b[34;41mab\x1b[0mc\n" });
 	CHECK(framebuffer.hasAttributes());
@@ -689,14 +689,14 @@ TEST(device_extras, a_cells_attribute_sits_above_its_character_in_the_data_word)
 TEST(device_extras, a_row_never_leaves_the_terminal_painted_and_bright_colours_use_the_high_codes)
 {
 	FramebufferDevice framebuffer{};
-	framebuffer.writeWord(FramebufferDevice::WidthRegister, 2);
-	framebuffer.writeWord(FramebufferDevice::HeightRegister, 2);
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
+	framebuffer.write(FramebufferDevice::WidthRegister, 2);
+	framebuffer.write(FramebufferDevice::HeightRegister, 2);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
 
-	framebuffer.writeWord(FramebufferDevice::DataRegister, (0xF9u << FramebufferDevice::AttributeShift) | 'x'); // bright red on bright white
-	framebuffer.writeWord(FramebufferDevice::DataRegister, (0x02u << FramebufferDevice::AttributeShift) | 'y'); // green on black
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 'z');
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 'w');
+	framebuffer.write(FramebufferDevice::DataRegister, (0xF9u << FramebufferDevice::AttributeShift) | 'x'); // bright red on bright white
+	framebuffer.write(FramebufferDevice::DataRegister, (0x02u << FramebufferDevice::AttributeShift) | 'y'); // green on black
+	framebuffer.write(FramebufferDevice::DataRegister, 'z');
+	framebuffer.write(FramebufferDevice::DataRegister, 'w');
 
 	CHECK_EQ(framebuffer.toAnsiText(), std::string{ "\x1b[91;107mx\x1b[32;40my\x1b[0m\nzw\n" });
 }
@@ -734,7 +734,7 @@ TEST(device_extras, attributes_can_be_blitted_in_one_trigger_and_clearing_remove
 	CHECK_EQ(framebuffer.toAnsiText(), std::string{ "\x1b[31;42mh\x1b[0mi\n" });
 	CHECK_EQ(framebuffer.attributes()[0], u8{ 0x21 });
 
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
 	CHECK(!framebuffer.hasAttributes());
 }
 
@@ -746,16 +746,16 @@ TEST(device_extras, typed_text_arrives_as_code_points_apart_from_the_key_events)
 	keyboard.pushKey(4, true); // the physical A key
 	keyboard.pushText(std::string_view{ "A" });
 
-	const u32 status = keyboard.readUnsignedWord(KeyboardDevice::StatusRegister);
+	const u32 status = keyboard.read(KeyboardDevice::StatusRegister);
 	CHECK_EQ(status & KeyboardDevice::StatusDataReady, KeyboardDevice::StatusDataReady);
 	CHECK_EQ(status & KeyboardDevice::StatusTextReady, KeyboardDevice::StatusTextReady);
 
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::TextRegister), u32{ 'A' });
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::StatusRegister) & KeyboardDevice::StatusTextReady, 0u);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::TextRegister), 0u); // Empty reads 0
+	CHECK_EQ(keyboard.read(KeyboardDevice::TextRegister), u32{ 'A' });
+	CHECK_EQ(keyboard.read(KeyboardDevice::StatusRegister) & KeyboardDevice::StatusTextReady, 0u);
+	CHECK_EQ(keyboard.read(KeyboardDevice::TextRegister), 0u); // Empty reads 0
 
 	// The event queue was not touched by the text queue.
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::EventRegister), (4u | KeyboardDevice::EventPressed));
+	CHECK_EQ(keyboard.read(KeyboardDevice::EventRegister), (4u | KeyboardDevice::EventPressed));
 }
 
 TEST(device_extras, a_utf8_string_is_decoded_into_code_points)
@@ -763,10 +763,10 @@ TEST(device_extras, a_utf8_string_is_decoded_into_code_points)
 	KeyboardDevice keyboard{};
 	keyboard.pushText(std::string_view{ "a\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80" }); // a é € 😀
 
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::TextRegister), 0x61u);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::TextRegister), 0xE9u);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::TextRegister), 0x20ACu);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::TextRegister), 0x1F600u);
+	CHECK_EQ(keyboard.read(KeyboardDevice::TextRegister), 0x61u);
+	CHECK_EQ(keyboard.read(KeyboardDevice::TextRegister), 0xE9u);
+	CHECK_EQ(keyboard.read(KeyboardDevice::TextRegister), 0x20ACu);
+	CHECK_EQ(keyboard.read(KeyboardDevice::TextRegister), 0x1F600u);
 	CHECK_EQ(keyboard.availableText(), usize{ 0 });
 }
 
@@ -776,8 +776,8 @@ TEST(device_extras, a_malformed_utf8_sequence_is_skipped_not_guessed_at)
 	// A stray continuation byte, a lead byte cut short by a plain one, then a good character.
 	keyboard.pushText(std::string_view{ "\x80" "\xC3" "x" "y" });
 
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::TextRegister), u32{ 'x' });
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::TextRegister), u32{ 'y' });
+	CHECK_EQ(keyboard.read(KeyboardDevice::TextRegister), u32{ 'x' });
+	CHECK_EQ(keyboard.read(KeyboardDevice::TextRegister), u32{ 'y' });
 	CHECK_EQ(keyboard.availableText(), usize{ 0 });
 }
 
@@ -788,7 +788,7 @@ TEST(device_extras, a_lead_byte_no_utf8_has_is_skipped_too)
 	KeyboardDevice keyboard{};
 	keyboard.pushText(std::string_view{ "\xF8" "\x80\x80" "z" });
 
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::TextRegister), u32{ 'z' });
+	CHECK_EQ(keyboard.read(KeyboardDevice::TextRegister), u32{ 'z' });
 	CHECK_EQ(keyboard.availableText(), usize{ 0 });
 }
 
@@ -818,12 +818,12 @@ TEST(device_extras, typed_text_raises_the_keyboards_interrupt_and_a_full_queue_d
 TEST(device_extras, without_a_host_to_play_it_a_tone_is_never_busy)
 {
 	AudioDevice audio{};
-	audio.writeWord(AudioDevice::FrequencyRegister, 440);
-	audio.writeWord(AudioDevice::DurationRegister, 100);
-	audio.writeWord(AudioDevice::CommandRegister, AudioDevice::CommandPlay);
+	audio.write(AudioDevice::FrequencyRegister, 440);
+	audio.write(AudioDevice::DurationRegister, 100);
+	audio.write(AudioDevice::CommandRegister, AudioDevice::CommandPlay);
 
 	// A program waiting for the busy bit to clear must not wait for speakers that are not there.
-	CHECK_EQ(audio.readUnsignedWord(AudioDevice::StatusRegister), 0u);
+	CHECK_EQ(audio.read(AudioDevice::StatusRegister), 0u);
 }
 
 TEST(device_extras, a_tone_reaches_the_host_with_what_the_program_set)
@@ -832,20 +832,20 @@ TEST(device_extras, a_tone_reaches_the_host_with_what_the_program_set)
 	std::optional<AudioDevice::Tone> heard;
 	audio.setToneSink([&](const std::optional<AudioDevice::Tone>& tone) { heard = tone; });
 
-	audio.writeWord(AudioDevice::FrequencyRegister, 880);
-	audio.writeWord(AudioDevice::DurationRegister, 250);
-	audio.writeWord(AudioDevice::VolumeRegister, 200);
-	audio.writeWord(AudioDevice::WaveformRegister, AudioDevice::Triangle);
+	audio.write(AudioDevice::FrequencyRegister, 880);
+	audio.write(AudioDevice::DurationRegister, 250);
+	audio.write(AudioDevice::VolumeRegister, 200);
+	audio.write(AudioDevice::WaveformRegister, AudioDevice::Triangle);
 	CHECK(!heard.has_value()); // Nothing plays until the command
 
-	audio.writeWord(AudioDevice::CommandRegister, AudioDevice::CommandPlay);
+	audio.write(AudioDevice::CommandRegister, AudioDevice::CommandPlay);
 
 	CHECK(heard.has_value());
 	CHECK_EQ(heard->frequency, 880u);
 	CHECK_EQ(heard->durationMs, 250u);
 	CHECK_EQ(heard->volume, 200u);
 	CHECK_EQ(static_cast<u32>(heard->waveform), static_cast<u32>(AudioDevice::Triangle));
-	CHECK_EQ(audio.readUnsignedWord(AudioDevice::StatusRegister), AudioDevice::StatusBusy);
+	CHECK_EQ(audio.read(AudioDevice::StatusRegister), AudioDevice::StatusBusy);
 }
 
 TEST(device_extras, stop_silences_the_host_and_clears_the_busy_bit_without_an_interrupt)
@@ -858,8 +858,8 @@ TEST(device_extras, stop_silences_the_host_and_clears_the_busy_bit_without_an_in
 	audio.setToneSink([&](const std::optional<AudioDevice::Tone>& tone) { silenced = !tone.has_value(); });
 	m.installHandler(AudioDevice::Interrupt, Address(0x800), { Instruction::LI(9, 0x77), Instruction::IRET() });
 
-	audio.writeWord(AudioDevice::CommandRegister, AudioDevice::CommandPlay);
-	audio.writeWord(AudioDevice::CommandRegister, AudioDevice::CommandStop);
+	audio.write(AudioDevice::CommandRegister, AudioDevice::CommandPlay);
+	audio.write(AudioDevice::CommandRegister, AudioDevice::CommandStop);
 	m.step(3);
 
 	CHECK(silenced);
@@ -876,7 +876,7 @@ TEST(device_extras, a_tone_that_ends_clears_busy_and_raises_the_interrupt_once)
 	audio.setToneSink([](const std::optional<AudioDevice::Tone>&) {});
 	m.installHandler(AudioDevice::Interrupt, Address(0x800), { Instruction::ADDI(9, 9, 1), Instruction::IRET() });
 
-	audio.writeWord(AudioDevice::CommandRegister, AudioDevice::CommandPlay);
+	audio.write(AudioDevice::CommandRegister, AudioDevice::CommandPlay);
 	CHECK(audio.isBusy());
 
 	m.step(2);
@@ -896,27 +896,27 @@ TEST(device_extras, a_channel_rises_holds_and_falls_through_its_envelope)
 	AudioDevice audio{};
 	using A = AudioDevice;
 	const u32 base = A::ChannelBase + 2 * A::ChannelStride;   // channel 2
-	audio.writeWord(Address(base + A::ChannelFrequency), 1000);
-	audio.writeWord(Address(base + A::ChannelVolume), 255);
-	audio.writeWord(Address(base + A::ChannelWaveform), A::Square);
-	audio.writeWord(Address(base + A::ChannelAttack), 10);     // 10 ms at 10 kHz: 100 samples
-	audio.writeWord(Address(base + A::ChannelDecay), 10);
-	audio.writeWord(Address(base + A::ChannelSustain), 128);
-	audio.writeWord(Address(base + A::ChannelRelease), 10);
-	CHECK_EQ(audio.readUnsignedWord(A::ChannelCountRegister), 4u);
-	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);
-	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
-	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);   // no host renders it: nothing to wait for
+	audio.write(Address(base + A::ChannelFrequency), 1000);
+	audio.write(Address(base + A::ChannelVolume), 255);
+	audio.write(Address(base + A::ChannelWaveform), A::Square);
+	audio.write(Address(base + A::ChannelAttack), 10);     // 10 ms at 10 kHz: 100 samples
+	audio.write(Address(base + A::ChannelDecay), 10);
+	audio.write(Address(base + A::ChannelSustain), 128);
+	audio.write(Address(base + A::ChannelRelease), 10);
+	CHECK_EQ(audio.read(A::ChannelCountRegister), 4u);
+	CHECK_EQ(audio.read(A::ChannelStatusRegister), 0u);
+	audio.write(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
+	CHECK_EQ(audio.read(A::ChannelStatusRegister), 0u);   // no host renders it: nothing to wait for
 	bool asked = false;
 	audio.setChannelWake([&] { asked = true; return false; });                 // a host whose sound failed to open
-	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
+	audio.write(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
 	CHECK(asked);
-	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);   // asked, and told nobody renders it
+	CHECK_EQ(audio.read(A::ChannelStatusRegister), 0u);   // asked, and told nobody renders it
 	bool woken = false;
 	audio.setChannelWake([&] { woken = true; return true; });
-	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
+	audio.write(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
 	CHECK(woken);
-	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 4u);   // bit 2
+	CHECK_EQ(audio.read(A::ChannelStatusRegister), 4u);   // bit 2
 
 	std::vector<float> out(1000, 0.0f);
 	audio.renderChannels(out.data(), 50, 10000);                 // halfway up the attack
@@ -929,33 +929,33 @@ TEST(device_extras, a_channel_rises_holds_and_falls_through_its_envelope)
 	for (float s : out) peak = std::max(peak, std::abs(s));
 	CHECK(peak > 0.1f && peak <= 0.21f);                          // a square at full volume, with headroom
 
-	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOff);
+	audio.write(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOff);
 	audio.renderChannels(out.data(), 200, 10000);                 // the release runs out
 	CHECK(audio.channel(2).stage == A::Channel::Off);
-	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);
+	CHECK_EQ(audio.read(A::ChannelStatusRegister), 0u);
 
-	audio.writeWord(Address(base + A::ChannelDuty), 0);          // clamped to 1
-	CHECK_EQ(audio.readUnsignedWord(Address(base + A::ChannelDuty)), 1u);
-	audio.writeWord(Address(base + A::ChannelWaveform), 99);      // a typo keeps the one there
-	CHECK_EQ(audio.readUnsignedWord(Address(base + A::ChannelWaveform)), static_cast<u32>(A::Square));
-	audio.writeWord(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
+	audio.write(Address(base + A::ChannelDuty), 0);          // clamped to 1
+	CHECK_EQ(audio.read(Address(base + A::ChannelDuty)), 1u);
+	audio.write(Address(base + A::ChannelWaveform), 99);      // a typo keeps the one there
+	CHECK_EQ(audio.read(Address(base + A::ChannelWaveform)), static_cast<u32>(A::Square));
+	audio.write(A::ChannelCommandRegister, (2u << 8) | A::ChannelKeyOn);
 	audio.reset();                                                // a reset silences every channel
-	CHECK_EQ(audio.readUnsignedWord(A::ChannelStatusRegister), 0u);
+	CHECK_EQ(audio.read(A::ChannelStatusRegister), 0u);
 }
 
 TEST(device_extras, the_tone_registers_are_clamped_and_a_typo_waveform_is_ignored)
 {
 	AudioDevice audio{};
-	audio.writeWord(AudioDevice::FrequencyRegister, 5);
-	CHECK_EQ(audio.readUnsignedWord(AudioDevice::FrequencyRegister), AudioDevice::MinFrequency);
-	audio.writeWord(AudioDevice::FrequencyRegister, 99999);
-	CHECK_EQ(audio.readUnsignedWord(AudioDevice::FrequencyRegister), AudioDevice::MaxFrequency);
-	audio.writeWord(AudioDevice::VolumeRegister, 1000);
-	CHECK_EQ(audio.readUnsignedWord(AudioDevice::VolumeRegister), 255u);
+	audio.write(AudioDevice::FrequencyRegister, 5);
+	CHECK_EQ(audio.read(AudioDevice::FrequencyRegister), AudioDevice::MinFrequency);
+	audio.write(AudioDevice::FrequencyRegister, 99999);
+	CHECK_EQ(audio.read(AudioDevice::FrequencyRegister), AudioDevice::MaxFrequency);
+	audio.write(AudioDevice::VolumeRegister, 1000);
+	CHECK_EQ(audio.read(AudioDevice::VolumeRegister), 255u);
 
-	audio.writeWord(AudioDevice::WaveformRegister, AudioDevice::Sine);
-	audio.writeWord(AudioDevice::WaveformRegister, 77);
-	CHECK_EQ(audio.readUnsignedWord(AudioDevice::WaveformRegister), static_cast<u32>(AudioDevice::Sine));
+	audio.write(AudioDevice::WaveformRegister, AudioDevice::Sine);
+	audio.write(AudioDevice::WaveformRegister, 77);
+	CHECK_EQ(audio.read(AudioDevice::WaveformRegister), static_cast<u32>(AudioDevice::Sine));
 }
 
 TEST(device_extras, an_audio_slot_nobody_attached_reads_all_ones_so_a_program_can_tell)
@@ -987,13 +987,13 @@ TEST(device_extras, keystrokes_keep_the_order_the_text_and_the_named_keys_were_t
 	keyboard.pushText(u32{ 'b' });
 	keyboard.pushKey(scancode::Up, true);
 
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::StatusRegister) & KeyboardDevice::StatusKeyReady, KeyboardDevice::StatusKeyReady);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), u32{ 'a' });
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Return);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), u32{ 'b' });
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Up);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::StatusRegister) & KeyboardDevice::StatusKeyReady, 0u);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), 0u);   // empty reads 0
+	CHECK_EQ(keyboard.read(KeyboardDevice::StatusRegister) & KeyboardDevice::StatusKeyReady, KeyboardDevice::StatusKeyReady);
+	CHECK_EQ(keyboard.read(KeyboardDevice::KeyRegister), u32{ 'a' });
+	CHECK_EQ(keyboard.read(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Return);
+	CHECK_EQ(keyboard.read(KeyboardDevice::KeyRegister), u32{ 'b' });
+	CHECK_EQ(keyboard.read(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Up);
+	CHECK_EQ(keyboard.read(KeyboardDevice::StatusRegister) & KeyboardDevice::StatusKeyReady, 0u);
+	CHECK_EQ(keyboard.read(KeyboardDevice::KeyRegister), 0u);   // empty reads 0
 }
 
 TEST(device_extras, only_a_press_of_a_key_with_no_character_is_a_keystroke)
@@ -1008,10 +1008,10 @@ TEST(device_extras, only_a_press_of_a_key_with_no_character_is_a_keystroke)
 	keyboard.pushKey(scancode::F1, true);
 	keyboard.pushKey(scancode::F12, true);
 	keyboard.pushKey(scancode::Delete, true);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Escape);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::F1);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::F12);
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Delete);
+	CHECK_EQ(keyboard.read(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Escape);
+	CHECK_EQ(keyboard.read(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::F1);
+	CHECK_EQ(keyboard.read(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::F12);
+	CHECK_EQ(keyboard.read(KeyboardDevice::KeyRegister), KeyboardDevice::KeyNamed | scancode::Delete);
 }
 
 TEST(device_extras, a_control_code_typed_as_text_is_not_a_keystroke)
@@ -1021,7 +1021,7 @@ TEST(device_extras, a_control_code_typed_as_text_is_not_a_keystroke)
 	keyboard.pushText(u32{ 127 });
 	CHECK_EQ(keyboard.availableKeys(), usize{ 0 });
 	keyboard.pushText(u32{ 0x20AC });
-	CHECK_EQ(keyboard.readUnsignedWord(KeyboardDevice::KeyRegister), 0x20ACu);
+	CHECK_EQ(keyboard.read(KeyboardDevice::KeyRegister), 0x20ACu);
 }
 
 TEST(device_extras, the_keystroke_sink_hears_each_keystroke_and_a_full_queue_drops_but_still_reports)
@@ -1060,9 +1060,9 @@ TEST(device_extras, keystrokes_as_terminal_bytes)
 TEST(device_extras, a_terminal_with_no_host_behind_it_grants_no_raw_keys)
 {
 	TerminalDevice terminal{};
-	terminal.writeWord(TerminalDevice::ModeRegister, TerminalDevice::ModeRaw);
+	terminal.write(TerminalDevice::ModeRegister, TerminalDevice::ModeRaw);
 	CHECK(terminal.rawRequested());
-	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::ModeRegister), 0u);   // asked, and not given
+	CHECK_EQ(terminal.read(TerminalDevice::ModeRegister), 0u);   // asked, and not given
 }
 
 TEST(device_extras, the_host_decides_what_a_raw_request_is_granted)
@@ -1075,14 +1075,14 @@ TEST(device_extras, the_host_decides_what_a_raw_request_is_granted)
 		return requested ? (TerminalDevice::ModeRaw | TerminalDevice::ModeKeystrokes) : 0u;
 	});
 
-	terminal.writeWord(TerminalDevice::ModeRegister, TerminalDevice::ModeRaw);
+	terminal.write(TerminalDevice::ModeRegister, TerminalDevice::ModeRaw);
 	CHECK_EQ(asked, TerminalDevice::ModeRaw);
-	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::ModeRegister), TerminalDevice::ModeRaw | TerminalDevice::ModeKeystrokes);
+	CHECK_EQ(terminal.read(TerminalDevice::ModeRegister), TerminalDevice::ModeRaw | TerminalDevice::ModeKeystrokes);
 	CHECK(terminal.rawRequested());
 
-	terminal.writeWord(TerminalDevice::ModeRegister, 0);
+	terminal.write(TerminalDevice::ModeRegister, 0);
 	CHECK_EQ(asked, 0u);
-	CHECK_EQ(terminal.readUnsignedWord(TerminalDevice::ModeRegister), 0u);
+	CHECK_EQ(terminal.read(TerminalDevice::ModeRegister), 0u);
 	CHECK(!terminal.rawRequested());
 }
 
@@ -1091,6 +1091,6 @@ TEST(device_extras, only_the_raw_bit_of_a_mode_write_is_a_request)
 	TerminalDevice terminal{};
 	u32 asked = 99;
 	terminal.setModeHandler([&](u32 requested) { asked = requested; return requested; });
-	terminal.writeWord(TerminalDevice::ModeRegister, 0xFFFFFFFEu);   // the keystrokes bit is the host's to set
+	terminal.write(TerminalDevice::ModeRegister, 0xFFFFFFFEu);   // the keystrokes bit is the host's to set
 	CHECK_EQ(asked, 0u);
 }

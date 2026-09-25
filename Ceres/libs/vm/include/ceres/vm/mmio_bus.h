@@ -188,62 +188,21 @@ namespace ceres::vm
 		}
 
 	public:
-		template <Integral T> requires (sizeof(T) <= sizeof(u32))
-		forceinline T read(Address address)
+		// One aligned 32-bit access: the execution engine has already faulted every other kind (plan/v2 SPEC 5.1).
+		forceinline u32 read(Address address)
 		{
 			const u32 relative = address.value() - BaseValue;
-			const u32 index = relative / SlotSize;
-			const Address offset = Address(relative % SlotSize);
-
-			if (IODevice* device = _devices[index])
-			{
-				if constexpr (SignedIntegral<T>)
-				{
-					if constexpr (sizeof(T) == 1)
-						return device->readSignedByte(offset);
-					else if constexpr (sizeof(T) == 2)
-						return device->readSignedHalfword(offset);
-					else
-						static_assert(false, "Unsupported signed integral type size for MMIO read");
-				}
-				else
-				{
-					if constexpr (sizeof(T) == 1)
-						return device->readUnsignedByte(offset);
-					else if constexpr (sizeof(T) == 2)
-						return device->readUnsignedHalfword(offset);
-					else if constexpr (sizeof(T) == 4)
-						return device->readUnsignedWord(offset);
-					else
-						static_assert(false, "Unsupported unsigned integral type size for MMIO read");
-				}
-			}
-
-			if constexpr (SignedIntegral<T>)
-				return static_cast<T>(-1); // Same convention an unattached port used: all-ones.
-			else
-				return std::numeric_limits<T>::max();
+			if (IODevice* device = _devices[relative / SlotSize])
+				return device->read(Address(relative % SlotSize));
+			return 0xFFFFFFFF; // an empty slot reads all ones, as an unattached port always did
 		}
 
-		template <UnsignedIntegral T> requires (sizeof(T) <= sizeof(u32))
-		forceinline void write(Address address, T value)
+		forceinline void write(Address address, u32 value)
 		{
 			const u32 relative = address.value() - BaseValue;
-			const u32 index = relative / SlotSize;
-			const Address offset = Address(relative % SlotSize);
-
-			if (IODevice* device = _devices[index])
-			{
-				if constexpr (sizeof(T) == 1)
-					device->writeByte(offset, value);
-				else if constexpr (sizeof(T) == 2)
-					device->writeHalfword(offset, value);
-				else if constexpr (sizeof(T) == 4)
-					device->writeWord(offset, value);
-				else
-					static_assert(false, "Unsupported integral type size for MMIO write");
-			}
-			// Writing an unattached slot is silently discarded, as it always was.
+			if (IODevice* device = _devices[relative / SlotSize])
+				device->write(Address(relative % SlotSize), value);
+			// Writing an empty slot is silently discarded, as it always was.
 		}
 	};
 

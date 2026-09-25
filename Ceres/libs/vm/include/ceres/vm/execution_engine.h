@@ -2,6 +2,7 @@
 
 #include "memory.h"
 #include "mmio_bus.h"
+#include "fault_reason.h"
 #include "interrupt_controller.h"
 #include "mmu.h"
 #include <ceres/core/isa/address.h>
@@ -93,6 +94,7 @@ namespace ceres::vm
 		// first page of an access whose size it does not know).
 		u32 _faultAddress = 0;
 		u32 _faultAccess = 0;
+		FaultReason _faultReason = FaultReason::None;
 
 		// Whether a division by zero raises the DivisionByZero interrupt. Off unless the program
 		// switches it on through the system control device, so a program written without it keeps
@@ -243,8 +245,10 @@ namespace ceres::vm
 		enum class FaultAccess : u8 { None = 0, Read = 1, Write = 2, Execute = 3 };
 		u32 faultAddress() const noexcept { return _faultAddress; }
 		u32 faultAccess() const noexcept { return _faultAccess; }
+		// Why: a FaultReason (plan/v2 SPEC 5.4), what SystemControl's FaultReason register reports.
+		u32 faultReason() const noexcept { return static_cast<u32>(_faultReason); }
 		// Only for restoring a snapshot: a rewind to before a fault must not still report it.
-		void setFaultRegisters(u32 address, u32 access) noexcept { _faultAddress = address; _faultAccess = access; }
+		void setFaultRegisters(u32 address, u32 access, u32 reason = 0) noexcept { _faultAddress = address; _faultAccess = access; _faultReason = static_cast<FaultReason>(reason); }
 		// Whether the machine stopped for want of stack (_stoppedForGood). A debugger keeps it in its
 		// snapshots: it decides whether a HALT can ever be woken.
 		bool stoppedForGood() const noexcept { return _stoppedForGood; }
@@ -349,10 +353,11 @@ namespace ceres::vm
 
 		// A halfword or word access has to sit on a boundary of its own size. Byte accesses never
 		// fault. Returns false when the access is misaligned, having already raised the fault.
-		forceinline void noteFault(Address address, FaultAccess access, u32 size) noexcept
+		forceinline void noteFault(Address address, FaultAccess access, u32 size, FaultReason reason = FaultReason::None) noexcept
 		{
 			_faultAddress = address.value();
 			_faultAccess = static_cast<u32>(access) | (size << 8);
+			_faultReason = reason;
 		}
 
 		template <typename T>
@@ -367,7 +372,8 @@ namespace ceres::vm
 				if ((address.value() % sizeof(T)) == 0)
 					return true;
 
-				noteFault(address, access, static_cast<u32>(sizeof(T)));
+				// A device is always identity-mapped, so the virtual address tells whether it is one.
+				noteFault(address, access, static_cast<u32>(sizeof(T)), MmioBus::contains(address) ? FaultReason::MmioWidth : FaultReason::Alignment);
 				triggerInterrupt(InterruptNumber::AlignmentFault);
 				return false;
 			}
@@ -389,10 +395,18 @@ namespace ceres::vm
 			// into a program's own virtual space is then just an ordinary page table entry.
 			if (MmioBus::contains(*physical))
 			{
-				if constexpr (FloatingPoint<T>)
-					return std::bit_cast<T>(_mmioBus.read<u32>(*physical));
+				// A device register takes an aligned 32-bit access and nothing else (plan/v2 SPEC 5.1); the
+				// alignment was already checked. Decided at compile time, so RAM accesses pay nothing for it.
+				if constexpr (sizeof(T) != sizeof(u32))
+				{
+					noteFault(address, FaultAccess::Read, static_cast<u32>(sizeof(T)), FaultReason::MmioWidth);
+					triggerInterrupt(InterruptNumber::MemoryFault);
+					return T{};
+				}
+				else if constexpr (FloatingPoint<T>)
+					return std::bit_cast<T>(_mmioBus.read(*physical));
 				else
-					return _mmioBus.read<T>(*physical);
+					return static_cast<T>(_mmioBus.read(*physical));
 			}
 
 			if constexpr (FloatingPoint<T>)
@@ -430,10 +444,15 @@ namespace ceres::vm
 
 			if (MmioBus::contains(*physical))
 			{
-				if constexpr (FloatingPoint<T>)
-					_mmioBus.write<u32>(*physical, std::bit_cast<u32>(value));
+				if constexpr (sizeof(T) != sizeof(u32))
+				{
+					noteFault(address, FaultAccess::Write, static_cast<u32>(sizeof(T)), FaultReason::MmioWidth);
+					triggerInterrupt(InterruptNumber::MemoryFault);
+				}
+				else if constexpr (FloatingPoint<T>)
+					_mmioBus.write(*physical, std::bit_cast<u32>(value));
 				else
-					_mmioBus.write<std::make_unsigned_t<T>>(*physical, static_cast<std::make_unsigned_t<T>>(value));
+					_mmioBus.write(*physical, static_cast<u32>(value));
 				return;
 			}
 
@@ -1480,6 +1499,18 @@ namespace ceres::vm
 		// A chunk as one span of RAM, or nullptr when it does not lie wholly in the RAM a program reaches
 		// (the vector table and the BIOS, the device window, past the end): then it goes a byte at a time
 		// through read<u8>/write<u8>, which say what every such byte does.
+		// A block instruction never reaches a device: a register is not a run of bytes (plan/v2 SPEC 5.1). Raises
+		// MemoryFault and returns true when this side of the chunk is in the device window. A chunk never
+		// crosses a page, and the window starts on one, so a chunk is wholly in it or wholly out.
+		bool refuseDeviceBlock(Address address, Address physical, FaultAccess access, u32 size) noexcept
+		{
+			if (!MmioBus::contains(physical))
+				return false;
+			noteFault(address, access, size, FaultReason::MmioBlock);
+			triggerInterrupt(InterruptNumber::MemoryFault);
+			return true;
+		}
+
 		u8* blockSpan(Address physical, u32 size) noexcept
 		{
 			const u64 base = physical.value();
@@ -1517,6 +1548,8 @@ namespace ceres::vm
 				return;
 			const auto to = translate(Address(dst), MmuAccess::Write);
 			if (!to.has_value())
+				return;
+			if (refuseDeviceBlock(Address(src), *from, FaultAccess::Read, n) || refuseDeviceBlock(Address(dst), *to, FaultAccess::Write, n))
 				return;
 			u8* s = blockSpan(*from, n);
 			u8* d = blockSpan(*to, n);
@@ -1563,6 +1596,8 @@ namespace ceres::vm
 			const auto to = translate(Address(dst), MmuAccess::Write);
 			if (!to.has_value())
 				return;
+			if (refuseDeviceBlock(Address(dst), *to, FaultAccess::Write, n))
+				return;
 			if (u8* d = blockSpan(*to, n); d != nullptr)
 				std::memset(d, value, n);
 			else
@@ -1602,6 +1637,8 @@ namespace ceres::vm
 				return;
 			const auto pb = translate(Address(b), MmuAccess::Read);
 			if (!pb.has_value())
+				return;
+			if (refuseDeviceBlock(Address(a), *pa, FaultAccess::Read, n) || refuseDeviceBlock(Address(b), *pb, FaultAccess::Read, n))
 				return;
 			const u8* x = blockSpan(*pa, n);
 			const u8* y = blockSpan(*pb, n);
@@ -1665,6 +1702,8 @@ namespace ceres::vm
 				_accessObserver(AccessKind::Read, a, n);
 			const auto pa = translate(Address(a), MmuAccess::Read);
 			if (!pa.has_value())
+				return;
+			if (refuseDeviceBlock(Address(a), *pa, FaultAccess::Read, n))
 				return;
 			u32 i = n;
 			if (const u8* x = blockSpan(*pa, n); x != nullptr)

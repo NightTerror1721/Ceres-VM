@@ -142,7 +142,7 @@ namespace ceres::devices
 			raiseInterrupt(Interrupt);
 	}
 
-	u32 BlitterDevice::readUnsignedWord(Address offset)
+	u32 BlitterDevice::read(Address offset)
 	{
 		if (offset == ControlRegister) return _control;
 		if (offset == StatusRegister) return _status;
@@ -150,7 +150,7 @@ namespace ceres::devices
 		return 0;
 	}
 
-	void BlitterDevice::writeWord(Address offset, u32 value)
+	void BlitterDevice::write(Address offset, u32 value)
 	{
 		if (offset == CommandRegister) command(value);
 		else if (offset == DstAddressRegister) _dst = value;

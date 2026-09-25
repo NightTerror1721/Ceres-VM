@@ -36,23 +36,14 @@ namespace
 			bus.attach(default_mmio::Terminal, *this);
 		}
 
-		u8 readUnsignedByte(Address) override { return 0; }
-		i8 readSignedByte(Address) override { return 0; }
-		u16 readUnsignedHalfword(Address) override { return 0; }
-		i16 readSignedHalfword(Address) override { return 0; }
-		u32 readUnsignedWord(Address) override { return 0; }
+		u32 read(Address) override { return 0; }
 
-		void writeByte(Address offset, u8 value) override
+		void putByte(Address offset, u8 value)
 		{
 			if (offset == TerminalDevice::OutputRegister)
 				_output.push_back(static_cast<char>(value));
 		}
-		void writeHalfword(Address offset, u16 value) override
-		{
-			writeByte(offset, static_cast<u8>(value & 0xFF));
-			writeByte(offset, static_cast<u8>((value >> 8) & 0xFF));
-		}
-		void writeWord(Address offset, u32 value) override
+		void write(Address offset, u32 value) override
 		{
 			if (offset == TerminalDevice::BlockAddressRegister) { _blockAddress = value; return; }
 			if (offset == TerminalDevice::BlockLengthRegister) { _blockLength = value; return; }
@@ -66,7 +57,7 @@ namespace
 				}
 				return;
 			}
-			writeByte(offset, static_cast<u8>(value & 0xFF)); // one byte a write, like the real terminal
+			putByte(offset, static_cast<u8>(value & 0xFF)); // one byte a write, like the real terminal
 		}
 	};
 

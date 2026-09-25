@@ -23,7 +23,7 @@ namespace ceres::devices
 			raiseInterrupt(Interrupt);
 	}
 
-	u32 MouseDevice::readUnsignedWord(Address offset)
+	u32 MouseDevice::read(Address offset)
 	{
 		if (offset == StatusRegister)
 		{

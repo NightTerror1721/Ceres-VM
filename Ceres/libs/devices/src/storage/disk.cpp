@@ -106,7 +106,7 @@ namespace ceres::devices
 		_dirty = true;
 	}
 
-	u32 DiskDevice::readUnsignedWord(Address offset)
+	u32 DiskDevice::read(Address offset)
 	{
 		if (offset == StatusRegister) return _status;
 		if (offset == SectorRegister) return _sector;
@@ -114,7 +114,7 @@ namespace ceres::devices
 		return 0;
 	}
 
-	void DiskDevice::writeWord(Address offset, u32 value)
+	void DiskDevice::write(Address offset, u32 value)
 	{
 		if (offset == SectorRegister)
 		{

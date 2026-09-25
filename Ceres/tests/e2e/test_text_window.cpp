@@ -47,11 +47,11 @@ namespace
 	// A device with a 3 x 1 grid holding "abc", ready to be presented.
 	void fillAbc(FramebufferDevice& framebuffer)
 	{
-		framebuffer.writeWord(FramebufferDevice::WidthRegister, 3);
-		framebuffer.writeWord(FramebufferDevice::HeightRegister, 1);
-		framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
+		framebuffer.write(FramebufferDevice::WidthRegister, 3);
+		framebuffer.write(FramebufferDevice::HeightRegister, 1);
+		framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
 		for (char c : std::string_view{ "abc" })
-			framebuffer.writeWord(FramebufferDevice::DataRegister, static_cast<u8>(c));
+			framebuffer.write(FramebufferDevice::DataRegister, static_cast<u8>(c));
 	}
 }
 
@@ -64,8 +64,8 @@ TEST(text_window, a_frame_goes_to_the_terminal_when_the_host_has_no_window)
 	std::string shown;
 	framebuffer.setPresentSink([&](std::string_view frame) { shown = frame; });
 
-	CHECK_EQ(framebuffer.readUnsignedWord(FramebufferDevice::OutputRegister), FramebufferDevice::OutputTerminal);
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	CHECK_EQ(framebuffer.read(FramebufferDevice::OutputRegister), FramebufferDevice::OutputTerminal);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
 	CHECK_EQ(shown, std::string{ "abc\n" });
 
 	FramebufferDevice::Frame frame;
@@ -80,9 +80,9 @@ TEST(text_window, with_a_window_the_default_is_the_window_and_the_terminal_hears
 	std::string shown;
 	framebuffer.setPresentSink([&](std::string_view frame) { shown = frame; });
 
-	CHECK_EQ(framebuffer.readUnsignedWord(FramebufferDevice::ModeRegister), FramebufferDevice::ModeAuto);
-	CHECK_EQ(framebuffer.readUnsignedWord(FramebufferDevice::OutputRegister), FramebufferDevice::OutputWindow);
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	CHECK_EQ(framebuffer.read(FramebufferDevice::ModeRegister), FramebufferDevice::ModeAuto);
+	CHECK_EQ(framebuffer.read(FramebufferDevice::OutputRegister), FramebufferDevice::OutputWindow);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
 	CHECK(shown.empty());
 
 	FramebufferDevice::Frame frame;
@@ -98,11 +98,11 @@ TEST(text_window, the_frame_is_the_grid_as_it_was_when_presented_not_as_it_is_wh
 	FramebufferDevice framebuffer{};
 	framebuffer.setWindowHost(true);
 	fillAbc(framebuffer);
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
 
 	// The program starts its next frame before the host has drawn this one.
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 'z');
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
+	framebuffer.write(FramebufferDevice::DataRegister, 'z');
 
 	FramebufferDevice::Frame frame;
 	CHECK(framebuffer.takeWindowFrame(frame));
@@ -114,10 +114,10 @@ TEST(text_window, presenting_twice_between_looks_leaves_the_later_frame)
 	FramebufferDevice framebuffer{};
 	framebuffer.setWindowHost(true);
 	fillAbc(framebuffer);
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
-	framebuffer.writeWord(FramebufferDevice::DataRegister, 'z');
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandClear);
+	framebuffer.write(FramebufferDevice::DataRegister, 'z');
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
 
 	FramebufferDevice::Frame frame;
 	CHECK(framebuffer.takeWindowFrame(frame));
@@ -132,17 +132,17 @@ TEST(text_window, a_program_can_ask_for_the_terminal_even_with_a_window)
 	std::string shown;
 	framebuffer.setPresentSink([&](std::string_view frame) { shown = frame; });
 
-	framebuffer.writeWord(FramebufferDevice::ModeRegister, FramebufferDevice::ModeTerminal);
-	CHECK_EQ(framebuffer.readUnsignedWord(FramebufferDevice::OutputRegister), FramebufferDevice::OutputTerminal);
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	framebuffer.write(FramebufferDevice::ModeRegister, FramebufferDevice::ModeTerminal);
+	CHECK_EQ(framebuffer.read(FramebufferDevice::OutputRegister), FramebufferDevice::OutputTerminal);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
 	CHECK_EQ(shown, std::string{ "abc\n" });
 	FramebufferDevice::Frame frame;
 	CHECK(!framebuffer.takeWindowFrame(frame));
 
 	// and back again, at run time
-	framebuffer.writeWord(FramebufferDevice::ModeRegister, FramebufferDevice::ModeWindow);
-	CHECK_EQ(framebuffer.readUnsignedWord(FramebufferDevice::OutputRegister), FramebufferDevice::OutputWindow);
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	framebuffer.write(FramebufferDevice::ModeRegister, FramebufferDevice::ModeWindow);
+	CHECK_EQ(framebuffer.read(FramebufferDevice::OutputRegister), FramebufferDevice::OutputWindow);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
 	CHECK(framebuffer.takeWindowFrame(frame));
 }
 
@@ -153,19 +153,19 @@ TEST(text_window, asking_for_a_window_where_there_is_none_still_shows_the_frame_
 	std::string shown;
 	framebuffer.setPresentSink([&](std::string_view frame) { shown = frame; });
 
-	framebuffer.writeWord(FramebufferDevice::ModeRegister, FramebufferDevice::ModeWindow);
-	CHECK_EQ(framebuffer.readUnsignedWord(FramebufferDevice::ModeRegister), FramebufferDevice::ModeWindow);   // what was asked for
-	CHECK_EQ(framebuffer.readUnsignedWord(FramebufferDevice::OutputRegister), FramebufferDevice::OutputTerminal); // what happens
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	framebuffer.write(FramebufferDevice::ModeRegister, FramebufferDevice::ModeWindow);
+	CHECK_EQ(framebuffer.read(FramebufferDevice::ModeRegister), FramebufferDevice::ModeWindow);   // what was asked for
+	CHECK_EQ(framebuffer.read(FramebufferDevice::OutputRegister), FramebufferDevice::OutputTerminal); // what happens
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
 	CHECK_EQ(shown, std::string{ "abc\n" });
 }
 
 TEST(text_window, only_the_three_modes_are_accepted)
 {
 	FramebufferDevice framebuffer{};
-	framebuffer.writeWord(FramebufferDevice::ModeRegister, FramebufferDevice::ModeTerminal);
-	framebuffer.writeWord(FramebufferDevice::ModeRegister, 7);
-	CHECK_EQ(framebuffer.readUnsignedWord(FramebufferDevice::ModeRegister), FramebufferDevice::ModeTerminal);   // ignored
+	framebuffer.write(FramebufferDevice::ModeRegister, FramebufferDevice::ModeTerminal);
+	framebuffer.write(FramebufferDevice::ModeRegister, 7);
+	CHECK_EQ(framebuffer.read(FramebufferDevice::ModeRegister), FramebufferDevice::ModeTerminal);   // ignored
 	CHECK_EQ(framebuffer.mode(), FramebufferDevice::ModeTerminal);
 }
 
@@ -178,7 +178,7 @@ TEST(text_window, a_host_that_cannot_open_its_window_gives_the_frame_and_the_res
 	int frames = 0;
 	framebuffer.setPresentSink([&](std::string_view frame) { shown = frame; ++frames; });
 
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
 	FramebufferDevice::Frame frame;
 	CHECK(framebuffer.takeWindowFrame(frame));
 	framebuffer.fallBackToTerminal();               // the host could not draw it
@@ -186,18 +186,18 @@ TEST(text_window, a_host_that_cannot_open_its_window_gives_the_frame_and_the_res
 	CHECK_EQ(frames, 1);
 
 	fillAbc(framebuffer);
-	framebuffer.writeWord(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
+	framebuffer.write(FramebufferDevice::CommandRegister, FramebufferDevice::CommandPresent);
 	CHECK_EQ(frames, 2);                             // later frames go the same way
 	CHECK(!framebuffer.takeWindowFrame(frame));
-	CHECK_EQ(framebuffer.readUnsignedWord(FramebufferDevice::OutputRegister), FramebufferDevice::OutputTerminal);
+	CHECK_EQ(framebuffer.read(FramebufferDevice::OutputRegister), FramebufferDevice::OutputTerminal);
 }
 
 TEST(text_window, the_display_counts_the_frames_it_presents)
 {
 	DisplayDevice display{};
 	CHECK_EQ(display.presentCount(), u64{ 0 });
-	display.writeWord(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
-	display.writeWord(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
+	display.write(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
+	display.write(DisplayDevice::CommandRegister, DisplayDevice::CommandPresent);
 	CHECK_EQ(display.presentCount(), u64{ 2 });
 }
 

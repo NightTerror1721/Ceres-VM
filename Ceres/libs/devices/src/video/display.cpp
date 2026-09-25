@@ -4,7 +4,7 @@
 
 namespace ceres::devices
 {
-	u32 DisplayDevice::readUnsignedWord(Address offset)
+	u32 DisplayDevice::read(Address offset)
 	{
 		if (offset == WidthRegister) return _width;
 		if (offset == HeightRegister) return _height;
@@ -14,7 +14,7 @@ namespace ceres::devices
 		return 0;
 	}
 
-	void DisplayDevice::writeWord(Address offset, u32 value)
+	void DisplayDevice::write(Address offset, u32 value)
 	{
 		if (offset == WidthRegister) { resize(value, _height); return; }
 		if (offset == HeightRegister) { resize(_width, value); return; }

@@ -63,30 +63,30 @@ namespace
 
 		i32 run(u32 command)
 		{
-			dev.writeWord(H::CommandRegister, command);
-			return static_cast<i32>(dev.readUnsignedWord(H::ResultRegister));
+			dev.write(H::CommandRegister, command);
+			return static_cast<i32>(dev.read(H::ResultRegister));
 		}
 
 		i32 open(std::string_view name, u32 flags)
 		{
 			put(Name, name);
-			dev.writeWord(H::AddressRegister, Name);
-			dev.writeWord(H::ArgumentRegister, flags);
+			dev.write(H::AddressRegister, Name);
+			dev.write(H::ArgumentRegister, flags);
 			return run(H::CommandOpen);
 		}
 
 		i32 onPath(u32 command, std::string_view name)
 		{
 			put(Name, name);
-			dev.writeWord(H::AddressRegister, Name);
+			dev.write(H::AddressRegister, Name);
 			return run(command);
 		}
 
 		i32 transfer(u32 command, i32 handle, u32 length)
 		{
-			dev.writeWord(H::HandleRegister, static_cast<u32>(handle));
-			dev.writeWord(H::AddressRegister, Data);
-			dev.writeWord(H::LengthRegister, length);
+			dev.write(H::HandleRegister, static_cast<u32>(handle));
+			dev.write(H::AddressRegister, Data);
+			dev.write(H::LengthRegister, length);
 			return run(command);
 		}
 	};
@@ -101,7 +101,7 @@ namespace
 TEST(host_fs, without_a_directory_every_operation_is_enodev)
 {
 	Rig rig{ "ceres_hostfs_none" };
-	CHECK_EQ(rig.dev.readUnsignedWord(H::StatusRegister), 0u);
+	CHECK_EQ(rig.dev.read(H::StatusRegister), 0u);
 	CHECK_EQ(rig.open("a.txt", H::OpenRead), -H::ErrNoDevice);
 }
 
@@ -109,13 +109,13 @@ TEST(host_fs, a_file_is_written_read_back_sought_and_measured)
 {
 	Rig rig{ "ceres_hostfs_rw" };
 	CHECK(rig.dev.setRoot(rig.dir));
-	CHECK_EQ(rig.dev.readUnsignedWord(H::StatusRegister), H::StatusAttached);
+	CHECK_EQ(rig.dev.read(H::StatusRegister), H::StatusAttached);
 
 	const i32 w = rig.open("levels/1.txt", H::OpenWrite | H::OpenCreate | H::OpenTruncate);
 	CHECK(w >= 0);
 	rig.put(Data, "hello, host");
 	CHECK_EQ(rig.transfer(H::CommandWrite, w, 11), 11);
-	rig.dev.writeWord(H::HandleRegister, static_cast<u32>(w));
+	rig.dev.write(H::HandleRegister, static_cast<u32>(w));
 	CHECK_EQ(rig.run(H::CommandClose), 0);
 	CHECK_EQ(contentsOf(rig.dir / "levels" / "1.txt"), std::string("hello, host"));
 
@@ -123,8 +123,8 @@ TEST(host_fs, a_file_is_written_read_back_sought_and_measured)
 	CHECK(r >= 0);
 	CHECK_EQ(rig.transfer(H::CommandRead, r, 5), 5);
 	CHECK_EQ(rig.get(Data, 5), std::string("hello"));
-	rig.dev.writeWord(H::OffsetRegister, static_cast<u32>(-4));
-	rig.dev.writeWord(H::ArgumentRegister, 2);                  // from the end
+	rig.dev.write(H::OffsetRegister, static_cast<u32>(-4));
+	rig.dev.write(H::ArgumentRegister, 2);                  // from the end
 	CHECK_EQ(rig.run(H::CommandSeek), 7);
 	CHECK_EQ(rig.transfer(H::CommandRead, r, 100), 4);          // a short read at the end
 	CHECK_EQ(rig.get(Data, 4), std::string("host"));
@@ -153,8 +153,8 @@ TEST(host_fs, reads_and_writes_on_one_handle_share_one_position)
 	CHECK(f >= 0);
 	rig.put(Data, "abcdef");
 	CHECK_EQ(rig.transfer(H::CommandWrite, f, 6), 6);
-	rig.dev.writeWord(H::OffsetRegister, 0);
-	rig.dev.writeWord(H::ArgumentRegister, 0);                  // from the start
+	rig.dev.write(H::OffsetRegister, 0);
+	rig.dev.write(H::ArgumentRegister, 0);                  // from the start
 	CHECK_EQ(rig.run(H::CommandSeek), 0);
 	CHECK_EQ(rig.transfer(H::CommandRead, f, 2), 2);
 	CHECK_EQ(rig.get(Data, 2), std::string("ab"));
@@ -162,7 +162,7 @@ TEST(host_fs, reads_and_writes_on_one_handle_share_one_position)
 	CHECK_EQ(rig.transfer(H::CommandWrite, f, 2), 2);
 	CHECK_EQ(rig.transfer(H::CommandRead, f, 2), 2);
 	CHECK_EQ(rig.get(Data, 2), std::string("ef"));
-	rig.dev.writeWord(H::HandleRegister, static_cast<u32>(f));
+	rig.dev.write(H::HandleRegister, static_cast<u32>(f));
 	CHECK_EQ(rig.run(H::CommandClose), 0);
 	CHECK_EQ(contentsOf(rig.dir / "mixed.txt"), std::string("abXYef"));
 }
@@ -196,10 +196,10 @@ TEST(host_fs, a_directory_is_listed_in_order_and_files_are_renamed_and_removed)
 	for (u32 i = 0;; ++i)
 	{
 		rig.put(Name, "");
-		rig.dev.writeWord(H::AddressRegister, Name);
-		rig.dev.writeWord(H::ArgumentRegister, i);
-		rig.dev.writeWord(H::OffsetRegister, Other);
-		rig.dev.writeWord(H::LengthRegister, 64);
+		rig.dev.write(H::AddressRegister, Name);
+		rig.dev.write(H::ArgumentRegister, i);
+		rig.dev.write(H::OffsetRegister, Other);
+		rig.dev.write(H::LengthRegister, 64);
 		const i32 length = rig.run(H::CommandList);
 		CHECK(length >= 0);
 		if (length <= 0) break;
@@ -216,8 +216,8 @@ TEST(host_fs, a_directory_is_listed_in_order_and_files_are_renamed_and_removed)
 
 	rig.put(Name, "a.txt");
 	rig.put(Other, "saves/a.txt");
-	rig.dev.writeWord(H::AddressRegister, Name);
-	rig.dev.writeWord(H::ArgumentRegister, Other);
+	rig.dev.write(H::AddressRegister, Name);
+	rig.dev.write(H::ArgumentRegister, Other);
 	CHECK_EQ(rig.run(H::CommandRename), 0);
 	CHECK(std::filesystem::exists(rig.dir / "saves" / "a.txt"));
 	CHECK_EQ(rig.onPath(H::CommandRemove, "saves"), -H::ErrNotEmpty);
@@ -236,8 +236,8 @@ TEST(host_fs, a_file_opened_for_writing_alone_can_still_be_sought_and_measured)
 	rig.put(Data, "0123456789");
 	CHECK_EQ(rig.transfer(H::CommandWrite, w, 10), 10);
 	CHECK_EQ(rig.run(H::CommandFileSize), 10);
-	rig.dev.writeWord(H::OffsetRegister, 0);
-	rig.dev.writeWord(H::ArgumentRegister, 2);               // to the end
+	rig.dev.write(H::OffsetRegister, 0);
+	rig.dev.write(H::ArgumentRegister, 2);               // to the end
 	CHECK_EQ(rig.run(H::CommandSeek), 10);
 	CHECK_EQ(rig.open("no/such/dir/x.txt", H::OpenWrite | H::OpenCreate), -H::ErrNoEntry);
 }
@@ -280,14 +280,14 @@ TEST(terminal, the_error_stream_is_its_own)
 	std::string out, err;
 	terminal.setOutputSink([&](u8 byte) { out.push_back(static_cast<char>(byte)); });
 	terminal.setErrorSink([&](u8 byte) { err.push_back(static_cast<char>(byte)); });
-	terminal.writeByte(TerminalDevice::OutputRegister, 'o');
-	terminal.writeByte(TerminalDevice::ErrorOutputRegister, 'e');
+	terminal.write(TerminalDevice::OutputRegister, 'o');
+	terminal.write(TerminalDevice::ErrorOutputRegister, 'e');
 	const char* text = "oops";
 	for (u32 i = 0; i < 4; ++i)
 		vm.memory().writeUnchecked<u8>(Address(0x1000 + i), static_cast<u8>(text[i]));
-	terminal.writeWord(TerminalDevice::BlockAddressRegister, 0x1000);
-	terminal.writeWord(TerminalDevice::BlockLengthRegister, 4);
-	terminal.writeWord(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandWriteError);
+	terminal.write(TerminalDevice::BlockAddressRegister, 0x1000);
+	terminal.write(TerminalDevice::BlockLengthRegister, 4);
+	terminal.write(TerminalDevice::BlockCommandRegister, TerminalDevice::BlockCommandWriteError);
 	CHECK_EQ(out, std::string("o"));
 	CHECK_EQ(err, std::string("eoops"));
 }

@@ -202,7 +202,7 @@ namespace ceres::debug
 		_systemControl->setArgumentHandler([this](u32 which) { return _vm->argumentInfo(which); });
 		// The program's path is argv[0], on the first machine and on every one a restart builds.
 		_vm->setProgramArguments(vm::ProgramArguments{ { _config.sources.front().string() }, {} });
-		_systemControl->setFaultInfoHandlers([this] { return _vm->engine().faultAddress(); }, [this] { return _vm->engine().faultAccess(); });
+		_systemControl->setFaultInfoHandlers([this] { return _vm->engine().faultAddress(); }, [this] { return _vm->engine().faultAccess(); }, [this] { return _vm->engine().faultReason(); });
 		_systemControl->attachTo(_vm->io());
 
 		_terminal = std::make_unique<TerminalDevice>();

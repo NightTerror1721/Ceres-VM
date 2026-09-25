@@ -37,15 +37,10 @@ namespace ceres::vm
 		virtual ~IODevice() = default;
 
 	public:
-		virtual u8 readUnsignedByte(Address offset) = 0;
-		virtual i8 readSignedByte(Address offset) = 0;
-		virtual u16 readUnsignedHalfword(Address offset) = 0;
-		virtual i16 readSignedHalfword(Address offset) = 0;
-		virtual u32 readUnsignedWord(Address offset) = 0;
-
-		virtual void writeByte(Address offset, u8 value) = 0;
-		virtual void writeHalfword(Address offset, u16 value) = 0;
-		virtual void writeWord(Address offset, u32 value) = 0;
+		// Every register is 32 bits wide and is reached with an aligned 32-bit access; the bus faults any other
+		// access before it gets here (plan/v2 SPEC 5.1). `offset` is relative to the device's slot.
+		virtual u32 read(Address offset) = 0;
+		virtual void write(Address offset, u32 value) = 0;
 
 	public:
 		// Opt-in: only a device whose needsTick() returns true is called every instruction (see
@@ -105,14 +100,7 @@ namespace ceres::vm
 
 	class DummyDevice final : public IODevice
 	{
-		u8 readUnsignedByte(Address) override { return 0xFF; }
-		i8 readSignedByte(Address) override { return -1; }
-		u16 readUnsignedHalfword(Address) override { return 0xFFFF; }
-		i16 readSignedHalfword(Address) override { return -1; }
-		u32 readUnsignedWord(Address) override { return 0xFFFFFFFF; }
-
-		void writeByte(Address, u8) override {}
-		void writeHalfword(Address, u16) override {}
-		void writeWord(Address, u32) override {}
+		u32 read(Address) override { return 0xFFFFFFFF; }
+		void write(Address, u32) override {}
 	};
 }

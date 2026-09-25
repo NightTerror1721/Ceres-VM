@@ -60,7 +60,7 @@ namespace ceres::driver
 			});
 			control.setStackLimitHandlers([this] { return vm.engine().stackLimit(); },
 				[this](u32 address) { vm.engine().setProgramStackLimit(address); });
-			control.setFaultInfoHandlers([this] { return vm.engine().faultAddress(); }, [this] { return vm.engine().faultAccess(); });
+			control.setFaultInfoHandlers([this] { return vm.engine().faultAddress(); }, [this] { return vm.engine().faultAccess(); }, [this] { return vm.engine().faultReason(); });
 			control.setArgumentHandler([this](u32 which) { return vm.argumentInfo(which); });
 			vm.setProgramArguments(vm::ProgramArguments{ config.arguments, config.environment });
 			control.attachTo(vm.io());
@@ -213,7 +213,7 @@ namespace ceres::driver
 		});
 		control.setStackLimitHandlers([&vm] { return vm.engine().stackLimit(); },
 			[&vm](u32 address) { vm.engine().setProgramStackLimit(address); });
-		control.setFaultInfoHandlers([&vm] { return vm.engine().faultAddress(); }, [&vm] { return vm.engine().faultAccess(); });
+		control.setFaultInfoHandlers([&vm] { return vm.engine().faultAddress(); }, [&vm] { return vm.engine().faultAccess(); }, [&vm] { return vm.engine().faultReason(); });
 		control.setArgumentHandler([&vm](u32 which) { return vm.argumentInfo(which); });
 		auto terminal = std::make_shared<TerminalDevice>();
 		TimerDevice timer;

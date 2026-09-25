@@ -17,6 +17,7 @@ namespace ceres::vm
 		_stoppedForGood = false;
 		_faultAddress = 0;
 		_faultAccess = 0;
+		_faultReason = FaultReason::None;
 		_stackLimit = _stackFloor;                  // the heap the limit guarded starts again from nothing
 		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
 		_mmu.reset(); // No program has had the chance to point PTBR at garbage yet; leave none behind either

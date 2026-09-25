@@ -154,7 +154,7 @@ namespace ceres::devices
 		_blockReadCount = static_cast<u32>(count / 4);
 	}
 
-	u32 KeyboardDevice::readUnsignedWord(Address offset)
+	u32 KeyboardDevice::read(Address offset)
 	{
 		if (offset == StatusRegister)
 			return (availableEvents() > 0 ? StatusDataReady : 0) | (availableText() > 0 ? StatusTextReady : 0) |
@@ -187,7 +187,7 @@ namespace ceres::devices
 		return 0;
 	}
 
-	void KeyboardDevice::writeWord(Address offset, u32 value)
+	void KeyboardDevice::write(Address offset, u32 value)
 	{
 		if (offset == BlockAddressRegister) { _blockAddress = value; return; }
 		if (offset == BlockLengthRegister) { _blockLength = value; return; }

@@ -25,7 +25,7 @@ namespace ceres::devices
 			raiseInterrupt(Interrupt);
 	}
 
-	u32 GamepadDevice::readUnsignedWord(Address offset)
+	u32 GamepadDevice::read(Address offset)
 	{
 		const std::lock_guard lock{_mutex};
 

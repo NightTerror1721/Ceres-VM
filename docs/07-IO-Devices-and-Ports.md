@@ -88,6 +88,7 @@ writing a command to its command register:
 | `0x18` | `ArgumentCountRegister` | Read | `argc`: how many arguments the program was started with, its own path included. |
 | `0x1C` | `ArgumentVectorRegister` | Read | The address of `argv`, the null-terminated array of their addresses. |
 | `0x20` | `EnvironmentRegister` | Read | The address of `envp`, the null-terminated array of `NAME=value` strings. The three are what `main` received in `r0`–`r2` ([Memory → The stack](02-Memory.md#the-stack)), there for a library that has to reach them without `main` passing them on. |
+| `0x2C` | `FaultReasonRegister` | Read | Why that fault happened: `0` none recorded, `1` a misaligned access to RAM, `5` a device register reached by anything but an aligned 32-bit access, `6` a block instruction that touched a device (the full list: plan/v2 SPEC 5.4). |
 
 | Command (low byte) | Effect |
 | --- | --- |

@@ -135,19 +135,19 @@ TEST(driver_reset, a_reset_disarms_the_timer_and_drops_a_transfer_in_flight)
 	devices::SystemControlDevice control;
 	u32 told = 0xFFFFFFFFu;
 	control.setFeaturesCallback([&](u32 features) { told = features; });
-	control.writeWord(devices::SystemControlDevice::FeaturesRegister, devices::SystemControlDevice::FeatureDivisionFault);
+	control.write(devices::SystemControlDevice::FeaturesRegister, devices::SystemControlDevice::FeatureDivisionFault);
 	CHECK_EQ(control.features(), devices::SystemControlDevice::FeatureDivisionFault);
 	control.reset();
 	CHECK_EQ(control.features(), 0u);
 	CHECK_EQ(told, 0u);
 
 	devices::DmaController dma;
-	dma.writeWord(vm::Address(0x08), 16);               // a length ...
-	dma.writeWord(vm::Address(0x0C), 1);                // ... armed: it lands on the next tick
+	dma.write(vm::Address(0x08), 16);               // a length ...
+	dma.write(vm::Address(0x0C), 1);                // ... armed: it lands on the next tick
 	CHECK_EQ(dma.ticksUntilEvent(), u64{ 1 });
 	dma.reset();
 	CHECK_EQ(dma.ticksUntilEvent(), vm::NoDeviceEvent);
-	CHECK_EQ(dma.readUnsignedWord(vm::Address(0x10)), 0u);   // neither busy nor done
+	CHECK_EQ(dma.read(vm::Address(0x10)), 0u);   // neither busy nor done
 }
 
 TEST(driver_reset, a_machine_without_a_reset_request_does_not_restart)
