@@ -384,7 +384,7 @@ A entero: truncan hacia cero y saturan (NaN → 0), como `ftoi`. A float: redond
 
 | Nivel | Nombre | Añade | Ejecutor HW |
 | --- | --- | --- | --- |
-| V0 | Terminal | Plano de texto (celdas 8×16 de 16 o 32 bits, fuente y paleta en VRAM, cursor) | compositor |
+| V0 | Terminal | Plano de texto (celdas 8×16 de 16 bits, por defecto, o de 32; fuente y paleta en VRAM, cursor) | compositor |
 | V1 | Framebuffer | Plano bitmap (I1, I2, I4, I8, RGB565, ARGB1555, XRGB8888, ARGB8888; pitch; scroll; 1–3 búferes) y motor de copia | compositor |
 | V2 | Retro 2D | 4 capas de tiles (8×8 o 16×16, 4 u 8 bpp) con scroll por capa y por línea; 1 capa afín; OAM de 128 sprites (hasta 64×64); 16 paletas de 16 + 1 de 256; tabla de líneas | compositor |
 | V3 | Arcade 2D | Procesador de comandos; motor 2D (fill, blit con alfa/escala/rotación, líneas, triángulos, render a textura, clip, mezclas); 8 capas color verdadero; 1024 sprites afines; ventanas; mosaico; bilineal | sí |
@@ -393,6 +393,13 @@ A entero: truncan hacia cero y saturan (NaN → 0), como `ftoi`. A float: redond
 | V6 | 3D programable (opcional) | Shaders CSIR (vértice, píxel, compute) | sí |
 
 `Mode` (0–6) elige el nivel; no puede superar `MaxLevel` (del perfil). Cada nivel incluye los anteriores.
+
+- **Celda de texto de 16 bits** (la de por defecto, D20): bits 7:0 el carácter (glifo 0–255), 11:8 la tinta y
+  15:12 el fondo (índices de las 16 primeras entradas de la paleta). La disposición de la celda de 32 bits es
+  PROVISIONAL y se fija en F5.3.
+- **Límites retro** (D17): el límite de sprites por línea del perfil (tabla de §4) se aplica en todos los perfiles.
+  En `micro` y `pocket`, además, la VRAM sólo se puede escribir durante el VBlank; qué hace una escritura fuera de
+  él se fija en F8.3.
 
 ### 7.2 Composición (orden fijo, de fondo a frente)
 
@@ -470,6 +477,8 @@ direcciones se publican en los registros del plano de texto; los programas las l
 - ANSI (ESC `[` …): `A`, `B`, `C`, `D` (mover), `H` y `f` (posición), `J` (0, 1, 2), `K` (0, 1, 2), `m` (SGR: 0, 1, 7,
   22, 27, 30–37, 39, 40–47, 49, 90–97, 100–107, `38;5;n`, `48;5;n`), `s`/`u` (guardar y restaurar), `?25l`/`?25h`
   (cursor), `r` (región de scroll). También `ESC 7` y `ESC 8`. Cualquier otra secuencia se consume sin efecto.
+- `stderr` (`ErrorOutput` y el comando de bloque 3) se dibuja en el terminal con el color de error. No se copia
+  al terminal del host (D21).
 - Scrollback en VRAM; Shift+RePág y Shift+AvPág lo recorren en la ventana (no es visible para el programa).
 
 ### 8.3 Entrada
@@ -477,6 +486,10 @@ direcciones se publican en los registros del plano de texto; los programas las l
 - Del texto del teclado de la ventana. Modo cocinado: eco, retroceso, Ctrl+U, flechas izquierda y derecha,
   historial con arriba y abajo, Enter entrega la línea. Ctrl+D al inicio de línea: fin de entrada. Ctrl+C:
   pone `Status.b3` y lanza la IRQ 19; la STDLIB lo convierte en `SIGINT`. Modo raw: cada tecla al momento.
+- Bytes de cada tecla en los dos modos (D25; los mismos que da la VM v1 y los que decodifica `key.h`): el texto,
+  en UTF-8; Esc `ESC`; flechas `ESC[A` (arriba), `ESC[B` (abajo), `ESC[C` (derecha), `ESC[D` (izquierda);
+  Inicio `ESC[H`; Fin `ESC[F`; Insertar `ESC[2~`; Suprimir `ESC[3~`; RePág `ESC[5~`; AvPág `ESC[6~`. En modo
+  cocinado, las teclas de edición las consume la disciplina de línea y no llegan al programa.
 
 ## 9. Audio (NORMATIVA en niveles; PROVISIONAL en registros hasta F9/F11)
 

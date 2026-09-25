@@ -67,7 +67,7 @@
 - **Pasos**:
   1. Presenta al usuario cada decisión con su opción por defecto y los datos de `BASELINE.md` que la afecten.
   2. Pasa las respuestas a «Cerradas» en `DECISIONS.md` y actualiza `SPEC.md`.
-- **Aceptación**: [ ] Ninguna de esas decisiones queda pendiente.
+- **Aceptación**: [x] Ninguna de esas decisiones queda pendiente.
 - **Commit**: `Close the pending decisions for the first phases (F0.5)`
 
 ### F0.6 · Calibrar la tabla de ciclos · `HUMANO`
@@ -116,3 +116,6 @@
   tecla en modo raw: se propone la tabla actual de `keystrokeToTerminalBytes` (a decidir en F0.5). La FM de 4
   operadores en enteros cuesta 4,5–6,5 ns por muestra de voz (8 voces: menos del 0,3 % de un núcleo) y da el mismo
   hash con GCC y MSVC. Detalle en `spikes/vterm/README.md` y `spikes/fm/README.md`.
+- **F0.5**: el usuario aceptó la opción por defecto de P01 y P03–P11, y la tabla de teclas de F0.4. Son las
+  decisiones D15–D25. La SPEC ya recogía P03, P05, P06, P09, P10 y P11; se añadieron P04 (§7.1), P07 (§7.1, con la
+  disposición de la celda de 16 bits), P08 (§8.2) y las teclas (§8.3).

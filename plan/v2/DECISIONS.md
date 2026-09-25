@@ -25,22 +25,23 @@ decisión en el commit.
 | D12 | Un dispositivo por archivo, con su `.h` y su `.cpp`, agrupados por función | 2026-09-25 | usuario |
 | D13 | Instrucciones: se mantienen desplazamientos y máscaras con una tabla `Field<>`; se descarta la unión con bitfields; conversión bytes↔`u32` explícita en little-endian | 2026-09-25 | evaluación aceptada |
 | D14 | Ocho perfiles: micro, pocket, retro, arcade, polygon, standard (por defecto), workstation, custom | 2026-09-25 | usuario (propuesta aceptada) |
+| D15 | Perfiles: los ocho de SPEC §4 tal cual, `custom` con CPU hasta 400 MHz (por encima de unos 150 MHz no llega a tiempo real en el host de desarrollo; sigue siendo determinista) (P01) | 2026-09-25 | usuario (opción por defecto, F0.5) |
+| D16 | Refresco configurable de 50 o 60 Hz, 60 por defecto (P03) | 2026-09-25 | usuario (opción por defecto, F0.5) |
+| D17 | Límite de sprites por línea en todos los perfiles; VRAM escribible sólo en el VBlank en `micro` y `pocket` (P04) | 2026-09-25 | usuario (opción por defecto, F0.5) |
+| D18 | Un acceso de menos de 32 bits a MMIO es un fallo (`MmioWidth`) (P05) | 2026-09-25 | usuario (opción por defecto, F0.5) |
+| D19 | Un offset MMIO no declarado lee 0 y descarta la escritura; con `--strict-mmio` es un fallo (P06) | 2026-09-25 | usuario (opción por defecto, F0.5) |
+| D20 | Celda de texto de 16 bits por defecto (carácter de 8 bits, tinta y fondo de 4); la de 32 bits, opcional (P07) | 2026-09-25 | usuario (opción por defecto, F0.5) |
+| D21 | `stderr` sólo en el terminal virtual, con el color de error; nunca se copia al host (P08) | 2026-09-25 | usuario (opción por defecto, F0.5) |
+| D22 | La ventana queda abierta al terminar el programa hasta una tecla; `--exit-on-halt` la cierra (P09) | 2026-09-25 | usuario (opción por defecto, F0.5) |
+| D23 | `double` es binary64 por defecto en Ceres-C; `-fshort-double` lo hace `float` (P10) | 2026-09-25 | usuario (opción por defecto, F0.5) |
+| D24 | Valores de 64 bits en la ABI en pares alineados a registro par (P11) | 2026-09-25 | usuario (opción por defecto, F0.5) |
+| D25 | Bytes de cada tecla en el terminal: la tabla actual de la VM (`ESC[A`…`ESC[6~`), fijada en SPEC §8.3 (surgió en F0.4) | 2026-09-25 | usuario (opción por defecto, F0.5) |
 
 ## Pendientes
 
 | ID | Pregunta | Por defecto | Se cierra en | Bloquea |
 | --- | --- | --- | --- | --- |
-| P01 | Valores exactos de los perfiles (tabla de SPEC §4) | Los de SPEC §4 | F0.5 | F4.5 |
 | P02 | Tabla de ciclos: la de SPEC §3.2 calibrada, o una más simple (todo 1 salvo memoria y división) | La de SPEC §3.2, calibrada con las medidas de F0.1 | F0.6 | F2.1 |
-| P03 | Refresco: 60 Hz fijo o 50/60 configurable | 50/60 configurable, 60 por defecto | F0.5 | F5.2 |
-| P04 | Límites retro estrictos (sprites por línea; en `micro` y `pocket`, VRAM sólo escribible durante el VBlank) | Sprites por línea siempre; VRAM en VBlank sólo en `micro` y `pocket` | F0.5 | F8.3 |
-| P05 | Accesos de menos de 32 bits a MMIO: fallo, o leer la palabra y extraer | Fallo (`MmioWidth`) | F0.5 | F1.6, F1.7 |
-| P06 | Offsets de MMIO no declarados: leer 0 (fallo sólo con `--strict-mmio`), o fallo siempre | Leer 0 y fallo con `--strict-mmio` | F0.5 | F1.8 |
-| P07 | Formato de celda por defecto del terminal: 16 o 32 bits | 16 bits | F0.5 | F5.3 |
-| P08 | `stderr`: sólo en pantalla, o también copiado al log del host | Sólo en pantalla | F0.5 | F5.6 |
-| P09 | Ventana al terminar el programa: abierta hasta una tecla, o cerrar | Abierta; `--exit-on-halt` la cierra | F0.5 | F5.5 |
-| P10 | `double` binary64 por defecto con `-fshort-double`, o float por defecto | binary64 por defecto | F0.5 | F6.3 |
-| P11 | Pares en la ABI alineados a registro par, o consecutivos como hoy | Alineados | F0.5 | F6.1 |
 | P12 | FM de A2: 4 operadores (tipo OPN) o 2 (tipo OPL2) | 4 operadores | F9.0 | F9.4 |
 | P13 | Códecs de A4: IMA-ADPCM y QOA, u otro | IMA-ADPCM y QOA | F11.0 | F11.4 |
 | P14 | Banco General MIDI de muestras para A3: cuál y con qué licencia (se verifica antes de incluirlo) | Uno con licencia libre verificada (candidato: FluidR3_GM) | F11.0 | F11.3 |
