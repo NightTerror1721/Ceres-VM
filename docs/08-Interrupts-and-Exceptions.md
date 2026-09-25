@@ -152,6 +152,8 @@ A program that would rather be told writes `FeatureDivisionFault` to the feature
 then raises `DivisionByZero` (4) instead, always deliverable like any reserved interrupt. It advances the
 program counter first, like `trap`, so a handler that returns lands on the instruction after the division
 (whose destination was left as it was) rather than repeating it forever; the Trap flag is not set.
+A program that wants IEEE 754 arithmetic writes `FeatureIeeeDivide` instead: the float divisions then give
+±infinity or NaN and neither trap nor interrupt (the integer ones keep whichever behaviour is set).
 
 **`sti` takes effect one instruction late.** The instruction right after an `sti` runs before any user
 interrupt can be delivered, as on x86. That makes `sti; halt` a single indivisible step: an interrupt that

@@ -69,6 +69,9 @@ namespace ceres::devices
 		// the Trap flag. The handler returns to the instruction after the division, whose
 		// destination was left as it was.
 		static inline constexpr u32 FeatureDivisionFault = 1u << 0;
+		// A float division by zero gives what IEEE 754 says instead of trapping: fdiv and frecipe +-infinity
+		// (NaN for 0/0), fmod NaN, frsqrte of a zero +-infinity. The integer divisions are not changed.
+		static inline constexpr u32 FeatureIeeeDivide = 1u << 1;
 
 	private:
 		ShutdownCallback _shutdownCallback;

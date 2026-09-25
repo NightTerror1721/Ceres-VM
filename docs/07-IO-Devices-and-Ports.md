@@ -120,6 +120,9 @@ str [r13 + 0], r0
 **Features.** Reading `FeaturesRegister` returns what was last written (0 at reset). Bit 0,
 `FeatureDivisionFault`, makes a division or modulo by zero raise the `DivisionByZero` interrupt (4)
 instead of only setting the Trap flag — see [Interrupts and exceptions](08-Interrupts-and-Exceptions.md).
+Bit 1, `FeatureIeeeDivide`, makes the float divisions answer a zero divisor as IEEE 754 does instead of trapping:
+`fdiv` and `frecipe` give ±infinity (NaN for 0/0 or NaN/0), `fmod` gives NaN and `frsqrte` of a zero gives
+±infinity. The integer divisions are not affected, and with both bits set the float ones follow bit 1.
 Every other offset, and the command register itself, reads all-ones.
 
 **Stack limit.** Reading `StackLimitRegister` gives the lowest address the program's stack may reach: a push,

@@ -99,6 +99,9 @@ namespace ceres::vm
 		// the old behaviour: the Trap flag is set and the destination is left alone.
 		bool _divisionFaults = false;
 
+		// Whether a float division by zero gives IEEE's infinity or NaN rather than trapping (FeatureIeeeDivide).
+		bool _ieeeDivide = false;
+
 		// How fast the clock runs while the CPU is halted, in ticks per second (see haltedStep). 0 means
 		// it does not run in real time at all: a halted step jumps straight to the next device event.
 		u64 _haltClockHz = DefaultHaltClockHz;
@@ -221,6 +224,8 @@ namespace ceres::vm
 		void setFlags(FlagRegister flags) noexcept { _flags = flags; }
 		void setDivisionFaults(bool enabled) noexcept { _divisionFaults = enabled; }
 		constexpr bool divisionFaults() const noexcept { return _divisionFaults; }
+		void setIeeeDivide(bool enabled) noexcept { _ieeeDivide = enabled; }
+		constexpr bool ieeeDivide() const noexcept { return _ieeeDivide; }
 		// The halted clock's rate, at most what the timer's 32-bit HaltClockRegister can report. A host
 		// that also shows it to the program (TimerDevice::setHaltClockRate) sets both. 0 turns real time
 		// off: a halted step jumps to the next device event, and with none it waits for the host.
@@ -748,15 +753,25 @@ namespace ceres::vm
 			advancePC();
 		}
 
+		// x / +-0 as IEEE 754 has it: NaN for 0/0 and NaN/0, else an infinity with the sign of the two signs together.
+		// Worked out rather than divided, so the host's own floating-point settings play no part.
+		static f32 ieeeDivideByZero(const f32 a, const f32 b) noexcept
+		{
+			if (std::isnan(a) || a == 0.0f)
+				return std::numeric_limits<f32>::quiet_NaN();
+			const bool negative = std::signbit(a) != std::signbit(b);
+			return negative ? -std::numeric_limits<f32>::infinity() : std::numeric_limits<f32>::infinity();
+		}
+
 		forceinline void executeFloatDiv(const u8 regDest, const f32 a, const f32 b) noexcept
 		{
-			if (b == 0.0f)
+			if (b == 0.0f && !_ieeeDivide)
 			{
 				divisionByZero();
 				return;
 			}
 
-			const f32 result = a / b;
+			const f32 result = b == 0.0f ? ieeeDivideByZero(a, b) : a / b;
 			const auto resultClass = std::fpclassify(result);
 
 			zero(resultClass == FP_ZERO);
@@ -773,13 +788,13 @@ namespace ceres::vm
 		// is well-defined as NaN - consistency with the rest of the divide family wins here.
 		forceinline void executeFloatMod(const u8 regDest, const f32 a, const f32 b) noexcept
 		{
-			if (b == 0.0f)
+			if (b == 0.0f && !_ieeeDivide)
 			{
 				divisionByZero();
 				return;
 			}
 
-			const f32 result = std::fmod(a, b);
+			const f32 result = b == 0.0f ? std::numeric_limits<f32>::quiet_NaN() : std::fmod(a, b);
 			const auto resultClass = std::fpclassify(result);
 
 			zero(resultClass == FP_ZERO);
@@ -1183,23 +1198,23 @@ namespace ceres::vm
 		forceinline void FRECIPE(const Instruction inst) noexcept
 		{
 			const f32 value = getFloatReg(inst.fs());
-			if (value == 0.0f)
+			if (value == 0.0f && !_ieeeDivide)
 			{
 				divisionByZero();
 				return;
 			}
-			setFloatReg(inst.fd(), 1.0f / value);
+			setFloatReg(inst.fd(), value == 0.0f ? ieeeDivideByZero(1.0f, value) : 1.0f / value);
 			advancePC();
 		}
 		forceinline void FRSQRTE(const Instruction inst) noexcept
 		{
 			const f32 value = getFloatReg(inst.fs());
-			if (value == 0.0f)
+			if (value == 0.0f && !_ieeeDivide)
 			{
 				divisionByZero();
 				return;
 			}
-			setFloatReg(inst.fd(), 1.0f / std::sqrt(value));
+			setFloatReg(inst.fd(), value == 0.0f ? ieeeDivideByZero(1.0f, value) : 1.0f / std::sqrt(value));   // 1/sqrt(-0) is -inf
 			advancePC();
 		}
 

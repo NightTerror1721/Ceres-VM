@@ -53,6 +53,7 @@ namespace ceres::driver
 			control.setFeaturesCallback([this](u32 features)
 			{
 				vm.engine().setDivisionFaults((features & SystemControlDevice::FeatureDivisionFault) != 0);
+				vm.engine().setIeeeDivide((features & SystemControlDevice::FeatureIeeeDivide) != 0);
 			});
 			control.setStackLimitHandlers([this] { return vm.engine().stackLimit(); },
 				[this](u32 address) { vm.engine().setProgramStackLimit(address); });
@@ -205,6 +206,7 @@ namespace ceres::driver
 		control.setFeaturesCallback([&vm](u32 features)
 		{
 			vm.engine().setDivisionFaults((features & SystemControlDevice::FeatureDivisionFault) != 0);
+			vm.engine().setIeeeDivide((features & SystemControlDevice::FeatureIeeeDivide) != 0);
 		});
 		control.setStackLimitHandlers([&vm] { return vm.engine().stackLimit(); },
 			[&vm](u32 address) { vm.engine().setProgramStackLimit(address); });

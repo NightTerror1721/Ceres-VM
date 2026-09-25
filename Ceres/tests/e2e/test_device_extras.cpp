@@ -376,6 +376,53 @@ TEST(device_extras, division_by_zero_can_raise_its_own_interrupt)
 	CHECK(!m.flags().trap());
 }
 
+TEST(device_extras, an_ieee_float_division_by_zero_gives_infinity_or_nan)
+{
+	// With FeatureIeeeDivide the float divisions answer as IEEE 754 does, and nothing traps; DIV still does.
+	Machine m{
+		Instruction::LI(1, 7),
+		Instruction::LI(2, 0),
+		Instruction::ITOF(0, 1),                // 7
+		Instruction::ITOF(1, 2),                // +0
+		Instruction::FNEG(2, 1),                // -0
+		Instruction::FDIV(3, 0, 1),             // 7 / +0
+		Instruction::FDIV(4, 0, 2),             // 7 / -0
+		Instruction::FDIV(5, 1, 1),             // 0 / 0
+		Instruction::FMOD(6, 0, 1),             // fmod(7, 0)
+		Instruction::FRECIPE(7, 2),             // 1 / -0
+		Instruction::FRSQRTE(8, 1),             // 1 / sqrt(+0)
+		Instruction::FCLASS(3, 3),
+		Instruction::FCLASS(4, 4),
+		Instruction::FCLASS(5, 5),
+		Instruction::FCLASS(6, 6),
+		Instruction::FCLASS(7, 7),
+		Instruction::FCLASS(8, 8),
+		Instruction::DIV(9, 1, 2),              // an integer division is not changed
+	};
+	m.vm().engine().setIeeeDivide(true);
+	m.step(17);
+	CHECK(!m.flags().trap());      // no float division trapped
+	m.step(1);
+
+	CHECK_EQ(m.reg(3), 1u << 7);   // +inf
+	CHECK_EQ(m.reg(4), 1u << 0);   // -inf
+	CHECK_EQ(m.reg(5), 1u << 8);   // NaN
+	CHECK_EQ(m.reg(6), 1u << 8);   // NaN
+	CHECK_EQ(m.reg(7), 1u << 0);   // -inf
+	CHECK_EQ(m.reg(8), 1u << 7);   // +inf
+	CHECK(m.flags().trap());       // the DIV at the end still does
+}
+
+TEST(device_extras, the_features_register_switches_ieee_division)
+{
+	SystemControlDevice control{};
+	u32 seen = 0;
+	control.setFeaturesCallback([&](u32 features) { seen = features; });
+	control.writeWord(SystemControlDevice::FeaturesRegister, SystemControlDevice::FeatureIeeeDivide);
+	CHECK_EQ(seen, SystemControlDevice::FeatureIeeeDivide);
+	CHECK_EQ(SystemControlDevice::FeatureIeeeDivide, 2u);
+}
+
 TEST(device_extras, every_division_shaped_instruction_honours_the_option)
 {
 	// A remainder and a float division take the same road as DIV.

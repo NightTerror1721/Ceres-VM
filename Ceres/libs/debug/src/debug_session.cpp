@@ -195,6 +195,7 @@ namespace ceres::debug
 		_systemControl->setFeaturesCallback([this](u32 features)
 		{
 			_vm->engine().setDivisionFaults((features & SystemControlDevice::FeatureDivisionFault) != 0);
+			_vm->engine().setIeeeDivide((features & SystemControlDevice::FeatureIeeeDivide) != 0);
 		});
 		_systemControl->setStackLimitHandlers([this] { return _vm->engine().stackLimit(); },
 			[this](u32 address) { _vm->engine().setProgramStackLimit(address); });
