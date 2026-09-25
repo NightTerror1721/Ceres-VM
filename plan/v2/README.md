@@ -117,8 +117,9 @@ Si un comando no existe tal cual (nombre de target, ruta de salida), búscalo en
 
 1. Commit con mensaje en inglés, en el estilo de los repos, terminado con el identificador de la tarea:
    `Split the timer into its own device file (F1.3)`. Añade la línea de atribución que pida tu entorno.
-2. Actualiza STATUS.md: estado `DONE` y hash(es) del commit. Si la tarea tocó CeresASM, incluye STATUS.md en
-   ese mismo commit; si no, haz un commit pequeño en CeresASM `plan: mark Fx.y done`.
+2. Actualiza STATUS.md: estado `DONE`. Si la tarea tocó CeresASM, incluye STATUS.md en ese mismo commit; si no,
+   haz un commit pequeño en CeresASM `plan: mark Fx.y done`. Un commit no puede llevar su propio hash: apunta los
+   hashes de la tarea en la columna «Commits» con el siguiente commit que toque el plan.
 3. Cada 3–4 commits (y al final de cada fase): revisión con `ocr` (el CLI de open-code-review, modo normal,
    **no** el delegado) sobre los commits desde la última revisión. Corrige los hallazgos reales en un commit
    `Fix the OCR findings on <tema>` y di cuáles descartaste y por qué.

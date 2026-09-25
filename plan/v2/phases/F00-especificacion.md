@@ -16,8 +16,8 @@
   2. Compila con el preset `gcc-ipo` en Release y ejecútalo tres veces.
   3. Apunta en `BASELINE.md`: host (CPU, SO), compilador, MIPS por clase (mediana), MIPS del mixto.
 - **Aceptación**:
-  - [ ] `BASELINE.md` tiene las medidas y el comando exacto para repetirlas.
-  - [ ] El benchmark sigue compilando en todos los presets.
+  - [x] `BASELINE.md` tiene las medidas y el comando exacto para repetirlas.
+  - [x] El benchmark sigue compilando en todos los presets (GCC sí; MSVC y clang, ver «Notas»).
 - **Verificación**: `ctest` de CeresASM en verde; ejecutar el benchmark.
 - **Commit**: `Measure the interpreter per instruction class (F0.1)`
 
@@ -92,3 +92,12 @@
 ## Notas
 
 (El agente apunta aquí medidas, hallazgos y desvíos del plan.)
+
+- **F0.1**: medidas en [BASELINE.md](../BASELINE.md). El `mixed` da 134 MIPS; con la tabla provisional (1,61 ciclos
+  por instrucción) `standard` usa el 23 % del host y `workstation` el 46 %; código sólo ALU en `workstation`, el 71 %.
+  El benchmark acepta nombres como argumentos para ejecutar sólo esos.
+- **F0.1, MSVC**: el preset `msvc` (MSVC 14.50, VS 18) no compila la VM desde antes de esta tarea: `MmioBus::attach` y
+  `attachRange` (`libs/vm/include/ceres/vm/mmio_bus.h`) son `constexpr` pero toman un `std::lock_guard` y llaman a
+  `rebuildTickedDevices()`, y MSVC da C3615. GCC lo acepta (C++23, P2448). Quitar el `constexpr` basta; GitNexus da
+  HIGH por los 14 llamadores, así que queda pendiente de confirmación del usuario (F1.1 reescribe el bus de todas
+  formas). No hay clang instalado en la máquina de desarrollo; el preset `clang` no se ha probado.
