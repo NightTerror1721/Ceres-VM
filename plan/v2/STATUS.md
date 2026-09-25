@@ -14,7 +14,7 @@ Archivo: [phases/F00-especificacion.md](phases/F00-especificacion.md)
 | --- | --- | --- | --- | --- |
 | F0.1 | Medir el intérprete por clase de instrucción | — | DONE | asm@30d4e55 |
 | F0.2 | Medir la presentación y el arranque con memoria grande | F0.1 | DONE | asm@b2441a1 |
-| F0.3 | Prototipo de SDL_GPU | — | TODO |  |
+| F0.3 | Prototipo de SDL_GPU | — | DONE |  |
 | F0.4 | Prototipo del terminal ANSI y de un operador FM | — | TODO |  |
 | F0.5 | Cerrar decisiones con el usuario · **HUMANO** | F0.1, F0.2 | TODO |  |
 | F0.6 | Calibrar la tabla de ciclos · **HUMANO** | F0.1 | TODO |  |

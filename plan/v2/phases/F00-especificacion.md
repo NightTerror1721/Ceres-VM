@@ -45,7 +45,7 @@
   2. Anota qué backends arrancan en la máquina de desarrollo y si SDL permite forzar WARP (D3D12) o lavapipe
      (Vulkan) para CI.
   3. Anota qué herramienta compila los shaders (SDL_shadercross, glslang, DXC) y cómo se incrustan.
-- **Aceptación**: [ ] El spike compila y dibuja; `spikes/sdl_gpu/README.md` recoge backends, CI y cadena de shaders.
+- **Aceptación**: [x] El spike compila y dibuja; `spikes/sdl_gpu/README.md` recoge backends, CI y cadena de shaders.
 - **Verificación**: compilarlo y ejecutarlo a mano.
 - **Commit**: `Add an SDL_GPU spike outside the build (F0.3)`
 
@@ -106,3 +106,8 @@
 - **F0.2**: la ventana presenta cada 4096 instrucciones sin vsync (6 400 imágenes/s a 320×240) y eso le quita a
   la VM el 76 % (320×240) o el 94 % (1280×720) de los MIPS; `pump` no cuesta. La RAM se reserva y se pone a cero
   entera: 1 GiB son 138 ms de arranque y 1 GiB residente. Detalle en [BASELINE.md](../BASELINE.md).
+- **F0.3**: SDL_GPU funciona de punta a punta en D3D12: subir, dibujar un quad, presentar y leer de vuelta
+  (bit a bit idéntico a 320×240, 1280×720 y 1920×1080). Vulkan arranca, pero no se ha probado: el `dxc` del
+  Windows SDK no genera SPIR-V; hace falta el del Vulkan SDK o una release de DXC antes de F12. SDL 3.4.16 no deja
+  forzar WARP (sólo sale en máquinas sin GPU). Recomendación: shaders precompilados en el repo. Detalle en
+  [spikes/sdl_gpu/README.md](../../../spikes/sdl_gpu/README.md).
