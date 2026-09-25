@@ -141,7 +141,7 @@
 - **Repos**: CeresASM · **Depende de**: F1.8
 - **Archivos**: crear `Ceres/libs/devices/tests/test_<dispositivo>.cpp`; vaciar o borrar lo equivalente de
   `tests/e2e/test_devices.cpp` y `test_device_extras.cpp` (lo que sea de extremo a extremo con CASM se queda en e2e).
-- **Aceptación**: [ ] Cada `.h` de dispositivo tiene su `test_*.cpp`. [ ] Mismo número o más de casos que antes.
+- **Aceptación**: [x] Cada `.h` de dispositivo tiene su `test_*.cpp`. [x] Mismo número o más de casos que antes.
 - **Commit**: `Give each device its own test file (F1.9)`
 
 ### F1.10 · Campos de instrucción declarativos y serialización little-endian
@@ -217,3 +217,8 @@
   `benchmark_vm` mmio 89,7 MIPS (BASELINE 87,7). `--strict-mmio` sólo en `run`; lo comprueba el motor cuando está
   activo. `DummyDevice`, sin usuarios, se eliminó. Encontrado de paso (no es de F1): un fallo sin manejador deja
   `ceres run` colgado tras imprimir «EE» (la BIOS hace HALT); se propuso como tarea aparte.
+- **F1.9**: 147 tests antes (63 `test_devices` + 57 `test_device_extras` + 9 `test_host_fs` + 18 `test_peripherals`),
+  147 después: 127 en `libs/devices/tests` (un `test_<dispositivo>.cpp` por cada uno de los 14, con el `Machine`
+  compartido en `device_test_machine.h`) y 20 en e2e (reglas del bus, alineación, división, contador de
+  instrucciones, escritura de estado del debugger y la directiva `interrupt` con CASM). El reparto lo hizo un script
+  que asigna cada test al dispositivo que más nombra.
