@@ -41,7 +41,7 @@ namespace
 	class QuietWindow final : public HostBackend
 	{
 	public:
-		bool pump(devices::KeyboardDevice&, devices::MouseDevice&, devices::GamepadDevice&) override { return true; }
+		bool pump(InputSink&) override { return true; }
 		void present(const devices::DisplayDevice&) override {}
 	};
 

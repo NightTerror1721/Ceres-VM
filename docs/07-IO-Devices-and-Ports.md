@@ -287,13 +287,13 @@ Ctrl-D at a console), and closing raises the terminal's interrupt so a program h
 wakes up to see it. A host embedding the machine calls `closeInput()`. The bit never sets on a terminal
 nobody closed.
 
-`ceres run` feeds the ring from its own standard input, and does so with flow control: the reader
-holds a byte back while the ring is full and pushes it when the program has taken enough, so a
-piped file longer than 63 bytes arrives whole however busy the program is. (The ring keeps one slot
-free, so it holds at most 63 bytes.) Only a host that calls `pushInput()` itself — a debugger, an
-embedding — can overflow it, and for that source dropping is still the behaviour:
-`DroppedInputRegister` counts what was lost. When the program ends, a reader still waiting for room
-gives up.
+`ceres run` feeds the ring from its own standard input, and does so with flow control: everything the
+host gives the machine waits in the driver's input hub and goes in between two slices of the machine's
+time, stamped with the cycle it went in at (`ceres run --record` writes those stamps, `--replay` feeds
+them back). The hub gives the ring only what it has room for, so a piped file longer than 63 bytes
+arrives whole however busy the program is. (The ring keeps one slot free, so it holds at most 63
+bytes.) Only a host that calls `pushInput()` itself — a debugger, an embedding — can overflow it, and
+for that source dropping is still the behaviour: `DroppedInputRegister` counts what was lost.
 
 Each `pushInput()` call that actually adds a byte to the ring buffer also raises `UserInterrupt1` —
 so a program need not poll `StatusRegister` in a busy loop to notice input; it can `sti`/`halt` instead

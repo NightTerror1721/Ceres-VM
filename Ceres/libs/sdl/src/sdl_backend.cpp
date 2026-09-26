@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -52,6 +53,8 @@ namespace ceres::sdl
 			bool _mouseCaptured = false;
 			bool _needsRedraw = false;
 			u8 _buttons = 0; // Wheel events carry no button mask, so the last known one is kept.
+			std::array<i32, 7> _padState{};   // the gamepad as last handed over: only a change goes to the machine
+			bool _padSent = false;
 			SDL_Gamepad* _gamepad = nullptr;
 
 			// The tone generator. The machine's thread describes a tone through the sink; SDL's audio
@@ -103,7 +106,7 @@ namespace ceres::sdl
 				return ensureVideo(MaxWindowWidth, MaxWindowHeight);
 			}
 
-			bool pump(devices::KeyboardDevice& keyboard, devices::MouseDevice& mouse, devices::GamepadDevice& gamepad) override
+			bool pump(driver::InputSink& input) override
 			{
 				if (!_videoStarted)
 					return true;   // no window yet, so nothing can have happened to it
@@ -130,29 +133,29 @@ namespace ceres::sdl
 							// the program's: a menu cancels with it, so it must not end the run.
 							if (event.key.scancode == SDL_SCANCODE_Q && (event.key.mod & SDL_KMOD_CTRL) != 0)
 								return false;
-							keyboard.pushKey(static_cast<u32>(event.key.scancode), true);
+							input.key(static_cast<u32>(event.key.scancode), true);
 							break;
 
 						case SDL_EVENT_KEY_UP:
-							keyboard.pushKey(static_cast<u32>(event.key.scancode), false);
+							input.key(static_cast<u32>(event.key.scancode), false);
 							break;
 
 						case SDL_EVENT_TEXT_INPUT:
-							keyboard.pushText(std::string_view(event.text.text));
+							input.text(std::string_view(event.text.text));
 							break;
 
 						case SDL_EVENT_MOUSE_MOTION:
-							mouse.pushMotion(static_cast<i32>(event.motion.xrel), static_cast<i32>(event.motion.yrel), toButtons(event.motion.state), 0);
+							input.mouse(static_cast<i32>(event.motion.xrel), static_cast<i32>(event.motion.yrel), toButtons(event.motion.state), 0);
 							break;
 
 						case SDL_EVENT_MOUSE_BUTTON_DOWN:
 						case SDL_EVENT_MOUSE_BUTTON_UP:
 							_buttons = toButtons(SDL_GetMouseState(nullptr, nullptr));
-							mouse.pushMotion(0, 0, _buttons, 0);
+							input.mouse(0, 0, _buttons, 0);
 							break;
 
 						case SDL_EVENT_MOUSE_WHEEL:
-							mouse.pushMotion(0, 0, _buttons, static_cast<i8>(event.wheel.y));
+							input.mouse(0, 0, _buttons, static_cast<i8>(event.wheel.y));
 							break;
 
 						case SDL_EVENT_WINDOW_EXPOSED:
@@ -178,17 +181,24 @@ namespace ceres::sdl
 					}
 				}
 
-				// A gamepad is state, not a queue of events, so it is polled every pump. pushState
-				// only raises the interrupt when something actually changed.
+				// A gamepad is state, not a queue of events, so it is polled every pump - and handed over only when it
+				// changed, so a recording holds its moves rather than a copy of it every slice.
 				if (_gamepad)
 				{
-					gamepad.pushState(toGamepadButtons(_gamepad),
+					const std::array<i32, 7> state{ toGamepadButtons(_gamepad),
 						SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_LEFTX),
 						SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_LEFTY),
 						SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_RIGHTX),
 						SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_RIGHTY),
-						static_cast<u16>(SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER)),
-						static_cast<u16>(SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)));
+						SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER),
+						SDL_GetGamepadAxis(_gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) };
+					if (!_padSent || state != _padState)
+					{
+						_padState = state;
+						_padSent = true;
+						input.gamepad(static_cast<u16>(state[0]), static_cast<i16>(state[1]), static_cast<i16>(state[2]),
+							static_cast<i16>(state[3]), static_cast<i16>(state[4]), static_cast<u16>(state[5]), static_cast<u16>(state[6]));
+					}
 				}
 
 				if (_needsRedraw && _shown == Shown::Text)

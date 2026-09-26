@@ -3,6 +3,7 @@
 
 #include <ceres/driver/driver.h>
 #include <ceres/driver/pacer.h>
+#include <ceres/driver/input_journal.h>
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage/disk.h>
 #include <ceres/devices/video/text_framebuffer.h>
@@ -19,6 +20,7 @@
 #include <atomic>
 #include <chrono>
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -166,6 +168,35 @@ namespace ceres::driver
 
 	namespace
 	{
+		// A code point as UTF-8, the way the hub keeps typed text (one outside Unicode becomes U+FFFD).
+		std::string encodeUtf8(u32 codePoint)
+		{
+			if (codePoint > 0x10FFFF || (codePoint >= 0xD800 && codePoint <= 0xDFFF))
+				codePoint = 0xFFFD;
+			std::string out;
+			if (codePoint < 0x80)
+				out += static_cast<char>(codePoint);
+			else if (codePoint < 0x800)
+			{
+				out += static_cast<char>(0xC0 | (codePoint >> 6));
+				out += static_cast<char>(0x80 | (codePoint & 0x3F));
+			}
+			else if (codePoint < 0x10000)
+			{
+				out += static_cast<char>(0xE0 | (codePoint >> 12));
+				out += static_cast<char>(0x80 | ((codePoint >> 6) & 0x3F));
+				out += static_cast<char>(0x80 | (codePoint & 0x3F));
+			}
+			else
+			{
+				out += static_cast<char>(0xF0 | (codePoint >> 18));
+				out += static_cast<char>(0x80 | ((codePoint >> 12) & 0x3F));
+				out += static_cast<char>(0x80 | ((codePoint >> 6) & 0x3F));
+				out += static_cast<char>(0x80 | (codePoint & 0x3F));
+			}
+			return out;
+		}
+
 		void printProfile(CeresVM& vm, const DebugInfo& info, std::ostream& err)
 		{
 			struct HotLine { u32 fileId; u32 line; u64 count; };
@@ -289,14 +320,45 @@ namespace ceres::driver
 			~JoinOnExit() { if (thread.joinable()) thread.join(); }
 		} streamReader;
 
-		// Raised when the machine is done, so a reader parked on a full ring stops waiting for a
-		// program that will never read it.
+		// Raised when the machine is done, so a console reader stops.
 		const auto machineDone = std::make_shared<std::atomic<bool>>(false);
 		struct DoneOnExit
 		{
 			std::shared_ptr<std::atomic<bool>> flag;
 			~DoneOnExit() { flag->store(true, std::memory_order_release); }
 		} doneOnExit{machineDone};
+
+		// Every input the host gives the machine waits here and goes in between two slices, stamped with its
+		// cycle (input_journal.h). Shared, like the terminal: the stdin reader may outlive this function, and
+		// posts into a hub that no longer pokes anything.
+		const auto input = std::make_shared<InputHub>(&vm.interrupts());
+		struct DisconnectInput
+		{
+			std::shared_ptr<InputHub> hub;
+			~DisconnectInput() { hub->disconnect(); }
+		} disconnectInput{input};
+		std::ofstream recording;
+		if (!options.record.empty())
+		{
+			recording.open(options.record, std::ios::binary);
+			if (!recording)
+			{
+				*services.diagnostics << "Cannot write the input recording " << options.record.string() << '\n';
+				return 1;
+			}
+			input->record(recording);
+		}
+		if (!options.replay.empty())
+		{
+			std::ifstream file(options.replay, std::ios::binary);
+			auto events = file ? readInputRecording(file) : std::unexpected(std::string("it cannot be opened"));
+			if (!events)
+			{
+				*services.diagnostics << "Cannot replay " << options.replay.string() << ": " << events.error() << '\n';
+				return 1;
+			}
+			input->replay(std::move(*events));
+		}
 
 		// The host's speakers, if it has any, play what the audio device is asked for. Taken off
 		// again before the device goes away, since the sound is made on another thread.
@@ -315,14 +377,19 @@ namespace ceres::driver
 			HostBackend* backend;
 			~DropHandler() { if (backend) backend->setFileDropHandler({}); }
 		} dropHandler{backend};
+		const auto plugIn = [&peripherals, diagnostics = services.diagnostics](const std::filesystem::path& path)
+		{
+			const bool cartridge = path.extension() == ".cart";
+			std::string error;
+			const int port = peripherals.attachToFreePort(path, cartridge ? PeripheralDevice::Kind::Cartridge : PeripheralDevice::Kind::Storage, &error);
+			if (port < 0)
+				*diagnostics << "Could not plug in " << path.string() << ": " << error << '\n';
+		};
 		if (backend)
-			backend->setFileDropHandler([&peripherals, diagnostics = services.diagnostics](const std::filesystem::path& path)
+			backend->setFileDropHandler([input](const std::filesystem::path& path)
 			{
-				const bool cartridge = path.extension() == ".cart";
-				std::string error;
-				const int port = peripherals.attachToFreePort(path, cartridge ? PeripheralDevice::Kind::Cartridge : PeripheralDevice::Kind::Storage, &error);
-				if (port < 0)
-					*diagnostics << "Could not plug in " << path.string() << ": " << error << '\n';
+				const std::u8string utf8 = path.u8string();
+				input->post(InputEvent{ .kind = InputEvent::Kind::FileDrop, .data = std::string(utf8.begin(), utf8.end()) });
 			});
 
 		// When standard input is a console, it can give the program more than lines. The program asks through
@@ -355,28 +422,23 @@ namespace ceres::driver
 					terminal->pushInput(keystrokeToTerminalBytes(keystroke));
 			});
 
-		if (console)
+		if (input->replaying())
 		{
-			// The ring holds 64 bytes, so the cooked path is flow-controlled exactly as the stream one below.
-			std::thread([console, terminal, keyboard, machineDone]
+			// A replay feeds the recorded input and nothing else: the host's is not read at all.
+		}
+		else if (console)
+		{
+			// Everything the console gives goes through the hub, which holds what the terminal's ring has no room for.
+			std::thread([console, input, machineDone]
 			{
 				ConsoleInput::Sink sink;
 				sink.bytes = [&](std::span<const u8> bytes)
 				{
-					for (const u8 byte : bytes)
-					{
-						while (terminal->availableBytes() >= TerminalDevice::InputBufferCapacity - 1)
-						{
-							if (machineDone->load(std::memory_order_acquire))
-								return;
-							std::this_thread::sleep_for(std::chrono::microseconds(200));
-						}
-						terminal->pushInput(static_cast<char>(byte));
-					}
+					input->post(InputEvent{ .kind = InputEvent::Kind::TerminalBytes, .data = std::string(bytes.begin(), bytes.end()) });
 				};
-				sink.key = [&](u32 code, bool pressed) { keyboard->pushKey(code, pressed); };
-				sink.text = [&](u32 codePoint) { keyboard->pushText(codePoint); };
-				sink.endOfInput = [&] { terminal->closeInput(); };
+				sink.key = [&](u32 code, bool pressed) { input->key(code, pressed); };
+				sink.text = [&](u32 codePoint) { input->text(encodeUtf8(codePoint)); };
+				sink.endOfInput = [&] { input->post(InputEvent{ .kind = InputEvent::Kind::TerminalClose }); };
 				sink.stopped = [&] { return machineDone->load(std::memory_order_acquire); };
 				console->run(sink);
 			}).detach();
@@ -391,25 +453,16 @@ namespace ceres::driver
 			//
 			// The ring holds 64 bytes and drops what does not fit, which is right for a keystroke
 			// source but wrong for a pipe: a program that is busy for a moment would lose the tail of
-			// a piped file. So this reader is the flow control - it holds the byte back until the
-			// program has taken enough. It is the ring's only producer, so room seen here cannot be
-			// taken by anyone else before the push.
-			auto reader = [input = services.input, terminal, machineDone]
+			// a piped file. The hub is the flow control: it holds the bytes and gives the ring what it
+			// has room for at each injection point.
+			auto reader = [stream = services.input, input]
 			{
 				char c;
-				while (input->get(c))
-				{
-					while (terminal->availableBytes() >= TerminalDevice::InputBufferCapacity - 1)
-					{
-						if (machineDone->load(std::memory_order_acquire))
-							return;
-						std::this_thread::sleep_for(std::chrono::microseconds(200));
-					}
-					terminal->pushInput(c);
-				}
+				while (stream->get(c))
+					input->post(InputEvent{ .kind = InputEvent::Kind::TerminalBytes, .data = std::string(1, c) });
 				// The stream ended (a pipe ran dry, or the user closed stdin): say so, so a program
 				// waiting for more can stop waiting.
-				terminal->closeInput();
+				input->post(InputEvent{ .kind = InputEvent::Kind::TerminalClose });
 			};
 			if (services.input == &std::cin)
 				std::thread(std::move(reader)).detach();
@@ -426,68 +479,75 @@ namespace ceres::driver
 		if (profileInfo)
 			vm.engine().enableProfiling();
 
-		// A windowed host pumps its events and presents its frames between slices of the machine's time, and a
-		// machine that keeps pace with the host waits between them: neither can simply run to completion.
-		if (backend || (options.speed && !options.speed->max))
-		{
-			if (auto powered = vm.powerOn(); !powered)
-			{
-				terminal->detachFrom(vm.io());
-				*services.diagnostics << "Failed to power on: " << powered.error() << '\n';
-				return 1;
-			}
-
-			using HostClock = std::chrono::steady_clock;
-			constexpr auto PresentEvery = std::chrono::milliseconds(16);   // the window's own redraw, about 60 a second
-			Pacer pacer{ options.speed.value_or(Speed::unlimited()), vm.io().scheduler().clockHz() };
-			const u64 sliceCycles = std::max<u64>(1, vm.io().scheduler().clockHz() / 1000);   // a millisecond of machine time
-			HostClock::time_point lastPresent{};
-			u64 displayPresents = display.presentCount();
-
-			while ((vm.isPoweredOn() || vm.restartIfRequested()) && (!backend || backend->pump(*keyboard, mouse, gamepad)))
-			{
-				// Without --speed a machine keeps real time while its window is open, and runs flat out without one.
-				if (!options.speed)
-					pacer.setSpeed(backend && backend->windowOpen() ? Speed::realtime() : Speed::unlimited());
-
-				// Ahead of the host: wait a little and pump again, rather than run on. Otherwise a slice, up to the next
-				// millisecond of machine time. A halted machine with nothing scheduled waits for the host inside its
-				// step, and the host's keys only reach it through pump(), so a halt ends the slice; so does a frame of
-				// text presented for the window, so each one is shown.
-				if (!pacer.pace(vm.engine().cycles()))
-				{
-					const u64 end = vm.engine().cycles() + sliceCycles;
-					while (vm.isPoweredOn())
-					{
-						vm.engine().step();
-						if (vm.engine().cycles() >= end || vm.engine().isHalted() || framebuffer.hasWindowFrame())
-							break;
-					}
-				}
-
-				if (!backend)
-					continue;
-				const HostClock::time_point now = HostClock::now();
-				if (display.presentCount() != displayPresents || now - lastPresent >= PresentEvery)
-				{
-					displayPresents = display.presentCount();
-					lastPresent = now;
-					backend->present(display);
-					backend->reportSpeed(pacer.effectiveSpeed());
-				}
-
-				// A frame of the text framebuffer that the program presented for the window. Taken here, between
-				// slices, rather than drawn from inside the instruction that presented it.
-				FramebufferDevice::Frame frame;
-				if (framebuffer.takeWindowFrame(frame) && !backend->presentText(frame))
-					framebuffer.fallBackToTerminal();
-			}
-		}
-		else if (auto result = vm.run(); !result)
+		// One loop for every run. Between two slices of the machine's time: the host's input goes in (the injection
+		// point), a window pumps its events and presents its frames, and a machine that keeps pace with the host
+		// waits for it.
+		if (auto powered = vm.powerOn(); !powered)
 		{
 			terminal->detachFrom(vm.io());
-			*services.diagnostics << "Failed to run program: " << result.error() << '\n';
+			*services.diagnostics << "Failed to power on: " << powered.error() << '\n';
 			return 1;
+		}
+
+		using HostClock = std::chrono::steady_clock;
+		constexpr auto PresentEvery = std::chrono::milliseconds(16);   // the window's own redraw, about 60 a second
+		Pacer pacer{ options.speed.value_or(Speed::unlimited()), vm.io().scheduler().clockHz() };
+		const u64 sliceCycles = std::max<u64>(1, vm.io().scheduler().clockHz() / 1000);   // a millisecond of machine time
+		HostClock::time_point lastPresent{};
+		u64 displayPresents = display.presentCount();
+		InputTargets targets{ *terminal, *keyboard, mouse, gamepad, plugIn };
+
+		for (;;)
+		{
+			if (!vm.isPoweredOn())
+			{
+				if (!vm.restartIfRequested())
+					break;
+				input->restarted();
+			}
+			if (backend && !backend->pump(*input))
+			{
+				input->quit(vm.engine().cycles());
+				break;
+			}
+			if (!input->inject(vm.engine().cycles(), targets))
+				break;   // a replay reached the moment its recording's host quit
+
+			// Without --speed a machine keeps real time while its window is open, and runs flat out without one.
+			if (!options.speed)
+				pacer.setSpeed(backend && backend->windowOpen() ? Speed::realtime() : Speed::unlimited());
+
+			// Ahead of the host: wait a little and look again, rather than run on. Otherwise a slice, up to the next
+			// millisecond of machine time. A halted machine with nothing scheduled waits for the host inside its
+			// step, and the host's input only goes in between slices, so a halt ends the slice; so does a frame of
+			// text presented for the window, so each one is shown.
+			if (!pacer.pace(vm.engine().cycles()))
+			{
+				const u64 end = vm.engine().cycles() + sliceCycles;
+				while (vm.isPoweredOn())
+				{
+					vm.engine().step();
+					if (vm.engine().cycles() >= end || vm.engine().isHalted() || framebuffer.hasWindowFrame())
+						break;
+				}
+			}
+
+			if (!backend)
+				continue;
+			const HostClock::time_point now = HostClock::now();
+			if (display.presentCount() != displayPresents || now - lastPresent >= PresentEvery)
+			{
+				displayPresents = display.presentCount();
+				lastPresent = now;
+				backend->present(display);
+				backend->reportSpeed(pacer.effectiveSpeed());
+			}
+
+			// A frame of the text framebuffer that the program presented for the window. Taken here, between
+			// slices, rather than drawn from inside the instruction that presented it.
+			FramebufferDevice::Frame frame;
+			if (framebuffer.takeWindowFrame(frame) && !backend->presentText(frame))
+				framebuffer.fallBackToTerminal();
 		}
 
 		if (profileInfo)

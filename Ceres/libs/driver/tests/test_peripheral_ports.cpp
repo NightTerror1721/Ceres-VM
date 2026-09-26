@@ -186,7 +186,7 @@ namespace
 		std::function<void(const std::filesystem::path&)> handler;
 		int pumps = 0;
 
-		bool pump(devices::KeyboardDevice&, devices::MouseDevice&, devices::GamepadDevice&) override
+		bool pump(InputSink&) override
 		{
 			if (++pumps == 2 && handler)
 				handler(dropped);

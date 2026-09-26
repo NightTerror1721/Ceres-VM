@@ -81,7 +81,7 @@
 - **Pasos**: todo evento del host (teclas, texto, ratón, gamepad, archivo soltado) se inyecta en un punto de
   inyección y se sella con su ciclo; `--record` escribe la secuencia; `--replay` la inyecta en los mismos ciclos
   e ignora la entrada real.
-- **Aceptación**: [ ] Test: grabar una sesión con entrada guionizada y reproducirla da el mismo resultado.
+- **Aceptación**: [x] Test: grabar una sesión con entrada guionizada y reproducirla da el mismo resultado.
 - **Commit**: `Stamp host input with its cycle and add record and replay (F2.6)`
 
 ### F2.7 · Perfilador y debugger en ciclos
@@ -173,3 +173,13 @@
   virtuales: `realtime` 2,07 s, `max` 55 ms, `4x` 570 ms. Un test en proceso con la entrada vacía descubrió que el
   cierre de la entrada levanta la IRQ del terminal y despierta un halt: los programas de prueba vuelven al halt
   mientras `Countdown` no lea 0.
+- **F2.6**: `InputHub` (`driver/input_journal.h`) recibe la entrada de cualquier hilo del host y la aplica en el
+  punto de inyección, que es cada vuelta del bucle: antes de cada tramo y tras el `pump` de la ventana. La sella con el
+  ciclo y la graba tal como entró: los bytes del terminal, sólo los que caben en el anillo, así que el hub es ahora el
+  control de flujo que hacían los hilos lectores. `HostBackend::pump` recibe un `InputSink` en vez de los dispositivos
+  (el SDL sólo manda el mando cuando cambia); un archivo soltado es un evento más; cerrar la ventana se graba como
+  `quit` y una repetición se para ahí; un reset se graba como `reset` y la repetición espera al suyo. Formato de texto,
+  una línea por evento con las cadenas en hexadecimal, tras la cabecera `ceres-input 1`. Para que un halt sin eventos
+  no espere 10 ms a una entrada que ya llegó, `InterruptController::poke` despierta la espera sin levantar nada (un
+  raise terminaría el halt del programa y la repetición divergiría). Todo `ceres run` pasa ya por el bucle del driver:
+  `vm.run()` ya no se usa ahí. `--replay` no lee la entrada del host.

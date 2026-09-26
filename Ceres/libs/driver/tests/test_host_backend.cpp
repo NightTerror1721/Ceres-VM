@@ -24,12 +24,12 @@ namespace
 	public:
 		int pumps = 0;
 
-		bool pump(devices::KeyboardDevice& keyboard, devices::MouseDevice&, devices::GamepadDevice&) override
+		bool pump(InputSink& input) override
 		{
 			if (++pumps == 2)
 			{
-				keyboard.pushText(std::string_view{ "h" });
-				keyboard.pushKey(devices::scancode::Return, true);
+				input.text("h");
+				input.key(devices::scancode::Return, true);
 			}
 			return true;
 		}
@@ -66,7 +66,7 @@ namespace
 	public:
 		TextWindowBackend(WindowStats& stats, bool canDraw, bool canOpen) : _stats(stats), _canDraw(canDraw), _canOpen(canOpen) {}
 
-		bool pump(devices::KeyboardDevice&, devices::MouseDevice&, devices::GamepadDevice&) override { return true; }
+		bool pump(InputSink&) override { return true; }
 		void present(const devices::DisplayDevice&) override {}
 		bool showsText() const noexcept override { return true; }
 		bool openWindow() override { ++_stats.windowsOpened; return _canOpen; }
@@ -149,7 +149,7 @@ namespace
 		int pumps = 0;
 		int presents = 0;
 
-		bool pump(devices::KeyboardDevice&, devices::MouseDevice&, devices::GamepadDevice&) override
+		bool pump(InputSink&) override
 		{
 			++pumps;
 			return true;

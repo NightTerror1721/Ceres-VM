@@ -46,8 +46,9 @@ namespace ceres::vm
 		// the raise sees this sleeper and sets the event, or this sees the raise. An event set for a raise
 		// already seen only makes the next wait return once for nothing, and the loop waits again.
 		_sleepers.fetch_add(1);
+		const u64 pokes = _pokes.load();
 		bool raised = _raises.load() != seen;
-		while (!raised)
+		while (!raised && _pokes.load() == pokes)
 		{
 			const auto now = std::chrono::steady_clock::now();
 			if (now >= deadline)
@@ -84,9 +85,10 @@ namespace ceres::vm
 	{
 		std::unique_lock lock{ _sleepMutex };
 		_sleepers.fetch_add(1);
-		const bool raised = _wake.wait_until(lock, deadline, [&] { return _raises.load() != seen; });
+		const u64 pokes = _pokes.load();
+		_wake.wait_until(lock, deadline, [&] { return _raises.load() != seen || _pokes.load() != pokes; });
 		_sleepers.fetch_sub(1);
-		return raised;
+		return _raises.load() != seen;
 	}
 #endif
 }

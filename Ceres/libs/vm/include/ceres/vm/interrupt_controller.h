@@ -30,6 +30,8 @@ namespace ceres::vm
 		// from before" - a masked request stays pending and must not keep waking it.
 		std::atomic<u64> _raises{ 0 };
 		std::atomic<u32> _sleepers{ 0 };
+		// Moved by poke(): ends a halted machine's wait without raising anything.
+		std::atomic<u64> _pokes{ 0 };
 #ifdef _WIN32
 		// Windows: an event raise() sets and a high-resolution waitable timer, as HANDLEs, so this header
 		// needs no <windows.h> (interrupt_controller.cpp says why not a condition variable).
@@ -61,12 +63,22 @@ namespace ceres::vm
 				wakeSleepers();
 		}
 
+		// Wakes a halted machine's wait for the host without raising anything: the host has something for it
+		// (input to inject between two steps), and the machine itself must not see that it was woken - a raise
+		// would end its halt, and a replay without the same wake would go another way.
+		void poke() noexcept
+		{
+			_pokes.fetch_add(1);
+			if (_sleepers.load() != 0)
+				wakeSleepers();
+		}
+
 		// How many requests have been raised so far. Read before deciding to sleep, and handed to
 		// waitForRaise, so a raise that happens in between still wakes the sleeper.
 		u64 raiseCount() const noexcept { return _raises.load(); }
 
-		// Sleeps until a request is raised after raiseCount() returned `seen`, or until `deadline`, which
-		// it keeps to about half a millisecond. True when it was woken by a raise.
+		// Sleeps until a request is raised after raiseCount() returned `seen`, until poke(), or until `deadline`,
+		// which it keeps to about half a millisecond. True when it was woken by a raise.
 		bool waitForRaise(u64 seen, std::chrono::steady_clock::time_point deadline) noexcept;
 
 		bool hasPending() const noexcept

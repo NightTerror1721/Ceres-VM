@@ -19,14 +19,26 @@ namespace ceres::driver
 {
 	using namespace devices;
 
+	// Where a host's pump() puts the input it collected: the driver stamps it with the machine's cycle and hands
+	// it to the devices between two slices (input_journal.h), so a run can be recorded and replayed.
+	class InputSink
+	{
+	public:
+		virtual ~InputSink() = default;
+		virtual void key(u32 code, bool pressed) = 0;                    // a key went down or up (a scancode)
+		virtual void text(std::string_view utf8) = 0;                    // text typed
+		virtual void mouse(i32 dx, i32 dy, u8 buttons, i8 wheel) = 0;   // relative motion, the buttons held, the wheel
+		virtual void gamepad(u16 buttons, i16 leftX, i16 leftY, i16 rightX, i16 rightY, u16 leftTrigger, u16 rightTrigger) = 0;
+	};
+
 	class HostBackend
 	{
 	public:
 		virtual ~HostBackend() = default;
 
-		// Pump pending host input into the keyboard, mouse and gamepad. Returns false when the host
+		// Hand pending host input - keys, text, the mouse, the gamepad - to `input`. Returns false when the host
 		// wants the machine to stop (for example, the window was closed).
-		virtual bool pump(KeyboardDevice& keyboard, MouseDevice& mouse, GamepadDevice& gamepad) = 0;
+		virtual bool pump(InputSink& input) = 0;
 
 		// Show the display's current pixels.
 		virtual void present(const DisplayDevice& display) = 0;
@@ -68,7 +80,7 @@ namespace ceres::driver
 	class HeadlessBackend final : public HostBackend
 	{
 	public:
-		bool pump(KeyboardDevice&, MouseDevice&, GamepadDevice&) override { return true; }
+		bool pump(InputSink&) override { return true; }
 		void present(const DisplayDevice&) override {}
 	};
 }
