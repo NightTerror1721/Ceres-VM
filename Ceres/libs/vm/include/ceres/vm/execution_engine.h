@@ -51,6 +51,8 @@ namespace ceres::vm
 		u64 _executedInstructions = 0;
 		// The CPU clock: cycles spent since the machine started, by the table of plan/v2 SPEC 3.2 (cycles.h).
 		u64 _cycles = 0;
+		// When the next scheduled device event is due (Scheduler::nextCycle, kept here by the scheduler).
+		u64 _nextEvent = NoScheduledEvent;
 
 		// The lowest address the stack may grow down to. Until a program is loaded this is all the
 		// machine can defend - the vector table and the BIOS - which is what it was defending
@@ -109,7 +111,7 @@ namespace ceres::vm
 		// Whether a float division by zero gives IEEE's infinity or NaN rather than trapping (FeatureIeeeDivide).
 		bool _ieeeDivide = false;
 
-		// How fast the clock runs while the CPU is halted, in ticks per second (see haltedStep). 0 means
+		// How fast the clock runs while the CPU is halted, in cycles per second (see haltedStep). 0 means
 		// it does not run in real time at all: a halted step jumps straight to the next device event.
 		u64 _haltClockHz = DefaultHaltClockHz;
 		// Real time a halted step waited that did not make a whole tick, carried into the next one so a
@@ -142,7 +144,9 @@ namespace ceres::vm
 	public:
 		explicit ExecutionEngine(Memory& memory, MmioBus& mmioBus, InterruptController& interrupts) :
 			_memory(memory), _mmioBus(mmioBus), _interrupts(interrupts)
-		{}
+		{
+			_mmioBus.scheduler().bindTo(&_cycles, &_nextEvent);   // the devices' events are kept in this CPU's cycles
+		}
 		ExecutionEngine(const ExecutionEngine&) = delete;
 		ExecutionEngine(ExecutionEngine&&) = delete;
 		~ExecutionEngine() = default;
@@ -289,6 +293,10 @@ namespace ceres::vm
 		void handleHalt() noexcept;
 		// One step of a halted machine: time passes for the devices, nothing executes.
 		void haltedStep(u64 raisesSeen) noexcept;
+		// How far the next thing a device will do is, in cycles: a ticked device's or a scheduled event's.
+		u64 haltedCyclesToEvent() const noexcept;
+		// Moves a halted machine's clock on by `cycles`, event by event; stops early, true, at one that raised.
+		bool passHaltedTime(u64 cycles) noexcept;
 		void handleTrap() noexcept;
 
 		// True when a handler was entered; false when the request was ignored (masked, or no handler bound)

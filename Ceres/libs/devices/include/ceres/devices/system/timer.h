@@ -12,20 +12,21 @@ namespace ceres::devices
 	// Gives the machine a sense of time, and with it the asynchronous interrupt source it never
 	// had. Until now HALT suspended the machine for good, because nothing could ever wake it.
 	//
-	// Time is counted in executed instructions rather than wall clock, so a program behaves the
-	// same on every run and on every machine. RTC_TIME is the one exception: it reports real
-	// seconds, and nothing depends on it.
+	// Time is counted in CPU cycles (plan/v2 SPEC 3.2) rather than wall clock, so a program behaves the
+	// same on every run and on every machine: the count is the engine's own, and the countdown is an event
+	// on the machine's scheduler. RTC_TIME is the one exception: it reports real seconds, and nothing
+	// depends on it.
 	class TimerDevice : public IODevice
 	{
 	public:
-		static inline constexpr Address TicksRegister = Address(0x00);   // Read: the low word of the ticks so far; also latches the high word
+		static inline constexpr Address TicksRegister = Address(0x00);   // Read: the low word of the CPU cycles so far; also latches the high word
 		static inline constexpr Address ClockRegister = Address(0x04);   // Read: seconds since the epoch
-		static inline constexpr Address CommandRegister = Address(0x08); // Write: fire after N ticks, 0 disarms
+		static inline constexpr Address CommandRegister = Address(0x08); // Write: fire after N cycles, 0 disarms
 		static inline constexpr Address MillisRegister = Address(0x0C);  // Read: milliseconds since the machine started (wraps every 49 days)
 		static inline constexpr Address NanosLowRegister = Address(0x10);  // Read: the low word of the nanoseconds since the machine started; also latches the high word
 		static inline constexpr Address NanosHighRegister = Address(0x14); // Read: the high word latched by the last read of NanosLowRegister
 		static inline constexpr Address NanosResolutionRegister = Address(0x18); // Read: the smallest step the nanosecond clock is seen to take, in nanoseconds
-		static inline constexpr Address HaltClockRegister = Address(0x1C); // Read: ticks per second while the CPU is halted; 0 when time only moves by events
+		static inline constexpr Address HaltClockRegister = Address(0x1C); // Read: cycles per second while the CPU is halted; 0 when time only moves by events
 		static inline constexpr Address AlarmLowRegister = Address(0x20);  // Read/write: the low word of the alarm instant, in nanoseconds on NanosLow's clock (reads 0 when disarmed)
 		static inline constexpr Address AlarmHighRegister = Address(0x24); // Read/write: the high word; writing it arms the alarm at high:low (0:0 disarms)
 		static inline constexpr Address TicksHighRegister = Address(0x28); // Read: the high word of the tick count latched by the last read of TicksRegister
@@ -38,18 +39,20 @@ namespace ceres::devices
 		// never has to ask which of the two fired. See AlarmLowRegister.
 		static inline constexpr InterruptNumber AlarmInterrupt = InterruptNumber::UserInterrupt8;
 
-		// A running machine looks at the host clock for the alarm once every this many instructions:
-		// about 10 microseconds at the default rate, and a clock read per instruction would cost more
-		// than the instruction.
-		static inline constexpr u32 AlarmPollTicks = 1024;
+		// The scheduler tags of the timer's two events.
+		static inline constexpr u32 CountdownEvent = 0;
+		static inline constexpr u32 AlarmEvent = 1;
+		// With the halted clock off (0) the alarm cannot be turned into cycles, and a running machine looks
+		// at the host clock for it once every this many cycles instead.
+		static inline constexpr u32 AlarmPollCycles = 16384;
 
 		// Everything the timer remembers. Exposed so a debugger can put the whole machine back
 		// where it was: without the timer, a restored snapshot would keep counting from wherever
 		// the live run had got to and fire its interrupt at the wrong moment.
 		struct State
 		{
-			u64 ticks = 0;
-			u64 remaining = 0;
+			u64 ticks = 0;       // the cycle count when it was taken; the engine's to restore, not the timer's
+			u64 remaining = 0;   // cycles until the countdown fires, 0 when disarmed
 			bool periodic = false;
 			u64 period = 0;
 			u32 nanosHigh = 0;   // the half of the nanosecond count that the last low read latched
@@ -67,8 +70,7 @@ namespace ceres::devices
 		using NanosSource = std::function<u64()>;
 
 	private:
-		u64 _ticks = 0;
-		u64 _remaining = 0;   // 0 means disarmed
+		u64 _deadline = 0;    // the cycle the countdown fires on; 0 means disarmed
 		bool _periodic = false;
 		u64 _period = 0;
 		ClockSource _clockSource;
@@ -80,8 +82,6 @@ namespace ceres::devices
 		u32 _haltClockHz = static_cast<u32>(vm::DefaultHaltClockHz);   // what HaltClockRegister reports
 		u64 _alarmNanos = 0;                // the alarm instant on the nanosecond clock, 0 when disarmed
 		u32 _alarmLow = 0;                  // AlarmLowRegister's word, taken when the high one arms
-		u32 _alarmPoll = 0;                 // instructions since the running machine last looked at the clock
-		u64 _alarmTick = 0;                 // the instant as a tick count, at the halted clock's rate, as of the last look
 		std::chrono::steady_clock::time_point _started = std::chrono::steady_clock::now();
 
 	public:
@@ -104,18 +104,22 @@ namespace ceres::devices
 			bus.detach(default_mmio::Timer);
 		}
 
-		u64 ticks() const noexcept { return _ticks; }
-		bool isArmed() const noexcept { return _remaining > 0; }
+		// The CPU cycles since the machine started: the engine's count, 0 while the timer is not attached.
+		u64 ticks() const noexcept;
+		bool isArmed() const noexcept { return _deadline != 0; }
 
-		// Arms the timer directly, for a host that wants a heartbeat without the program asking.
-		void arm(u64 ticksFromNow, bool periodic = false) noexcept;
+		// Arms the timer directly, for a host that wants a heartbeat without the program asking: it fires
+		// `cyclesFromNow` cycles from now. A timer not attached to a bus keeps the arming but has no clock to fire on.
+		void arm(u64 cyclesFromNow, bool periodic = false) noexcept;
 
-		State captureState() const noexcept { return State{ _ticks, _remaining, _periodic, _period, _nanosHigh, _ticksHigh, _alarmNanos, _alarmLow }; }
+		State captureState() const noexcept;
 
-		// A reset disarms the timer and restarts the count, as the engine restarts its own: a
-		// program that is starting over must not be interrupted by what the last one armed.
+		// A reset disarms the timer, as the engine restarts its count: a program that is starting
+		// over must not be interrupted by what the last one armed.
 		void reset() override;
 
+		// Puts the timer back as it was captured, against the clock as it stands: restore the engine's cycle
+		// count first, so the countdown lands on the cycle it would have.
 		void restoreState(const State& state) noexcept;
 
 		void setClockSource(ClockSource source) { _clockSource = std::move(source); }
@@ -139,7 +143,7 @@ namespace ceres::devices
 
 		// What HaltClockRegister answers: the rate the host runs a halted machine's clock at
 		// (ExecutionEngine::setHaltClock), set by whoever sets that. A program divides a real-time wait
-		// by it to arm the timer for a halt: at the default 100 MHz, 16 ms is 1 600 000 ticks.
+		// by it to arm the timer for a halt: at the default 100 MHz, 16 ms is 1 600 000 cycles.
 		void setHaltClockRate(u32 hz) noexcept { _haltClockHz = hz; }
 		u32 haltClockRate() const noexcept { return _haltClockHz; }
 
@@ -155,11 +159,11 @@ namespace ceres::devices
 		}
 
 		// Looks at the host clock: an instant that has come fires, and one still ahead is turned into the
-		// tick it falls on at the halted clock's rate, rounded up. A halted machine sleeps to that tick, and
-		// the count it asks for stays put while it sleeps - worked out afresh from the clock at every look,
-		// the ticks still to go would shrink as the host slept, and the halted clock would be held back
-		// to them rather than moving on by the time that passed.
+		// cycle it falls on at the halted clock's rate, rounded up, and scheduled. A halted machine sleeps to
+		// that cycle and is on time; a running one gets there sooner, as it runs faster than the halted clock,
+		// and looks again - so the alarm is never early, and late by no more than the last look is short.
 		void syncAlarm();
+		u64 now() const noexcept;
 
 		// The smallest step the host clock is seen to take between two reads, in nanoseconds. A clock
 		// that advances in 100 ns steps (the usual one on Windows) shows a run of equal readings and
@@ -168,28 +172,15 @@ namespace ceres::devices
 		static u32 measureNanosResolution() noexcept;
 
 	public:
-		// The one device every program that arms it relies on advancing every instruction, whether
-		// or not it is armed - TicksRegister reads instructions executed even while disarmed.
-		bool needsTick() const noexcept override { return true; }
-
-		void tick() override;
-
-		// The expiry, for a halted machine that sleeps until it instead of ticking there - the tick timer's
-		// or the alarm's, whichever comes first. The alarm's is the tick syncAlarm() worked out at its last
-		// look at the clock; if the host wakes a little before the instant, that look finds it still ahead and
-		// works out a new one. With the halted clock off (0) time only moves by events, and the alarm has none
-		// to offer.
-		u64 ticksUntilEvent() const noexcept override;
-
-		// `ticks` tick() calls at once. The bus never asks for more than ticksUntilEvent(), so the timer
-		// expires at most once here, on exactly the tick it would have.
-		void advance(u64 ticks) override;
+		// The countdown running out (it re-arms from the cycle it was due on, when periodic, so a period
+		// never drifts) or the alarm's time to look at the host clock.
+		void onEvent(u32 tag, u64 cycle) override;
 
 	public:
 		u32 read(Address offset) override;
 
 
-		// Writing N to the command register fires the timer N instructions later. Writing 0 disarms
+		// Writing N to the command register fires the timer N cycles later. Writing 0 disarms
 		// it. The high bit asks for a periodic timer that re-arms itself after each expiry.
 		void write(Address offset, u32 value) override;
 		const RegisterMap& registers() const override;

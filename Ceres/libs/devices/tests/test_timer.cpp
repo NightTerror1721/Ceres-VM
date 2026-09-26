@@ -16,20 +16,97 @@ namespace
 
 // --- The timer ---------------------------------------------------------------------------------
 
-TEST(timer, the_tick_port_counts_executed_instructions)
+TEST(timer, the_tick_port_counts_cpu_cycles)
 {
 	Machine m{
 		Instruction::NOP(),
-		Instruction::NOP(),
+		Instruction::LUI(2, 1),
+		Instruction::LDR(3, 2, 0),             // a RAM load: 2 cycles
 		Instruction::NOP(),
 	};
 
 	TimerDevice timer{};
 	timer.attachTo(m.vm().io());
 
-	m.step(3);
+	m.step(4);
 
-	CHECK_EQ(timer.ticks(), u64{ 3 });
+	CHECK_EQ(timer.ticks(), u64{ 1 + 1 + 2 + 1 });
+	CHECK_EQ(timer.ticks(), m.vm().engine().cycles());
+}
+
+TEST(timer, the_countdown_is_counted_in_cycles_not_instructions)
+{
+	// Two RAM loads and a nop are five cycles: armed for five, the timer fires after the third instruction.
+	Machine m{
+		Instruction::STI(), Instruction::LUI(2, 1),
+		Instruction::LDR(3, 2, 0), Instruction::LDR(3, 2, 0), Instruction::NOP(),
+		Instruction::NOP(),
+	};
+
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+	m.installHandler(TimerDevice::Interrupt, Address(0x800), { Instruction::LI(9, 0xABC), Instruction::IRET() });
+
+	m.step(2);
+	timer.arm(5);
+	m.step(3);                                  // the loads end on cycles 4 and 6, the nop on 7
+	CHECK_EQ(m.vm().engine().cycles(), u64{ 7 });
+	CHECK(timer.isArmed());                     // due, and serviced before the next instruction
+	m.step(1);                                  // the event runs and its interrupt is taken
+	CHECK(!timer.isArmed());
+	m.step(1);
+	CHECK_EQ(m.reg(9), 0xABCu);
+}
+
+TEST(timer, the_countdown_is_an_event_on_the_scheduler)
+{
+	Machine m{ Instruction::NOP(), Instruction::NOP() };
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+	const Scheduler& events = m.vm().io().scheduler();
+
+	m.step(2);
+	timer.arm(10);
+	CHECK_EQ(events.cycleOf(timer, TimerDevice::CountdownEvent), u64{ 12 });
+	timer.arm(0);
+	CHECK_EQ(events.cycleOf(timer, TimerDevice::CountdownEvent), NoScheduledEvent);
+
+	timer.arm(10, true);
+	timer.reset();                              // a reset drops what the last program armed
+	CHECK(events.empty());
+
+	timer.arm(4);
+	timer.detachFrom(m.vm().io());              // and so does unplugging it
+	CHECK(events.empty());
+}
+
+TEST(timer, a_periodic_timer_keeps_its_period_from_the_cycle_it_was_due)
+{
+	// Due on cycle 3 but looked at after a load that ends on cycle 4, the next expiry is still on cycle 6, not 7.
+	Machine m{ Instruction::LUI(2, 1), Instruction::NOP(), Instruction::LDR(3, 2, 0), Instruction::NOP() };
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+	timer.arm(3, true);
+	m.step(4);                                  // cycles 1, 2, 4, and the event runs before the last nop
+	CHECK_EQ(m.vm().engine().cycles(), u64{ 5 });
+	CHECK_EQ(m.vm().io().scheduler().cycleOf(timer, TimerDevice::CountdownEvent), u64{ 6 });
+}
+
+TEST(timer, a_restored_countdown_lands_on_the_cycle_it_would_have)
+{
+	Machine m{ Instruction::NOP(), Instruction::NOP(), Instruction::NOP(), Instruction::NOP() };
+	TimerDevice timer{};
+	timer.attachTo(m.vm().io());
+	timer.arm(10);
+	m.step(3);
+	const auto state = timer.captureState();
+	CHECK_EQ(state.remaining, u64{ 7 });
+
+	m.step(1);                                  // the live run moves on ...
+	timer.reset();
+	m.vm().engine().setCycles(3);               // ... and the debugger puts the clock back first, then the timer
+	timer.restoreState(state);
+	CHECK_EQ(m.vm().io().scheduler().cycleOf(timer, TimerDevice::CountdownEvent), u64{ 10 });
 }
 
 TEST(timer, an_armed_timer_raises_its_interrupt)

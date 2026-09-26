@@ -5,6 +5,7 @@
 #include "memory.h"
 #include "interrupt_controller.h"
 #include "register_map.h"
+#include "scheduler.h"
 #include <mutex>
 
 // A device as the bus sees it: the interface every device implements, and how it reaches the machine.
@@ -29,6 +30,7 @@ namespace ceres::vm
 	private:
 		Memory* _memory = nullptr;
 		InterruptController* _interrupts = nullptr;
+		Scheduler* _scheduler = nullptr;   // set by the bus on attach, like the two above
 		// A host input thread may call raiseInterrupt while a machine is being torn down.
 		// The bus clears both pointers under this lock before the VM can be destroyed.
 		std::mutex _connectionMutex;
@@ -68,6 +70,10 @@ namespace ceres::vm
 				tick();
 		}
 
+		// An event this device scheduled (scheduler().schedule) has come due: `cycle` is the one it asked for,
+		// and the clock may be a few cycles past it - it is looked at between instructions.
+		virtual void onEvent([[maybe_unused]] u32 tag, [[maybe_unused]] u64 cycle) {}
+
 		// The machine is starting over (the system control device's reset command): put back whatever
 		// would otherwise reach into the fresh program - an armed timer, a transfer in flight, a tone
 		// still playing, a feature switched on. What the host plugged in or typed stays: a reset
@@ -81,6 +87,10 @@ namespace ceres::vm
 	protected:
 		Memory& memory() { return *_memory; }
 		const Memory& memory() const { return *_memory; }
+
+		// The machine's event scheduler, or nullptr while the device is not attached to a bus.
+		Scheduler* scheduler() noexcept { return _scheduler; }
+		const Scheduler* scheduler() const noexcept { return _scheduler; }
 
 		// How a device speaks first.
 		void raiseInterrupt(InterruptNumber interruptNumber)

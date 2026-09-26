@@ -32,6 +32,8 @@ namespace ceres::vm
 
 	private:
 		std::array<IODevice*, MaxDevices> _devices{};
+		// Every attached device can schedule events here; the execution engine services them.
+		Scheduler _scheduler;
 		// Bit k of a slot's word: the register at offset 4k is declared (offsets below 0x100, where every device
 		// keeps its registers today; one above is looked up in its table). Built on attach, so an access tests a bit.
 		std::array<u64, MaxDevices> _declared{};
@@ -170,6 +172,7 @@ namespace ceres::vm
 			const std::lock_guard lock{device._connectionMutex};
 			device._memory = &_memory;
 			device._interrupts = &_interrupts;
+			device._scheduler = &_scheduler;
 			rebuildTickedDevices();
 		}
 
@@ -185,6 +188,7 @@ namespace ceres::vm
 				const std::lock_guard lock{device._connectionMutex};
 				device._memory = &_memory;
 				device._interrupts = &_interrupts;
+				device._scheduler = &_scheduler;
 			}
 			rebuildTickedDevices();
 		}
@@ -201,6 +205,8 @@ namespace ceres::vm
 					const std::lock_guard lock{device->_connectionMutex};
 					device->_memory = nullptr;
 					device->_interrupts = nullptr;
+					device->_scheduler = nullptr;
+					_scheduler.cancelAll(*device);   // nothing may call back a device that is gone
 				}
 				rebuildTickedDevices();
 			}
@@ -234,6 +240,9 @@ namespace ceres::vm
 		}
 
 		// The device in slot `index` (0-255), or nullptr: for a debugger listing what is attached.
+		Scheduler& scheduler() noexcept { return _scheduler; }
+		const Scheduler& scheduler() const noexcept { return _scheduler; }
+
 		IODevice* deviceAt(usize index) const noexcept { return index < MaxDevices ? _devices[index] : nullptr; }
 
 		// Whether an access here reaches a declared register, or an empty slot: false only for an offset the

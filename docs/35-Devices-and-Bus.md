@@ -56,9 +56,12 @@ public:
     virtual void write(Address offset, u32 value) = 0;
     virtual const RegisterMap& registers() const = 0;       // the table below
     virtual void reset() {}                                 // a reset command: back to the power-on state
-    // ... plus the timing hooks (needsTick, tick, ticksUntilEvent, advance) the clock uses today
+    virtual void onEvent(u32 tag, u64 cycle) {}             // an event it scheduled has come due
+    // ... plus the per-instruction hooks (needsTick, tick, ticksUntilEvent, advance) the devices not yet
+    // on the scheduler still use (plan/v2 F2.3 moves them)
 protected:
     Memory& memory();
+    Scheduler* scheduler();                                 // schedule(*this, cycle, tag), cancel(*this, tag)
     void raiseInterrupt(InterruptNumber);
 };
 ```
@@ -105,9 +108,9 @@ command shows, and what the device tests check: every table is non-empty, in off
   slot 255  0xFFFF0000  system-control     10 registers
 (ceres) dev timer
   timer at 0xFF010000
-    0x00  Ticks              R   (not read)  The low word of the ticks so far; also latches the high word.
+    0x00  Ticks              R   (not read)  The low word of the CPU cycles so far; also latches the high word.
     0x04  Clock              R   0x68F5A0C1  Seconds since the epoch.
-    0x08  Command             W  -           Arms the timer to fire after that many ticks; 0 disarms it.
+    0x08  Command             W  -           Arms the timer to fire after that many cycles; 0 disarms it.
     ...
 ```
 

@@ -200,9 +200,9 @@ TEST(device_extras, every_division_shaped_instruction_honours_the_option)
 	CHECK_EQ(m.reg(4), 4u);
 }
 
-TEST(device_extras, a_block_instruction_costs_the_clock_its_length_in_ticks)
+TEST(device_extras, a_block_instruction_costs_the_clock_its_length_in_cycles)
 {
-	// A page copied in one step: 1 tick for the step and 4096 / 16 for the bytes.
+	// A page copied in one step: 4 cycles for the instruction and one for every 8 bytes (plan/v2 SPEC 3.2).
 	Machine m{ Instruction::MCPY(1, 2, 3) };
 	TimerDevice timer{};
 	timer.attachTo(m.vm().io());
@@ -211,6 +211,6 @@ TEST(device_extras, a_block_instruction_costs_the_clock_its_length_in_ticks)
 	m.vm().engine().setRegister(3, 4096);
 	const u64 before = timer.ticks();
 	m.step();
-	CHECK_EQ(timer.ticks() - before, u64{ 1 + 4096 / 16 });
+	CHECK_EQ(timer.ticks() - before, u64{ isa::cycles::BlockBase + 4096 / 8 });
 	timer.detachFrom(m.vm().io());
 }

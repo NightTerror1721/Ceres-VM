@@ -166,17 +166,17 @@ machine forever, since nothing could ever wake it back up.
 
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |
-| `0x00` | `TicksRegister` | Read | The low word of the ticks so far: instructions executed, and the halted clock's ticks. Reading it also **latches** the high word. |
+| `0x00` | `TicksRegister` | Read | The low word of the **CPU cycles** so far (each instruction's cost, plan/v2 SPEC 3.2), running or halted. Reading it also **latches** the high word. |
 | `0x04` | `ClockRegister` | Read | Wall-clock seconds since the Unix epoch. **This is the one value in the entire VM that is not deterministic** — everything else (including the tick count) behaves identically on every run. |
 | `0x08` | `CommandRegister` | Write | Arms or disarms the timer. |
 | `0x0C` | `MillisRegister` | Read | Milliseconds since the machine started, from the host's steady clock (wraps after 49 days). Like `ClockRegister`, **not deterministic**: the debugger records and replays it. |
 | `0x10` | `NanosLowRegister` | Read | The low word of the **nanoseconds** since the machine started, from the host's steady clock. Reading it also **latches** the high word. Not deterministic; recorded and replayed. |
 | `0x14` | `NanosHighRegister` | Read | The high word latched by the last read of `NanosLowRegister` (`0` before the first). Reading it does not look at the clock. |
 | `0x18` | `NanosResolutionRegister` | Read | The smallest step, in nanoseconds, that the host clock is seen to take between two reads. |
-| `0x1C` | `HaltClockRegister` | Read | How many ticks a second the clock counts while the CPU is halted (100 000 000 by default); `0` when the host does not run it in real time (a debugger replaying history). |
+| `0x1C` | `HaltClockRegister` | Read | How many cycles a second the clock counts while the CPU is halted (100 000 000 by default); `0` when the host does not run it in real time (a debugger replaying history). |
 | `0x20` | `AlarmLowRegister` | Read/Write | The low word of the **alarm** instant, in nanoseconds on `NanosLowRegister`'s clock. Written first; it does not arm anything alone. Reads the armed instant's low word (`0` when disarmed, so `0:0` always means disarmed). |
 | `0x24` | `AlarmHighRegister` | Read/Write | The high word. Writing it **arms** the alarm at `high:low`; `0:0` disarms it. Reads the armed instant's high word (`0` when disarmed). |
-| `0x28` | `TicksHighRegister` | Read | The high word of the tick count latched by the last read of `TicksRegister` (`0` before the first): read low first, then high, as for the nanoseconds. |
+| `0x28` | `TicksHighRegister` | Read | The high word of the cycle count latched by the last read of `TicksRegister` (`0` before the first): read low first, then high, as for the nanoseconds. |
 
 The nanosecond count is 64 bits, so it takes two reads: **low first, then high**. The low read
 takes the instant and keeps its high half, so the pair is one moment however much time passes
@@ -190,10 +190,13 @@ records both words of a read at the tick it happened and serves them back on a r
 
 Writing to the command register:
 
-- The low 31 bits are the number of **ticks** until the timer fires: instructions while the program
-  runs, and the halted clock's ticks while it is halted (below).
+- The low 31 bits are the number of **CPU cycles** until the timer fires: what the instructions cost
+  while the program runs, and the halted clock's cycles while it is halted (below). The count is an
+  event on the machine's scheduler, looked at between two instructions, so the timer fires before the
+  instruction after the one whose cycles reach it.
 - The high bit (`0x80000000`), if set, makes the timer **periodic**: it automatically re-arms itself
-  with the same period every time it expires.
+  with the same period every time it expires, counted from the cycle it was due on, so the period never
+  drifts.
 - Writing `0` disarms the timer.
 
 When the timer expires it raises `UserInterrupt0` (interrupt number 16) — see
@@ -202,22 +205,20 @@ of the 16 reserved/always-deliverable ones), it is taken only while the Interrup
 masked, it stays pending until it is. Either way it ends a `halt`.
 
 **The alarm** is the real-time counterpart: an absolute instant on the nanosecond clock rather than a
-count of ticks, so it keeps to the wall clock whatever the program executes in the meantime. Write the
+count of cycles, so it keeps to the wall clock whatever the program executes in the meantime. Write the
 low word, then the high word, which arms it; when the host clock reaches the instant the alarm raises
 `UserInterrupt8` (interrupt number **24**, its own, so a handler never has to ask which of the two
-fired) once and disarms. An instant already past fires on the next instruction. A running machine
-looks at the clock for it every 1 024 instructions (about 10 µs at the usual rate); a halted one
-sleeps until it, the instant turned into halted-clock ticks and rounded up. The alarm reads the host's
-clock directly, never a debugger's recording of `NanosLowRegister`, and with the halted clock at `0`
-it offers a halted machine no event: under a debugger that replays, a program should not sleep on it.
+fired) once and disarms. An instant already past fires on the next instruction. The alarm schedules a
+look at the clock for the cycle its instant falls on at the halted clock's rate, rounded up: a halted
+machine sleeps until it and is on time, and a running one, which gets there sooner, looks again and
+schedules the rest. The alarm reads the host's clock directly, never a debugger's recording of
+`NanosLowRegister`; with the halted clock at `0` it looks every 16 384 cycles instead.
 
-**While halted** the machine executes nothing, but its clock keeps counting at `HaltClockRegister` ticks
-per second - an instruction's worth of time per tick - so a timer armed for N ticks fires N ticks later
-whether the program waits for it running or in `halt`. The host does not step through those ticks: it
-sleeps until the timer's expiry (at most 10 ms at a time) and wakes early for anything a device raises.
-A program that wants a real-time wait converts it with the register: 16 ms at the default rate is
-1 600 000 ticks. (The halted clock used to advance one tick per millisecond, whatever the program
-meant by a tick.)
+**While halted** the machine executes nothing, but its clock keeps counting at `HaltClockRegister` cycles
+per second, so a timer armed for N cycles fires N cycles later whether the program waits for it running
+or in `halt`. The host does not step through those cycles: it sleeps until the timer's expiry (at most
+10 ms at a time) and wakes early for anything a device raises. A program that wants a real-time wait
+converts it with the register: 16 ms at the default rate is 1 600 000 cycles.
 
 Typical wake-up-after-a-delay pattern:
 

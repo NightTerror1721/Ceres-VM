@@ -125,9 +125,9 @@ solve before seeing how this tutorial solved it.
 ### Note on exercise 7: why the seed is the `ClockRegister` and not the `TicksRegister`
 
 Ceres has no dedicated random-number device. The temptation is to seed a generator of your own
-with the count of executed instructions (the timer's `TicksRegister`, offset `0x00`), but
+with the count of CPU cycles (the timer's `TicksRegister`, offset `0x00`), but
 [02 · Memory](02-Memory.md) and [07 · I/O devices and ports](07-IO-Devices-and-Ports.md) already
-point out that time in Ceres is counted in executed instructions, not real time, precisely so a
+point out that time in Ceres is counted in the CPU's cycles, not real time, precisely so a
 program behaves the same way on every run — and that includes the `TicksRegister`. Seeding with it
 gives literally the same "randomness" every time you run the program (you can check this by
 running `07_aleatorio.casm` twice in a row). The only value in the whole machine that genuinely

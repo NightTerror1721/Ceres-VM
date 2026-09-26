@@ -47,6 +47,7 @@ namespace ceres::debug
 
 		Snapshot snapshot;
 		snapshot.tick = tick;
+		snapshot.cycles = machine.engine().cycles();
 		snapshot.registers = machine.engine().registers();
 		snapshot.fregisters = machine.engine().fregisters();
 		snapshot.flags = machine.engine().flags().value();
@@ -123,6 +124,7 @@ namespace ceres::debug
 		engine.setFlags(vm::FlagRegister{ chosen->flags });
 		engine.setProgramCounter(vm::Address(chosen->programCounter));
 		engine.setExecutedInstructions(chosen->tick);
+		engine.setCycles(chosen->cycles);         // before the timer, whose countdown is kept against it
 
 		machine.interrupts().restorePendingMask(chosen->pendingInterrupts);
 		engine.setWakeEvent(chosen->wakeEvent);   // after the mask: restoring it may count as raises

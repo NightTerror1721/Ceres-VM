@@ -40,7 +40,7 @@
      Estructura: montículo pequeño o array ordenado (pocos dispositivos).
   2. En el bucle: `if (_cycles >= _scheduler.nextCycle()) _scheduler.service(_cycles);`.
   3. Migra la cuenta atrás y la alarma del Timer al planificador.
-- **Aceptación**: [ ] Tests del Timer con el planificador. [ ] Sin pérdida de rendimiento.
+- **Aceptación**: [x] Tests del Timer con el planificador. [x] Sin pérdida de rendimiento.
 - **Commit**: `Add the event scheduler and move the timer onto it (F2.2)`
 
 ### F2.3 · Todos los dispositivos al planificador; halt por eventos
@@ -121,3 +121,20 @@
   `push`, `call`, `pushm`, `enter` salen de la tabla de la SPEC sin casos especiales. `benchmark_vm` frente a BASELINE:
   igual o mejor en todo (ram 108,3 frente a 108,4); frente a F1.10 los saltos bajan de 181 a 170 MIPS por el ciclo
   del salto tomado.
+- **F2.2**: el `Scheduler` vive en el `MmioBus` (donde se conectan los dispositivos, que lo alcanzan con
+  `scheduler()`) y el motor lo ata a su `_cycles` y a un `_nextEvent` propio (`bindTo`), así que la comprobación
+  por instrucción compara dos palabras vecinas. Un evento por pareja (dispositivo, etiqueta); `onEvent(tag, cycle)`
+  lleva también la etiqueta, que el plan no nombraba. Se atiende **al principio** de `step()`, antes de mirar las
+  interrupciones pendientes: lo que levante se entrega en ese mismo paso, como con el tick al final del anterior;
+  sólo cambia lo que se ve entre dos pasos. El Timer cuenta **ciclos**: `TicksRegister` lee `_cycles`, la cuenta
+  atrás es un evento y el periódico se rearma desde el ciclo en que tocaba (no deriva). La alarma sigue en tiempo
+  real hasta la F2.4: programa un vistazo en el ciclo de su instante al ritmo del reloj detenido (en halt llega en
+  hora; corriendo llega antes y vuelve a programar el resto); con el reloj detenido a 0 mira cada 16 384 ciclos.
+  El paso detenido avanza evento a evento y para en el primero que levanta algo. Las instantáneas del depurador
+  guardan `_cycles` y lo restauran antes que el Timer. Rendimiento, binarios alternados en la misma sesión: `mixed`
+  137,8 frente a 139,1 de la F2.1 (−0,9 %). `loop` (3 instrucciones) y `branch` dependen de la alineación: sin la
+  comprobación, `loop` sube a 180 pero `branch` baja a 151 (F2.1: 175 y 174; F2.2: 127 y 167). La F2.3 quita el
+  bucle de `tick()`, que cuesta más que la comprobación.
+  STDLIB: `test_game` y `test_debug_ansi` tenían cotas en instrucciones que a `-O0` se quedan cortas en ciclos
+  (un marco vacío, 599; el bucle de `dbg_span`, 92 155): se amplían. La documentación de la STDLIB que aún habla
+  de instrucciones (`timer.h`, `dbg_span_*` en `debug.h`) se reescribe en la F2.8.

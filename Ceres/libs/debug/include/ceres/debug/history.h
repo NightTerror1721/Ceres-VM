@@ -49,6 +49,7 @@ namespace ceres::debug
 		struct Snapshot
 		{
 			u64 tick = 0;
+			u64 cycles = 0;           // the CPU clock, which the timer's countdown is scheduled against
 			GeneralPurposeRegisterPool registers;
 			FloatingPointRegisterPool fregisters;
 			u32 flags = 0;

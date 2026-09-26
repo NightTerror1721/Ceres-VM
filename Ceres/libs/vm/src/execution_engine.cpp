@@ -52,25 +52,24 @@ namespace ceres::vm
 		}
 	}
 
-	// A halted machine executes nothing, but its clock runs on at `_haltClockHz` ticks per second - an
-	// instruction's worth of time per tick, as if the CPU were busy - so a timer armed for N ticks
-	// fires N ticks later whether the program waits for it running or halted. The host does not step
-	// through those ticks: it sleeps until the next thing a device has scheduled (at most
-	// MaxHaltedWait at a time), wakes the moment anything raises an interrupt, and then moves the
-	// devices on by the time that actually passed - exactly to the event, when it was reached.
+	// A halted machine executes nothing, but its clock runs on at `_haltClockHz` cycles per second, so a
+	// timer armed for N cycles fires N cycles later whether the program waits for it running or halted. The
+	// host does not step through those cycles: it sleeps until the next thing a device will do (at most
+	// MaxHaltedWait at a time), wakes the moment anything raises an interrupt, and then moves the clock on by
+	// the time that actually passed - stopping at the first event that raises something, where it wakes.
 	//
 	// With the clock at 0 (a debugger replaying) no real time is involved: a step jumps straight to the
 	// next device event, and with none scheduled it waits up to MaxHaltedWait for the host to raise
 	// something, then returns so the loop around it can look again.
 	void ExecutionEngine::haltedStep(u64 raisesSeen) noexcept
 	{
-		const u64 toEvent = _mmioBus.ticksUntilNextEvent();
+		const u64 toEvent = haltedCyclesToEvent();
 		const HaltClock::time_point start = HaltClock::now();
 
 		if (_haltClockHz == 0)
 		{
 			if (toEvent != NoDeviceEvent)
-				_mmioBus.advance(toEvent);
+				passHaltedTime(toEvent);
 			else
 				_interrupts.waitForRaise(raisesSeen, start + MaxHaltedWait);
 			return;
@@ -86,18 +85,50 @@ namespace ceres::vm
 		if (wakeAt > start)
 			_interrupts.waitForRaise(raisesSeen, wakeAt);
 
-		// The time waited plus what the last steps left over, in whole ticks; the rest carries on.
+		// The time waited plus what the last steps left over, in whole cycles; the rest carries on.
 		const u64 waitedNanos = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(HaltClock::now() - start).count())
 			+ _haltCarryNanos;
-		u64 ticks = durationToTicks(std::chrono::nanoseconds(waitedNanos), _haltClockHz);
-		const u64 usedNanos = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(ticksToDuration(ticks, _haltClockHz)).count());
+		const u64 cycles = durationToTicks(std::chrono::nanoseconds(waitedNanos), _haltClockHz);
+		const u64 usedNanos = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(ticksToDuration(cycles, _haltClockHz)).count());
 		_haltCarryNanos = waitedNanos > usedNanos ? waitedNanos - usedNanos : 0;
-		if (toEvent != NoDeviceEvent && ticks >= toEvent)
+		if (passHaltedTime(cycles))
+			_haltCarryNanos = 0;                  // the event happened on its own cycle; the machine then wakes
+	}
+
+	u64 ExecutionEngine::haltedCyclesToEvent() const noexcept
+	{
+		u64 nearest = _mmioBus.ticksUntilNextEvent();
+		const u64 next = _mmioBus.scheduler().nextCycle();
+		if (next != NoScheduledEvent)
 		{
-			ticks = toEvent;                      // the event happens on its own tick; the machine then wakes
-			_haltCarryNanos = 0;
+			const u64 distance = next > _cycles ? next - _cycles : 0;
+			if (distance < nearest)
+				nearest = distance;
 		}
-		_mmioBus.advance(ticks);
+		return nearest;
+	}
+
+	// Event by event, so each one runs on its own cycle; one that raises nothing (an alarm looking at the
+	// host clock) does not end the wait.
+	bool ExecutionEngine::passHaltedTime(u64 cycles) noexcept
+	{
+		Scheduler& scheduler = _mmioBus.scheduler();
+		const u64 raisesBefore = _interrupts.raiseCount();
+		for (;;)
+		{
+			if (_cycles >= scheduler.nextCycle())
+				scheduler.service(_cycles);
+			if (_interrupts.raiseCount() != raisesBefore)
+				return true;
+			if (cycles == 0)
+				return false;
+			u64 piece = cycles;
+			if (const u64 toEvent = haltedCyclesToEvent(); toEvent < piece)
+				piece = toEvent == 0 ? 1 : toEvent;
+			_cycles += piece;
+			_mmioBus.advance(piece);
+			cycles -= piece;
+		}
 	}
 
 	void ExecutionEngine::handleHalt() noexcept
@@ -198,6 +229,11 @@ namespace ceres::vm
 		const bool shadowed = _interruptShadow;
 		_interruptShadow = false;
 
+		// A device event that came due during the last instruction runs now, before the pending requests are
+		// looked at: whatever it raises is delivered on this step, as if it had run right after that instruction.
+		if (_cycles >= _nextEvent) [[unlikely]]
+			_mmioBus.scheduler().service(_cycles);
+
 		// Taken before the pending request is looked at: a halted step that sleeps below must be woken by
 		// anything raised from here on, including a raise between this look and the sleep.
 		const u64 raisesSeen = _interrupts.raiseCount();
@@ -253,5 +289,6 @@ namespace ceres::vm
 		}
 		++_executedInstructions;
 		_mmioBus.tick();
+
 	}
 }

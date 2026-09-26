@@ -1,6 +1,6 @@
-// A halted machine keeps instruction time: its clock runs on at the halt clock's rate (ticks per second)
-// instead of one tick per millisecond, the host sleeps until the next device event instead of stepping
-// through the ticks, and anything a device raises wakes it at once.
+// A halted machine keeps CPU time: its clock runs on at the halt clock's rate (cycles per second), the host
+// sleeps until the next device event instead of stepping through the cycles, and anything a device raises
+// wakes it at once.
 
 #include "framework.h"
 #include <ceres/vm/ceresvm.h>
@@ -104,7 +104,8 @@ TEST(halt_clock, a_halted_wait_takes_its_ticks_in_real_time_at_the_halt_clock)
 	CHECK(waited >= 25);                        // it did wait, for about the ticks' worth of time
 	CHECK(waited < 2000);
 	CHECK(steps < 100);                         // in a few sleeps, not a step per tick
-	CHECK(m.timer.ticks() - before <= 30'000);  // the clock stopped at the event, not past it
+	// the clock stopped at the event, not past it: what follows is the handler's entry and first instruction
+	CHECK(m.timer.ticks() - before <= 30'000 + isa::cycles::InterruptEntry);
 	CHECK_EQ(m.reg(9), 0x5Au);
 }
 
@@ -209,7 +210,7 @@ TEST(halt_clock, a_halt_after_an_interrupt_was_taken_waits_for_the_next_one)
 TEST(halt_clock, a_running_machine_reaches_the_alarm_and_takes_its_interrupt)
 {
 	// STI, then a jump to itself: the program runs, never halts, and the alarm's handler (bound to 24) runs
-	// once its instant comes - the running machine looks at the clock every AlarmPollTicks instructions.
+	// once its instant comes - the running machine looks at the clock whenever the alarm's event comes due.
 	HaltedMachine m;
 	m.vm().memory().writeUnchecked<u32>(Memory::UnrestrictedSegmentStart + Address(4), Instruction::JP(i24(0)).raw());
 	m.vm().memory().writeUnchecked<u32>(Address(static_cast<u32>(TimerDevice::AlarmInterrupt) * Address::Size), 0x800u);
@@ -248,19 +249,25 @@ TEST(halt_clock, a_trap_left_set_does_not_keep_a_masked_halt_asleep)
 
 TEST(halt_clock, the_tick_count_reads_as_64_bits_through_a_latched_high_word)
 {
+	CeresVM vm;
 	TimerDevice timer;
-	timer.advance(0x1'0000'0005ull);            // past 2^32 ticks
+	timer.attachTo(vm.io());
+	vm.engine().setCycles(0x1'0000'0005ull);    // past 2^32 cycles
 	CHECK_EQ(timer.read(TimerDevice::TicksHighRegister), 0u);   // nothing latched yet
 	CHECK_EQ(timer.read(TimerDevice::TicksRegister), 5u);
-	timer.advance(0xFFFF'FFFFull);              // the count moves on between the two reads...
+	vm.engine().setCycles(0x2'0000'0004ull);    // the count moves on between the two reads...
 	CHECK_EQ(timer.read(TimerDevice::TicksHighRegister), 1u);   // ...and the pair is still one moment
 	CHECK_EQ(timer.read(TimerDevice::TicksRegister), 4u);
 	CHECK_EQ(timer.read(TimerDevice::TicksHighRegister), 2u);
+	timer.detachFrom(vm.io());
 }
 
 TEST(halt_clock, the_alarm_fires_at_its_instant_on_the_nanosecond_clock)
 {
+	CeresVM vm;
 	TimerDevice timer;
+	timer.attachTo(vm.io());
+	const Scheduler& events = vm.io().scheduler();
 	CHECK_EQ(timer.alarmNanos(), u64{ 0 });
 	const u32 soonLow = timer.read(TimerDevice::NanosLowRegister);   // the low word first: it latches the high one
 	const u64 soon = (static_cast<u64>(timer.read(TimerDevice::NanosHighRegister)) << 32) | soonLow;
@@ -272,15 +279,15 @@ TEST(halt_clock, the_alarm_fires_at_its_instant_on_the_nanosecond_clock)
 	CHECK_EQ(timer.alarmNanos(), at);
 	CHECK_EQ(timer.read(TimerDevice::AlarmLowRegister), static_cast<u32>(at));
 
-	// About 20 ms of halted-clock ticks, rounded up, and never 0.
-	const u64 ticks = timer.ticksUntilEvent();
-	CHECK(ticks > 0 && ticks <= 20'000'000ull * DefaultHaltClockHz / 1'000'000'000ull + 1);
-	timer.setHaltClockRate(0);
-	CHECK_EQ(timer.ticksUntilEvent(), NoDeviceEvent);   // no real time while halted: no event to offer
+	// Scheduled about 20 ms of halted-clock cycles away, rounded up, and never now.
+	const u64 cycles = events.cycleOf(timer, TimerDevice::AlarmEvent);
+	CHECK(cycles > 0 && cycles <= 20'000'000ull * DefaultHaltClockHz / 1'000'000'000ull + 1);
 
 	timer.write(TimerDevice::AlarmLowRegister, 0);
 	timer.write(TimerDevice::AlarmHighRegister, 0);
 	CHECK_EQ(timer.alarmNanos(), u64{ 0 });     // 0:0 disarms
+	CHECK(events.empty());                      // and drops its event
+	timer.detachFrom(vm.io());
 }
 
 TEST(halt_clock, a_masked_halt_sleeps_until_the_alarm_in_real_time)
@@ -367,22 +374,4 @@ TEST(halt_clock, the_timer_reports_the_halt_clock_it_was_told)
 	CHECK_EQ(timer.read(TimerDevice::HaltClockRegister), static_cast<u32>(DefaultHaltClockHz));
 	timer.setHaltClockRate(0);
 	CHECK_EQ(timer.read(TimerDevice::HaltClockRegister), 0u);
-}
-
-TEST(halt_clock, advancing_the_timer_is_the_same_as_ticking_it)
-{
-	TimerDevice ticked;
-	TimerDevice skipped;
-	ticked.arm(100, true);
-	skipped.arm(100, true);
-	for (int i = 0; i < 100; ++i)
-		ticked.tick();
-	skipped.advance(100);
-	CHECK_EQ(ticked.ticks(), skipped.ticks());
-	CHECK_EQ(ticked.captureState().remaining, skipped.captureState().remaining);   // periodic: re-armed
-	CHECK_EQ(skipped.ticksUntilEvent(), u64{ 100 });
-	skipped.advance(40);
-	CHECK_EQ(skipped.ticksUntilEvent(), u64{ 60 });
-	TimerDevice idle;
-	CHECK_EQ(idle.ticksUntilEvent(), NoDeviceEvent);
 }

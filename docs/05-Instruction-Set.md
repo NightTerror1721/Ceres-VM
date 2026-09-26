@@ -27,7 +27,7 @@ the rest), see [Pseudo-instructions](06-Pseudo-Instructions.md).
 | Assembly | Opcode | Operands | Semantics | Flags |
 | --- | --- | --- | --- | --- |
 | `nop` | `NOP` (`0x00`) | none | Does nothing; advances the program counter. | — |
-| `halt` | `HALT` (`0x01`) | none | Waits for an event, like ARM's `wfi`/`wfe`: sets the Halting flag, and the `step()` loop stops fetching instructions until a device raises an interrupt request — taken or not, masked by `cli` or with no handler bound. A request raised since the machine last woke means the event is already here, and `halt` goes straight on. The clock runs on at the halt clock's rate (100 million ticks a second by default) while the host sleeps until the next device event — see [Interrupts and exceptions](08-Interrupts-and-Exceptions.md#pending-interrupts-and-halt). | Halting |
+| `halt` | `HALT` (`0x01`) | none | Waits for an event, like ARM's `wfi`/`wfe`: sets the Halting flag, and the `step()` loop stops fetching instructions until a device raises an interrupt request — taken or not, masked by `cli` or with no handler bound. A request raised since the machine last woke means the event is already here, and `halt` goes straight on. The clock runs on at the halt clock's rate (100 million cycles a second by default) while the host sleeps until the next device event — see [Interrupts and exceptions](08-Interrupts-and-Exceptions.md#pending-interrupts-and-halt). | Halting |
 | `trap` | `TRAP` (`0x02`) | none | Advances the PC, then raises interrupt `Trap` (1). Advancing first (rather than after) means `iret` returns to the instruction *after* the `trap`, not to the `trap` itself. | Trap-related interrupt is dispatched (see [Interrupts and exceptions](08-Interrupts-and-Exceptions.md)) |
 | `reset` | `RESET` (`0x03`) | none | Raises interrupt `Reset` (0) *without* advancing the PC first. Because interrupt 0 is one of the always-deliverable "reserved" interrupts, this reliably restarts the machine regardless of the Interrupt flag. | — |
 | `int imm8` | `INT` (`0x04`) | `imm8`: interrupt number 0–63 | Advances the PC, then raises the given interrupt number (cast to `InterruptNumber`). 64 or more is an `IllegalInstruction` fault at the `int` itself; the assembler refuses it. | — |
@@ -536,7 +536,8 @@ until `rt` reaches 0 the PC stays on the instruction, so the next step does the 
 - every access is checked as a byte access would be: `.text` and the vector table/BIOS are not
   writable (`MemoryFault`), the MMU translates and faults, and a block that runs into the device window
   reaches it a byte at a time. Byte accesses never fault on alignment;
-- a chunk costs the clock `1 + bytes/16` ticks, so an instruction budget still means something.
+- a chunk costs the CPU `ceil(bytes/8)` cycles and the instruction 4 more when it ends (plan/v2 SPEC 3.2),
+  so a cycle budget still means something.
 
 `mcpy` with the destination overlapping the source from above repeats bytes, as a forward byte loop
 would; a `memmove` that has to go downwards copies from the top by other means.
