@@ -51,8 +51,8 @@ Archivo: [phases/F02-relojes.md](phases/F02-relojes.md)
 | F2.4 | Timer v2 y `CpuClockHz` | F2.3 | DONE | asm@5155132, lib@d9477d3 |
 | F2.5 | Runner por tiempo virtual, `Pacer` y `--speed` | F2.4 | DONE | asm@a1fca26 |
 | F2.6 | Entrada sellada, `--record` y `--replay` | F2.5 | DONE | asm@fc6febe |
-| F2.7 | Perfilador y debugger en ciclos | F2.3 | DONE |  |
-| F2.8 | STDLIB en tiempo virtual | F2.4 | TODO |  |
+| F2.7 | Perfilador y debugger en ciclos | F2.3 | DONE | asm@e83960b |
+| F2.8 | STDLIB en tiempo virtual | F2.4 | DONE | lib@65f1063 |
 | F2.9 | Test de determinismo y documentación | F2.6, F2.8 | TODO |  |
 
 ## F3 · ISA de 64 bits

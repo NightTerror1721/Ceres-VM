@@ -99,7 +99,7 @@
 - **Pasos**: nuevos offsets del Timer; `timer_cycles64()`, `timer_nanos64()`, `timer_cpu_hz()`; elimina
   `timer_halt_clock` y lo deprecado (`ns64` sigue hasta F6); `clock()` en microsegundos virtuales; esperas sobre
   la alarma; `game.h` acompasa por tiempo virtual. Revisa a mano los `.expected` que cambien.
-- **Aceptación**: [ ] `runtests.ps1` en verde. [ ] La documentación de `timer.h` explica ciclos y tiempo virtual.
+- **Aceptación**: [x] `runtests.ps1` en verde. [x] La documentación de `timer.h` explica ciclos y tiempo virtual.
 - **Commit**: `Move the library onto the virtual clock (F2.8)`
 
 ### F2.9 · Test de determinismo y documentación
@@ -192,3 +192,10 @@
   guardan la lista de eventos del planificador (`captureEvents`/`restoreEvents`) y la huella de los tests de historial
   compara ciclos, nanos y eventos. Un test comprueba que volver a antes de lanzar un DMA largo no deja su evento
   pendiente (falla sin la restauración). El estado del DMA sigue sin estar en las instantáneas.
+- **F2.8**: macros con los nombres de la SPEC (`TIMER_CYCLES_LOW_REG`…`TIMER_CPU_HZ_REG`); `timer_cycles64()` sustituye a
+  `timer_ticks64()` y `timer_cpu_hz()` a `timer_halt_clock()`; se retiran `timer_nanos()`, `timer_nanos_elapsed()` y
+  `timer_wait_until_ns(struct ns64)` (`ns64.h` sigue hasta la F6); `timer_halt_until_ns` ya no mira si el host lleva
+  tiempo real. Un tick es un ciclo: `timer_ticks`, `timer_elapsed`, `timer_arm`, `game` y `dbg_span` cuentan ciclos
+  (`dbg_span_end` imprime «N cycles»). `clock()` ya eran nanos/1000 y ahora son tiempo virtual sin tocar el código.
+  `.expected` cambiados a mano: sólo títulos de sección («instructions» → «cycles», y «not on a budget» en
+  `test_game_halt`); `test_nanos` usa las formas `uint64_t` con las mismas 34 comprobaciones. Referencia regenerada.
