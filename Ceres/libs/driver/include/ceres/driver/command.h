@@ -3,6 +3,7 @@
 #include <ceres/vm/memory.h>
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -58,6 +59,7 @@ namespace ceres::driver
 		std::vector<std::string> environment;   // --env NAME=value, in order
 		std::filesystem::path hostDirectory;    // --host-dir: the host directory the program's host files live in
 		bool strictMmio = false;                // --strict-mmio: an undeclared device register faults instead of reading 0
+		std::optional<i64> rtc;                 // --rtc: the real-time clock's start, in seconds since 1970 (UTC)
 	};
 
 	struct ProfileCommand

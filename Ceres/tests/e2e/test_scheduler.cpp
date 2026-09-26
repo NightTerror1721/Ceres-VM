@@ -251,12 +251,12 @@ TEST(halted_machine, the_cycle_count_reads_as_64_bits_through_a_latched_high_wor
 	TimerDevice timer;
 	timer.attachTo(vm.io());
 	vm.engine().setCycles(0x1'0000'0005ull);    // past 2^32 cycles
-	CHECK_EQ(timer.read(TimerDevice::TicksHighRegister), 0u);   // nothing latched yet
-	CHECK_EQ(timer.read(TimerDevice::TicksRegister), 5u);
+	CHECK_EQ(timer.read(TimerDevice::CyclesHighRegister), 0u);   // nothing latched yet
+	CHECK_EQ(timer.read(TimerDevice::CyclesLowRegister), 5u);
 	vm.engine().setCycles(0x2'0000'0004ull);    // the count moves on between the two reads...
-	CHECK_EQ(timer.read(TimerDevice::TicksHighRegister), 1u);   // ...and the pair is still one moment
-	CHECK_EQ(timer.read(TimerDevice::TicksRegister), 4u);
-	CHECK_EQ(timer.read(TimerDevice::TicksHighRegister), 2u);
+	CHECK_EQ(timer.read(TimerDevice::CyclesHighRegister), 1u);   // ...and the pair is still one moment
+	CHECK_EQ(timer.read(TimerDevice::CyclesLowRegister), 4u);
+	CHECK_EQ(timer.read(TimerDevice::CyclesHighRegister), 2u);
 	timer.detachFrom(vm.io());
 }
 
@@ -322,6 +322,6 @@ TEST(halted_machine, two_runs_read_the_same_clock)
 TEST(halted_machine, the_timer_reports_the_cpu_clock)
 {
 	TimerDevice timer;
-	CHECK_EQ(timer.read(TimerDevice::HaltClockRegister), static_cast<u32>(DefaultCpuClockHz));
+	CHECK_EQ(timer.read(TimerDevice::CpuClockHzRegister), static_cast<u32>(DefaultCpuClockHz));
 	CHECK_EQ(timer.clockHz(), DefaultCpuClockHz);
 }

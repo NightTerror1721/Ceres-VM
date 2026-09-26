@@ -51,6 +51,8 @@ namespace ceres::devices
 		static inline constexpr Address ArgumentCountRegister = Address(0x18);
 		static inline constexpr Address ArgumentVectorRegister = Address(0x1C);
 		static inline constexpr Address EnvironmentRegister = Address(0x20);
+		// Read-only: the CPU clock, in cycles per second (plan/v2 SPEC 5.7) - what turns the timer's cycles into time.
+		static inline constexpr Address CpuClockHzRegister = Address(0x24);
 		// Read-only: why the last memory fault happened - a vm::FaultReason (plan/v2 SPEC 5.4): 5 for a device
 		// register reached by anything but an aligned 32-bit access, 6 for a block instruction that touched a device.
 		static inline constexpr Address FaultReasonRegister = Address(0x2C);

@@ -420,15 +420,6 @@ namespace ceres::debug
 			_history.start(*_vm, *_timer, *_terminal);
 			_callStackHistory.clear();
 			_callStackHistory.emplace_back(u64{ 0 }, _callStack);
-
-			// The real-time clock is the machine's one non-deterministic input, so it is recorded
-			// on the way forward and served back from the recording on the way through again.
-			_timer->setClockSource([this]() -> u32
-			{
-				const u32 live = static_cast<u32>(std::chrono::duration_cast<std::chrono::seconds>(
-					std::chrono::system_clock::now().time_since_epoch()).count());
-				return _history.clockValue(currentTick(), live);
-			});
 		}
 
 		if (_config.stopOnEntry)

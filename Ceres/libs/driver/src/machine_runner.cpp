@@ -199,10 +199,10 @@ namespace ceres::driver
 
 	int runMachine(const Program& program, usize memorySize, const DebugInfo* profileInfo,
 		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, vm::ProgramArguments arguments,
-		const std::filesystem::path& hostDirectory, HostServices services, HostBackend* backend, bool strictMmio)
+		const std::filesystem::path& hostDirectory, HostServices services, HostBackend* backend, const MachineOptions& options)
 	{
 		CeresVM vm{memorySize};
-		vm.engine().setStrictMmio(strictMmio);
+		vm.engine().setStrictMmio(options.strictMmio);
 		vm.setProgramArguments(std::move(arguments));
 		// A reset starts the program again from its entry point (CeresVM::restartIfRequested): vm.run()
 		// does that on its own, and the windowed loop below between two frames.
@@ -234,6 +234,8 @@ namespace ceres::driver
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		framebuffer.setWindowHost(backend != nullptr && backend->showsText());
+		if (options.rtc)
+			timer.setRtcStart(*options.rtc);
 		timer.attachTo(vm.io());
 		dma.attachTo(vm.io());
 		keyboard->attachTo(vm.io());

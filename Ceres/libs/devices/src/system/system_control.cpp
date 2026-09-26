@@ -15,6 +15,7 @@ namespace ceres::devices
 			{ 0x18, "ArgumentCount",  RegisterAccess::Read,      0x0, false, "argc, as main received it." },
 			{ 0x1C, "ArgumentVector", RegisterAccess::Read,      0x0, false, "The address of argv." },
 			{ 0x20, "Environment",    RegisterAccess::Read,      0x0, false, "The address of envp." },
+			{ 0x24, "CpuClockHz",     RegisterAccess::Read,      0x0, false, "The CPU clock, in cycles per second." },
 			{ 0x2C, "FaultReason",    RegisterAccess::Read,      0x0, false, "Why the last memory fault happened: a FaultReason (plan/v2 SPEC 5.4)." },
 		};
 	}
@@ -80,6 +81,12 @@ namespace ceres::devices
 		if (offset == FaultAccessRegister && _faultAccessGetter)
 		{
 			value = _faultAccessGetter();
+			return true;
+		}
+		if (offset == CpuClockHzRegister)
+		{
+			const Scheduler* clock = scheduler();
+			value = static_cast<u32>(clock != nullptr ? clock->clockHz() : DefaultCpuClockHz);
 			return true;
 		}
 		if (offset == FaultReasonRegister && _faultReasonGetter)

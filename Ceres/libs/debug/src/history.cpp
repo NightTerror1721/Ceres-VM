@@ -12,10 +12,8 @@ namespace ceres::debug
 		_base.clear();
 		_base.shrink_to_fit();
 		_snapshots.clear();
-		_clockReads.clear();
 		_inputs.clear();
 		_replaying = false;
-		_nextClockRead = 0;
 	}
 
 	void History::start(const vm::CeresVM& machine, const TimerDevice& timer, const TerminalDevice& terminal)
@@ -134,39 +132,7 @@ namespace ceres::debug
 		timer.restoreState(chosen->timer);
 		terminal.restoreState(chosen->terminal);
 
-		rewindClockCursor(chosen->tick);
 		return chosen->tick;
-	}
-
-	u32 History::clockValue(u64 tick, u32 liveValue)
-	{
-		if (!_enabled)
-			return liveValue;
-
-		if (_replaying)
-		{
-			// Served from the recording, so a program that asks the time twice on two passes
-			// through the same instruction gets the same answer both times.
-			while (_nextClockRead < _clockReads.size() && _clockReads[_nextClockRead].first < tick)
-				++_nextClockRead;
-
-			if (_nextClockRead < _clockReads.size() && _clockReads[_nextClockRead].first == tick)
-				return _clockReads[_nextClockRead++].second;
-
-			// Nothing recorded for this moment, which means the replay has diverged. The last
-			// known value is a better answer than a fresh one: it at least stays put.
-			return _clockReads.empty() ? liveValue : _clockReads.back().second;
-		}
-
-		_clockReads.emplace_back(tick, liveValue);
-		return liveValue;
-	}
-
-	void History::rewindClockCursor(u64 tick)
-	{
-		_nextClockRead = 0;
-		while (_nextClockRead < _clockReads.size() && _clockReads[_nextClockRead].first < tick)
-			++_nextClockRead;
 	}
 
 	void History::recordInput(u64 tick, std::string_view text)

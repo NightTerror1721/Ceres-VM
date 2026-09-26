@@ -10,7 +10,16 @@
 namespace ceres::driver
 {
 	struct HostServices;
+
+	// How the machine itself is set up, apart from what is plugged into it.
+	struct MachineOptions
+	{
+		bool strictMmio = false;          // --strict-mmio
+		std::optional<i64> rtc;           // --rtc: the real-time clock's start, seconds since 1970
+	};
+
 	int runMachine(const fmt::Program& program, usize memorySize, const fmt::DebugInfo* profileInfo,
 		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, vm::ProgramArguments arguments,
-		const std::filesystem::path& hostDirectory, HostServices services, HostBackend* backend = nullptr, bool strictMmio = false);
+		const std::filesystem::path& hostDirectory, HostServices services, HostBackend* backend = nullptr,
+		const MachineOptions& options = {});
 }

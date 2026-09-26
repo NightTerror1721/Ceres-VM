@@ -38,6 +38,7 @@ namespace ceres::vm
 		// the engine is built (bindTo), so the check it makes every instruction touches nothing else.
 		u64* _next = &_ownNext;
 		const u64* _clock = nullptr;            // the CPU's cycle counter (ExecutionEngine), what now() reads
+		u64 _clockHz = DefaultCpuClockHz;       // how many of those cycles make a second of the machine's time
 
 		void recomputeNext() noexcept;
 
@@ -58,6 +59,11 @@ namespace ceres::vm
 			_clock = cycles;
 		}
 		u64 now() const noexcept { return _clock != nullptr ? *_clock : 0; }
+
+		// The CPU clock (plan/v2 SPEC 3.1): what the devices that keep time turn cycles into seconds with. It fits
+		// the 32-bit registers that report it, and is never 0.
+		void setClockHz(u64 hz) noexcept { _clockHz = hz == 0 ? 1 : hz > 0xFFFFFFFFull ? 0xFFFFFFFFull : hz; }
+		u64 clockHz() const noexcept { return _clockHz; }
 
 		// Calls `device.onEvent(tag, cycle)` once the clock reaches `cycle` (at once, at the next look, if it
 		// already has). A device has at most one event per tag: scheduling a tag again moves it.

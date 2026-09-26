@@ -209,8 +209,8 @@ TEST(device_extras, a_block_instruction_costs_the_clock_its_length_in_cycles)
 	m.vm().engine().setRegister(1, 0x20000);
 	m.vm().engine().setRegister(2, 0x10000);
 	m.vm().engine().setRegister(3, 4096);
-	const u64 before = timer.ticks();
+	const u64 before = timer.cycles();
 	m.step();
-	CHECK_EQ(timer.ticks() - before, u64{ isa::cycles::BlockBase + 4096 / 8 });
+	CHECK_EQ(timer.cycles() - before, u64{ isa::cycles::BlockBase + 4096 / 8 });
 	timer.detachFrom(m.vm().io());
 }

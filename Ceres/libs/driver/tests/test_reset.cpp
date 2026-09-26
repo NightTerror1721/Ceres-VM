@@ -130,7 +130,7 @@ TEST(driver_reset, a_reset_disarms_the_timer_and_drops_a_transfer_in_flight)
 	CHECK(timer.isArmed());
 	timer.reset();
 	CHECK(!timer.isArmed());
-	CHECK_EQ(timer.ticks(), u64{ 0 });
+	CHECK_EQ(timer.cycles(), u64{ 0 });
 
 	devices::SystemControlDevice control;
 	u32 told = 0xFFFFFFFFu;

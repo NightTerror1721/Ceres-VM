@@ -4,10 +4,10 @@
 //
 // Nothing in the machine can undo an instruction, so "back" means "start again from a snapshot and
 // stop earlier". That works here, where it would not on real hardware, because the machine is
-// deterministic by construction: the timer counts executed instructions rather than wall clock, so
-// a program behaves identically on every run. Two things are not deterministic - the real-time
-// clock port and whatever the user types - and both are recorded as they happen and replayed from
-// the recording.
+// deterministic by construction: time is the machine's own CPU cycles rather than wall clock - the
+// timer's clocks, its real-time clock among them, are worked out from them - so a program behaves
+// identically on every run. The one thing that is not deterministic is whatever the user types, which
+// is recorded as it happens and replayed from the recording.
 //
 // Snapshots are stored as the memory pages that differ from a base image taken at the start. A
 // program's working set is a few pages out of four thousand, so a snapshot costs kilobytes rather
@@ -75,15 +75,13 @@ namespace ceres::debug
 		std::vector<u8> _base;
 		std::deque<Snapshot> _snapshots;
 
-		// The two things a replay cannot reproduce on its own, recorded against the tick they
-		// happened at and served back from here while replaying.
-		std::vector<std::pair<u64, u32>> _clockReads;
+		// What a replay cannot reproduce on its own, recorded against the tick it happened at and
+		// served back from here while replaying.
 		std::vector<std::pair<u64, std::string>> _inputs;
 
 		// Set while re-executing, so recording does not record its own replay and breakpoints do
 		// not fire on ground already covered.
 		bool _replaying = false;
-		usize _nextClockRead = 0;
 
 	public:
 		History() = default;
@@ -124,13 +122,9 @@ namespace ceres::debug
 		bool canReach(u64 tick) const noexcept { return _enabled && !_snapshots.empty() && tick >= oldestTick(); }
 
 	public:
-		// The real-time clock, recorded on the way forward and served back on the way through
-		// again, so a program that reads it sees the same second both times.
-		u32 clockValue(u64 tick, u32 liveValue);
 		void recordInput(u64 tick, std::string_view text);
 		// Input that was typed between `fromTick` and `toTick`, to be pushed again during replay.
 		std::vector<std::string> inputsBetween(u64 fromTick, u64 toTick) const;
-		void rewindClockCursor(u64 tick);
 
 		usize memoryCost() const noexcept;
 	};

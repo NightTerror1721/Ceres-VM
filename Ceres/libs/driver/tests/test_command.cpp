@@ -156,6 +156,55 @@ TEST(driver_run, strict_mmio_turns_an_undeclared_device_register_into_a_fault)
 	CHECK_EQ(strict, 7);
 }
 
+TEST(driver_command, rtc_takes_a_utc_moment_and_belongs_to_run_alone)
+{
+	char program[] = "ceres";
+	char run[] = "run";
+	char profile[] = "profile";
+	char input[] = "main.casm";
+	char option[] = "--rtc";
+	char moment[] = "2026-09-26T12:00:00";
+	char* runArgv[] = { program, run, input, option, moment };
+	auto parsed = parseCommandLine(5, runArgv);
+	const auto* command = parsed ? std::get_if<RunCommand>(&*parsed) : nullptr;
+	CHECK(command != nullptr && command->rtc == ceres::i64{ 1'790'424'000 });
+
+	char* profileArgv[] = { program, profile, input, option, moment };
+	CHECK(!parseCommandLine(5, profileArgv).has_value());
+
+	for (const char* wrong : { "2026-02-30T00:00:00", "1969-12-31T23:59:59", "2026-09-26 12:00:00", "2026-09-26T24:00:00", "tomorrow" })
+	{
+		std::string text = wrong;
+		char* wrongArgv[] = { program, run, input, option, text.data() };
+		CHECK(!parseCommandLine(5, wrongArgv).has_value());
+	}
+}
+
+TEST(driver_run, rtc_sets_what_the_program_reads_from_the_real_time_clock)
+{
+	// The program exits with the low byte of the timer's Rtc register as its status.
+	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_rtc_test.casm";
+	{
+		std::ofstream file{source};
+		file << "@text\n"
+			"global main:\n"
+			"    la   r13, 0xFF01001C\n"
+			"    ldr  r1, [r13 + 0]\n"
+			"    shl  r1, r1, 8\n"
+			"    or   r1, r1, 1\n"
+			"    la   r13, 0xFFFF0000\n"
+			"    str  [r13 + 0], r1\n";
+	}
+	std::istringstream input;
+	std::ostringstream output;
+	std::ostringstream diagnostics;
+	RunCommand command{.input = source};
+	command.rtc = 42;                           // 1970-01-01T00:00:42
+	const int status = execute(command, {&input, &output, &diagnostics});
+	std::filesystem::remove(source);
+	CHECK_EQ(status, 42);
+}
+
 TEST(driver_command, run_takes_the_program_arguments_after_a_double_dash_and_env)
 {
 	char program[] = "ceres";

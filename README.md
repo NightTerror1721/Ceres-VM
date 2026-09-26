@@ -667,18 +667,20 @@ general-purpose register, and a parameter cannot be subtracted — pass the nega
 ## The timer
 
 ```casm
-    li r1, 1000
-    out 0x12, r1        // fire an interrupt in 1000 instructions
-    sti                 // user interrupts are masked until this
-    halt                // suspended until the timer fires
+    li   r1, 1000
+    la   r13, 0xFF010008    // the timer's Countdown
+    str  [r13 + 0], r1      // fire an interrupt in 1000 cycles
+    sti                     // user interrupts are masked until this
+    halt                    // suspended until the timer fires
 ```
 
-Time is counted in **executed instructions**, not wall clock, so a program behaves the same on
-every run. Writing 0 disarms the timer; setting the high bit asks for a periodic one that re-arms
-itself. The timer requests `UserInterrupt0` (16), whose vector lives at address `0x40`.
-
-`0x10` reads the tick count and `0x11` the real time in seconds, which is the one thing here that
-is not deterministic.
+Time is the machine's own: **CPU cycles** (each instruction costs a fixed number, plan/v2 SPEC 3.2) at a
+50 MHz CPU clock, not wall clock, so a program behaves the same on every run, and a halted machine jumps
+straight to the next event. Writing 0 disarms the countdown; bit 0 of `CountdownControl` (`0x0C`) makes it
+periodic. It requests `UserInterrupt0` (16), whose vector lives at address `0x40`. The timer also reads
+the cycles, nanoseconds and milliseconds since the start, an alarm on the nanosecond clock and a real-time
+clock (`0x1C`, seconds since 1970 from the host's clock at start, or `ceres run --rtc`): see
+[I/O devices](docs/07-IO-Devices-and-Ports.md).
 
 ## Register aliases
 

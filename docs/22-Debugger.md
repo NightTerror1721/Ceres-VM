@@ -192,13 +192,10 @@ the machine's own CPU cycles rather than wall clock, so a program behaves identi
 determinism that was a design decision about reproducibility turns out to be the thing that makes
 reverse debugging possible.
 
-Two things are not deterministic - the timer's other clocks are the machine's own cycles - and both are
-recorded as they happen and served back from the recording during a replay:
-
-- **The real-time clock** (the timer's `ClockRegister`), whose value is journalled against the
-  instruction count it was read at.
-- **Whatever the user types**, journalled the same way and pushed into the terminal again at the
-  same point in the replay.
+Every clock the timer has is worked out from the machine's own cycles - its real-time clock too, which
+starts where the session started it - so the one thing that is not deterministic is **whatever the user
+types**: it is journalled against the instruction count it arrived at and pushed into the terminal again
+at the same point in the replay.
 
 ### What a snapshot costs
 

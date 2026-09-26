@@ -5,8 +5,8 @@
 // of instructions executed is identical on every run, so seeding with it
 // always gives the same sequence (try it: that's exactly what we DON'T
 // want). The only value in the whole machine that genuinely changes between
-// runs is the wall clock in seconds, the timer's ClockRegister — the wiki
-// itself points it out as "the only thing here that isn't deterministic".
+// runs is the real-time clock, the timer's Rtc register: seconds since 1970,
+// started from the host's clock when the machine starts (or from --rtc).
 //
 // With that seed we generate pseudo-randomness ourselves with a linear
 // congruential generator (LCG), the way 8-bit computers used to: seed =
@@ -22,7 +22,7 @@
 //   the same second. Change the modulus from 6 to 2 to simulate a coin
 //   flip.
 
-const CLOCK_REG   = 0xFF010004   // Timer's ClockRegister
+const CLOCK_REG   = 0xFF01001C   // Timer's Rtc register
 const TERM_OUT    = 0xFF000004
 const SYS_CTRL    = 0xFFFF0000
 const NEWLINE     = 10

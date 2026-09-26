@@ -16,7 +16,7 @@ namespace
 
 // --- The timer ---------------------------------------------------------------------------------
 
-TEST(timer, the_tick_port_counts_cpu_cycles)
+TEST(timer, the_cycle_count_is_the_cpu_clock)
 {
 	Machine m{
 		Instruction::NOP(),
@@ -30,8 +30,8 @@ TEST(timer, the_tick_port_counts_cpu_cycles)
 
 	m.step(4);
 
-	CHECK_EQ(timer.ticks(), u64{ 1 + 1 + 2 + 1 });
-	CHECK_EQ(timer.ticks(), m.vm().engine().cycles());
+	CHECK_EQ(timer.cycles(), u64{ 1 + 1 + 2 + 1 });
+	CHECK_EQ(timer.cycles(), m.vm().engine().cycles());
 }
 
 TEST(timer, the_countdown_is_counted_in_cycles_not_instructions)
@@ -227,7 +227,7 @@ TEST(timer, a_program_can_arm_the_timer_through_its_register)
 		Instruction::STI(),
 		Instruction::LI(1, 3),
 		LoadBase(TimerBase), LoadBaseLow(TimerBase),
-		Instruction::STR(Base, 1, Off(TimerDevice::CommandRegister)),
+		Instruction::STR(Base, 1, Off(TimerDevice::CountdownRegister)),
 		Instruction::NOP(), Instruction::NOP(), Instruction::NOP(), Instruction::NOP(),
 	};
 
@@ -344,8 +344,7 @@ TEST(timer, the_clocks_are_the_cycles_at_the_cpu_clock)
 	CeresVM vm;
 	TimerDevice timer{};
 	timer.attachTo(vm.io());
-	CHECK_EQ(timer.read(TimerDevice::HaltClockRegister), static_cast<u32>(DefaultCpuClockHz));
-	CHECK_EQ(timer.read(TimerDevice::NanosResolutionRegister), 20u);   // a cycle at 50 MHz
+	CHECK_EQ(timer.read(TimerDevice::CpuClockHzRegister), static_cast<u32>(DefaultCpuClockHz));
 
 	vm.engine().setCycles(DefaultCpuClockHz * 3 + 25);                 // three seconds and 25 cycles
 	CHECK_EQ(readNanos(timer), u64{ 3'000'000'500 });
@@ -436,8 +435,79 @@ TEST(timer, writing_to_the_nanosecond_registers_changes_nothing)
 	TimerDevice timer{};
 	timer.write(TimerDevice::NanosLowRegister, 5);
 	timer.write(TimerDevice::NanosHighRegister, 5);
-	timer.write(TimerDevice::NanosResolutionRegister, 5);
+	timer.write(TimerDevice::MillisRegister, 5);
 	CHECK(!timer.isArmed());
 	CHECK_EQ(readNanos(timer), u64{ 0 });                               // not attached: no clock at all
-	CHECK_EQ(timer.read(TimerDevice::NanosResolutionRegister), 20u);
+	CHECK_EQ(timer.read(TimerDevice::MillisRegister), 0u);
+}
+
+// --- The countdown registers --------------------------------------------------------------------
+
+TEST(timer, the_countdown_reads_what_is_left)
+{
+	CeresVM vm;
+	TimerDevice timer{};
+	timer.attachTo(vm.io());
+	CHECK_EQ(timer.read(TimerDevice::CountdownRegister), 0u);           // disarmed
+	timer.write(TimerDevice::CountdownRegister, 1000);
+	vm.engine().setCycles(400);
+	CHECK_EQ(timer.read(TimerDevice::CountdownRegister), 600u);
+	timer.write(TimerDevice::CountdownRegister, 0);                     // 0 disarms
+	CHECK(!timer.isArmed());
+	CHECK(vm.io().scheduler().empty());
+	timer.detachFrom(vm.io());
+}
+
+TEST(timer, a_periodic_countdown_re_arms_with_the_last_value_written)
+{
+	CeresVM vm;
+	TimerDevice timer{};
+	timer.attachTo(vm.io());
+	Scheduler& events = vm.io().scheduler();
+	timer.write(TimerDevice::CountdownControlRegister, TimerDevice::ControlPeriodic);
+	CHECK_EQ(timer.read(TimerDevice::CountdownControlRegister), TimerDevice::ControlPeriodic);
+	timer.write(TimerDevice::CountdownRegister, 250);
+	vm.engine().setCycles(250);
+	events.service(250);
+	CHECK(vm.interrupts().hasPending());
+	CHECK_EQ(events.cycleOf(timer, TimerDevice::CountdownEvent), u64{ 500 });
+
+	timer.write(TimerDevice::CountdownControlRegister, 0);               // one shot from here
+	vm.engine().setCycles(500);
+	events.service(500);
+	CHECK(!timer.isArmed());
+	CHECK(events.empty());
+	timer.detachFrom(vm.io());
+}
+
+// --- The real-time clock ------------------------------------------------------------------------
+
+TEST(timer, the_real_time_clock_is_its_start_plus_the_machines_time)
+{
+	CeresVM vm;
+	TimerDevice timer{};
+	timer.setRtcStart(1'790'000'000);                                   // what --rtc sets
+	timer.attachTo(vm.io());
+	CHECK_EQ(timer.read(TimerDevice::RtcRegister), 1'790'000'000u);
+	vm.engine().setCycles(DefaultCpuClockHz * 90 + 1);                  // a minute and a half, and a cycle
+	CHECK_EQ(timer.read(TimerDevice::RtcRegister), 1'790'000'090u);
+	timer.detachFrom(vm.io());
+}
+
+TEST(timer, the_real_time_clock_starts_at_the_hosts_time)
+{
+	const i64 host = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	TimerDevice timer{};
+	CHECK(timer.rtcStart() >= host - 5 && timer.rtcStart() <= host + 5);
+}
+
+TEST(timer, system_control_reports_the_cpu_clock_too)
+{
+	CeresVM vm;
+	SystemControlDevice control;
+	control.attachTo(vm.io());
+	CHECK_EQ(control.read(SystemControlDevice::CpuClockHzRegister), static_cast<u32>(DefaultCpuClockHz));
+	vm.io().scheduler().setClockHz(12'000'000);
+	CHECK_EQ(control.read(SystemControlDevice::CpuClockHzRegister), 12'000'000u);
+	control.detachFrom(vm.io());
 }

@@ -102,6 +102,7 @@ writing a command to its command register:
 | `0x18` | `ArgumentCountRegister` | Read | `argc`: how many arguments the program was started with, its own path included. |
 | `0x1C` | `ArgumentVectorRegister` | Read | The address of `argv`, the null-terminated array of their addresses. |
 | `0x20` | `EnvironmentRegister` | Read | The address of `envp`, the null-terminated array of `NAME=value` strings. The three are what `main` received in `r0`–`r2` ([Memory → The stack](02-Memory.md#the-stack)), there for a library that has to reach them without `main` passing them on. |
+| `0x24` | `CpuClockHzRegister` | Read | The CPU clock in cycles per second (50 000 000): what turns the timer's cycles into time (plan/v2 SPEC 3.1). |
 | `0x2C` | `FaultReasonRegister` | Read | Why that fault happened: `0` none recorded, `1` a misaligned access to RAM, `5` a device register reached by anything but an aligned 32-bit access, `6` a block instruction that touched a device (the full list: plan/v2 SPEC 5.4). |
 
 | Command (low byte) | Effect |
@@ -166,38 +167,32 @@ machine forever, since nothing could ever wake it back up.
 
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |
-| `0x00` | `TicksRegister` | Read | The low word of the **CPU cycles** so far (each instruction's cost, plan/v2 SPEC 3.2), running or halted. Reading it also **latches** the high word. |
-| `0x04` | `ClockRegister` | Read | Wall-clock seconds since the Unix epoch. **This is the one value in the entire VM that is not deterministic** — everything else (including the tick count) behaves identically on every run. |
-| `0x08` | `CommandRegister` | Write | Arms or disarms the timer. |
-| `0x0C` | `MillisRegister` | Read | Milliseconds since the machine started, on the machine's own clock (wraps after 49 days). |
-| `0x10` | `NanosLowRegister` | Read | The low word of the **nanoseconds** since the machine started: the CPU cycles at the CPU clock (50 MHz, 20 ns a cycle). Reading it also **latches** the high word. |
-| `0x14` | `NanosHighRegister` | Read | The high word latched by the last read of `NanosLowRegister` (`0` before the first). Reading it does not look at the clock. |
-| `0x18` | `NanosResolutionRegister` | Read | The nanoseconds one CPU cycle lasts, rounded up: 20 at 50 MHz. |
-| `0x1C` | `HaltClockRegister` | Read | The CPU clock, in cycles per second (50 000 000), running or halted. |
-| `0x20` | `AlarmLowRegister` | Read/Write | The low word of the **alarm** instant, in nanoseconds on `NanosLowRegister`'s clock. Written first; it does not arm anything alone. Reads the armed instant's low word (`0` when disarmed, so `0:0` always means disarmed). |
-| `0x24` | `AlarmHighRegister` | Read/Write | The high word. Writing it **arms** the alarm at `high:low`; `0:0` disarms it. Reads the armed instant's high word (`0` when disarmed). |
-| `0x28` | `TicksHighRegister` | Read | The high word of the cycle count latched by the last read of `TicksRegister` (`0` before the first): read low first, then high, as for the nanoseconds. |
+| `0x00` | `CyclesLow` | Read | The low word of the **CPU cycles** since the machine started (each instruction's cost, plan/v2 SPEC 3.2), running or halted. Reading it also **latches** the high word. |
+| `0x04` | `CyclesHigh` | Read | The high word latched by the last read of `CyclesLow` (`0` before the first). |
+| `0x08` | `Countdown` | Read/Write | Write N to fire the timer's interrupt N cycles from now; `0` disarms it. Reads the cycles still to go (`0` when disarmed). |
+| `0x0C` | `CountdownControl` | Read/Write | Bit 0: **periodic** - on expiry the countdown re-arms with the last value written to `Countdown`. |
+| `0x10` | `NanosLow` | Read | The low word of the **nanoseconds** since the machine started: the cycles at the CPU clock (50 MHz, 20 ns a cycle). Reading it also **latches** the high word. |
+| `0x14` | `NanosHigh` | Read | The high word latched by the last read of `NanosLow` (`0` before the first). |
+| `0x18` | `Millis` | Read | Milliseconds since the machine started (32 bits: wraps after 49 days). |
+| `0x1C` | `Rtc` | Read | The **real-time clock**: seconds since 1970 (low word), its start value plus the machine's time. The start is the host's clock when the machine starts, or what `ceres run --rtc YYYY-MM-DDThh:mm:ss` says (UTC). A reset starts the machine's time, and the clock, again. |
+| `0x20` | `AlarmLow` | Read/Write | The low word of the **alarm** instant, in nanoseconds on `NanosLow`'s clock. Written first; it does not arm anything alone. Reads the armed instant's low word (`0` when disarmed, so `0:0` always means disarmed). |
+| `0x24` | `AlarmHigh` | Read/Write | The high word. Writing it **arms** the alarm at `high:low`; `0:0` disarms it. Reads the armed instant's high word (`0` when disarmed). |
+| `0x28` | `CpuClockHz` | Read | The CPU clock in cycles per second (50 000 000), as `SystemControl` reports it at `0x24`. |
 
-The nanosecond count is 64 bits, so it takes two reads: **low first, then high**. The low read
-takes the instant and keeps its high half, so the pair is one moment however much time passes
-between the reads - reading the high word first, or after another low read, gives a different
-moment. A 32-bit count of nanoseconds would wrap every 4.29 seconds; the 64-bit one lasts 584 years.
+The 64-bit counts take two reads: **low first, then high**. The low read takes the instant and keeps
+its high half, so the pair is one moment however much time passes between the reads - reading the high
+word first, or after another low read, gives a different moment. A 32-bit count of nanoseconds would
+wrap every 4.29 seconds; the 64-bit one lasts 584 years.
 
-The nanoseconds, the milliseconds and the cycle count are all the machine's own time, not the host's:
-two runs of a program read the same instants, and how that time keeps pace with the wall clock is the
-host's business, not the program's. Two reads with no instruction between them give the same count.
+Every clock here is the machine's own time, not the host's: the cycles, and the nanoseconds, the
+milliseconds and the real-time clock worked out from them. Two runs of a program read the same instants
+(the real-time clock too, given the same `--rtc`), and how that time keeps pace with the wall clock is
+the host's business, not the program's. Two reads with no instruction between them give the same count.
 
-Writing to the command register:
-
-- The low 31 bits are the number of **CPU cycles** until the timer fires. The count is an event on the
-  machine's scheduler, looked at between two instructions, so the timer fires before the instruction
-  after the one whose cycles reach it; a halted machine jumps straight to it.
-- The high bit (`0x80000000`), if set, makes the timer **periodic**: it automatically re-arms itself
-  with the same period every time it expires, counted from the cycle it was due on, so the period never
-  drifts.
-- Writing `0` disarms the timer.
-
-When the timer expires it raises `UserInterrupt0` (interrupt number 16) — see
+**The countdown** is an event on the machine's scheduler, looked at between two instructions, so the timer
+fires before the instruction after the one whose cycles reach it; a halted machine jumps straight to it.
+A periodic countdown re-arms from the cycle it was due on, so its period never drifts. When it runs out
+it raises `UserInterrupt0` (interrupt number 16) — see
 [Interrupts and exceptions](08-Interrupts-and-Exceptions.md). Since that's a user interrupt (not one
 of the 16 reserved/always-deliverable ones), it is taken only while the Interrupt flag is set (`sti`);
 masked, it stays pending until it is. Either way it ends a `halt`.
@@ -206,28 +201,28 @@ masked, it stays pending until it is. Either way it ends a `halt`.
 count of cycles. Write the low word, then the high word, which arms it; it is scheduled on the first
 cycle at or after the instant, and there it raises `UserInterrupt8` (interrupt number **24**, its own, so
 a handler never has to ask which of the two fired) once and disarms. An instant already past fires at
-once.
+once. (The new device map of F4.3 moves it to 17.)
 
 **While halted** the machine executes nothing, and its clock jumps straight to the next event - the
 countdown, the alarm, a DMA transfer - so a timer armed for N cycles fires N cycles later whether the
-program waits for it running or in `halt`. A wait in time converts with the register: 16 ms at 50 MHz is
+program waits for it running or in `halt`. A wait in time converts with `CpuClockHz`: 16 ms at 50 MHz is
 800 000 cycles. With nothing scheduled only the host can wake a halt (a key, a device's thread).
 
 Typical wake-up-after-a-delay pattern:
 
 ```casm
 li   r1, 1000
-la   r13, 0xFF010008   // Timer's CommandRegister
-str  [r13 + 0], r1     // fire in 1000 executed instructions
+la   r13, 0xFF010008   // Timer's Countdown
+str  [r13 + 0], r1     // fire in 1000 cycles
 halt                    // suspended until the timer (or any other device) raises a request
 ```
 
 With interrupts masked nothing is taken, and no handler has to be bound: the `halt` just ends. A
 program that must wait for the timer and not for a key loops, looking at the clock after each `halt`.
-A real-time sleep until instant `t` (a `u64` of nanoseconds, in `r2:r1`):
+A sleep until instant `t` (a `u64` of nanoseconds, in `r2:r1`):
 
 ```casm
-la   r13, 0xFF010020   // AlarmLowRegister
+la   r13, 0xFF010020   // AlarmLow
 str  [r13 + 0], r1     // low word first
 str  [r13 + 4], r2     // the high word arms it
 halt                    // the alarm's request (IRQ 24) ends it

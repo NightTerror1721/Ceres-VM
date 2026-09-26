@@ -798,8 +798,8 @@ TEST(debugger, dev_lists_the_devices_and_shows_a_devices_registers)
 	const auto timer = session->describeDevice("timer");
 	CHECK(timer.has_value());
 	if (!timer) return;
-	CHECK(timer->find("Ticks") != std::string::npos);
-	CHECK(timer->find("(not read)") != std::string::npos);      // reading Ticks latches the high word
+	CHECK(timer->find("CyclesLow") != std::string::npos);
+	CHECK(timer->find("(not read)") != std::string::npos);      // reading CyclesLow latches the high word
 	CHECK(timer->find("AlarmHigh") != std::string::npos);
 
 	CHECK(!session->describeDevice("no-such-device").has_value());

@@ -31,7 +31,7 @@ const TERM_BLOCK_LEN        = 0xF4
 const TERM_BLOCK_CMD         = 0xF8
 const BLOCK_WRITE = 2
 
-const CLOCK_REG    = 0xFF010004   // Timer's ClockRegister
+const CLOCK_REG    = 0xFF01001C   // Timer's Rtc register
 const SYS_CTRL     = 0xFFFF0000
 const NEWLINE      = 10
 

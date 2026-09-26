@@ -107,9 +107,9 @@ command shows, and what the device tests check: every table is non-empty, in off
   slot 255  0xFFFF0000  system-control     10 registers
 (ceres) dev timer
   timer at 0xFF010000
-    0x00  Ticks              R   (not read)  The low word of the CPU cycles so far; also latches the high word.
-    0x04  Clock              R   0x68F5A0C1  Seconds since the epoch.
-    0x08  Command             W  -           Arms the timer to fire after that many cycles; 0 disarms it.
+    0x00  CyclesLow          R   (not read)  CPU cycles since the start, low word; latches the high word.
+    0x04  CyclesHigh         R   0x00000000  The high word latched by the last read of CyclesLow.
+    0x08  Countdown          RW  0x00000000  Cycles until the timer's interrupt; 0 disarms; reads what is left.
     ...
 ```
 

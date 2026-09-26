@@ -61,7 +61,7 @@
 - **Repos**: CeresASM · **Depende de**: F2.3 · **SPEC**: §5.7
 - **Pasos**: aplica la tabla de registros del Timer de SPEC §5.7; nanos y milis derivados de `_cycles` y
   `CpuClockHz`; RTC = valor de arranque + tiempo virtual; opción `--rtc`; `CpuClockHz` en SystemControl (`0x24`).
-- **Aceptación**: [ ] Dos ejecuciones dan los mismos nanos. [ ] `--rtc` fija el RTC.
+- **Aceptación**: [x] Dos ejecuciones dan los mismos nanos. [x] `--rtc` fija el RTC.
 - **Commit**: `Redesign the timer on virtual time (F2.4)`
 
 ### F2.5 · Runner por tiempo virtual, `Pacer` y `--speed`
@@ -149,3 +149,14 @@
   (sólo el RTC y la entrada) y sus repeticiones no tocan ningún reloj. Hasta el `Pacer` (F2.5), un programa con
   ventana que se acompasa con halt va a toda velocidad. `test_halt_clock.cpp` pasa a `tests/e2e/test_scheduler.cpp`.
   `mixed` 137,3 frente a 136,0 de la F2.1 medidos alternados.
+- **F2.4**: la tabla del Timer de SPEC §5.7 tal cual (`CyclesLow/High`, `Countdown` que se lee como lo que falta,
+  `CountdownControl` con el bit periódico, `Nanos`, `Millis`, `Rtc`, alarma y `CpuClockHz`); desaparecen
+  `NanosResolution` y el bit 31 de periódico. La alarma sigue en la IRQ 24: la SPEC le da la 17, que es del terminal
+  hasta el mapa nuevo de la F4.3. `CpuClockHz` lo guarda el planificador (`Scheduler::clockHz`, 50 MHz por defecto)
+  y lo leen el Timer (`0x28`) y SystemControl (`0x24`); la F2.5 lo hace configurable con `--cpu-clock`. RTC =
+  arranque + tiempo virtual; el arranque es la hora del host al crear el Timer o `--rtc AAAA-MM-DDThh:mm:ss` (UTC,
+  desde 1970). Tras un reset el motor ya está en el ciclo 0 cuando se reinician los dispositivos, así que el RTC
+  vuelve a su arranque, como un encendido. Con el RTC determinista el depurador deja de grabar relojes: sólo graba
+  la entrada (`History::clockValue` eliminado). `driver::MachineOptions` agrupa `strictMmio` y `rtc` (la F2.5 añade
+  el ritmo). STDLIB: sólo los offsets nuevos y `timer_arm` con `CountdownControl`; `timer_nanos_resolution` sale de
+  `CpuClockHz`. Su API y su documentación siguen para la F2.8.

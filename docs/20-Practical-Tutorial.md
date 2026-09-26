@@ -102,7 +102,7 @@ snippet on this page now uses — see [07 · I/O devices and ports](07-IO-Device
 | 4 | [`04_cuenta_atras.casm`](../Ceres/examples/tutorial/04_cuenta_atras.casm) | Loops with `cmp`/`jz`/`jnz` |
 | 5 | [`05_notas.casm`](../Ceres/examples/tutorial/05_notas.casm) | Arrays in `@data`, `[reg + offset]` addressing, `div`/`mod` |
 | 6 | [`06_macros.casm`](../Ceres/examples/tutorial/06_macros.casm) | `macro`, the `proc_enter`/`proc_leave` calling convention |
-| 7 | [`07_aleatorio.casm`](../Ceres/examples/tutorial/07_aleatorio.casm) | A linear congruential generator seeded with the timer's `ClockRegister` |
+| 7 | [`07_aleatorio.casm`](../Ceres/examples/tutorial/07_aleatorio.casm) | A linear congruential generator seeded with the timer's `Rtc` register |
 | 8 | [`08_pantalla.casm`](../Ceres/examples/tutorial/08_pantalla.casm) | The framebuffer: setting the grid, drawing into memory and flushing it with a block write |
 | 9 | [`09_disco.casm`](../Ceres/examples/tutorial/09_disco.casm) | The disk: selecting a sector, block read/write, checking `DISK_STATUS` and flushing to a file |
 
@@ -122,18 +122,18 @@ ceres run examples/tutorial/09_disco.casm --disk saves.img
 and read the header comment before looking at the code: it poses a specific challenge for you to
 solve before seeing how this tutorial solved it.
 
-### Note on exercise 7: why the seed is the `ClockRegister` and not the `TicksRegister`
+### Note on exercise 7: why the seed is the `Rtc` and not the `CyclesLow` register
 
 Ceres has no dedicated random-number device. The temptation is to seed a generator of your own
-with the count of CPU cycles (the timer's `TicksRegister`, offset `0x00`), but
+with the count of CPU cycles (the timer's `CyclesLow`, offset `0x00`), but
 [02 · Memory](02-Memory.md) and [07 · I/O devices and ports](07-IO-Devices-and-Ports.md) already
 point out that time in Ceres is counted in the CPU's cycles, not real time, precisely so a
-program behaves the same way on every run — and that includes the `TicksRegister`. Seeding with it
+program behaves the same way on every run — and that includes `CyclesLow`. Seeding with it
 gives literally the same "randomness" every time you run the program (you can check this by
-running `07_aleatorio.casm` twice in a row). The only value in the whole machine that genuinely
-changes is the wall clock in seconds, the timer's `ClockRegister` (offset `0x04`) — the wiki
-itself points it out as "the only thing here that isn't deterministic". That's why it's the seed
-exercise 7 uses, and later, rock-paper-scissors too.
+running `07_aleatorio.casm` twice in a row). What does change between runs is where the real-time
+clock starts: the timer's `Rtc` (offset `0x1C`) is the host's clock in seconds when the machine
+starts, plus the machine's own time. That's why it's the seed exercise 7 uses, and later,
+rock-paper-scissors too - and why `ceres run --rtc` gives the same game every time.
 
 ## 4. The two games
 
