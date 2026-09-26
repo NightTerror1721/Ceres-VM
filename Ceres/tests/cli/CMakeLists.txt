@@ -15,3 +15,10 @@ add_test(NAME cli_contract
 		-DCERES_EXE=$<TARGET_FILE:ceres>
 		-DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/check_only.casm
 		-P ${CMAKE_CURRENT_SOURCE_DIR}/cli_contract.cmake)
+
+# The machine's time is its own: the same output and the same cycle count at any --speed.
+add_test(NAME determinism
+	COMMAND ${CMAKE_COMMAND}
+		-DCERES_EXE=$<TARGET_FILE:ceres>
+		-DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/clock_dance.casm
+		-P ${CMAKE_CURRENT_SOURCE_DIR}/determinism.cmake)

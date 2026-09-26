@@ -199,3 +199,8 @@
   (`dbg_span_end` imprime «N cycles»). `clock()` ya eran nanos/1000 y ahora son tiempo virtual sin tocar el código.
   `.expected` cambiados a mano: sólo títulos de sección («instructions» → «cycles», y «not on a budget» en
   `test_game_halt`); `test_nanos` usa las formas `uint64_t` con las mismas 34 comprobaciones. Referencia regenerada.
+- **F2.9**: el test de determinismo es de la suite CLI (`ctest -R determinism`, `tests/cli/determinism.cmake`), porque
+  ejecuta el binario real con `--speed`: `fixtures/clock_dance.casm` espera tres veces 5 ms virtuales en halt e imprime
+  los ciclos finales en hexadecimal; con `max` y con `4x` la línea es la misma (`...000B71F7`: 3 × 250 000 ciclos más
+  el código). `docs/30-Machine-Clock-and-Profiles.md` cubre ciclos, tiempo, eventos, ritmo, entrada y medida; los
+  perfiles se añaden en la F4.6.

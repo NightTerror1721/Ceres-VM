@@ -1,0 +1,40 @@
+// The machine's own time (plan/v2 SPEC 3): three waits of 5 ms in HALT, a dot after each, then the cycle count
+// at the end as eight hex digits. Run at any --speed it prints the same line: the host only decides how long
+// the run takes, never what the machine sees.
+@text
+global main:
+    la   r12, 0xFF010000        // the timer
+    la   r13, 0xFF000000        // the terminal
+    li   r7, 3
+.round:
+    la   r1, 250000             // 5 ms at 50 MHz
+    str  [r12 + 8], r1          // Countdown
+.wait:
+    halt                        // masked: the countdown's request just ends it, and so does any other
+    ldr  r2, [r12 + 8]          // what is left: 0 once it has run out
+    cmp  r2, 0
+    jnz  .wait
+    li   r5, 46                 // '.'
+    str  [r13 + 4], r5
+    sub  r7, r7, 1
+    cmp  r7, 0
+    jnz  .round
+    ldr  r4, [r12 + 0]          // CyclesLow
+    li   r6, 8
+.hex:
+    shr  r5, r4, 28
+    shl  r4, r4, 4
+    cmp  r5, 10
+    jbl  .digit
+    add  r5, r5, 7
+.digit:
+    add  r5, r5, 48
+    str  [r13 + 4], r5
+    sub  r6, r6, 1
+    cmp  r6, 0
+    jnz  .hex
+    li   r5, 10
+    str  [r13 + 4], r5
+    la   r13, 0xFFFF0000
+    li   r0, 1
+    str  [r13 + 0], r0
