@@ -19,7 +19,9 @@ TEST(dma, a_dma_transfer_reports_how_many_bytes_it_moved)
 
 	CHECK_EQ(dma.read(DmaController::StatusRegister) & DmaController::StatusBusy, DmaController::StatusBusy);
 
-	// The copy lands on the next tick, not on the arming instruction itself.
+	// Five bytes take one cycle: the copy lands on that cycle's event, run before the next instruction.
+	m.step(1);
+	CHECK_EQ(dma.read(DmaController::StatusRegister) & DmaController::StatusBusy, DmaController::StatusBusy);
 	m.step(1);
 
 	CHECK_EQ(dma.read(DmaController::StatusRegister) & DmaController::StatusDone, DmaController::StatusDone);
@@ -43,7 +45,7 @@ TEST(dma, a_dma_transfer_past_the_end_of_memory_is_clamped_not_fatal)
 	dma.write(DmaController::LengthRegister, 100);
 	dma.write(DmaController::CommandRegister, DmaController::CommandStart);
 
-	m.step(1);
+	m.step(static_cast<usize>(DmaController::cyclesFor(100)) + 1);   // 13 cycles of nops, then the event
 
 	CHECK_EQ(dma.read(DmaController::StatusRegister) & DmaController::StatusDone, DmaController::StatusDone);
 	CHECK_EQ(dma.read(DmaController::TransferredRegister), u32{ 4 });

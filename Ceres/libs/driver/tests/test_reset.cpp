@@ -143,10 +143,10 @@ TEST(driver_reset, a_reset_disarms_the_timer_and_drops_a_transfer_in_flight)
 
 	devices::DmaController dma;
 	dma.write(vm::Address(0x08), 16);               // a length ...
-	dma.write(vm::Address(0x0C), 1);                // ... armed: it lands on the next tick
-	CHECK_EQ(dma.ticksUntilEvent(), u64{ 1 });
+	dma.write(vm::Address(0x0C), 1);                // ... armed: it lands on its event
+	CHECK(dma.isPending());
 	dma.reset();
-	CHECK_EQ(dma.ticksUntilEvent(), vm::NoDeviceEvent);
+	CHECK(!dma.isPending());
 	CHECK_EQ(dma.read(vm::Address(0x10)), 0u);   // neither busy nor done
 }
 

@@ -223,8 +223,6 @@ namespace ceres::debug
 		std::unique_ptr<TimerDevice> _timer;
 		std::unique_ptr<DmaController> _dma;
 		std::unique_ptr<SystemControlDevice> _systemControl;
-
-		void setReplayHaltClock(u64 hz);
 		std::unique_ptr<DiskDevice> _disk;
 		std::unique_ptr<FramebufferDevice> _framebuffer;
 		std::unique_ptr<KeyboardDevice> _keyboard;
@@ -235,8 +233,6 @@ namespace ceres::debug
 		std::unique_ptr<PeripheralDevice> _peripherals;
 		std::unique_ptr<HostFsDevice> _hostFs;
 		std::unique_ptr<BlitterDevice> _blitter;
-		// What the millisecond register counts from, so a fresh session starts at zero.
-		std::chrono::steady_clock::time_point _millisEpoch = std::chrono::steady_clock::now();
 
 		std::vector<Breakpoint> _breakpoints;
 		std::vector<DataBreakpoint> _dataBreakpoints;

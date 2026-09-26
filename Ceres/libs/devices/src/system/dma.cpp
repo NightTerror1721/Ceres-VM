@@ -16,20 +16,16 @@ namespace ceres::devices
 		};
 	}
 
-	void DmaController::advance(u64 ticks)
-	{
-		if (ticks != 0)
-			tick();
-	}
-
 	void DmaController::reset()
 	{
 		_pending = false;
 		_status = 0;
 		_transferred = 0;
+		if (Scheduler* events = scheduler())
+			events->cancel(*this, 0);
 	}
 
-	void DmaController::tick()
+	void DmaController::onEvent(u32, u64)
 	{
 		if (!_pending)
 			return;
@@ -68,6 +64,8 @@ namespace ceres::devices
 		{
 			_pending = true;
 			_status = StatusBusy;
+			if (Scheduler* events = scheduler())
+				events->schedule(*this, events->now() + cyclesFor(_length), 0);
 		}
 	}
 

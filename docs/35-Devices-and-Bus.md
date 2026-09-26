@@ -56,9 +56,8 @@ public:
     virtual void write(Address offset, u32 value) = 0;
     virtual const RegisterMap& registers() const = 0;       // the table below
     virtual void reset() {}                                 // a reset command: back to the power-on state
-    virtual void onEvent(u32 tag, u64 cycle) {}             // an event it scheduled has come due
-    // ... plus the per-instruction hooks (needsTick, tick, ticksUntilEvent, advance) the devices not yet
-    // on the scheduler still use (plan/v2 F2.3 moves them)
+    virtual void onEvent(u32 tag, u64 cycle) {}             // an event it scheduled has come due: the only
+                                                            // way a device acts on its own
 protected:
     Memory& memory();
     Scheduler* scheduler();                                 // schedule(*this, cycle, tag), cancel(*this, tag)

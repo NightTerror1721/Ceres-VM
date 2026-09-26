@@ -119,19 +119,15 @@ wait needed a bound vector and `sti`.)
 
 A halted step (`ExecutionEngine::haltedStep`) executes nothing, but time goes on for the devices:
 
-- **The clock runs at the halt clock's rate** (`setHaltClock`, 100 MHz by default, reported to programs
-  by the timer's `HaltClockRegister`): the CPU's cycle counter goes on counting, running or halted.
-- **The host sleeps until the next device event** - the timer's expiry on the machine's event scheduler,
-  a DMA transfer landing as `IODevice::ticksUntilEvent()` reports it - for at most 10 ms per step so the loop around `step()` still
-  sees a shutdown or a window event, and keeps to the event to about half a millisecond - on Windows
-  through a high-resolution waitable timer, since its other waits sleep in 15.6 ms steps. It then
-  moves the clock and the devices on by the time that passed, event by event, and stops at the first
-  event that raises something: the machine wakes on that cycle.
-- **Anything raised wakes it at once**: `InterruptController::raise()` notifies a sleeping step, and
+- **The clock jumps to the next device event** - the timer's countdown or alarm, a DMA transfer - on the
+  machine's event scheduler, and the event runs there. Time is the machine's own (CPU cycles, plan/v2
+  SPEC 3.2): how it keeps pace with the wall clock is the host's business, not the halt's.
+- **With nothing scheduled the host waits** for something it can raise - a key, a device's thread - for
+  at most 10 ms per step, so the loop around `step()` still sees a shutdown or a window event; on Windows
+  through a high-resolution waitable timer, since its other waits sleep in 15.6 ms steps.
+- **Anything raised wakes it at once**: `InterruptController::raise()` notifies a waiting step, and
   the halt ends (above). A request that was already pending and has woken a halt once does not wake
-  the next, so `cli; halt` sleeps instead of spinning.
-- **A clock of 0** turns real time off: a halted step jumps straight to the next device event. The
-  debugger does this while it replays history.
+  the next, so `cli; halt` waits instead of spinning.
 
 A windowed host ends its slice of steps as soon as the machine halts, so the keys it collects in its
 next pump reach a program waiting for them in `halt` (a slice of halted steps used to hold them back

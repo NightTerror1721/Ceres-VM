@@ -11,6 +11,9 @@ namespace ceres::vm
 {
 	class IODevice;
 
+	// The CPU clock of the standard profile (plan/v2 SPEC 3.1): what turns cycles into the machine's time.
+	inline constexpr u64 DefaultCpuClockHz = 50'000'000;
+
 	// "Nothing scheduled", for Scheduler::nextCycle().
 	inline constexpr u64 NoScheduledEvent = ~u64{ 0 };
 

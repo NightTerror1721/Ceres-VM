@@ -111,13 +111,6 @@ namespace ceres::vm
 		// Whether a float division by zero gives IEEE's infinity or NaN rather than trapping (FeatureIeeeDivide).
 		bool _ieeeDivide = false;
 
-		// How fast the clock runs while the CPU is halted, in cycles per second (see haltedStep). 0 means
-		// it does not run in real time at all: a halted step jumps straight to the next device event.
-		u64 _haltClockHz = DefaultHaltClockHz;
-		// Real time a halted step waited that did not make a whole tick, carried into the next one so a
-		// slow clock still gets there (at 50 Hz a 10 ms sleep is half a tick).
-		u64 _haltCarryNanos = 0;
-
 		// The loaded program's own text, which nothing a correct program does ever writes to. An
 		// empty range means no program is loaded and there is nothing to protect. A store into it
 		// used to simply take effect, so a lost pointer rewrote an instruction that had not run
@@ -238,15 +231,6 @@ namespace ceres::vm
 		constexpr bool divisionFaults() const noexcept { return _divisionFaults; }
 		void setIeeeDivide(bool enabled) noexcept { _ieeeDivide = enabled; }
 		constexpr bool ieeeDivide() const noexcept { return _ieeeDivide; }
-		// The halted clock's rate, at most what the timer's 32-bit HaltClockRegister can report. A host
-		// that also shows it to the program (TimerDevice::setHaltClockRate) sets both. 0 turns real time
-		// off: a halted step jumps to the next device event, and with none it waits for the host.
-		void setHaltClock(u64 hz) noexcept
-		{
-			_haltClockHz = hz > 0xFFFFFFFFull ? 0xFFFFFFFFull : hz;
-			_haltCarryNanos = 0;
-		}
-		constexpr u64 haltClock() const noexcept { return _haltClockHz; }
 		void setProgramCounter(Address address) noexcept { _pc = address; }
 		// Only for restoring a snapshot: the machine's clock has to go back with the rest of it,
 		// or a restored timer would fire against a count that never rewound.
@@ -291,12 +275,8 @@ namespace ceres::vm
 	private:
 		inline void handleReset() noexcept { reset(); }
 		void handleHalt() noexcept;
-		// One step of a halted machine: time passes for the devices, nothing executes.
+		// One step of a halted machine: the clock jumps to the next device event, nothing executes.
 		void haltedStep(u64 raisesSeen) noexcept;
-		// How far the next thing a device will do is, in cycles: a ticked device's or a scheduled event's.
-		u64 haltedCyclesToEvent() const noexcept;
-		// Moves a halted machine's clock on by `cycles`, event by event; stops early, true, at one that raised.
-		bool passHaltedTime(u64 cycles) noexcept;
 		void handleTrap() noexcept;
 
 		// True when a handler was entered; false when the request was ignored (masked, or no handler bound)
@@ -1548,8 +1528,8 @@ namespace ceres::vm
 		// touches, so each side is translated once and lies in one frame. Until rt reaches 0 the PC stays
 		// on the instruction and the next step does the next chunk - an interrupt waits at most a page,
 		// and a page fault leaves the registers saying how far the operation got, so the handler's IRET
-		// resumes it. A chunk costs the machine's clock 1 + bytes/16 ticks, so an instruction budget still
-		// means something when one instruction can move a megabyte.
+		// resumes it. A chunk costs the CPU ceil(bytes / 8) cycles and the instruction 4 more when it ends
+		// (plan/v2 SPEC 3.2), so a cycle budget still means something when one instruction can move a megabyte.
 
 		static constexpr u32 BlockChunkBytes = Mmu::PageSize;
 
@@ -1588,8 +1568,6 @@ namespace ceres::vm
 		void chargeBlock(u64 start, u32 bytes, bool finished) noexcept
 		{
 			_cycles = start + isa::cycles::ofBlockChunk(bytes) + (finished ? isa::cycles::BlockBase : 0);
-			if (bytes >= 16)
-				_mmioBus.advance(bytes / 16);
 		}
 
 		void MCPY(const Instruction inst) noexcept

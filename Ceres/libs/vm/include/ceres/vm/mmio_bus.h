@@ -37,35 +37,8 @@ namespace ceres::vm
 		// Bit k of a slot's word: the register at offset 4k is declared (offsets below 0x100, where every device
 		// keeps its registers today; one above is looked up in its table). Built on attach, so an access tests a bit.
 		std::array<u64, MaxDevices> _declared{};
-		// Rebuilt only when the topology changes. The execution engine ticks this list after
-		// every instruction, so it must not scan the entire MMIO address space each time.
-		std::array<IODevice*, MaxDevices> _tickedDevices{};
-		usize _tickedDeviceCount = 0;
 		Memory& _memory;
 		InterruptController& _interrupts;
-
-		void rebuildTickedDevices()
-		{
-			_tickedDeviceCount = 0;
-			for (IODevice* device : _devices)
-			{
-				if (device == nullptr || !device->needsTick())
-					continue;
-
-				bool alreadyListed = false;
-				for (usize i = 0; i < _tickedDeviceCount; ++i)
-				{
-					if (_tickedDevices[i] == device)
-					{
-						alreadyListed = true;
-						break;
-					}
-				}
-
-				if (!alreadyListed)
-					_tickedDevices[_tickedDeviceCount++] = device;
-			}
-		}
 
 	public:
 		MmioBus() = delete;
@@ -87,41 +60,6 @@ namespace ceres::vm
 		static forceinline constexpr bool contains(Address address) noexcept
 		{
 			return address.value() >= BaseValue;
-		}
-
-		// One pulse per executed instruction, delivered once per device however many slots it
-		// claims (attachRange gives one device several contiguous slots for a single logical
-		// component - the DMA controller does not need this, but a future device might).
-		void tick()
-		{
-			for (usize i = 0; i < _tickedDeviceCount; ++i)
-				_tickedDevices[i]->tick();
-		}
-
-		// The nearest thing any ticked device has scheduled, in ticks; NoDeviceEvent when none has.
-		u64 ticksUntilNextEvent() const noexcept
-		{
-			u64 nearest = NoDeviceEvent;
-			for (usize i = 0; i < _tickedDeviceCount; ++i)
-			{
-				const u64 next = _tickedDevices[i]->ticksUntilEvent();
-				if (next < nearest)
-					nearest = next;
-			}
-			return nearest;
-		}
-
-		// `ticks` pulses at once, for a halted machine whose clock ran on without it: never more than
-		// ticksUntilNextEvent(), so no device skips past something it had to do.
-		void advance(u64 ticks)
-		{
-			const u64 nearest = ticksUntilNextEvent();
-			if (ticks > nearest)
-				ticks = nearest;                   // no device steps past something it had to do
-			if (ticks == 0)
-				return;
-			for (usize i = 0; i < _tickedDeviceCount; ++i)
-				_tickedDevices[i]->advance(ticks);
 		}
 
 		// Every attached device's reset(), once per device however many slots it claims.
@@ -173,7 +111,6 @@ namespace ceres::vm
 			device._memory = &_memory;
 			device._interrupts = &_interrupts;
 			device._scheduler = &_scheduler;
-			rebuildTickedDevices();
 		}
 
 		void attachRange(Address firstBase, Address lastBase, IODevice& device)
@@ -190,7 +127,6 @@ namespace ceres::vm
 				device._interrupts = &_interrupts;
 				device._scheduler = &_scheduler;
 			}
-			rebuildTickedDevices();
 		}
 
 		void detach(Address base)
@@ -208,7 +144,6 @@ namespace ceres::vm
 					device->_scheduler = nullptr;
 					_scheduler.cancelAll(*device);   // nothing may call back a device that is gone
 				}
-				rebuildTickedDevices();
 			}
 		}
 

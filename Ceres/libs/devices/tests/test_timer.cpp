@@ -1,7 +1,7 @@
 // The timer (TimerDevice): the device on its own, and a program reaching it through its registers.
 #include "device_test_machine.h"
 
-// --- A nanosecond clock ------------------------------------------------------------------------
+// --- Reading the nanosecond clock ---------------------------------------------------------------
 
 namespace
 {
@@ -337,102 +337,98 @@ TEST(timer, an_interrupt_already_enabled_is_not_delayed)
 	CHECK_EQ(m.reg(9), 0x5Au);
 }
 
-// --- A millisecond clock -----------------------------------------------------------------------
+// --- The machine's clocks ------------------------------------------------------------------------
 
-TEST(timer, the_millisecond_register_never_goes_backwards)
+TEST(timer, the_clocks_are_the_cycles_at_the_cpu_clock)
 {
+	CeresVM vm;
 	TimerDevice timer{};
-	const u32 first = timer.read(TimerDevice::MillisRegister);
-	const u32 second = timer.read(TimerDevice::MillisRegister);
-	CHECK(second >= first);
-	CHECK(first < 60000u); // Counts from the machine's start, not the epoch
+	timer.attachTo(vm.io());
+	CHECK_EQ(timer.read(TimerDevice::HaltClockRegister), static_cast<u32>(DefaultCpuClockHz));
+	CHECK_EQ(timer.read(TimerDevice::NanosResolutionRegister), 20u);   // a cycle at 50 MHz
+
+	vm.engine().setCycles(DefaultCpuClockHz * 3 + 25);                 // three seconds and 25 cycles
+	CHECK_EQ(readNanos(timer), u64{ 3'000'000'500 });
+	CHECK_EQ(timer.read(TimerDevice::MillisRegister), 3000u);
+	CHECK_EQ(timer.nanos(), u64{ 3'000'000'500 });
+	timer.detachFrom(vm.io());
 }
 
-TEST(timer, the_millisecond_clock_can_be_replaced_for_a_replay)
+TEST(timer, the_clocks_stand_still_while_nothing_runs)
 {
+	// Time is the machine's, not the host's: two reads with no instruction between them are one instant.
+	CeresVM vm;
 	TimerDevice timer{};
-	timer.setMillisSource([] { return u32{ 1234 }; });
-	CHECK_EQ(timer.read(TimerDevice::MillisRegister), 1234u);
-
-	timer.clearMillisSource();
-	CHECK(timer.read(TimerDevice::MillisRegister) != 1234u);
-}
-
-TEST(timer, the_nanosecond_pair_counts_from_the_start_and_never_goes_backwards)
-{
-	TimerDevice timer{};
-	u64 last = readNanos(timer);
-	CHECK(last < 4000000000ull); // Under four seconds after the timer was made, so the high word is still 0
-
-	for (int i = 0; i < 1000; ++i)
-	{
-		const u64 now = readNanos(timer);
-		CHECK(now >= last);
-		last = now;
-	}
+	timer.attachTo(vm.io());
+	vm.engine().setCycles(1234);
+	const u64 first = readNanos(timer);
+	CHECK_EQ(readNanos(timer), first);
+	CHECK_EQ(timer.read(TimerDevice::MillisRegister), timer.read(TimerDevice::MillisRegister));
+	timer.detachFrom(vm.io());
 }
 
 TEST(timer, the_high_word_stays_with_the_low_word_it_was_latched_by)
 {
 	// A clock that has moved past a carry between the two reads: the high word read now must still
 	// be the one that went with the low word, or the pair is 4.29 seconds out.
-	u64 now = 0x00000001FFFFFFF0ull;
+	CeresVM vm;
 	TimerDevice timer{};
-	timer.setNanosSource([&now] { return now; });
+	timer.attachTo(vm.io());
+	vm.engine().setCycles(429'496'729);                                 // 0x1FFFFFFF4 ns at 20 ns a cycle
 
 	const u32 low = timer.read(TimerDevice::NanosLowRegister);
-	now = 0x0000000200000010ull; // The next instant carries into the high word
+	vm.engine().setCycles(429'496'730);                                 // the next instant carries into the high word
 	const u32 high = timer.read(TimerDevice::NanosHighRegister);
 
-	CHECK_EQ(low, 0xFFFFFFF0u);
+	CHECK_EQ(low, 0xFFFFFFF4u);
 	CHECK_EQ(high, 1u);
 
 	// The next low read latches the new instant.
 	const u32 nextLow = timer.read(TimerDevice::NanosLowRegister);
 	const u32 nextHigh = timer.read(TimerDevice::NanosHighRegister);
-	CHECK_EQ(nextLow, 0x10u);
+	CHECK_EQ(nextLow, 0x8u);
 	CHECK_EQ(nextHigh, 2u);
-}
-
-TEST(timer, reading_the_high_word_alone_does_not_look_at_the_clock)
-{
-	int asked = 0;
-	TimerDevice timer{};
-	timer.setNanosSource([&asked] { ++asked; return u64{ 7 }; });
-
-	CHECK_EQ(timer.read(TimerDevice::NanosHighRegister), 0u); // Nothing latched yet
-	CHECK_EQ(asked, 0);
-
-	timer.read(TimerDevice::NanosLowRegister);
-	CHECK_EQ(asked, 1);
-	timer.read(TimerDevice::NanosHighRegister);
-	CHECK_EQ(asked, 1);
+	timer.detachFrom(vm.io());
 }
 
 TEST(timer, a_snapshot_of_the_timer_keeps_the_latched_high_word)
 {
 	// Read the low word, snapshot, and read the high word from another timer: the debugger does
 	// exactly this when it puts a machine back between the two reads of a pair.
+	CeresVM vm;
 	TimerDevice timer{};
-	timer.setNanosSource([] { return 0x0000000500000009ull; });
+	timer.attachTo(vm.io());
+	vm.engine().setCycles(DefaultCpuClockHz * 5);                       // 5 s: the high word is 1
 	timer.read(TimerDevice::NanosLowRegister);
 	const auto state = timer.captureState();
+	timer.detachFrom(vm.io());
 
 	TimerDevice other{};
 	other.restoreState(state);
-	CHECK_EQ(other.read(TimerDevice::NanosHighRegister), 5u);
+	CHECK_EQ(other.read(TimerDevice::NanosHighRegister), 1u);
 }
 
-TEST(timer, the_resolution_is_a_real_step_of_the_host_clock)
+TEST(timer, the_alarm_is_scheduled_on_the_first_cycle_at_or_after_its_instant)
 {
+	CeresVM vm;
 	TimerDevice timer{};
-	const u32 resolution = timer.read(TimerDevice::NanosResolutionRegister);
-	CHECK(resolution >= 1u);
-	CHECK(resolution <= 1000000u); // A clock coarser than a millisecond would not be worth a nanosecond register
-	CHECK_EQ(timer.read(TimerDevice::NanosResolutionRegister), resolution); // Measured once
+	timer.attachTo(vm.io());
+	const Scheduler& events = vm.io().scheduler();
 
-	timer.setNanosResolution(100);
-	CHECK_EQ(timer.read(TimerDevice::NanosResolutionRegister), 100u);
+	timer.write(TimerDevice::AlarmLowRegister, 1000);
+	timer.write(TimerDevice::AlarmHighRegister, 0);
+	CHECK_EQ(events.cycleOf(timer, TimerDevice::AlarmEvent), u64{ 50 });
+	timer.write(TimerDevice::AlarmLowRegister, 1010);                   // between two cycles: the later one
+	timer.write(TimerDevice::AlarmHighRegister, 0);
+	CHECK_EQ(events.cycleOf(timer, TimerDevice::AlarmEvent), u64{ 51 });
+
+	vm.engine().setCycles(100);                                         // an instant already past fires at once
+	timer.write(TimerDevice::AlarmLowRegister, 1000);
+	timer.write(TimerDevice::AlarmHighRegister, 0);
+	CHECK_EQ(timer.alarmNanos(), u64{ 0 });
+	CHECK(vm.interrupts().hasPending());
+	CHECK(events.empty());
+	timer.detachFrom(vm.io());
 }
 
 TEST(timer, writing_to_the_nanosecond_registers_changes_nothing)
@@ -442,5 +438,6 @@ TEST(timer, writing_to_the_nanosecond_registers_changes_nothing)
 	timer.write(TimerDevice::NanosHighRegister, 5);
 	timer.write(TimerDevice::NanosResolutionRegister, 5);
 	CHECK(!timer.isArmed());
-	CHECK(readNanos(timer) < 4000000000ull);
+	CHECK_EQ(readNanos(timer), u64{ 0 });                               // not attached: no clock at all
+	CHECK_EQ(timer.read(TimerDevice::NanosResolutionRegister), 20u);
 }

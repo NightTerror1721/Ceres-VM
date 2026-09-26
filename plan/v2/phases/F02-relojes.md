@@ -53,7 +53,7 @@
   3. `halt` adelanta `_cycles` al siguiente evento; sin eventos, la VM devuelve el control al runner (que espera
      entrada del host). Elimina `setHaltClock`, `_haltClockHz`, `_haltCarryNanos`, `DefaultHaltClockHz`.
   4. Sustituye `test_halt_clock.cpp` por `test_scheduler.cpp` con los mismos escenarios en ciclos.
-- **Aceptación**: [ ] Ningún símbolo de tick por instrucción queda. [ ] Suites en verde.
+- **Aceptación**: [x] Ningún símbolo de tick por instrucción queda. [x] Suites en verde.
 - **Commit**: `Drive every device from the scheduler and let halt jump to the next event (F2.3)`
 
 ### F2.4 · Timer v2 y `CpuClockHz`
@@ -138,3 +138,14 @@
   STDLIB: `test_game` y `test_debug_ansi` tenían cotas en instrucciones que a `-O0` se quedan cortas en ciclos
   (un marco vacío, 599; el bucle de `dbg_span`, 92 155): se amplían. La documentación de la STDLIB que aún habla
   de instrucciones (`timer.h`, `dbg_span_*` en `debug.h`) se reescribe en la F2.8.
+- **F2.3**: sólo el DMA seguía con tick (entrada, audio y periféricos levantan desde hilos del host y no lo
+  necesitaban). El DMA termina en su evento, un ciclo cada 8 bytes (mínimo 1). El halt salta al siguiente evento;
+  sin ninguno espera al host (10 ms como mucho por paso, como antes). **Adelanta parte de la F2.4**: un halt que
+  salta no puede convivir con una alarma en tiempo real (cada salto sumaba el tiempo que faltaba entero y el reloj
+  se disparaba), así que los nanos y los milis del Timer ya son `_cycles` a 50 MHz (`DefaultCpuClockHz`, en
+  `scheduler.h`), la alarma es un evento exacto en el primer ciclo en o tras su instante y `NanosResolution` da la
+  duración de un ciclo (20 ns). `HaltClockRegister` (`0x1C`) da ahora esa frecuencia, que es lo que la STDLIB
+  divide; la F2.4 lo sustituye por `CpuClockHz` y la hace configurable. El depurador ya no graba milis ni nanos
+  (sólo el RTC y la entrada) y sus repeticiones no tocan ningún reloj. Hasta el `Pacer` (F2.5), un programa con
+  ventana que se acompasa con halt va a toda velocidad. `test_halt_clock.cpp` pasa a `tests/e2e/test_scheduler.cpp`.
+  `mixed` 137,3 frente a 136,0 de la F2.1 medidos alternados.

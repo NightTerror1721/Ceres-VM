@@ -22,113 +22,31 @@ namespace ceres::vm
 		_stackLimit = _stackFloor;                  // the heap the limit guarded starts again from nothing
 		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
 		_mmu.reset(); // No program has had the chance to point PTBR at garbage yet; leave none behind either
-		_haltCarryNanos = 0;
 	}
 
 	namespace
 	{
-		using HaltClock = std::chrono::steady_clock;
-
-		// The longest one halted step sleeps, so the host loop around step() still gets to see a
-		// shutdown, a pause or a window event while a program waits a long time.
+		// The longest one halted step waits for the host when no device has anything scheduled, so the loop
+		// around step() still gets to see a shutdown, a pause or a window event.
 		constexpr auto MaxHaltedWait = std::chrono::milliseconds(10);
-
-		HaltClock::duration ticksToDuration(u64 ticks, u64 hz) noexcept
-		{
-			const u64 seconds = ticks / hz;
-			if (seconds > 3600)
-				return std::chrono::hours(1);          // far beyond any single wait: MaxHaltedWait caps it anyway
-			const u64 nanos = seconds * 1'000'000'000ull + (ticks % hz) * 1'000'000'000ull / hz;
-			return std::chrono::duration_cast<HaltClock::duration>(std::chrono::nanoseconds(nanos));
-		}
-
-		u64 durationToTicks(HaltClock::duration elapsed, u64 hz) noexcept
-		{
-			const auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count();
-			if (nanos <= 0)
-				return 0;
-			const u64 ns = static_cast<u64>(nanos);
-			return (ns / 1'000'000'000ull) * hz + (ns % 1'000'000'000ull) * hz / 1'000'000'000ull;
-		}
 	}
 
-	// A halted machine executes nothing, but its clock runs on at `_haltClockHz` cycles per second, so a
-	// timer armed for N cycles fires N cycles later whether the program waits for it running or halted. The
-	// host does not step through those cycles: it sleeps until the next thing a device will do (at most
-	// MaxHaltedWait at a time), wakes the moment anything raises an interrupt, and then moves the clock on by
-	// the time that actually passed - stopping at the first event that raises something, where it wakes.
-	//
-	// With the clock at 0 (a debugger replaying) no real time is involved: a step jumps straight to the
-	// next device event, and with none scheduled it waits up to MaxHaltedWait for the host to raise
-	// something, then returns so the loop around it can look again.
+	// A halted machine executes nothing, and its clock jumps straight to the next device event (plan/v2 SPEC
+	// 3.2): time is the machine's own, and how it keeps pace with the host is the runner's business. With
+	// nothing scheduled only the host can wake it - a key, a raise from a device's thread - so the step waits
+	// for one, a little at a time, and returns so the loop around it can look again.
 	void ExecutionEngine::haltedStep(u64 raisesSeen) noexcept
 	{
-		const u64 toEvent = haltedCyclesToEvent();
-		const HaltClock::time_point start = HaltClock::now();
-
-		if (_haltClockHz == 0)
+		Scheduler& scheduler = _mmioBus.scheduler();
+		const u64 next = scheduler.nextCycle();
+		if (next == NoScheduledEvent)
 		{
-			if (toEvent != NoDeviceEvent)
-				passHaltedTime(toEvent);
-			else
-				_interrupts.waitForRaise(raisesSeen, start + MaxHaltedWait);
+			_interrupts.waitForRaise(raisesSeen, std::chrono::steady_clock::now() + MaxHaltedWait);
 			return;
 		}
-
-		HaltClock::time_point wakeAt = start + MaxHaltedWait;
-		if (toEvent != NoDeviceEvent)
-		{
-			const HaltClock::duration untilEvent = ticksToDuration(toEvent, _haltClockHz);
-			if (untilEvent < MaxHaltedWait)
-				wakeAt = start + untilEvent;
-		}
-		if (wakeAt > start)
-			_interrupts.waitForRaise(raisesSeen, wakeAt);
-
-		// The time waited plus what the last steps left over, in whole cycles; the rest carries on.
-		const u64 waitedNanos = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(HaltClock::now() - start).count())
-			+ _haltCarryNanos;
-		const u64 cycles = durationToTicks(std::chrono::nanoseconds(waitedNanos), _haltClockHz);
-		const u64 usedNanos = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(ticksToDuration(cycles, _haltClockHz)).count());
-		_haltCarryNanos = waitedNanos > usedNanos ? waitedNanos - usedNanos : 0;
-		if (passHaltedTime(cycles))
-			_haltCarryNanos = 0;                  // the event happened on its own cycle; the machine then wakes
-	}
-
-	u64 ExecutionEngine::haltedCyclesToEvent() const noexcept
-	{
-		u64 nearest = _mmioBus.ticksUntilNextEvent();
-		const u64 next = _mmioBus.scheduler().nextCycle();
-		if (next != NoScheduledEvent)
-		{
-			const u64 distance = next > _cycles ? next - _cycles : 0;
-			if (distance < nearest)
-				nearest = distance;
-		}
-		return nearest;
-	}
-
-	// Event by event, so each one runs on its own cycle; one that raises nothing (an alarm looking at the
-	// host clock) does not end the wait.
-	bool ExecutionEngine::passHaltedTime(u64 cycles) noexcept
-	{
-		Scheduler& scheduler = _mmioBus.scheduler();
-		const u64 raisesBefore = _interrupts.raiseCount();
-		for (;;)
-		{
-			if (_cycles >= scheduler.nextCycle())
-				scheduler.service(_cycles);
-			if (_interrupts.raiseCount() != raisesBefore)
-				return true;
-			if (cycles == 0)
-				return false;
-			u64 piece = cycles;
-			if (const u64 toEvent = haltedCyclesToEvent(); toEvent < piece)
-				piece = toEvent == 0 ? 1 : toEvent;
-			_cycles += piece;
-			_mmioBus.advance(piece);
-			cycles -= piece;
-		}
+		if (next > _cycles)
+			_cycles = next;
+		scheduler.service(_cycles);
 	}
 
 	void ExecutionEngine::handleHalt() noexcept
@@ -288,7 +206,6 @@ namespace ceres::vm
 			execute(instruction);
 		}
 		++_executedInstructions;
-		_mmioBus.tick();
 
 	}
 }

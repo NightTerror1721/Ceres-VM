@@ -188,12 +188,12 @@ to its handler unremarked, exactly as it would with no debugger attached.
 
 Nothing in the machine can undo an instruction, so "back" means *start again from a snapshot and
 stop earlier*. That works here and would not on real hardware, for one reason: the timer counts
-executed instructions rather than wall clock, so a program behaves identically on every run. The
+the machine's own CPU cycles rather than wall clock, so a program behaves identically on every run. The
 determinism that was a design decision about reproducibility turns out to be the thing that makes
 reverse debugging possible.
 
-Two things are not deterministic, and both are recorded as they happen and served back from the
-recording during a replay:
+Two things are not deterministic - the timer's other clocks are the machine's own cycles - and both are
+recorded as they happen and served back from the recording during a replay:
 
 - **The real-time clock** (the timer's `ClockRegister`), whose value is journalled against the
   instruction count it was read at.

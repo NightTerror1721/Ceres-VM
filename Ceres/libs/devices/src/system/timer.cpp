@@ -1,4 +1,5 @@
 #include <ceres/devices/system/timer.h>
+#include <chrono>
 
 namespace ceres::devices
 {
@@ -12,12 +13,14 @@ namespace ceres::devices
 			{ 0x0C, "Millis",          RegisterAccess::Read,      0x0, false, "Milliseconds since the machine started (wraps every 49 days)" },
 			{ 0x10, "NanosLow",        RegisterAccess::Read,      0x0, true,  "The low word of the nanoseconds since the machine started; also latches the high word." },
 			{ 0x14, "NanosHigh",       RegisterAccess::Read,      0x0, false, "The high word latched by the last read of NanosLowRegister." },
-			{ 0x18, "NanosResolution", RegisterAccess::Read,      0x0, false, "The smallest step the nanosecond clock is seen to take, in nanoseconds." },
-			{ 0x1C, "HaltClock",       RegisterAccess::Read,      0x0, false, "Cycles per second while the CPU is halted; 0 when time only moves by events." },
+			{ 0x18, "NanosResolution", RegisterAccess::Read,      0x0, false, "The nanoseconds one CPU cycle lasts, rounded up." },
+			{ 0x1C, "HaltClock",       RegisterAccess::Read,      0x0, false, "The CPU clock, in cycles per second, running or halted." },
 			{ 0x20, "AlarmLow",        RegisterAccess::ReadWrite, 0x0, false, "The low word of the alarm instant, in nanoseconds on NanosLow's clock (reads 0 when disarmed)" },
 			{ 0x24, "AlarmHigh",       RegisterAccess::ReadWrite, 0x0, false, "The high word; writing it arms the alarm at high:low (0:0 disarms)" },
 			{ 0x28, "TicksHigh",       RegisterAccess::Read,      0x0, false, "The high word of the cycle count latched by the last read of TicksRegister." },
 		};
+
+		constexpr u64 NanosPerSecond = 1'000'000'000;
 	}
 
 	u64 TimerDevice::now() const noexcept
@@ -29,6 +32,18 @@ namespace ceres::devices
 	u64 TimerDevice::ticks() const noexcept
 	{
 		return now();
+	}
+
+	// In two parts, so the product never overflows: whole seconds of cycles, then the rest.
+	u64 TimerDevice::nanos() const noexcept
+	{
+		const u64 cycles = now();
+		return (cycles / _clockHz) * NanosPerSecond + (cycles % _clockHz) * NanosPerSecond / _clockHz;
+	}
+
+	u64 TimerDevice::cycleAtNanos(u64 nanos) const noexcept
+	{
+		return (nanos / NanosPerSecond) * _clockHz + ((nanos % NanosPerSecond) * _clockHz + NanosPerSecond - 1) / NanosPerSecond;
 	}
 
 	void TimerDevice::arm(u64 cyclesFromNow, bool periodic) noexcept
@@ -63,12 +78,10 @@ namespace ceres::devices
 		_alarmLow = 0;
 		if (Scheduler* events = scheduler())
 			events->cancelAll(*this);
-		_started = std::chrono::steady_clock::now();      // "since the machine started" starts again
 	}
 
 	void TimerDevice::restoreState(const State& state) noexcept
 	{
-		_deadline = 0;
 		arm(state.remaining, false);
 		_periodic = state.periodic;
 		_period = state.period;
@@ -76,7 +89,7 @@ namespace ceres::devices
 		_ticksHigh = state.ticksHigh;
 		_alarmNanos = state.alarmNanos;
 		_alarmLow = state.alarmLow;
-		syncAlarm();                                      // its cycle is worked out again from the clock
+		syncAlarm();
 	}
 
 	void TimerDevice::syncAlarm()
@@ -88,8 +101,7 @@ namespace ceres::devices
 				events->cancel(*this, AlarmEvent);
 			return;
 		}
-		const u64 now = liveNanos();
-		if (now >= _alarmNanos)
+		if (nanos() >= _alarmNanos)
 		{
 			_alarmNanos = 0;
 			if (events != nullptr)
@@ -97,21 +109,15 @@ namespace ceres::devices
 			raiseInterrupt(AlarmInterrupt);
 			return;
 		}
-		if (events == nullptr)
-			return;
-		const u64 left = _alarmNanos - now;
-		const u64 hz = _haltClockHz;
-		u64 cycles = AlarmPollCycles;
-		if (hz != 0)
-			cycles = (left / 1'000'000'000ull) * hz + ((left % 1'000'000'000ull) * hz + 999'999'999ull) / 1'000'000'000ull;
-		events->schedule(*this, events->now() + (cycles == 0 ? 1 : cycles), AlarmEvent);
+		if (events != nullptr)
+			events->schedule(*this, cycleAtNanos(_alarmNanos), AlarmEvent);
 	}
 
 	void TimerDevice::onEvent(u32 tag, u64 cycle)
 	{
 		if (tag == AlarmEvent)
 		{
-			syncAlarm();
+			syncAlarm();                                  // its cycle is the first at or after the instant: it fires
 			return;
 		}
 		if (tag != CountdownEvent || _deadline == 0)
@@ -127,29 +133,11 @@ namespace ceres::devices
 			events->schedule(*this, _deadline, CountdownEvent);
 	}
 
-	u32 TimerDevice::measureNanosResolution() noexcept
-	{
-		using Clock = std::chrono::steady_clock;
-		u64 least = ~u64{ 0 };
-		auto last = Clock::now();
-		for (int i = 0; i < 20000; ++i)
-		{
-			const auto now = Clock::now();
-			const u64 step = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(now - last).count());
-			if (step != 0 && step < least)
-				least = step;
-			last = now;
-		}
-		if (least == ~u64{ 0 })
-			return 1000000;   // it never moved: nothing better than a millisecond can be claimed
-		return least > 0xFFFFFFFFu ? 0xFFFFFFFFu : static_cast<u32>(least);
-	}
-
 	u32 TimerDevice::read(Address offset)
 	{
 		// The cycle count is 64 bits and read as two words, like the nanosecond one: the low read takes
 		// the count and keeps its high half, so the pair is one moment however many cycles pass between
-		// the two reads. A 32-bit count wraps in 43 s at 100 MHz.
+		// the two reads. A 32-bit count wraps in 86 s at 50 MHz.
 		if (offset == TicksRegister)
 		{
 			const u64 ticks = now();
@@ -161,7 +149,7 @@ namespace ceres::devices
 			return _ticksHigh;
 
 		if (offset == HaltClockRegister)
-			return _haltClockHz;
+			return static_cast<u32>(_clockHz);
 
 		if (offset == ClockRegister)
 		{
@@ -172,21 +160,13 @@ namespace ceres::devices
 		}
 
 		if (offset == MillisRegister)
-		{
-			if (_millisSource)
-				return _millisSource();
-			return static_cast<u32>(std::chrono::duration_cast<std::chrono::milliseconds>(
-				std::chrono::steady_clock::now() - _started).count());
-		}
+			return static_cast<u32>(nanos() / 1'000'000);
 
 		if (offset == NanosLowRegister)
 		{
-			const u64 now = _nanosSource
-				? _nanosSource()
-				: static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-					std::chrono::steady_clock::now() - _started).count());
-			_nanosHigh = static_cast<u32>(now >> 32);
-			return static_cast<u32>(now);
+			const u64 instant = nanos();
+			_nanosHigh = static_cast<u32>(instant >> 32);
+			return static_cast<u32>(instant);
 		}
 
 		if (offset == NanosHighRegister)
@@ -202,9 +182,9 @@ namespace ceres::devices
 
 		if (offset == NanosResolutionRegister)
 		{
-			if (_nanosResolution == 0)
-				_nanosResolution = measureNanosResolution();
-			return _nanosResolution;
+			if (_nanosResolution != 0)
+				return _nanosResolution;
+			return static_cast<u32>((NanosPerSecond + _clockHz - 1) / _clockHz);
 		}
 
 		return 0xFFFFFFFF;

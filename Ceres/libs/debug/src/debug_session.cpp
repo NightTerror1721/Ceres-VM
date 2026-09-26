@@ -429,25 +429,6 @@ namespace ceres::debug
 					std::chrono::system_clock::now().time_since_epoch()).count());
 				return _history.clockValue(currentTick(), live);
 			});
-			// The millisecond counter is just as non-deterministic, and is recorded the same way:
-			// one instruction reads one register, so a tick never holds two values.
-			_timer->setMillisSource([this]() -> u32
-			{
-				const u32 live = static_cast<u32>(std::chrono::duration_cast<std::chrono::milliseconds>(
-					std::chrono::steady_clock::now() - _millisEpoch).count());
-				return _history.clockValue(currentTick(), live);
-			});
-			// The nanosecond count is 64 bits, so it goes into the recording as two words at the same
-			// tick, and comes back out in the same order: the low word first, then the high one.
-			_timer->setNanosSource([this]() -> u64
-			{
-				const u64 live = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-					std::chrono::steady_clock::now() - _millisEpoch).count());
-				const u64 tick = currentTick();
-				const u32 low = _history.clockValue(tick, static_cast<u32>(live));
-				const u32 high = _history.clockValue(tick, static_cast<u32>(live >> 32));
-				return (static_cast<u64>(high) << 32) | low;
-			});
 		}
 
 		if (_config.stopOnEntry)
@@ -803,14 +784,6 @@ namespace ceres::debug
 		return _history.isEnabled() && currentTick() > _history.oldestTick();
 	}
 
-	// The engine's halted clock and what the timer tells the program about it move together, so a program
-	// replayed with the clock off reads 0 from HaltClockRegister, as it does under any host that sets 0.
-	void DebugSession::setReplayHaltClock(u64 hz)
-	{
-		_vm->engine().setHaltClock(hz);
-		_timer->setHaltClockRate(static_cast<u32>(_vm->engine().haltClock()));
-	}
-
 	bool DebugSession::replayTo(u64 tick)
 	{
 		const auto restored = _history.restoreNearest(tick, *_vm, *_timer, *_terminal);
@@ -837,9 +810,6 @@ namespace ceres::debug
 		_history.beginReplay();
 		OutputHandler savedOutput = std::move(_outputHandler);
 		_outputHandler = nullptr;
-		// Ground already covered is not waited through again: a halt jumps to the event that ended it.
-		const u64 haltClock = _vm->engine().haltClock();
-		setReplayHaltClock(0);
 
 		for (const std::string& text : _history.inputsBetween(restored.value(), tick))
 			_terminal->pushInput(text);
@@ -847,7 +817,6 @@ namespace ceres::debug
 		while (currentTick() < tick && _vm->isPoweredOn())
 			stepOnce();
 
-		setReplayHaltClock(haltClock);
 		_outputHandler = std::move(savedOutput);
 		_history.endReplay();
 
@@ -928,9 +897,6 @@ namespace ceres::debug
 		_history.beginReplay();
 		OutputHandler savedOutput = std::move(_outputHandler);
 		_outputHandler = nullptr;
-		const u64 haltClock = _vm->engine().haltClock();
-		setReplayHaltClock(0);
-
 		while (currentTick() < target && _vm->isPoweredOn())
 		{
 			stepOnce();
@@ -938,7 +904,6 @@ namespace ceres::debug
 				found = currentTick();
 		}
 
-		setReplayHaltClock(haltClock);
 		_outputHandler = std::move(savedOutput);
 		_history.endReplay();
 
@@ -1126,7 +1091,7 @@ namespace ceres::debug
 			// Checked before the instruction rather than after, so a machine sitting in HALT with
 			// nothing left to wake it is reported instead of sleeping out the whole budget ten
 			// milliseconds at a time.
-			if (_vm->engine().isHalted() && !_vm->interrupts().hasPending() && !_timer->isArmed())
+			if (_vm->engine().isHalted() && !_vm->interrupts().hasPending() && _vm->io().scheduler().empty())
 				return makeStop(StopReason::Halted);
 
 			StopEvent event = stepOnce();

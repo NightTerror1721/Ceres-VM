@@ -13,14 +13,6 @@ namespace ceres::vm
 {
 	class MmioBus;
 
-	// How fast a halted machine's clock runs: the ticks per second a device that keeps time (the
-	// timer) sees while the CPU sleeps in HALT, so a wait of N ticks is N instructions' worth of time
-	// whether the machine is running or halted. About what the interpreter executes per second.
-	inline constexpr u64 DefaultHaltClockHz = 100'000'000;
-
-	// "Nothing scheduled" for IODevice::ticksUntilEvent.
-	inline constexpr u64 NoDeviceEvent = ~u64{ 0 };
-
 	// A device's registers, reached through ordinary loads and stores instead of a separate `in`/
 	// `out` address space. Where the old port interface took a PortNumber, this one takes an
 	// `Address` already relative to the device's own slot (see MmioBus) — a device never sees the
@@ -45,33 +37,9 @@ namespace ceres::vm
 		virtual void write(Address offset, u32 value) = 0;
 
 	public:
-		// Opt-in: only a device whose needsTick() returns true is called every instruction (see
-		// MmioBus::rebuildTickedDevices). Most devices have no notion of time - the terminal, the
-		// disk, the framebuffer - and paid for a virtual call every instruction regardless; this is
-		// what lets them stop paying for it without their tick() ever having to be touched.
-		virtual bool needsTick() const noexcept { return false; }
-
-		// Called once per executed instruction, but only for a device that opted in via needsTick().
-		// The default does nothing, which is also what a device that never overrides either method
-		// gets: no per-instruction cost at all, not even the call.
-		virtual void tick() {}
-
-		// How many ticks from now this device will next act on its own - raise its interrupt, land a
-		// transfer - or NoDeviceEvent when nothing is scheduled. A halted machine uses it to sleep until
-		// then instead of ticking one step at a time. Only a device that opted into tick() is asked.
-		virtual u64 ticksUntilEvent() const noexcept { return NoDeviceEvent; }
-
-		// `ticks` ticks at once, never more than ticksUntilEvent() said: exactly what that many tick()
-		// calls would do. The default makes the calls, which is right but slow for a device that is
-		// asked to skip far; every device that keeps time overrides it.
-		virtual void advance(u64 ticks)
-		{
-			for (u64 i = 0; i < ticks; ++i)
-				tick();
-		}
-
 		// An event this device scheduled (scheduler().schedule) has come due: `cycle` is the one it asked for,
-		// and the clock may be a few cycles past it - it is looked at between instructions.
+		// and the clock may be a few cycles past it - it is looked at between instructions. This is how a device
+		// acts on its own - a timer running out, a transfer landing; there is no per-instruction call.
 		virtual void onEvent([[maybe_unused]] u32 tag, [[maybe_unused]] u64 cycle) {}
 
 		// The machine is starting over (the system control device's reset command): put back whatever

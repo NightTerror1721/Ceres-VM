@@ -161,14 +161,13 @@ TEST(scheduler, detaching_a_device_drops_its_events)
 	CHECK(device.calls.empty());
 }
 
-TEST(scheduler, a_halted_machine_with_the_clock_off_jumps_to_the_event)
+TEST(scheduler, a_halted_machine_jumps_to_the_event)
 {
 	CeresVM vm;
 	const Address entry = Memory::UnrestrictedSegmentStart;
 	vm.memory().writeUnchecked<u32>(entry, Instruction::HALT().raw());
 	vm.memory().writeUnchecked<u32>(0_addr, entry.value());
 	vm.engine().reset();
-	vm.engine().setHaltClock(0);
 	Recorder device;
 	vm.io().attach(MmioBus::slot(0x80), device);
 	vm.io().scheduler().schedule(device, 5'000'000, 0);

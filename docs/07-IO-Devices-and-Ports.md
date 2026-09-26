@@ -169,11 +169,11 @@ machine forever, since nothing could ever wake it back up.
 | `0x00` | `TicksRegister` | Read | The low word of the **CPU cycles** so far (each instruction's cost, plan/v2 SPEC 3.2), running or halted. Reading it also **latches** the high word. |
 | `0x04` | `ClockRegister` | Read | Wall-clock seconds since the Unix epoch. **This is the one value in the entire VM that is not deterministic** — everything else (including the tick count) behaves identically on every run. |
 | `0x08` | `CommandRegister` | Write | Arms or disarms the timer. |
-| `0x0C` | `MillisRegister` | Read | Milliseconds since the machine started, from the host's steady clock (wraps after 49 days). Like `ClockRegister`, **not deterministic**: the debugger records and replays it. |
-| `0x10` | `NanosLowRegister` | Read | The low word of the **nanoseconds** since the machine started, from the host's steady clock. Reading it also **latches** the high word. Not deterministic; recorded and replayed. |
+| `0x0C` | `MillisRegister` | Read | Milliseconds since the machine started, on the machine's own clock (wraps after 49 days). |
+| `0x10` | `NanosLowRegister` | Read | The low word of the **nanoseconds** since the machine started: the CPU cycles at the CPU clock (50 MHz, 20 ns a cycle). Reading it also **latches** the high word. |
 | `0x14` | `NanosHighRegister` | Read | The high word latched by the last read of `NanosLowRegister` (`0` before the first). Reading it does not look at the clock. |
-| `0x18` | `NanosResolutionRegister` | Read | The smallest step, in nanoseconds, that the host clock is seen to take between two reads. |
-| `0x1C` | `HaltClockRegister` | Read | How many cycles a second the clock counts while the CPU is halted (100 000 000 by default); `0` when the host does not run it in real time (a debugger replaying history). |
+| `0x18` | `NanosResolutionRegister` | Read | The nanoseconds one CPU cycle lasts, rounded up: 20 at 50 MHz. |
+| `0x1C` | `HaltClockRegister` | Read | The CPU clock, in cycles per second (50 000 000), running or halted. |
 | `0x20` | `AlarmLowRegister` | Read/Write | The low word of the **alarm** instant, in nanoseconds on `NanosLowRegister`'s clock. Written first; it does not arm anything alone. Reads the armed instant's low word (`0` when disarmed, so `0:0` always means disarmed). |
 | `0x24` | `AlarmHighRegister` | Read/Write | The high word. Writing it **arms** the alarm at `high:low`; `0:0` disarms it. Reads the armed instant's high word (`0` when disarmed). |
 | `0x28` | `TicksHighRegister` | Read | The high word of the cycle count latched by the last read of `TicksRegister` (`0` before the first): read low first, then high, as for the nanoseconds. |
@@ -183,17 +183,15 @@ takes the instant and keeps its high half, so the pair is one moment however muc
 between the reads - reading the high word first, or after another low read, gives a different
 moment. A 32-bit count of nanoseconds would wrap every 4.29 seconds; the 64-bit one lasts 584 years.
 
-Resolution is what a program can rely on to tell apart, not what the register can express. The
-usual Windows clock advances in steps of 100 ns, so two reads a few instructions apart often return
-the same count; a clock that reads every nanosecond reports about what one read costs. The debugger
-records both words of a read at the tick it happened and serves them back on a replay.
+The nanoseconds, the milliseconds and the cycle count are all the machine's own time, not the host's:
+two runs of a program read the same instants, and how that time keeps pace with the wall clock is the
+host's business, not the program's. Two reads with no instruction between them give the same count.
 
 Writing to the command register:
 
-- The low 31 bits are the number of **CPU cycles** until the timer fires: what the instructions cost
-  while the program runs, and the halted clock's cycles while it is halted (below). The count is an
-  event on the machine's scheduler, looked at between two instructions, so the timer fires before the
-  instruction after the one whose cycles reach it.
+- The low 31 bits are the number of **CPU cycles** until the timer fires. The count is an event on the
+  machine's scheduler, looked at between two instructions, so the timer fires before the instruction
+  after the one whose cycles reach it; a halted machine jumps straight to it.
 - The high bit (`0x80000000`), if set, makes the timer **periodic**: it automatically re-arms itself
   with the same period every time it expires, counted from the cycle it was due on, so the period never
   drifts.
@@ -204,21 +202,16 @@ When the timer expires it raises `UserInterrupt0` (interrupt number 16) — see
 of the 16 reserved/always-deliverable ones), it is taken only while the Interrupt flag is set (`sti`);
 masked, it stays pending until it is. Either way it ends a `halt`.
 
-**The alarm** is the real-time counterpart: an absolute instant on the nanosecond clock rather than a
-count of cycles, so it keeps to the wall clock whatever the program executes in the meantime. Write the
-low word, then the high word, which arms it; when the host clock reaches the instant the alarm raises
-`UserInterrupt8` (interrupt number **24**, its own, so a handler never has to ask which of the two
-fired) once and disarms. An instant already past fires on the next instruction. The alarm schedules a
-look at the clock for the cycle its instant falls on at the halted clock's rate, rounded up: a halted
-machine sleeps until it and is on time, and a running one, which gets there sooner, looks again and
-schedules the rest. The alarm reads the host's clock directly, never a debugger's recording of
-`NanosLowRegister`; with the halted clock at `0` it looks every 16 384 cycles instead.
+**The alarm** is the countdown's counterpart on the nanosecond clock: an absolute instant rather than a
+count of cycles. Write the low word, then the high word, which arms it; it is scheduled on the first
+cycle at or after the instant, and there it raises `UserInterrupt8` (interrupt number **24**, its own, so
+a handler never has to ask which of the two fired) once and disarms. An instant already past fires at
+once.
 
-**While halted** the machine executes nothing, but its clock keeps counting at `HaltClockRegister` cycles
-per second, so a timer armed for N cycles fires N cycles later whether the program waits for it running
-or in `halt`. The host does not step through those cycles: it sleeps until the timer's expiry (at most
-10 ms at a time) and wakes early for anything a device raises. A program that wants a real-time wait
-converts it with the register: 16 ms at the default rate is 1 600 000 cycles.
+**While halted** the machine executes nothing, and its clock jumps straight to the next event - the
+countdown, the alarm, a DMA transfer - so a timer armed for N cycles fires N cycles later whether the
+program waits for it running or in `halt`. A wait in time converts with the register: 16 ms at 50 MHz is
+800 000 cycles. With nothing scheduled only the host can wake a halt (a key, a device's thread).
 
 Typical wake-up-after-a-delay pattern:
 
@@ -440,10 +433,10 @@ memory directly, without a program copying it word by word.
 | `0x10` | `StatusRegister` | Read | Bit 0 `BUSY`, bit 1 `DONE`. |
 | `0x14` | `TransferredRegister` | Read | How many bytes the last completed transfer actually moved. RAM-to-RAM it is always the length; a future device source that yields fewer bytes would report less here. |
 
-The copy does not happen on the same instruction that arms it: it runs on the controller's next
-`tick()` — one instruction later — the same one-step delay `TimerDevice` already models, so a program
-waiting on the completion interrupt (`UserInterrupt2`) always sees a real handoff rather than an
-already-finished copy. A program that would rather poll reads `StatusRegister` instead.
+The copy does not happen on the instruction that arms it: a transfer takes one cycle for every 8 bytes
+(at least one), and lands on its own event on the machine's scheduler, as the timer's countdown does, so
+a program waiting on the completion interrupt (`UserInterrupt2`) always sees a real handoff rather than
+an already-finished copy. A program that would rather poll reads `StatusRegister` instead.
 
 ```casm
 la   r13, 0xFF040000   // DMA's SourceRegister

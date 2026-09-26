@@ -1,6 +1,5 @@
-// A halted machine keeps CPU time: its clock runs on at the halt clock's rate (cycles per second), the host
-// sleeps until the next device event instead of stepping through the cycles, and anything a device raises
-// wakes it at once.
+// A halted machine and the event scheduler: the clock jumps straight to the next device event, with nothing
+// scheduled the host's raise is all that can wake it, and a halt ends on any request raised, taken or not.
 
 #include "framework.h"
 #include <ceres/vm/ceresvm.h>
@@ -53,6 +52,7 @@ namespace
 		void step() { _vm.engine().step(); }
 		u32 reg(usize index) const { return _vm.engine().registers().getValue(index); }
 		bool halted() const noexcept { return _vm.engine().isHalted(); }
+		u64 cycles() const noexcept { return _vm.engine().cycles(); }
 
 		// Runs STI and HALT: the machine is halted afterwards.
 		void runToHalt()
@@ -60,21 +60,26 @@ namespace
 			step();
 			step();
 		}
+
+		void armAlarm(u64 at)
+		{
+			timer.write(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
+			timer.write(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
+		}
 	};
 }
 
-TEST(halt_clock, with_the_clock_off_one_halted_step_reaches_the_timer_exactly)
+TEST(halted_machine, one_halted_step_reaches_the_timer_exactly)
 {
 	HaltedMachine m;
-	m.vm().engine().setHaltClock(0);
 	m.timer.arm(1'000'000);
 	m.runToHalt();
 	CHECK(m.halted());
 
-	const u64 before = m.timer.ticks();
 	const u64 remaining = m.timer.captureState().remaining;
+	const u64 before = m.cycles();
 	m.step();                                   // one step: the whole wait
-	CHECK_EQ(m.timer.ticks(), before + remaining);
+	CHECK_EQ(m.cycles(), before + remaining);
 	CHECK(!m.timer.isArmed());
 	m.step();                                   // the interrupt is delivered and wakes it
 	m.step();
@@ -83,33 +88,27 @@ TEST(halt_clock, with_the_clock_off_one_halted_step_reaches_the_timer_exactly)
 	CHECK_EQ(m.reg(10), 0x33u);
 }
 
-TEST(halt_clock, a_halted_wait_takes_its_ticks_in_real_time_at_the_halt_clock)
+TEST(halted_machine, a_long_wait_takes_no_host_time)
 {
+	// A minute of the machine's time is one jump of its clock: pacing it against the host is the runner's job.
 	HaltedMachine m;
-	m.vm().engine().setHaltClock(1'000'000);    // a microsecond a tick
-	m.timer.arm(30'000);                        // 30 ms
+	m.timer.arm(60 * DefaultCpuClockHz / 2);    // the countdown takes 31 bits: half a minute
 	const Clock::time_point start = Clock::now();
 	m.runToHalt();
-	const u64 before = m.timer.ticks();
-
 	int steps = 0;
-	while (m.halted() && steps < 300)             // a regression fails in seconds, not minutes
+	while (m.halted() && steps < 10)
 	{
 		m.step();
 		++steps;
 	}
 	const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();
-
 	CHECK(!m.halted());
-	CHECK(waited >= 25);                        // it did wait, for about the ticks' worth of time
-	CHECK(waited < 2000);
-	CHECK(steps < 100);                         // in a few sleeps, not a step per tick
-	// the clock stopped at the event, not past it: what follows is the handler's entry and first instruction
-	CHECK(m.timer.ticks() - before <= 30'000 + isa::cycles::InterruptEntry);
-	CHECK_EQ(m.reg(9), 0x5Au);
+	CHECK(steps <= 2);
+	CHECK(waited < 1000);
+	CHECK(m.timer.nanos() >= 30'000'000'000ull);
 }
 
-TEST(halt_clock, a_raise_from_another_thread_wakes_a_halted_machine_at_once)
+TEST(halted_machine, a_raise_from_another_thread_wakes_a_halted_machine_at_once)
 {
 	HaltedMachine m;                            // nothing armed: only the host can wake it
 	m.runToHalt();
@@ -124,6 +123,7 @@ TEST(halt_clock, a_raise_from_another_thread_wakes_a_halted_machine_at_once)
 	});
 
 	const Clock::time_point start = Clock::now();
+	const u64 before = m.cycles();
 	int steps = 0;
 	while (m.halted() && steps < 1000)
 	{
@@ -135,10 +135,11 @@ TEST(halt_clock, a_raise_from_another_thread_wakes_a_halted_machine_at_once)
 
 	CHECK(!m.halted());
 	CHECK(waited < 1000);
-	CHECK(steps < 20);                          // ~3 sleeps of 10 ms and the delivery, not 30 steps of 1 ms
+	CHECK(steps < 20);                          // ~3 waits of 10 ms and the delivery, not a busy loop
+	CHECK(m.cycles() - before <= isa::cycles::InterruptEntry + 1);   // no event: the clock did not move while it waited
 }
 
-TEST(halt_clock, a_masked_request_wakes_a_halt_once_without_being_taken)
+TEST(halted_machine, a_masked_request_wakes_a_halt_once_without_being_taken)
 {
 	HaltedMachine m;
 	m.runToHalt();
@@ -155,7 +156,7 @@ TEST(halt_clock, a_masked_request_wakes_a_halt_once_without_being_taken)
 	CHECK(m.vm().interrupts().hasPending());    // still there for when the program unmasks it
 	CHECK(m.reg(9) != 0x5Au);                   // and its handler did not run
 
-	// Still pending, but it has woken one halt already: the second sleeps its full slice.
+	// Still pending, but it has woken one halt already: the second waits its full slice for the host.
 	CHECK(m.halted());
 	const Clock::time_point start = Clock::now();
 	m.step();
@@ -164,7 +165,7 @@ TEST(halt_clock, a_masked_request_wakes_a_halt_once_without_being_taken)
 	CHECK(waited >= 5);
 }
 
-TEST(halt_clock, a_request_raised_before_the_halt_keeps_it_from_sleeping)
+TEST(halted_machine, a_request_raised_before_the_halt_keeps_it_from_sleeping)
 {
 	// The race a masked sleep has to survive: the event comes after the program last looked but
 	// before its HALT has run. The HALT finds it and goes straight on.
@@ -178,7 +179,7 @@ TEST(halt_clock, a_request_raised_before_the_halt_keeps_it_from_sleeping)
 	CHECK_EQ(m.vm().engine().programCounter().value(), 0x408u);
 }
 
-TEST(halt_clock, a_request_with_no_handler_still_wakes_the_halt)
+TEST(halted_machine, a_request_with_no_handler_still_wakes_the_halt)
 {
 	// Interrupts enabled, but nothing bound to the vector: the request is dropped as before, and the
 	// halt still ends rather than sleeping on for good.
@@ -191,7 +192,7 @@ TEST(halt_clock, a_request_with_no_handler_still_wakes_the_halt)
 	CHECK_EQ(m.reg(10), 0x33u);                 // the instruction after the HALT ran
 }
 
-TEST(halt_clock, a_halt_after_an_interrupt_was_taken_waits_for_the_next_one)
+TEST(halted_machine, a_halt_after_an_interrupt_was_taken_waits_for_the_next_one)
 {
 	// Taking an interrupt is the wake-up: the HALT after the handler's IRET sleeps again.
 	HaltedMachine m;
@@ -207,32 +208,29 @@ TEST(halt_clock, a_halt_after_an_interrupt_was_taken_waits_for_the_next_one)
 	CHECK(!m.vm().engine().hasWakeEvent());
 }
 
-TEST(halt_clock, a_running_machine_reaches_the_alarm_and_takes_its_interrupt)
+TEST(halted_machine, a_running_machine_reaches_the_alarm_and_takes_its_interrupt)
 {
 	// STI, then a jump to itself: the program runs, never halts, and the alarm's handler (bound to 24) runs
-	// once its instant comes - the running machine looks at the clock whenever the alarm's event comes due.
+	// on the cycle its instant falls on.
 	HaltedMachine m;
 	m.vm().memory().writeUnchecked<u32>(Memory::UnrestrictedSegmentStart + Address(4), Instruction::JP(i24(0)).raw());
 	m.vm().memory().writeUnchecked<u32>(Address(static_cast<u32>(TimerDevice::AlarmInterrupt) * Address::Size), 0x800u);
-	const Clock::time_point start = Clock::now();   // before the instant is read: the wait is at least 2 ms from here
-	const u32 low = m.timer.read(TimerDevice::NanosLowRegister);
-	const u64 at = ((static_cast<u64>(m.timer.read(TimerDevice::NanosHighRegister)) << 32) | low) + 2'000'000;
-	m.timer.write(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
-	m.timer.write(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
+	const u64 at = m.timer.nanos() + 2'000'000;  // 2 ms: 100 000 cycles, 50 000 jumps of 2
+	m.armAlarm(at);
 	u64 steps = 0;
-	while (m.reg(9) != 0x5Au && steps < 20'000'000 && Clock::now() - start < std::chrono::seconds(5))
+	while (m.reg(9) != 0x5Au && steps < 1'000'000)
 	{
 		m.step();
 		++steps;
 	}
-	const auto waited = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - start).count();
 	CHECK_EQ(m.reg(9), 0x5Au);
 	CHECK(!m.halted());
-	CHECK(waited >= 2'000);                     // not before its instant
+	CHECK(m.timer.nanos() >= at);               // not before its instant
+	CHECK(steps < 50'010);                      // and on the cycle it falls on, give or take the handler
 	CHECK_EQ(m.timer.alarmNanos(), u64{ 0 });
 }
 
-TEST(halt_clock, a_trap_left_set_does_not_keep_a_masked_halt_asleep)
+TEST(halted_machine, a_trap_left_set_does_not_keep_a_masked_halt_asleep)
 {
 	// A division by zero with the fault switched off sets Trap and goes on; the flag stays. A masked halt
 	// afterwards must still end on a request - only a machine stopped for want of stack stays stopped.
@@ -247,7 +245,7 @@ TEST(halt_clock, a_trap_left_set_does_not_keep_a_masked_halt_asleep)
 	CHECK(!m.halted());
 }
 
-TEST(halt_clock, the_tick_count_reads_as_64_bits_through_a_latched_high_word)
+TEST(halted_machine, the_cycle_count_reads_as_64_bits_through_a_latched_high_word)
 {
 	CeresVM vm;
 	TimerDevice timer;
@@ -262,26 +260,21 @@ TEST(halt_clock, the_tick_count_reads_as_64_bits_through_a_latched_high_word)
 	timer.detachFrom(vm.io());
 }
 
-TEST(halt_clock, the_alarm_fires_at_its_instant_on_the_nanosecond_clock)
+TEST(halted_machine, the_alarm_arms_on_the_nanosecond_clock_and_disarms_with_zero)
 {
 	CeresVM vm;
 	TimerDevice timer;
 	timer.attachTo(vm.io());
 	const Scheduler& events = vm.io().scheduler();
 	CHECK_EQ(timer.alarmNanos(), u64{ 0 });
-	const u32 soonLow = timer.read(TimerDevice::NanosLowRegister);   // the low word first: it latches the high one
-	const u64 soon = (static_cast<u64>(timer.read(TimerDevice::NanosHighRegister)) << 32) | soonLow;
-	const u64 at = soon + 20'000'000;           // 20 ms from now
+	const u64 at = 20'000'000;                  // 20 ms
 	timer.write(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
 	CHECK_EQ(timer.alarmNanos(), u64{ 0 });     // the low word alone does not arm it
 	CHECK_EQ(timer.read(TimerDevice::AlarmLowRegister), 0u);   // and a disarmed alarm reads 0:0
 	timer.write(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
 	CHECK_EQ(timer.alarmNanos(), at);
 	CHECK_EQ(timer.read(TimerDevice::AlarmLowRegister), static_cast<u32>(at));
-
-	// Scheduled about 20 ms of halted-clock cycles away, rounded up, and never now.
-	const u64 cycles = events.cycleOf(timer, TimerDevice::AlarmEvent);
-	CHECK(cycles > 0 && cycles <= 20'000'000ull * DefaultHaltClockHz / 1'000'000'000ull + 1);
+	CHECK_EQ(events.cycleOf(timer, TimerDevice::AlarmEvent), at / 20);
 
 	timer.write(TimerDevice::AlarmLowRegister, 0);
 	timer.write(TimerDevice::AlarmHighRegister, 0);
@@ -290,88 +283,45 @@ TEST(halt_clock, the_alarm_fires_at_its_instant_on_the_nanosecond_clock)
 	timer.detachFrom(vm.io());
 }
 
-TEST(halt_clock, a_masked_halt_sleeps_until_the_alarm_in_real_time)
+TEST(halted_machine, a_masked_halt_jumps_to_the_alarm)
 {
-	// No handler, interrupts masked: arm the alarm, halt, and the alarm's own request wakes it.
+	// No handler, interrupts masked: arm the alarm, halt, and the alarm's own request wakes it - in one step.
 	HaltedMachine m;
 	m.vm().memory().writeUnchecked<u32>(Address(0x404), Instruction::HALT().raw());
 	m.vm().engine().setFlags(FlagRegister{});
 	m.vm().engine().setProgramCounter(Address(0x404));
-	const u32 nowLow = m.timer.read(TimerDevice::NanosLowRegister);   // the low word first: it latches the high one
-	const u64 now = (static_cast<u64>(m.timer.read(TimerDevice::NanosHighRegister)) << 32) | nowLow;
-	const u64 at = now + 30'000'000;            // 30 ms
-	m.timer.write(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
-	m.timer.write(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
+	const u64 at = m.timer.nanos() + 30'000'000;   // 30 ms
+	m.armAlarm(at);
 
-	const Clock::time_point start = Clock::now();
 	m.step();
 	CHECK(m.halted());
-	int steps = 0;
-	while (m.halted() && steps < 300)
-	{
-		m.step();
-		++steps;
-	}
-	const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();
-	CHECK(!m.halted());
-	CHECK(waited >= 25);
-	CHECK(waited < 2000);
-	CHECK(steps < 20);                          // a few sleeps of up to 10 ms, not a poll per tick
+	m.step();                                   // straight to the alarm's cycle
+	CHECK_EQ(m.timer.nanos(), at);              // 30 ms is a whole number of 20 ns cycles
 	CHECK_EQ(m.timer.alarmNanos(), u64{ 0 });   // it fired once and disarmed
 	CHECK(m.vm().interrupts().peek() == TimerDevice::AlarmInterrupt);
-}
-
-TEST(halt_clock, the_halted_clock_keeps_real_time_through_a_sleep_on_the_alarm)
-{
-	// 30 ms asleep on the alarm is 30 ms of halted-clock ticks, as it is on the tick timer: the count a halted
-	// step sleeps to must not shrink as the host sleeps.
-	HaltedMachine m;
-	m.vm().engine().setHaltClock(1'000'000);    // a microsecond a tick
-	m.timer.setHaltClockRate(1'000'000);
-	m.vm().memory().writeUnchecked<u32>(Address(0x404), Instruction::HALT().raw());
-	m.vm().engine().setFlags(FlagRegister{});
-	m.vm().engine().setProgramCounter(Address(0x404));
-	const u32 nowLow = m.timer.read(TimerDevice::NanosLowRegister);   // the low word first: it latches the high one
-	const u64 now = (static_cast<u64>(m.timer.read(TimerDevice::NanosHighRegister)) << 32) | nowLow;
-	const u64 at = now + 30'000'000;
-	m.timer.write(TimerDevice::AlarmLowRegister, static_cast<u32>(at));
-	m.timer.write(TimerDevice::AlarmHighRegister, static_cast<u32>(at >> 32));
-
-	const u64 before = m.timer.ticks();
-	int steps = 0;
 	m.step();
-	while (m.halted() && steps < 300)
-	{
-		m.step();
-		++steps;
-	}
 	CHECK(!m.halted());
-	const u64 ticks = m.timer.ticks() - before;
-	CHECK(ticks >= 25'000);                     // about 30 000 microseconds' worth
-	CHECK(ticks < 1'000'000);
 }
 
-TEST(halt_clock, a_slow_halt_clock_still_reaches_the_event)
+TEST(halted_machine, two_runs_read_the_same_clock)
 {
-	// At 50 Hz a 10 ms sleep is half a tick: the remainder has to carry, or the clock never moves.
-	HaltedMachine m;
-	m.vm().engine().setHaltClock(50);
-	m.timer.arm(3);                             // STI and HALT take two; one tick of 20 ms is left
-	m.runToHalt();
-	int steps = 0;
-	while (m.halted() && steps < 300)
+	// The whole point of the machine's own time: the same program reads the same instants on every run.
+	const auto run = []
 	{
-		m.step();
-		++steps;
-	}
-	CHECK(!m.halted());
-	CHECK_EQ(m.reg(9), 0x5Au);
+		HaltedMachine m;
+		m.timer.arm(12'345);
+		m.runToHalt();
+		for (int i = 0; i < 4; ++i)
+			m.step();
+		const u32 low = m.timer.read(TimerDevice::NanosLowRegister);
+		return (static_cast<u64>(m.timer.read(TimerDevice::NanosHighRegister)) << 32) | low;
+	};
+	CHECK_EQ(run(), run());
 }
 
-TEST(halt_clock, the_timer_reports_the_halt_clock_it_was_told)
+TEST(halted_machine, the_timer_reports_the_cpu_clock)
 {
 	TimerDevice timer;
-	CHECK_EQ(timer.read(TimerDevice::HaltClockRegister), static_cast<u32>(DefaultHaltClockHz));
-	timer.setHaltClockRate(0);
-	CHECK_EQ(timer.read(TimerDevice::HaltClockRegister), 0u);
+	CHECK_EQ(timer.read(TimerDevice::HaltClockRegister), static_cast<u32>(DefaultCpuClockHz));
+	CHECK_EQ(timer.clockHz(), DefaultCpuClockHz);
 }

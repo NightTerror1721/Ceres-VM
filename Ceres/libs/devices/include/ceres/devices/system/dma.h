@@ -8,9 +8,9 @@ namespace ceres::devices
 
 
 	// A real DMA engine, not the pseudo-DMA the port opcodes used to be: SRC/DST/LEN/CMD are
-	// ordinary registers, and completion is a tick later rather than instantaneous - modelled the
-	// same way TimerDevice already models a delay, so a program can either poll STATUS or wait for
-	// the interrupt. It moves memory the VM already knows how to move
+	// ordinary registers, and a transfer takes time - one cycle for every 8 bytes (plan/v2 SPEC 5.7) - and
+	// lands on its own event on the machine's scheduler, as the timer's countdown does, so a program can
+	// either poll STATUS or wait for the interrupt. It moves memory the VM already knows how to move
 	// (Memory::copyBytesUnchecked): RAM to RAM today, and RAM to or from a device's own MMIO window
 	// once a device chooses to expose one, since both are just addresses in the same space.
 	class DmaController : public IODevice
@@ -59,23 +59,18 @@ namespace ceres::devices
 		}
 
 	public:
-		// A transfer lands on the tick after it was armed.
-		u64 ticksUntilEvent() const noexcept override { return _pending ? 1 : vm::NoDeviceEvent; }
+		// How many cycles a transfer of `length` bytes takes: one for every 8, and at least one, so it never
+		// lands on the instruction that started it.
+		static constexpr u64 cyclesFor(u32 length) noexcept { return length == 0 ? 1 : (u64{ length } + 7) / 8; }
 
-		void advance(u64 ticks) override;
+		// Whether a transfer has been started and has not landed yet.
+		bool isPending() const noexcept { return _pending; }
 
 		// A reset drops a transfer that was armed but has not landed yet.
 		void reset() override;
 
-		// Must be unconditionally true, not "return _pending": MmioBus only re-reads needsTick() when
-		// the topology changes (attach/detach), not every instruction, so a device that flipped this
-		// on the fly could arm a transfer that then never sees the tick() that lands it.
-		bool needsTick() const noexcept override { return true; }
-
-		// Arms on the CMD write; the actual copy happens on the next tick(), one instruction later -
-		// never on the same step that requested it, so a program relying on the interrupt (rather
-		// than busy-polling STATUS) always sees a real handoff instead of an already-finished copy.
-		void tick() override;
+		// The transfer's event: the copy happens here, all at once, and the interrupt is raised.
+		void onEvent(u32 tag, u64 cycle) override;
 
 	public:
 		u32 read(Address offset) override;
