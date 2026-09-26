@@ -17,6 +17,7 @@ namespace ceres::vm
 		_stoppedForGood = false;
 		_faultAddress = 0;
 		_faultAccess = 0;
+		_cycles = 0;
 		_faultReason = FaultReason::None;
 		_stackLimit = _stackFloor;                  // the heap the limit guarded starts again from nothing
 		_executedInstructions = 0; // A reset restarts the machine, so its clock restarts with it
@@ -171,8 +172,10 @@ namespace ceres::vm
 		// would put the machine straight back to sleep and no device could ever wake it.
 		const FlagRegister savedFlags{ _flags.value() & ~static_cast<FlagRegister::ValueType>(ExecutionFlag::Halting) };
 
+		const u64 entryStart = _cycles;
 		push<u32>(savedFlags.value());
 		push<u32>(_pc.value());
+		_cycles = entryStart + isa::cycles::InterruptEntry;  // the two pushes are part of it
 
 		_flags.clear<ExecutionFlag::Interrupt>(); // Clear interrupt flag before handling the interrupt
 		_flags.clear<ExecutionFlag::Halting>(); // Clear halting flag to allow execution to continue after handling the interrupt
@@ -244,7 +247,10 @@ namespace ceres::vm
 		// is a dummy that must never run, or the machine would execute whatever raw bits happened to
 		// sit at that virtual address's physical counterpart instead of the fault handler.
 		if (!_faulted) [[likely]]
+		{
+			_cycles += isa::cycles::Base[static_cast<u8>(instruction.opcode())];
 			execute(instruction);
+		}
 		++_executedInstructions;
 		_mmioBus.tick();
 	}

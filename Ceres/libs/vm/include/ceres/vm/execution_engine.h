@@ -3,6 +3,7 @@
 #include "memory.h"
 #include "mmio_bus.h"
 #include "fault_reason.h"
+#include <ceres/core/isa/cycles.h>
 #include "interrupt_controller.h"
 #include "mmu.h"
 #include <ceres/core/isa/address.h>
@@ -48,6 +49,8 @@ namespace ceres::vm
 		// instructions rather than wall clock, so this is the machine's own notion of time and
 		// the only clock a debugger can step against deterministically.
 		u64 _executedInstructions = 0;
+		// The CPU clock: cycles spent since the machine started, by the table of plan/v2 SPEC 3.2 (cycles.h).
+		u64 _cycles = 0;
 
 		// The lowest address the stack may grow down to. Until a program is loaded this is all the
 		// machine can defend - the vector table and the BIOS - which is what it was defending
@@ -160,6 +163,7 @@ namespace ceres::vm
 		constexpr Address programCounter() const noexcept { return _pc; }
 		constexpr bool isHalted() const noexcept { return _flags.halting(); }
 		constexpr u64 executedInstructions() const noexcept { return _executedInstructions; }
+		constexpr u64 cycles() const noexcept { return _cycles; }
 		constexpr u32 stackLimit() const noexcept { return _stackLimit; }
 		constexpr u32 interruptDepth() const noexcept { return _interruptDepth; }
 		// Where the program's own stack ends and the system stack begins.
@@ -243,6 +247,7 @@ namespace ceres::vm
 		// Only for restoring a snapshot: the machine's clock has to go back with the rest of it,
 		// or a restored timer would fire against a count that never rewound.
 		void setExecutedInstructions(u64 count) noexcept { _executedInstructions = count; }
+		void setCycles(u64 cycles) noexcept { _cycles = cycles; }
 
 		enum class FaultAccess : u8 { None = 0, Read = 1, Write = 2, Execute = 3 };
 		u32 faultAddress() const noexcept { return _faultAddress; }
@@ -425,12 +430,14 @@ namespace ceres::vm
 					triggerInterrupt(InterruptNumber::MemoryFault);
 					return T{};
 				}
+				_cycles += isa::cycles::MmioAccess;
 				if constexpr (FloatingPoint<T>)
 					return std::bit_cast<T>(_mmioBus.read(*physical));
 				else
 					return static_cast<T>(_mmioBus.read(*physical));
 			}
 
+			_cycles += isa::cycles::RamAccess;
 			if constexpr (FloatingPoint<T>)
 				return _memory.readFloat(*physical);
 			else
@@ -478,6 +485,7 @@ namespace ceres::vm
 					triggerInterrupt(InterruptNumber::MemoryFault);
 					return;
 				}
+				_cycles += isa::cycles::MmioAccess;
 				if constexpr (FloatingPoint<T>)
 					_mmioBus.write(*physical, std::bit_cast<u32>(value));
 				else
@@ -485,6 +493,7 @@ namespace ceres::vm
 				return;
 			}
 
+			_cycles += isa::cycles::RamAccess;
 			if constexpr (FloatingPoint<T>)
 				_memory.writeFloat(*physical, value);
 			else
@@ -1031,7 +1040,10 @@ namespace ceres::vm
 		forceinline void executeJumpIfFlag(const Instruction inst) noexcept
 		{
 			if (flag<Flag>())
+			{
 				_pc += inst.simm24().signedValue();
+				_cycles += isa::cycles::TakenBranchExtra;
+			}
 			else
 				advancePC();
 		}
@@ -1040,7 +1052,10 @@ namespace ceres::vm
 		forceinline void executeJumpRegIfFlag(const Instruction inst) noexcept
 		{
 			if (flag<Flag>())
+			{
 				_pc = Address(getReg(inst.rs()));
+				_cycles += isa::cycles::TakenBranchExtra;
+			}
 			else
 				advancePC();
 		}
@@ -1052,7 +1067,10 @@ namespace ceres::vm
 		forceinline void executeJumpIf(const Instruction inst, bool condition) noexcept
 		{
 			if (condition)
+			{
 				_pc += inst.simm24().signedValue();
+				_cycles += isa::cycles::TakenBranchExtra;
+			}
 			else
 				advancePC();
 		}
@@ -1060,7 +1078,10 @@ namespace ceres::vm
 		forceinline void executeJumpRegIf(const Instruction inst, bool condition) noexcept
 		{
 			if (condition)
+			{
 				_pc = Address(getReg(inst.rs()));
+				_cycles += isa::cycles::TakenBranchExtra;
+			}
 			else
 				advancePC();
 		}
@@ -1073,7 +1094,10 @@ namespace ceres::vm
 		forceinline void executeJumpIfNotFlag(const Instruction inst) noexcept
 		{
 			if (!flag<Flag>())
+			{
 				_pc += inst.simm24().signedValue();
+				_cycles += isa::cycles::TakenBranchExtra;
+			}
 			else
 				advancePC();
 		}
@@ -1082,7 +1106,10 @@ namespace ceres::vm
 		forceinline void executeJumpRegIfNotFlag(const Instruction inst) noexcept
 		{
 			if (!flag<Flag>())
+			{
 				_pc = Address(getReg(inst.rs()));
+				_cycles += isa::cycles::TakenBranchExtra;
+			}
 			else
 				advancePC();
 		}
@@ -1136,6 +1163,7 @@ namespace ceres::vm
 			// triggerInterrupt pushes flags and then the PC, so the PC is on top and has to come off
 			// first. Popping them the other way round restored the flags word as the program counter:
 			// an interrupt taken while halted resumed at address 0x30, the flag bits themselves.
+			const u64 iretStart = _cycles;
 			const auto newPC = pop<u32>();
 			if (!newPC.has_value())
 				return;
@@ -1153,6 +1181,7 @@ namespace ceres::vm
 			// handler that pushed more than it popped is forgiven by this rather than corrupting
 			// the stack of the program it interrupted.
 			leaveInterrupt();
+			_cycles = iretStart + isa::cycles::IretCycles;
 		}
 
 		forceinline void ADD(const Instruction inst) noexcept { executeAdd(inst.rd(), getReg(inst.rs()), getReg(inst.rt())); }
@@ -1548,17 +1577,20 @@ namespace ceres::vm
 			return _memory.peekMutBytesUnchecked(physical, size).data();
 		}
 
-		void chargeBlock(u32 bytes) noexcept
+		void chargeBlock(u64 start, u32 bytes, bool finished) noexcept
 		{
+			_cycles = start + isa::cycles::ofBlockChunk(bytes) + (finished ? isa::cycles::BlockBase : 0);
 			if (bytes >= 16)
 				_mmioBus.advance(bytes / 16);
 		}
 
 		void MCPY(const Instruction inst) noexcept
 		{
+			const u64 start = _cycles;
 			const u32 count = getReg(inst.rt());
 			if (count == 0)
 			{
+				_cycles += isa::cycles::BlockBase;
 				advancePC();
 				return;
 			}
@@ -1602,16 +1634,18 @@ namespace ceres::vm
 			setReg(inst.rd(), dst + n);
 			setReg(inst.rs(), src + n);
 			setReg(inst.rt(), count - n);
-			chargeBlock(n);
+			chargeBlock(start, n, count == n);
 			if (count == n)
 				advancePC();
 		}
 
 		void MSET(const Instruction inst) noexcept
 		{
+			const u64 start = _cycles;
 			const u32 count = getReg(inst.rt());
 			if (count == 0)
 			{
+				_cycles += isa::cycles::BlockBase;
 				advancePC();
 				return;
 			}
@@ -1636,7 +1670,7 @@ namespace ceres::vm
 			}
 			setReg(inst.rd(), dst + n);
 			setReg(inst.rt(), count - n);
-			chargeBlock(n);
+			chargeBlock(start, n, count == n);
 			if (count == n)
 				advancePC();
 		}
@@ -1646,9 +1680,11 @@ namespace ceres::vm
 		// two bytes as unsigned numbers: C and N set when [rd]'s is the lower.
 		void MCMP(const Instruction inst) noexcept
 		{
+			const u64 start = _cycles;
 			const u32 count = getReg(inst.rt());
 			if (count == 0)
 			{
+				_cycles += isa::cycles::BlockBase;
 				zero(true); carry(false); sign(false); overflow(false);
 				advancePC();
 				return;
@@ -1698,14 +1734,14 @@ namespace ceres::vm
 				carry(left < right);
 				sign(left < right);
 				overflow(false);
-				chargeBlock(i + 1);                 // the differing byte was read too
+				chargeBlock(start, i + 1, true);    // the differing byte was read too
 				advancePC();
 				return;
 			}
 			setReg(inst.rd(), a + n);
 			setReg(inst.rs(), b + n);
 			setReg(inst.rt(), count - n);
-			chargeBlock(n);
+			chargeBlock(start, n, count == n);
 			if (count == n)
 			{
 				zero(true); carry(false); sign(false); overflow(false);
@@ -1717,9 +1753,11 @@ namespace ceres::vm
 		// what follows.
 		void MSCAN(const Instruction inst) noexcept
 		{
+			const u64 start = _cycles;
 			const u32 count = getReg(inst.rt());
 			if (count == 0)
 			{
+				_cycles += isa::cycles::BlockBase;
 				zero(true);
 				advancePC();
 				return;
@@ -1756,13 +1794,13 @@ namespace ceres::vm
 				setReg(inst.rd(), a + i);
 				setReg(inst.rt(), count - i);
 				zero(false);
-				chargeBlock(i + 1);                 // the byte found was read too
+				chargeBlock(start, i + 1, true);    // the byte found was read too
 				advancePC();
 				return;
 			}
 			setReg(inst.rd(), a + n);
 			setReg(inst.rt(), count - n);
-			chargeBlock(n);
+			chargeBlock(start, n, count == n);
 			if (count == n)
 			{
 				zero(true);

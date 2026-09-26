@@ -27,7 +27,7 @@
   `execution_engine.h` (contador `u64 _cycles`, `cycles()`); coste de bloque `4 + ceil(bytes/8)`.
 - **Pasos**: suma el coste en el bucle de ejecución y en las entradas a interrupción; distingue RAM, VRAM
   (aún no existe: deja el hueco) y MMIO en cargas y almacenamientos; salto tomado o no. El timer sigue igual.
-- **Aceptación**: [ ] Test que ejecuta secuencias conocidas y comprueba el total de ciclos. [ ] `benchmark_vm` sin pérdida > 1 %.
+- **Aceptación**: [x] Test que ejecuta secuencias conocidas y comprueba el total de ciclos. [x] `benchmark_vm` sin pérdida > 1 %.
 - **Commit**: `Count CPU cycles per instruction (F2.1)`
 
 ### F2.2 · Planificador de eventos
@@ -114,3 +114,10 @@
 - [ ] Suites en verde. [ ] `benchmark_vm` igual o mejor que en `BASELINE.md`. [ ] Revisión `ocr`.
 
 ## Notas
+
+- **F2.1**: la tabla (`cycles.h`) guarda la parte fija de cada opcode; cada carga o almacenamiento suma lo que
+  alcanzó (RAM 2, dispositivo 4; VRAM 3 queda definido para F4), el salto tomado suma 1, las instrucciones de bloque
+  cobran `ceil(n/8)` por trozo y 4 al terminar, y la entrada a interrupción e `iret` fijan su total (12 y 6). Así
+  `push`, `call`, `pushm`, `enter` salen de la tabla de la SPEC sin casos especiales. `benchmark_vm` frente a BASELINE:
+  igual o mejor en todo (ram 108,3 frente a 108,4); frente a F1.10 los saltos bajan de 181 a 170 MIPS por el ciclo
+  del salto tomado.

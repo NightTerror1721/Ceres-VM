@@ -37,7 +37,7 @@ Archivo: [phases/F01-dispositivos-y-nucleo.md](phases/F01-dispositivos-y-nucleo.
 | F1.9 | Un test por dispositivo | F1.8 | DONE | asm@4c19eee |
 | F1.10 | Campos de instrucción declarativos y serialización little-endian | fase: F0 (F0.5 cerrada para P05 y P06) | DONE | asm@082f4e9 |
 | F1.11 | Comprobación automática de «un dispositivo por archivo» | F1.9 | DONE | asm@8cabb11 |
-| F1.12 | Documentación de dispositivos y bus | F1.8 | DONE |  |
+| F1.12 | Documentación de dispositivos y bus | F1.8 | DONE | asm@a1489dc |
 
 ## F2 · Relojes y planificador de eventos
 
@@ -45,7 +45,7 @@ Archivo: [phases/F02-relojes.md](phases/F02-relojes.md)
 
 | ID | Tarea | Depende de | Estado | Commits |
 | --- | --- | --- | --- | --- |
-| F2.1 | Tabla de ciclos y contador | F1.10 | TODO |  |
+| F2.1 | Tabla de ciclos y contador | F1.10 | DONE |  |
 | F2.2 | Planificador de eventos | F2.1 | TODO |  |
 | F2.3 | Todos los dispositivos al planificador; halt por eventos | F2.2 | TODO |  |
 | F2.4 | Timer v2 y `CpuClockHz` | F2.3 | TODO |  |
