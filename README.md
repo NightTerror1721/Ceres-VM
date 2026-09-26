@@ -52,7 +52,7 @@ A flat byte array, 16 MiB by default. There is no MMU and no paging.
 | Range | Size | Contents |
 | --- | --- | --- |
 | `0x00000000`–`0x000000FF` | 256 B | Interrupt vector table: 64 entries of 4 bytes. Entry 0 is the reset vector and holds the program's entry point. |
-| `0x00000100`–`0x000003FF` | 768 B | BIOS. Currently a three-instruction stub that prints `E` and halts; every fault vector points at it. |
+| `0x00000100`–`0x000003FF` | 768 B | BIOS. Default handlers for the fault vectors a program leaves unbound: an unhandled exception ends the run with status 1 and a diagnostic on stderr. |
 | `0x00000400`– | rest | `.text`, `.rodata`, `.data` and `.bss` in that order, then heap and stack. |
 
 Accesses below `0x400` are rejected for program code, so a program cannot overwrite the vector

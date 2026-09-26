@@ -10,6 +10,10 @@
 #include <chrono>
 #include <functional>
 #include <optional>
+#include <future>
+#include <memory>
+#include <string>
+#include <thread>
 
 using namespace ceres::driver;
 using namespace ceres::testing;
@@ -642,4 +646,108 @@ TEST(driver_run, a_program_can_read_until_the_end_of_its_input)
 
 	CHECK_EQ(result, 3);
 	CHECK_EQ(output.str(), sent);
+}
+
+namespace
+{
+	struct BoundedRun
+	{
+		std::optional<int> status;   // nothing when the run did not end in time
+		std::string output;
+		std::string diagnostics;
+	};
+
+	// `source` under `ceres run`, on a thread of its own that is given `limit` to end: a run that hangs fails the
+	// test that asked instead of holding up the whole suite. One that does not end is left behind, with what it
+	// writes to, since nothing can stop it from outside.
+	BoundedRun runWithin(const char* name, const std::string& source, std::chrono::seconds limit)
+	{
+		struct Run
+		{
+			std::filesystem::path path;
+			std::istringstream input;
+			std::ostringstream output;
+			std::ostringstream diagnostics;
+			std::promise<int> status;
+		};
+		auto run = std::make_shared<Run>();
+		run->path = std::filesystem::temp_directory_path() / name;
+		{
+			std::ofstream file{run->path, std::ios::binary | std::ios::trunc};
+			file << source;
+		}
+		std::future<int> status = run->status.get_future();
+		std::thread([run]
+		{
+			run->status.set_value(execute(RunCommand{.input = run->path}, {&run->input, &run->output, &run->diagnostics}));
+		}).detach();
+		if (status.wait_for(limit) != std::future_status::ready)
+			return {};
+		std::filesystem::remove(run->path);
+		return { status.get(), run->output.str(), run->diagnostics.str() };
+	}
+}
+
+TEST(driver_run, an_unhandled_fault_ends_the_run_with_status_1_and_says_what_it_was)
+{
+	// A word load from an odd address, with no AlignmentFault handler bound. The BIOS's default handler used
+	// to print 'E' and halt, and nothing ever woke the machine: the run hung.
+	const BoundedRun run = runWithin("ceres_driver_unhandled_fault_test.casm",
+		"@text\n"
+		"global main:\n"
+		"    li   r1, 0x601\n"
+		"    ldr  r2, [r1 + 0]\n"
+		"    la   r13, 0xFFFF0000\n"
+		"    li   r0, 1\n"
+		"    str  [r13 + 0], r0\n",
+		std::chrono::seconds(10));
+
+	CHECK(run.status.has_value());
+	if (!run.status) return;
+	CHECK_EQ(*run.status, 1);
+	CHECK(run.output.empty());
+	// main starts at 0x400 and the load is its second instruction.
+	CHECK_EQ(run.diagnostics, std::string("Unhandled AlignmentFault at 0x00000404: read of 4 bytes at 0x00000601 (FaultReason 1, Alignment)\n"));
+}
+
+TEST(driver_run, an_unhandled_fault_on_a_device_register_reports_its_fault_reason)
+{
+	// A byte store to the terminal's Output register: devices take aligned 32-bit accesses only (plan/v2 SPEC
+	// 5.1), so it is a MemoryFault whose FaultReason is MmioWidth.
+	const BoundedRun run = runWithin("ceres_driver_unhandled_mmio_fault_test.casm",
+		"@text\n"
+		"global main:\n"
+		"    la   r13, 0xFF000004\n"
+		"    li   r0, 65\n"
+		"    strb [r13 + 0], r0\n"
+		"    la   r13, 0xFFFF0000\n"
+		"    li   r0, 1\n"
+		"    str  [r13 + 0], r0\n",
+		std::chrono::seconds(10));
+
+	CHECK(run.status.has_value());
+	if (!run.status) return;
+	CHECK_EQ(*run.status, 1);
+	CHECK(run.output.empty());
+	CHECK(run.diagnostics.starts_with("Unhandled MemoryFault at 0x"));
+	CHECK(run.diagnostics.find(": write of 1 bytes at 0xFF000004 (FaultReason 5, MmioWidth)\n") != std::string::npos);
+}
+
+TEST(driver_run, an_unhandled_trap_ends_the_run_too)
+{
+	// Not only faults: every vector the BIOS gives a default handler ends the run the same way. A trap goes back
+	// to the instruction after it, which is the address it reports.
+	const BoundedRun run = runWithin("ceres_driver_unhandled_trap_test.casm",
+		"@text\n"
+		"global main:\n"
+		"    trap\n"
+		"    la   r13, 0xFFFF0000\n"
+		"    li   r0, 1\n"
+		"    str  [r13 + 0], r0\n",
+		std::chrono::seconds(10));
+
+	CHECK(run.status.has_value());
+	if (!run.status) return;
+	CHECK_EQ(*run.status, 1);
+	CHECK_EQ(run.diagnostics, std::string("Unhandled Trap at 0x00000404\n"));
 }

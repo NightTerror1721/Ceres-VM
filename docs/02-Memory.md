@@ -30,7 +30,7 @@ The default machine has 16 MiB of RAM. `ceres run --memory <bytes>` overrides th
 | Range | Size | Contents |
 | --- | --- | --- |
 | `0x00000000`–`0x000000FF` | 256 B (`NullPageSegmentSize`) | Interrupt vector table: 64 entries × 4 bytes. Entry 0 doubles as the reset vector, and holds the program's entry point. |
-| `0x00000100`–`0x000003FF` | 768 B (`BiosSegmentSize`) | BIOS. Currently a 3-instruction stub (`li r0, 'E'`; `out 0x01, r0`; `halt`) that every unhandled fault vector points at. |
+| `0x00000100`–`0x000003FF` | 768 B (`BiosSegmentSize`) | BIOS. A default handler for each vector from `Trap` to `UserInterrupt0` that the program leaves unbound: it shuts the machine down with exit status 1, and `ceres run` says on stderr which exception it was (see [Interrupts](08-Interrupts-and-Exceptions.md)). |
 | `0x00000400`– | rest of memory (`UnrestrictedSegmentStart`) | `.text`, `.rodata`, `.data`, `.bss`, then heap and stack. This is where a program actually lives. |
 
 These two constants come straight from [`memory.h`](../Ceres/libs/vm/include/ceres/vm/memory.h):

@@ -62,9 +62,19 @@ convention, the required entry point of every Ceres program (see
 [Labels and symbols](12-Labels-and-Symbols.md), `main`).
 
 The BIOS (see [`bios.h`](../Ceres/libs/vm/include/ceres/vm/bios.h)) initializes every vector from `Trap` through
-`UserInterrupt0` to point at its own 3-instruction stub at `0x100` (which prints `'E'` and halts), so
-an unhandled fault produces visible, if minimal, feedback instead of silently jumping through a null
-pointer.
+`UserInterrupt0` to point at a default handler of its own, from `0x100` up (six instructions per vector), so
+an unhandled exception ends the run instead of silently jumping through a null pointer. Each handler
+writes `0x0101` to the system control device's Command register - shut down, exit status 1 - and then
+halts for good should nothing be attached there. `ceres run` sees that the machine stopped in one of
+them, and reports which exception nobody handled on stderr before it exits with 1:
+
+```
+Unhandled AlignmentFault at 0x00000404: read of 4 bytes at 0x00000601 (FaultReason 1, Alignment)
+```
+
+The address after `at` is the instruction the exception came from (the one after it for `trap` and
+`syscall`); a memory fault adds what that instruction was doing and, when it is set, the system
+control device's `FaultReason`.
 
 A running program can never overwrite this table itself — every store to an address below `0x400`
 raises `MemoryFault` and does nothing (see [Memory](02-Memory.md#protected-vs-unrestricted-access)),

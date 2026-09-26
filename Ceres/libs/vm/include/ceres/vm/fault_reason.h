@@ -2,6 +2,8 @@
 
 #include <ceres/core/base/types.h>
 
+#include <string_view>
+
 namespace ceres::vm
 {
 	// Why the last memory fault happened, beyond which interrupt it raised: what SystemControl's FaultReason
@@ -21,4 +23,24 @@ namespace ceres::vm
 		UnknownOpcode = 9,
 		BadSubfield = 10,
 	};
+
+	// The reason's name as SPEC 5.4 spells it, for a diagnostic; empty for a value that names none.
+	constexpr std::string_view faultReasonName(FaultReason reason) noexcept
+	{
+		switch (reason)
+		{
+			case FaultReason::None:           return "None";
+			case FaultReason::Alignment:      return "Alignment";
+			case FaultReason::OutOfRam:       return "OutOfRam";
+			case FaultReason::OutOfVram:      return "OutOfVram";
+			case FaultReason::Unmapped:       return "Unmapped";
+			case FaultReason::MmioWidth:      return "MmioWidth";
+			case FaultReason::MmioBlock:      return "MmioBlock";
+			case FaultReason::MmioUndeclared: return "MmioUndeclared";
+			case FaultReason::RegisterPair:   return "RegisterPair";
+			case FaultReason::UnknownOpcode:  return "UnknownOpcode";
+			case FaultReason::BadSubfield:    return "BadSubfield";
+		}
+		return {};
+	}
 }

@@ -26,6 +26,7 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <memory>
 #include <thread>
 
@@ -198,6 +199,61 @@ namespace ceres::driver
 				out += static_cast<char>(0x80 | (codePoint & 0x3F));
 			}
 			return out;
+		}
+
+		std::string interruptName(InterruptNumber number)
+		{
+			switch (number)
+			{
+				case InterruptNumber::Reset:              return "Reset";
+				case InterruptNumber::Trap:               return "Trap";
+				case InterruptNumber::IllegalInstruction: return "IllegalInstruction";
+				case InterruptNumber::MemoryFault:        return "MemoryFault";
+				case InterruptNumber::DivisionByZero:     return "DivisionByZero";
+				case InterruptNumber::StackOverflow:      return "StackOverflow";
+				case InterruptNumber::AlignmentFault:     return "AlignmentFault";
+				case InterruptNumber::PageFault:          return "PageFault";
+				case InterruptNumber::Syscall:            return "Syscall";
+				default: break;
+			}
+			const u32 value = static_cast<u32>(number);
+			return value >= ReservedInterruptCount ? std::format("UserInterrupt{}", value - ReservedInterruptCount) : std::format("interrupt {}", value);
+		}
+
+		// A machine that stopped in one of the BIOS's default handlers (bios.h) ran into an exception the program
+		// did not handle, and the handler shut it down with status 1. What to tell the user about it: which
+		// exception, the instruction it came from, and for a memory fault what that instruction was doing and why
+		// it faulted (SystemControl's FaultAddress, FaultAccess and FaultReason). Nothing for any other stop.
+		std::optional<std::string> describeUnhandledException(const CeresVM& vm)
+		{
+			const ExecutionEngine& engine = vm.engine();
+			const auto number = BIOS::defaultHandlerVector(engine.programCounter());
+			if (vm.isPoweredOn() || !number)
+				return std::nullopt;
+
+			// The dispatch pushed the flags and then the PC it was at, and the handler left its stack alone: that
+			// PC is the faulting instruction for a fault, and the one after it for trap and syscall.
+			const u32 sp = engine.registers().getValue(GeneralPurposeRegisterPool::StackPointerIndex);
+			const bool framed = sp <= vm.memory().size() - sizeof(u32) && sp % sizeof(u32) == 0;
+			const u32 pc = framed ? vm.memory().readUnchecked<u32>(Address(sp)) : engine.programCounter().value();
+			std::string message = std::format("Unhandled {} at 0x{:08X}", interruptName(*number), pc);
+
+			const bool memoryFault = *number == InterruptNumber::MemoryFault || *number == InterruptNumber::AlignmentFault || *number == InterruptNumber::PageFault;
+			if (memoryFault)
+			{
+				const u32 access = engine.faultAccess();
+				const u32 kind = access & 0xFF;
+				const u32 size = access >> 8;
+				const std::string_view what = kind == 1 ? "read" : kind == 2 ? "write" : kind == 3 ? "fetch" : "access";
+				message += size != 0 ? std::format(": {} of {} bytes at 0x{:08X}", what, size, engine.faultAddress())
+					: std::format(": {} at 0x{:08X}", what, engine.faultAddress());
+			}
+			if (const u32 reason = engine.faultReason(); reason != 0 && (memoryFault || *number == InterruptNumber::IllegalInstruction))
+			{
+				const std::string_view name = faultReasonName(static_cast<FaultReason>(reason));
+				message += name.empty() ? std::format(" (FaultReason {})", reason) : std::format(" (FaultReason {}, {})", reason, name);
+			}
+			return message;
 		}
 
 		// What the run cost, in instructions and in CPU cycles (plan/v2 SPEC 3.2): by function first - a function
@@ -592,6 +648,8 @@ namespace ceres::driver
 				framebuffer.fallBackToTerminal();
 		}
 
+		if (const auto unhandled = describeUnhandledException(vm))
+			*services.diagnostics << *unhandled << '\n';
 		if (profileInfo)
 			printProfile(vm, *profileInfo, *services.diagnostics);
 		terminal->detachFrom(vm.io());
