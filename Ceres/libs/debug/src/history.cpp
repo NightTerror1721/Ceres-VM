@@ -46,6 +46,7 @@ namespace ceres::debug
 		Snapshot snapshot;
 		snapshot.tick = tick;
 		snapshot.cycles = machine.engine().cycles();
+		snapshot.events = machine.io().scheduler().captureEvents();
 		snapshot.registers = machine.engine().registers();
 		snapshot.fregisters = machine.engine().fregisters();
 		snapshot.flags = machine.engine().flags().value();
@@ -130,6 +131,7 @@ namespace ceres::debug
 		engine.setStoppedForGood(chosen->stoppedForGood);
 		engine.setFaultRegisters(chosen->faultAddress, chosen->faultAccess, chosen->faultReason);
 		timer.restoreState(chosen->timer);
+		machine.io().scheduler().restoreEvents(chosen->events);   // after the timer, which schedules its own again
 		terminal.restoreState(chosen->terminal);
 
 		return chosen->tick;

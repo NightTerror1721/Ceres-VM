@@ -193,7 +193,10 @@ namespace ceres::vm
 		// is off unless enableProfiling() was called, so this is cold on every step() by default -
 		// same rationale as translate()'s [[likely]] on the paging-off path.
 		if (_executionCountsData && _pc.value() >= _textStart && _pc.value() < _textEnd) [[unlikely]]
-			++_executionCountsData[(_pc.value() - _textStart) / Instruction::Size];
+		{
+			stepCounted((_pc.value() - _textStart) / Instruction::Size);
+			return;
+		}
 
 		_faulted = false;
 		const Instruction instruction = fetch();
@@ -206,6 +209,22 @@ namespace ceres::vm
 			execute(instruction);
 		}
 		++_executedInstructions;
+	}
 
+	// The same as the end of step(), for a word being profiled: counted, and charged what it cost. Apart, so the
+	// step every other run takes carries none of it.
+	void ExecutionEngine::stepCounted(usize index) noexcept
+	{
+		++_executionCountsData[index];
+		const u64 before = _cycles;
+		_faulted = false;
+		const Instruction instruction = fetch();
+		if (!_faulted) [[likely]]
+		{
+			_cycles += isa::cycles::Base[static_cast<u8>(instruction.opcode())];
+			execute(instruction);
+		}
+		++_executedInstructions;
+		_cycleCountsData[index] += _cycles - before;
 	}
 }

@@ -141,3 +141,16 @@ TEST(cycles, entering_an_interrupt_costs_twelve_and_iret_six)
 	m.vector(static_cast<InterruptNumber>(40), Address(0x800));
 	CHECK(m.costs(3) == (Costs{ 1, isa::cycles::InterruptEntry, isa::cycles::IretCycles }));
 }
+
+TEST(cycles, profiling_counts_what_each_instruction_word_cost)
+{
+	Machine m{ Instruction::LUI(2, 1), Instruction::LDR(3, 2, 0), Instruction::MUL(4, 3, 3), Instruction::NOP() };
+	const u32 start = Memory::UnrestrictedSegmentStart.value();
+	m.engine().setTextRange(start, start + 4 * Instruction::Size);
+	m.engine().enableProfiling();
+	const Costs costs = m.costs(4);
+	const auto counted = m.engine().cycleCounts();
+	CHECK_EQ(counted.size(), usize{ 4 });
+	CHECK(Costs(counted.begin(), counted.end()) == costs);
+	CHECK(m.engine().executionCounts()[1] == 1u);
+}

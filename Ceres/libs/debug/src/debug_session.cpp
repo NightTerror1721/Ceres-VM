@@ -1405,6 +1405,8 @@ namespace ceres::debug
 		view.flags = engine.flags().value();
 		view.programCounter = engine.programCounter().value();
 		view.executedInstructions = engine.executedInstructions();
+		view.cycles = engine.cycles();
+		view.nanos = _timer->nanos();
 		view.zero = engine.flags().zero();
 		view.sign = engine.flags().sign();
 		view.carry = engine.flags().carry();

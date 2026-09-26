@@ -123,6 +123,8 @@ namespace ceres::vm
 		// profile that comes out the same on every run - which a real machine cannot offer.
 		std::vector<u64> _executionCounts;
 		u64* _executionCountsData = nullptr;
+		std::vector<u64> _cycleCounts;              // what each word cost, cycle by cycle, alongside the counts
+		u64* _cycleCountsData = nullptr;
 
 		// Empty unless a debugger is attached. A watchpoint that compares snapshots between
 		// instructions cannot see a read at all, nor a write that puts back the value that was
@@ -168,6 +170,8 @@ namespace ceres::vm
 		constexpr u32 textStart() const noexcept { return _textStart; }
 		constexpr u32 textEnd() const noexcept { return _textEnd; }
 		std::span<const u64> executionCounts() const noexcept { return _executionCounts; }
+		// The cycles each instruction word has cost, over all its executions (an interrupt's entry is nobody's).
+		std::span<const u64> cycleCounts() const noexcept { return _cycleCounts; }
 
 		// A program builds its own page tables in plain memory before PGON, and a test or debugger
 		// wants to build them from outside too - see docs/27-Virtual-Memory-and-Paging.md.
@@ -224,6 +228,8 @@ namespace ceres::vm
 		{
 			_executionCounts.assign(_textEnd > _textStart ? (_textEnd - _textStart) / Instruction::Size : 0, 0);
 			_executionCountsData = _executionCounts.empty() ? nullptr : _executionCounts.data();
+			_cycleCounts.assign(_executionCounts.size(), 0);
+			_cycleCountsData = _cycleCounts.empty() ? nullptr : _cycleCounts.data();
 		}
 
 		void setFlags(FlagRegister flags) noexcept { _flags = flags; }
@@ -277,6 +283,8 @@ namespace ceres::vm
 		void handleHalt() noexcept;
 		// One step of a halted machine: the clock jumps to the next device event, nothing executes.
 		void haltedStep(u64 raisesSeen) noexcept;
+		// The fetch and execute of a step whose word is being profiled (enableProfiling), at `index` in .text.
+		neverinline void stepCounted(usize index) noexcept;
 		void handleTrap() noexcept;
 
 		// True when a handler was entered; false when the request was ignored (masked, or no handler bound)

@@ -119,6 +119,7 @@ namespace ceres::vm
 		bool restartIfRequested() noexcept;
 
 		MmioBus& io() noexcept { return _mmioBus; }
+		const MmioBus& io() const noexcept { return _mmioBus; }
 		InterruptController& interrupts() noexcept { return _interrupts; }
 
 		// Exposed so a test or a debugger can set up and inspect machine state directly,

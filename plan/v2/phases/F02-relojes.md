@@ -183,3 +183,12 @@
   no espere 10 ms a una entrada que ya llegó, `InterruptController::poke` despierta la espera sin levantar nada (un
   raise terminaría el halt del programa y la repetición divergiría). Todo `ceres run` pasa ya por el bucle del driver:
   `vm.run()` ya no se usa ahí. `--replay` no lee la entrada del host.
+- **F2.7**: `ceres profile` informa instrucciones y ciclos por función (una función va de una etiqueta global de
+  `.text` a la siguiente; las locales se guardan como `función.etiqueta` y se agrupan con la suya) y por línea, con las
+  cuotas sobre los ciclos. El motor cuenta los ciclos de cada palabra (`cycleCounts`) en un paso aparte y sin inline
+  (`stepCounted`, macro `neverinline`): dentro de `step()` costaba un 9 % en `mixed` aun con el perfilado apagado.
+  Medido alternando binarios, `mixed` 138,0 frente a 138,3 de la F2.3 y 139,5 de la F2.1. El depurador muestra `cycles`
+  y el tiempo virtual en `regs`, el servidor los envía y las expresiones aceptan `cycles` y `nanos`; las instantáneas
+  guardan la lista de eventos del planificador (`captureEvents`/`restoreEvents`) y la huella de los tests de historial
+  compara ciclos, nanos y eventos. Un test comprueba que volver a antes de lanzar un DMA largo no deja su evento
+  pendiente (falla sin la restauración). El estado del DMA sigue sin estar en las instantáneas.

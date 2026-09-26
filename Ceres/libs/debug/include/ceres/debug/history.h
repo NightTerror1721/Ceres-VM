@@ -50,6 +50,7 @@ namespace ceres::debug
 		{
 			u64 tick = 0;
 			u64 cycles = 0;           // the CPU clock, which the timer's countdown is scheduled against
+			std::vector<vm::Scheduler::Event> events;   // what the devices had scheduled, put back as it was
 			GeneralPurposeRegisterPool registers;
 			FloatingPointRegisterPool fregisters;
 			u32 flags = 0;

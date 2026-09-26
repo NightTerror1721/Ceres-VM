@@ -190,6 +190,8 @@ namespace ceres::debug
 			{ "pc", json::Value(view.programCounter) },
 			{ "flags", json::Value(view.flags) },
 			{ "ticks", json::Value(view.executedInstructions) },
+			{ "cycles", json::Value(view.cycles) },
+			{ "nanos", json::Value(view.nanos) },
 			{ "zero", json::Value(view.zero) },
 			{ "sign", json::Value(view.sign) },
 			{ "carry", json::Value(view.carry) },

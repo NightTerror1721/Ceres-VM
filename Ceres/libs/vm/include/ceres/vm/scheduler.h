@@ -2,6 +2,8 @@
 
 #include <ceres/core/base/types.h>
 #include <array>
+#include <span>
+#include <vector>
 
 // The machine's event scheduler (plan/v2 SPEC 3.3): a device that will act on its own at some moment - a timer
 // running out, an alarm coming due - asks to be called then, in CPU cycles, instead of being called every
@@ -23,13 +25,15 @@ namespace ceres::vm
 		// A few devices with an event or two each: a flat array scanned on change beats a heap at this size.
 		static inline constexpr usize MaxEvents = 64;
 
-	private:
+		// One event: whose, when and which. Exposed so a debugger can put the whole list back with a snapshot.
 		struct Event
 		{
 			IODevice* device = nullptr;
 			u64 cycle = 0;
 			u32 tag = 0;
 		};
+
+	private:
 
 		std::array<Event, MaxEvents> _events{};
 		usize _count = 0;
@@ -76,6 +80,10 @@ namespace ceres::vm
 		u64 cycleOf(const IODevice& device, u32 tag) const noexcept;
 
 		u64 nextCycle() const noexcept { return *_next; }
+
+		// Every event as it stands, and the list put back as it was: a debugger's snapshot and its restore.
+		std::vector<Event> captureEvents() const { return { _events.begin(), _events.begin() + static_cast<std::ptrdiff_t>(_count) }; }
+		void restoreEvents(std::span<const Event> events) noexcept;
 		bool empty() const noexcept { return _count == 0; }
 
 		// Calls every event due at or before `now`, earliest first. A device may schedule again from its

@@ -22,3 +22,14 @@
 #		define forceinline inline
 #	endif
 #endif
+
+// The opposite, for a cold path that must stay out of the hot function it is called from.
+#ifndef neverinline
+#	ifdef _MSC_VER
+#		define neverinline __declspec(noinline)
+#	elif defined(__GNUC__) || defined(__clang__)
+#		define neverinline __attribute__((noinline))
+#	else
+#		define neverinline
+#	endif
+#endif

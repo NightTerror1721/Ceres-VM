@@ -9,6 +9,7 @@
 #include <ceres/debug/debug_session.h>
 #include <ceres/core/format/memory_map.h>
 #include <filesystem>
+#include <algorithm>
 #include <fstream>
 
 using namespace ceres;
@@ -97,8 +98,20 @@ namespace
 		u32 flags = 0;
 		u32 programCounter = 0;
 		u64 ticks = 0;
+		u64 cycles = 0;
+		u64 nanos = 0;
+		std::vector<vm::Scheduler::Event> events;
 
-		bool operator==(const Fingerprint&) const = default;
+		bool operator==(const Fingerprint& other) const
+		{
+			const auto sameEvents = std::ranges::equal(events, other.events, [](const auto& a, const auto& b)
+			{
+				return a.device == b.device && a.cycle == b.cycle && a.tag == b.tag;
+			});
+			return memory == other.memory && registers == other.registers && flags == other.flags &&
+				programCounter == other.programCounter && ticks == other.ticks && cycles == other.cycles &&
+				nanos == other.nanos && sameEvents;
+		}
 	};
 
 	Fingerprint fingerprint(const debug::DebugSession& session)
@@ -109,6 +122,9 @@ namespace
 		out.flags = view.flags;
 		out.programCounter = view.programCounter;
 		out.ticks = view.executedInstructions;
+		out.cycles = view.cycles;
+		out.nanos = view.nanos;
+		out.events = const_cast<debug::DebugSession&>(session).machine().io().scheduler().captureEvents();
 		// The whole machine, not a sample of it: a delta-encoded snapshot that restored all but
 		// one page would pass any narrower check.
 		out.memory = session.readMemory(0, static_cast<u32>(vm::Memory::DefaultSize));
@@ -608,4 +624,53 @@ TEST(peripherals, a_debugged_program_has_the_ports_and_the_debugger_can_plug_med
 
 	std::error_code ignored;
 	std::filesystem::remove(stick, ignored);
+}
+
+// Loops, starts a DMA transfer long enough to be in flight for a hundred thousand cycles, and loops on.
+constexpr std::string_view DmaInFlight =
+	"@text\r\n"
+	"global main:\r\n"
+	"    li r3, 0\r\n"
+	".before:\r\n"
+	"    add r3, r3, 1\r\n"
+	"    cmp r3, 1000\r\n"
+	"    jnz .before\r\n"
+	"    la r10, 0xFF040000\r\n"
+	"    la r1, 0x100000\r\n"
+	"    str [r10 + 0], r1\r\n"
+	"    la r1, 0x200000\r\n"
+	"    str [r10 + 4], r1\r\n"
+	"    la r1, 800000\r\n"
+	"    str [r10 + 8], r1\r\n"
+	"    li r1, 1\r\n"
+	"    str [r10 + 12], r1\r\n"
+	".after:\r\n"
+	"    add r3, r3, 1\r\n"
+	"    cmp r3, 3000\r\n"
+	"    jnz .after\r\n"
+	"    li r0, 1\r\n"
+	"    la r13, 0xFFFF0000\r\n"
+	"    str  [r13 + 0], r0\r\n"
+	"    ret\r\n";
+
+TEST(history, going_back_puts_the_devices_events_back_as_they_were)
+{
+	TempSource source{ DmaInFlight, "events" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+
+	session->start();
+	session->resume(1500);                      // before the transfer starts
+	const u64 moment = session->currentTick();
+	const Fingerprint before = fingerprint(*session);
+	CHECK(before.events.empty());
+	CHECK(before.cycles > 0);
+
+	session->resume(2000);                      // the transfer is in flight: its event is scheduled
+	CHECK(!session->machine().io().scheduler().empty());
+
+	// Back before it: the event of a transfer that has not started yet must not be waiting to land.
+	session->runToTick(moment);
+	CHECK(fingerprint(*session) == before);
 }

@@ -57,6 +57,14 @@ namespace ceres::vm
 		recomputeNext();
 	}
 
+	void Scheduler::restoreEvents(std::span<const Event> events) noexcept
+	{
+		_count = events.size() < MaxEvents ? events.size() : MaxEvents;
+		for (usize i = 0; i < _count; ++i)
+			_events[i] = events[i];
+		recomputeNext();
+	}
+
 	u64 Scheduler::cycleOf(const IODevice& device, u32 tag) const noexcept
 	{
 		for (usize i = 0; i < _count; ++i)

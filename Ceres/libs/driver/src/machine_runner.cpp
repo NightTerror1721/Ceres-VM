@@ -17,11 +17,14 @@
 #include <ceres/devices/video/blitter.h>
 #include <ceres/vm/ceresvm.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <format>
+#include <functional>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <thread>
@@ -197,35 +200,74 @@ namespace ceres::driver
 			return out;
 		}
 
+		// What the run cost, in instructions and in CPU cycles (plan/v2 SPEC 3.2): by function first - a function
+		// being the code from one global text label to the next - and then by source line. Shares are of the cycles,
+		// which is what the machine's time is made of.
 		void printProfile(CeresVM& vm, const DebugInfo& info, std::ostream& err)
 		{
-			struct HotLine { u32 fileId; u32 line; u64 count; };
-			std::map<std::pair<u32, u32>, u64> lines;
-			u64 total = 0;
+			struct Cost { u64 count = 0; u64 cycles = 0; };
 			const auto counts = vm.engine().executionCounts();
+			const auto cycles = vm.engine().cycleCounts();
+			const u32 textStart = vm.engine().textStart();
+
+			// The functions: text labels that are not local (a local one is kept as `function.label`), by address.
+			std::vector<std::pair<u32, std::string_view>> functions;
+			for (const auto& symbol : info.symbols())
+			{
+				const std::string_view name = info.symbolName(symbol);
+				if (static_cast<SymbolKind>(symbol.kind) == SymbolKind::Label && static_cast<SymbolSection>(symbol.section) == SymbolSection::Text &&
+					!name.empty() && name.find('.') == std::string_view::npos && symbol.address >= textStart)
+					functions.emplace_back(symbol.address, name);
+			}
+			std::ranges::sort(functions);
+
+			std::map<std::pair<u32, u32>, Cost> lines;
+			std::map<std::string_view, Cost> byFunction;
+			Cost total;
+			for (usize index = 0; index < counts.size(); ++index)
+			{
+				if (counts[index] == 0)
+					continue;
+				const u32 address = textStart + static_cast<u32>(index * Instruction::Size);
+				const auto after = std::ranges::upper_bound(functions, address, {}, &std::pair<u32, std::string_view>::first);
+				Cost& function = byFunction[after == functions.begin() ? std::string_view("(no function)") : std::prev(after)->second];
+				function.count += counts[index];
+				function.cycles += cycles[index];
+				total.count += counts[index];
+				total.cycles += cycles[index];
+			}
 			for (const auto& entry : info.lines())
 			{
-				if (entry.address < vm.engine().textStart())
+				if (entry.address < textStart)
 					continue;
-				const usize index = (entry.address - vm.engine().textStart()) / Instruction::Size;
+				const usize index = (entry.address - textStart) / Instruction::Size;
 				if (index < counts.size())
 				{
-					lines[{entry.expansionFileId, entry.expansionLine}] += counts[index];
-					total += counts[index];
+					Cost& line = lines[{entry.expansionFileId, entry.expansionLine}];
+					line.count += counts[index];
+					line.cycles += cycles[index];
 				}
 			}
 
-			std::vector<HotLine> hot;
-			for (const auto& [location, count] : lines)
-				if (count != 0)
-					hot.push_back({location.first, location.second, count});
-			std::ranges::sort(hot, {}, &HotLine::count);
-			std::ranges::reverse(hot);
+			const auto share = [&](u64 part) { return total.cycles ? 100.0 * static_cast<double>(part) / static_cast<double>(total.cycles) : 0.0; };
+			err << std::format("\n{} instructions executed, {} cycles\n", total.count, total.cycles);
 
-			err << std::format("\n{} instructions executed\n\n     count      share  line\n", total);
+			std::vector<std::pair<std::string_view, Cost>> hotFunctions(byFunction.begin(), byFunction.end());
+			std::ranges::sort(hotFunctions, std::greater{}, [](const auto& row) { return row.second.cycles; });
+			err << "\n      cycles      share  instructions  function\n";
+			for (const auto& [name, cost] : hotFunctions)
+				err << std::format("{:>12}  {:>8.2f}%  {:>12}  {}\n", cost.cycles, share(cost.cycles), cost.count, name);
+
+			struct HotLine { u32 fileId; u32 line; Cost cost; };
+			std::vector<HotLine> hot;
+			for (const auto& [location, cost] : lines)
+				if (cost.count != 0)
+					hot.push_back({ location.first, location.second, cost });
+			std::ranges::sort(hot, std::greater{}, [](const HotLine& row) { return row.cost.cycles; });
+			err << "\n      cycles      share         count  line\n";
 			for (const auto& row : hot)
-				err << std::format("{:>10}  {:>8.2f}%  {}:{}\n", row.count,
-				total ? 100.0 * row.count / total : 0.0, info.fileName(row.fileId), row.line);
+				err << std::format("{:>12}  {:>8.2f}%  {:>12}  {}:{}\n", row.cost.cycles, share(row.cost.cycles), row.cost.count,
+					info.fileName(row.fileId), row.line);
 		}
 	}
 

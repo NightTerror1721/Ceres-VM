@@ -148,6 +148,8 @@ namespace ceres::debug
 		u32 flags = 0;
 		u32 programCounter = 0;
 		u64 executedInstructions = 0;
+		u64 cycles = 0;          // the CPU clock (plan/v2 SPEC 3.2)
+		u64 nanos = 0;           // the machine's time: the cycles at the CPU clock
 		bool zero = false, sign = false, carry = false, overflow = false;
 		bool interruptEnabled = false, halting = false, trap = false;
 	};

@@ -279,10 +279,10 @@ namespace ceres::debug
 			view.general[vm::GeneralPurposeRegisterPool::AssemblerTempIndex],
 			view.programCounter);
 
-		std::cout << std::format("  flags: Z={} S={} C={} O={} I={} H={} T={}   ticks: {}\n",
+		std::cout << std::format("  flags: Z={} S={} C={} O={} I={} H={} T={}   ticks: {}   cycles: {}   time: {}.{:09} s\n",
 			view.zero ? 1 : 0, view.sign ? 1 : 0, view.carry ? 1 : 0, view.overflow ? 1 : 0,
 			view.interruptEnabled ? 1 : 0, view.halting ? 1 : 0, view.trap ? 1 : 0,
-			view.executedInstructions);
+			view.executedInstructions, view.cycles, view.nanos / 1'000'000'000, view.nanos % 1'000'000'000);
 
 		// The float bank is only printed when something is in it: sixteen zeroes every time would
 		// bury the registers that matter.

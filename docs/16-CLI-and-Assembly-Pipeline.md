@@ -54,6 +54,26 @@ Global flags:
 | `--no-stop-on-entry` | `debug` | Start running immediately instead of stopping before the first instruction. |
 | `-h` / `--help` | any | Prints usage and exits. |
 
+## Profiling a run
+
+`ceres profile <file>` runs a program with debug information (assemble with `--debug`, or give the
+source) and then reports where its time went, in instructions and in CPU cycles - the machine's own
+time (plan/v2 SPEC 3.2), so a division shows as sixteen times an addition and a load as twice. First by
+function, a function being the code from one global text label to the next, then by source line;
+shares are of the cycles. An interrupt's entry and `iret` are charged to nobody.
+
+```text
+211 instructions executed, 532 cycles
+
+      cycles      share  instructions  function
+         292     54.89%            94  print_u32
+         118     22.18%            57  factorial
+...
+      cycles      share         count  line
+          80     15.04%             5  examples/calling_convention.casm:66
+...
+```
+
 ## The assembly pipeline, stage by stage
 
 `Assembler::assemble()` (in [`assembler.cpp`](../Ceres/libs/asm/src/assembler.cpp)) runs these
