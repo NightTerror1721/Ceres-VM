@@ -45,8 +45,8 @@ Archivo: [phases/F02-relojes.md](phases/F02-relojes.md)
 
 | ID | Tarea | Depende de | Estado | Commits |
 | --- | --- | --- | --- | --- |
-| F2.1 | Tabla de ciclos y contador | F1.10 | DONE |  |
-| F2.2 | Planificador de eventos | F2.1 | TODO |  |
+| F2.1 | Tabla de ciclos y contador | F1.10 | DONE | asm@f3042fc |
+| F2.2 | Planificador de eventos | F2.1 | DONE | asm@2af23ab, lib@c4460f5 |
 | F2.3 | Todos los dispositivos al planificador; halt por eventos | F2.2 | TODO |  |
 | F2.4 | Timer v2 y `CpuClockHz` | F2.3 | TODO |  |
 | F2.5 | Runner por tiempo virtual, `Pacer` y `--speed` | F2.4 | TODO |  |
