@@ -111,7 +111,7 @@
 
 ## Cierre de la fase
 
-- [ ] Suites en verde. [ ] `benchmark_vm` igual o mejor que en `BASELINE.md`. [ ] Revisión `ocr`.
+- [x] Suites en verde. [x] `benchmark_vm` igual o mejor que en `BASELINE.md`. [ ] Revisión `ocr`.
 
 ## Notas
 
@@ -204,3 +204,7 @@
   los ciclos finales en hexadecimal; con `max` y con `4x` la línea es la misma (`...000B71F7`: 3 × 250 000 ciclos más
   el código). `docs/30-Machine-Clock-and-Profiles.md` cubre ciclos, tiempo, eventos, ritmo, entrada y medida; los
   perfiles se añaden en la F4.6.
+- **Cierre**: suites en verde con CeresASM `cdf151c` (la F2 más el arreglo del fallo sin manejador de otra sesión):
+  CeresASM 9/9, Ceres-C 11/11, STDLIB 311 comprobaciones. `benchmark_vm` `mixed` 138,0 frente a 134,3 de BASELINE (y
+  139 de la F2.1 medidos alternados en la misma sesión). La revisión `ocr` queda pendiente: el servicio devolvía HTTP 429
+  y después dejó de responder; la de cierre de la F1 tampoco llegó a completarse.
