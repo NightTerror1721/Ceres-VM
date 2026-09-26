@@ -16,7 +16,7 @@ namespace ceres::driver
 			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab] [--gc-sections]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
 			"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>] [--window | --terminal] [--strict-mmio]\n"
-			"                                  [--rtc <YYYY-MM-DDThh:mm:ss>]\n"
+			"                                  [--rtc <YYYY-MM-DDThh:mm:ss>] [--speed realtime|max|<f>x] [--cpu-clock <hz>]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
 			"                                  [--env <name>=<value>]... [--host-dir <dir>] [-- <argument>...]\n"
 			"  ceres profile <file.casm|file.cres> [--memory <bytes>]\n"
@@ -33,7 +33,10 @@ namespace ceres::driver
 			"Everything after -- goes to the program: main(argc, argv) gets the input's path as argv[0], then those.\n"
 			"--env gives it an environment variable (getenv); nothing of the host's environment is passed on.\n"
 			"--host-dir lets it open, write and list the host's files under <dir>, and nowhere else.\n"
-			"--rtc starts the machine's real-time clock at that moment (UTC) instead of the host's.\n";
+			"--rtc starts the machine's real-time clock at that moment (UTC) instead of the host's.\n"
+			"--speed paces the machine's time against the host's: realtime (the default while a window is open), max\n"
+			"(the default without one: no waiting at all) or a factor such as 0.5x or 2x. --cpu-clock sets the CPU clock\n"
+			"(50M by default), in Hz with an optional k, M or G.\n";
 
 		struct RawOptions
 		{
@@ -72,6 +75,8 @@ namespace ceres::driver
 			bool usedHostDir = false;
 			bool strictMmio = false;
 			std::optional<i64> rtc;
+			std::optional<Speed> speed;
+			std::optional<u64> cpuClockHz;
 			bool window = false;
 			bool usedWindow = false;
 			bool terminal = false;
@@ -99,6 +104,32 @@ namespace ceres::driver
 				return bad();
 			const auto days = std::chrono::sys_days{ date }.time_since_epoch();
 			return std::chrono::duration_cast<std::chrono::seconds>(days).count() + hour * 3600 + minute * 60 + second;
+		}
+
+		// A number of cycles per second, with an optional k, M or G and an optional Hz: 50000000, 50M, 50MHz.
+		std::expected<u64, ParseError> parseClock(std::string_view text)
+		{
+			const auto bad = [&] { return std::unexpected(ParseError{ "'--cpu-clock' takes cycles per second, for example 50M or 4000000, not '" + std::string(text) + "'" }); };
+			std::string_view digits = text;
+			if (digits.size() > 2 && (digits.ends_with("Hz") || digits.ends_with("hz")))
+				digits.remove_suffix(2);
+			u64 scale = 1;
+			if (!digits.empty())
+			{
+				const char unit = digits.back();
+				if (unit == 'k' || unit == 'K') scale = 1'000;
+				else if (unit == 'M' || unit == 'm') scale = 1'000'000;
+				else if (unit == 'G' || unit == 'g') scale = 1'000'000'000;
+				if (scale != 1)
+					digits.remove_suffix(1);
+			}
+			u64 value = 0;
+			const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), value);
+			if (digits.empty() || error != std::errc{} || end != digits.data() + digits.size())
+				return bad();
+			if (value == 0 || value > 0xFFFFFFFFull / scale)
+				return std::unexpected(ParseError{ "'--cpu-clock' must be between 1 Hz and 4294967295 Hz" });
+			return value * scale;
 		}
 
 		std::expected<usize, ParseError> parseMemorySize(std::string_view text)
@@ -207,6 +238,22 @@ namespace ceres::driver
 			else if (argument == "--window") { raw.window = true; raw.usedWindow = true; }
 			else if (argument == "--terminal") { raw.terminal = true; raw.usedTerminal = true; }
 			else if (argument == "--strict-mmio") raw.strictMmio = true;
+			else if (argument == "--speed")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				raw.speed = Speed::parse(*value);
+				if (!raw.speed)
+					return std::unexpected(ParseError{ "'--speed' takes realtime, max or a factor such as 2x, not '" + std::string(*value) + "'" });
+			}
+			else if (argument == "--cpu-clock")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				auto clock = parseClock(*value);
+				if (!clock) return std::unexpected(clock.error());
+				raw.cpuClockHz = *clock;
+			}
 			else if (argument == "--rtc")
 			{
 				auto value = nextValue(argument);
@@ -249,9 +296,9 @@ namespace ceres::driver
 			return std::unexpected(invalidOption("--symtab", command));
 		if (raw.usedGcSections && command != "link")
 			return std::unexpected(invalidOption("--gc-sections", command));
-		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio || raw.rtc) && command != "run")
+		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio || raw.rtc || raw.speed || raw.cpuClockHz) && command != "run")
 			return std::unexpected(invalidOption(raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : raw.strictMmio ? "--strict-mmio" :
-				raw.rtc ? "--rtc" : "--", command));
+				raw.rtc ? "--rtc" : raw.speed ? "--speed" : raw.cpuClockHz ? "--cpu-clock" : "--", command));
 		if (command == "asm")
 		{
 			if (raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
@@ -286,7 +333,7 @@ namespace ceres::driver
 				return std::unexpected(ParseError{ "'--window' and '--terminal' are opposites: pick one" });
 			return RunCommand{ std::move(inputs.front()), raw.memorySize, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal,
 				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory), raw.strictMmio,
-				raw.rtc };
+				raw.rtc, raw.speed, raw.cpuClockHz };
 		}
 		if (command == "profile")
 		{

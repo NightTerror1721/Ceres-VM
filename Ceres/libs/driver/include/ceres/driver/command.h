@@ -4,6 +4,7 @@
 #include <expected>
 #include <filesystem>
 #include <optional>
+#include <ceres/driver/pacer.h>
 #include <string>
 #include <variant>
 #include <vector>
@@ -60,6 +61,8 @@ namespace ceres::driver
 		std::filesystem::path hostDirectory;    // --host-dir: the host directory the program's host files live in
 		bool strictMmio = false;                // --strict-mmio: an undeclared device register faults instead of reading 0
 		std::optional<i64> rtc;                 // --rtc: the real-time clock's start, in seconds since 1970 (UTC)
+		std::optional<Speed> speed;             // --speed realtime|max|<f>x
+		std::optional<u64> cpuClockHz;          // --cpu-clock: the CPU clock in cycles per second
 	};
 
 	struct ProfileCommand

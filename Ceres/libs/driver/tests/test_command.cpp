@@ -7,6 +7,9 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <chrono>
+#include <functional>
+#include <optional>
 
 using namespace ceres::driver;
 using namespace ceres::testing;
@@ -203,6 +206,112 @@ TEST(driver_run, rtc_sets_what_the_program_reads_from_the_real_time_clock)
 	const int status = execute(command, {&input, &output, &diagnostics});
 	std::filesystem::remove(source);
 	CHECK_EQ(status, 42);
+}
+
+TEST(driver_command, speed_and_cpu_clock_belong_to_run_alone)
+{
+	char program[] = "ceres";
+	char run[] = "run";
+	char profile[] = "profile";
+	char input[] = "main.casm";
+	char speed[] = "--speed";
+	char twice[] = "2x";
+	char clock[] = "--cpu-clock";
+	char mhz[] = "8MHz";
+	char* runArgv[] = { program, run, input, speed, twice, clock, mhz };
+	auto parsed = parseCommandLine(7, runArgv);
+	const auto* command = parsed ? std::get_if<RunCommand>(&*parsed) : nullptr;
+	CHECK(command != nullptr && command->speed == Speed::parse("2x"));
+	CHECK(command != nullptr && command->cpuClockHz == ceres::u64{ 8000000 });
+
+	char* profileArgv[] = { program, profile, input, speed, twice };
+	CHECK(!parseCommandLine(5, profileArgv).has_value());
+
+	for (const char* good : { "50000000", "50M", "50m", "25kHz", "1G", "4294967295" })
+	{
+		std::string text = good;
+		char* argv[] = { program, run, input, clock, text.data() };
+		CHECK(parseCommandLine(5, argv).has_value());
+	}
+	for (const char* wrong : { "0", "fast", "5G", "4294967296", "M", "-1" })
+	{
+		std::string text = wrong;
+		char* argv[] = { program, run, input, clock, text.data() };
+		CHECK(!parseCommandLine(5, argv).has_value());
+	}
+	std::string sluggish = "slow";
+	char* badSpeed[] = { program, run, input, speed, sluggish.data() };
+	CHECK(!parseCommandLine(5, badSpeed).has_value());
+}
+
+namespace
+{
+	// Arms the countdown for `cycles`, halts until it has run out (masked: a request just ends the halt, and any
+	// request does - the terminal's, when the input closes - so it halts again while Countdown reads what is
+	// left), and exits with status 3. How long the host takes over it is up to --speed.
+	int runWait(ceres::u32 cycles, std::optional<Speed> speed, std::optional<ceres::u64> clockHz = {})
+	{
+		const auto source = std::filesystem::temp_directory_path() / "ceres_driver_speed_test.casm";
+		{
+			std::ofstream file{source};
+			file << "@text\n"
+				"global main:\n"
+				"    la   r13, 0xFF010000\n"
+				"    la   r1, " << cycles << "\n"
+				"    str  [r13 + 8], r1\n"
+				".wait:\n"
+				"    halt\n"
+				"    ldr  r2, [r13 + 8]\n"
+				"    cmp  r2, 0\n"
+				"    jnz  .wait\n"
+				"    la   r13, 0xFFFF0000\n"
+				"    la   r0, 0x0301\n"
+				"    str  [r13 + 0], r0\n";
+		}
+		std::istringstream input;
+		std::ostringstream output;
+		std::ostringstream diagnostics;
+		RunCommand command{.input = source};
+		command.speed = speed;
+		command.cpuClockHz = clockHz;
+		const int status = execute(command, {&input, &output, &diagnostics});
+		std::filesystem::remove(source);
+		return status;
+	}
+
+	long long millisecondsOf(const std::function<void()>& run)
+	{
+		const auto start = std::chrono::steady_clock::now();
+		run();
+		return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+	}
+}
+
+TEST(driver_run, realtime_takes_the_machines_time_in_host_time)
+{
+	int status = 0;
+	const long long took = millisecondsOf([&] { status = runWait(10'000'000, Speed::realtime()); });   // 200 ms at 50 MHz
+	CHECK_EQ(status, 3);
+	CHECK(took >= 180);
+	CHECK(took < 2000);
+}
+
+TEST(driver_run, max_takes_whatever_the_host_takes)
+{
+	int status = 0;
+	const long long took = millisecondsOf([&] { status = runWait(10'000'000, Speed::unlimited()); });
+	CHECK_EQ(status, 3);
+	CHECK(took < 150);                          // the halt jumps the 200 ms, and nothing waits for them
+}
+
+TEST(driver_run, a_factor_and_the_cpu_clock_scale_the_wait)
+{
+	// 1 000 000 cycles at 10 MHz are 100 ms of machine time; at 0.5x they take 200 ms of the host's.
+	int status = 0;
+	const long long took = millisecondsOf([&] { status = runWait(1'000'000, Speed{ false, 0.5 }, 10'000'000); });
+	CHECK_EQ(status, 3);
+	CHECK(took >= 180);
+	CHECK(took < 2000);
 }
 
 TEST(driver_command, run_takes_the_program_arguments_after_a_double_dash_and_env)

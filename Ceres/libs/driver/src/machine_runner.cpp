@@ -2,6 +2,7 @@
 #include "console_input.h"
 
 #include <ceres/driver/driver.h>
+#include <ceres/driver/pacer.h>
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage/disk.h>
 #include <ceres/devices/video/text_framebuffer.h>
@@ -203,6 +204,8 @@ namespace ceres::driver
 	{
 		CeresVM vm{memorySize};
 		vm.engine().setStrictMmio(options.strictMmio);
+		if (options.cpuClockHz)
+			vm.io().scheduler().setClockHz(*options.cpuClockHz);
 		vm.setProgramArguments(std::move(arguments));
 		// A reset starts the program again from its entry point (CeresVM::restartIfRequested): vm.run()
 		// does that on its own, and the windowed loop below between two frames.
@@ -423,10 +426,10 @@ namespace ceres::driver
 		if (profileInfo)
 			vm.engine().enableProfiling();
 
-		if (backend)
+		// A windowed host pumps its events and presents its frames between slices of the machine's time, and a
+		// machine that keeps pace with the host waits between them: neither can simply run to completion.
+		if (backend || (options.speed && !options.speed->max))
 		{
-			// A windowed host needs to pump its events and present its frame between slices of
-			// instructions, so the machine cannot simply run to completion.
 			if (auto powered = vm.powerOn(); !powered)
 			{
 				terminal->detachFrom(vm.io());
@@ -434,19 +437,44 @@ namespace ceres::driver
 				return 1;
 			}
 
-			while ((vm.isPoweredOn() || vm.restartIfRequested()) && backend->pump(*keyboard, mouse, gamepad))
+			using HostClock = std::chrono::steady_clock;
+			constexpr auto PresentEvery = std::chrono::milliseconds(16);   // the window's own redraw, about 60 a second
+			Pacer pacer{ options.speed.value_or(Speed::unlimited()), vm.io().scheduler().clockHz() };
+			const u64 sliceCycles = std::max<u64>(1, vm.io().scheduler().clockHz() / 1000);   // a millisecond of machine time
+			HostClock::time_point lastPresent{};
+			u64 displayPresents = display.presentCount();
+
+			while ((vm.isPoweredOn() || vm.restartIfRequested()) && (!backend || backend->pump(*keyboard, mouse, gamepad)))
 			{
-				// A halted step sleeps (up to 10 ms) instead of executing, and the window's keys only reach
-				// the machine through pump(): so a halted machine ends the slice and lets the next pump
-				// deliver whatever it is waiting for. Running on would sleep through the whole slice.
-				const u64 slice = backend->instructionsPerFrame();
-				for (u64 i = 0; i < slice && vm.isPoweredOn(); ++i)
+				// Without --speed a machine keeps real time while its window is open, and runs flat out without one.
+				if (!options.speed)
+					pacer.setSpeed(backend && backend->windowOpen() ? Speed::realtime() : Speed::unlimited());
+
+				// Ahead of the host: wait a little and pump again, rather than run on. Otherwise a slice, up to the next
+				// millisecond of machine time. A halted machine with nothing scheduled waits for the host inside its
+				// step, and the host's keys only reach it through pump(), so a halt ends the slice; so does a frame of
+				// text presented for the window, so each one is shown.
+				if (!pacer.pace(vm.engine().cycles()))
 				{
-					vm.engine().step();
-					if (vm.engine().isHalted())
-						break;
+					const u64 end = vm.engine().cycles() + sliceCycles;
+					while (vm.isPoweredOn())
+					{
+						vm.engine().step();
+						if (vm.engine().cycles() >= end || vm.engine().isHalted() || framebuffer.hasWindowFrame())
+							break;
+					}
 				}
-				backend->present(display);
+
+				if (!backend)
+					continue;
+				const HostClock::time_point now = HostClock::now();
+				if (display.presentCount() != displayPresents || now - lastPresent >= PresentEvery)
+				{
+					displayPresents = display.presentCount();
+					lastPresent = now;
+					backend->present(display);
+					backend->reportSpeed(pacer.effectiveSpeed());
+				}
 
 				// A frame of the text framebuffer that the program presented for the window. Taken here, between
 				// slices, rather than drawn from inside the instruction that presented it.

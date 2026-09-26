@@ -72,7 +72,7 @@
 - **Pasos**: el bucle ejecuta hasta el siguiente milisegundo virtual (o el siguiente evento de presentación),
   bombea la entrada y acompasa según `--speed` (`realtime`, `max`, `<f>x`). Calcula la velocidad efectiva y
   exponla al backend (se mostrará en la barra de estado en F5).
-- **Aceptación**: [ ] Con `--speed realtime` un programa que espera 2 s virtuales tarda unos 2 s reales. [ ] Con `max`, lo que tarde el host.
+- **Aceptación**: [x] Con `--speed realtime` un programa que espera 2 s virtuales tarda unos 2 s reales. [x] Con `max`, lo que tarde el host.
 - **Commit**: `Pace the machine on virtual time (F2.5)`
 
 ### F2.6 · Entrada sellada, `--record` y `--replay`
@@ -160,3 +160,16 @@
   la entrada (`History::clockValue` eliminado). `driver::MachineOptions` agrupa `strictMmio` y `rtc` (la F2.5 añade
   el ritmo). STDLIB: sólo los offsets nuevos y `timer_arm` con `CountdownControl`; `timer_nanos_resolution` sale de
   `CpuClockHz`. Su API y su documentación siguen para la F2.8.
+- **F2.5**: `Pacer` (`driver/pacer.h`): ancla (instante del host, ciclo) y, entre tramos, duerme como mucho 10 ms
+  mientras la máquina va por delante, para que el bucle siga bombeando la ventana; si va más de 250 ms por detrás
+  (host lento, o una máquina parada esperando una tecla) suelta ese tiempo en vez de recuperarlo a toda prisa; un
+  contador que retrocede (reset) vuelve a anclar. Mide la velocidad efectiva en ventanas de 500 ms y la pasa al
+  backend (`HostBackend::reportSpeed`; la F5 la pondrá en la barra de estado). El bucle ejecuta hasta el siguiente
+  milisegundo virtual, o hasta un halt o un fotograma de texto presentado (`FramebufferDevice::hasWindowFrame`),
+  bombea y presenta la pantalla cuando hay fotograma nuevo o cada 16 ms; `instructionsPerFrame` desaparece. Sin
+  `--speed`, `realtime` mientras la ventana está abierta (`HostBackend::windowOpen`) y `max` si no: así un programa
+  de consola del build con SDL (las suites de Ceres-C) no se ralentiza. Sin ventana y con `max` se usa `vm.run()`
+  tal cual. `--cpu-clock` (Hz, con k/M/G y Hz opcionales) va al planificador. Medido con `ceres run` de 2 s
+  virtuales: `realtime` 2,07 s, `max` 55 ms, `4x` 570 ms. Un test en proceso con la entrada vacía descubrió que el
+  cierre de la entrada levanta la IRQ del terminal y despierta un halt: los programas de prueba vuelven al halt
+  mientras `Countdown` no lea 0.

@@ -3,6 +3,7 @@
 #include <ceres/driver/command.h>
 #include <ceres/driver/machine.h>
 #include <ceres/driver/host_backend.h>
+#include <ceres/driver/pacer.h>
 #include <ceres/core/format/debug_info.h>
 #include <ceres/vm/ceresvm.h>
 #include <iosfwd>
@@ -16,6 +17,8 @@ namespace ceres::driver
 	{
 		bool strictMmio = false;          // --strict-mmio
 		std::optional<i64> rtc;           // --rtc: the real-time clock's start, seconds since 1970
+		std::optional<Speed> speed;       // --speed; unset, realtime while a window is open and max otherwise
+		std::optional<u64> cpuClockHz;    // --cpu-clock; unset, the standard 50 MHz
 	};
 
 	int runMachine(const fmt::Program& program, usize memorySize, const fmt::DebugInfo* profileInfo,

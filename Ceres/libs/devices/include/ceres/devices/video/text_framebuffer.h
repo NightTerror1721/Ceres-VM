@@ -127,6 +127,8 @@ namespace ceres::devices
 		// The frame the program presented for the window, if there is one the host has not taken yet. The host
 		// calls this between slices of instructions; a program that presents twice in a slice shows the last.
 		bool takeWindowFrame(Frame& out);
+		// Whether there is such a frame: the host ends its slice there, so every frame presented reaches the window.
+		bool hasWindowFrame() const noexcept { return _hasWindowFrame; }
 
 		// The host could not show a frame in a window after all (no display, say): give this one and every
 		// later one to the terminal.

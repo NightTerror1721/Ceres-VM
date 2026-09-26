@@ -94,6 +94,8 @@ namespace ceres::sdl
 
 			void setFileDropHandler(std::function<void(const std::filesystem::path&)> handler) override { _dropHandler = std::move(handler); }
 
+			bool windowOpen() const noexcept override { return _window != nullptr; }
+
 			bool openWindow() override
 			{
 				// Asked for by name: the pixel display shows from the start, and the window is the size it always was.

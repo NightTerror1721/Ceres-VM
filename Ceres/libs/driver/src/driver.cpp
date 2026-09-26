@@ -265,7 +265,7 @@ namespace ceres::driver
 			vm::ProgramArguments arguments{ { command.input.string() }, command.environment };
 			arguments.arguments.insert(arguments.arguments.end(), command.arguments.begin(), command.arguments.end());
 			return runMachine(loaded->program, command.memorySize, nullptr, command.diskImage, command.ports, std::move(arguments),
-				command.hostDirectory, services, backend.get(), MachineOptions{ command.strictMmio, command.rtc });
+				command.hostDirectory, services, backend.get(), MachineOptions{ command.strictMmio, command.rtc, command.speed, command.cpuClockHz });
 		}
 
 		int executeProfile(const ProfileCommand& command, HostServices services)

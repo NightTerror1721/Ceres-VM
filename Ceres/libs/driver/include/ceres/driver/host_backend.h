@@ -1,7 +1,7 @@
 #pragma once
 
 // The seam between the machine and whatever host is showing it. A backend pumps host input into
-// the devices and shows the display's pixels once per frame slice; the driver itself never links
+// the devices between slices of the machine's time and shows the display's pixels; the driver itself never links
 // SDL, so a windowed host lives in a separate library (libs/sdl) and is handed in as a HostBackend.
 // The default is HeadlessBackend, which pumps nothing and shows nothing.
 
@@ -55,9 +55,12 @@ namespace ceres::driver
 		// thread, so a host without a window to drop on never calls it.
 		virtual void setFileDropHandler(std::function<void(const std::filesystem::path&)>) {}
 
-		// How many instructions to execute between pump/present calls. A windowed host runs a few
-		// thousand per frame; a headless one can simply run to completion without ever calling this.
-		virtual u64 instructionsPerFrame() const noexcept { return 4096; }
+		// Whether the host's window is open now. Without --speed, a machine paces itself in real time while it is,
+		// and runs flat out while it is not (plan/v2 SPEC 3.3).
+		virtual bool windowOpen() const noexcept { return false; }
+		// How fast the machine is running: its seconds per host second, measured by the pacer. A host with a
+		// status bar shows it; the default ignores it.
+		virtual void reportSpeed(double) {}
 	};
 
 	// The default: no window, no input beyond the terminal's own stdin reader, nothing to present.
