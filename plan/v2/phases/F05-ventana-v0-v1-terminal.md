@@ -222,3 +222,6 @@
   frames del framebuffer de texto de la v1 se descartan hasta F5.8). Test de aceptación en `tests/cli`:
   `headless_output` ejecuta el binario y comprueba stdout y stderr vacíos y el transcript exacto; `determinism` lee
   ya el transcript. Los tests del driver leen la salida con `run_capture.h`.
+- **Revisión `ocr` F5.5–F5.7** (delegada, diff revisado a mano): sin fallos de comportamiento. Dos detalles del
+  parser corregidos: el mensaje de opción fuera de `run` llamaba «window option» también a `--transcript` o `--type`,
+  y la marca interna de `--headless` se seguía llamando `usedTerminal`.

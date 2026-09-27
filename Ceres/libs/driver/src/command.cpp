@@ -84,7 +84,7 @@ namespace ceres::driver
 			bool usedServer = false;
 			bool recordHistory = true;
 			bool usedHistory = false;
-			// The window's: --fullscreen, --exit-on-halt, --frames, --refresh (run only).
+			// The window's and the files': --fullscreen, --exit-on-halt, --frames, --refresh, --transcript, --screen-log, --type, --keys (run only).
 			bool fullscreen = false;
 			bool exitOnHalt = false;
 			std::filesystem::path framesDir;
@@ -121,7 +121,7 @@ namespace ceres::driver
 			bool window = false;
 			bool usedWindow = false;
 			bool headless = false;
-			bool usedTerminal = false;
+			bool usedHeadless = false;
 		};
 
 		// YYYY-MM-DDThh:mm:ss, UTC, from 1970 on: the machine's real-time clock counts seconds since then.
@@ -361,7 +361,7 @@ namespace ceres::driver
 				raw.usedDisk = true;
 			}
 			else if (argument == "--window") { raw.window = true; raw.usedWindow = true; }
-			else if (argument == "--headless") { raw.headless = true; raw.usedTerminal = true; }
+			else if (argument == "--headless") { raw.headless = true; raw.usedHeadless = true; }
 			else if (argument == "--transcript" || argument == "--screen-log" || argument == "--type" || argument == "--keys")
 			{
 				auto value = nextValue(argument);
@@ -475,7 +475,7 @@ namespace ceres::driver
 			return std::unexpected(invalidOption("--gc-sections", command));
 		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio || raw.rtc || raw.speed ||
 			!raw.record.empty() || !raw.replay.empty() || !raw.log.empty() || raw.usedScreen) && command != "run")
-			return std::unexpected(invalidOption(raw.usedScreen ? "a window option" : raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : raw.strictMmio ? "--strict-mmio" :
+			return std::unexpected(invalidOption(raw.usedScreen ? "a window or output option" : raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : raw.strictMmio ? "--strict-mmio" :
 				raw.rtc ? "--rtc" : raw.speed ? "--speed" : !raw.record.empty() ? "--record" :
 				!raw.replay.empty() ? "--replay" : !raw.log.empty() ? "--log" : "--", command));
 		// The machine's options belong to the commands that run one.
@@ -486,14 +486,14 @@ namespace ceres::driver
 			return std::unexpected(machine.error());
 		if (command == "asm")
 		{
-			if (raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+			if (raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			return AssembleCommand{ std::move(inputs), std::move(raw.output), raw.compileOnly, raw.listing,
 				raw.json, raw.debugInfo, raw.debugJson };
 		}
 		if (command == "link")
 		{
-			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (raw.output.empty()) return std::unexpected(ParseError{ "'ceres link' needs -o <output.cres>" });
 			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson, raw.symbolTable, raw.gcSections };
@@ -501,7 +501,7 @@ namespace ceres::driver
 		if (command == "ar")
 		{
 			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk ||
-				raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory || raw.usedOutput)
+				raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory || raw.usedOutput)
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (inputs.size() < 2) return std::unexpected(ParseError{ "'ceres ar' needs an output and at least one object" });
 			ArchiveCommand archive{ std::move(inputs.front()), {} };
@@ -526,17 +526,17 @@ namespace ceres::driver
 		}
 		if (command == "profile")
 		{
-			if (raw.compileOnly || raw.usedOutput || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+			if (raw.compileOnly || raw.usedOutput || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			return ProfileCommand{ std::move(inputs.front()), *machine, raw.listing };
 		}
 		if (command == "disasm")
 		{
-			if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+			if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			return DisassembleCommand{ std::move(inputs.front()), raw.debugInfo, raw.debugJson };
 		}
-		if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedTerminal)
+		if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless)
 			return std::unexpected(invalidOption("a supplied option", command));
 		return DebugCommand{ std::move(inputs), *machine, raw.stopOnEntry, raw.server, raw.recordHistory };
 	}
