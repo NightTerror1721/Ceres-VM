@@ -183,9 +183,12 @@ namespace ceres::debug
 		// Either one .cres, or one or more .casm files linked together the way `ceres asm` does.
 		std::vector<std::filesystem::path> sources;
 		usize memorySize = vm::Memory::DefaultSize;
+		usize vramSize = vm::Vram::DefaultSize;
+		u64 cpuClockHz = vm::DefaultCpuClockHz;
+		u32 profileId = 5;                    // what SystemControl's ProfileId reads: 5 is `standard`
 		bool stopOnEntry = true;
 		// Recording costs one copy of the machine's memory plus the pages each snapshot dirties,
-		// and buys stepping backwards. Worth it by default; a very large --memory is the case
+		// and buys stepping backwards. Worth it by default; a very large --ram is the case
 		// where it is not.
 		bool recordHistory = true;
 		History::Settings history{};

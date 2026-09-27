@@ -21,7 +21,7 @@ namespace ceres::vm
 	public:
 		using ByteType = u8;
 
-		static inline constexpr usize DefaultSize = 1024 * 1024 * 16; // 16 MiB
+		static inline constexpr usize DefaultSize = 1024 * 1024 * 64; // 64 MiB, the standard profile's (plan/v2 SPEC 4)
 		static inline constexpr usize MaxSize = fmt::MemoryMap::RamLimitValue; // 2 GiB: all of 0x00000000-0x7FFFFFFF (plan/v2 SPEC 2)
 		static inline constexpr usize MinSize = 8192; // 8 KiB: the system stack's 4 KiB and room for a program
 

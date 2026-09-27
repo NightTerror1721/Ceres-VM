@@ -15,15 +15,19 @@ namespace ceres::driver
 			"                          [--debug] [--emit-debug-json] [-c]\n"
 			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab] [--gc-sections]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
-			"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>] [--window | --terminal] [--strict-mmio]\n"
-			"                                  [--rtc <YYYY-MM-DDThh:mm:ss>] [--speed realtime|max|<f>x] [--cpu-clock <hz>]\n"
+			"  ceres run <file.casm|file.cres> [<machine>] [--disk <image>] [--window | --terminal] [--strict-mmio]\n"
+			"                                  [--rtc <YYYY-MM-DDThh:mm:ss>] [--speed realtime|max|<f>x]\n"
 			"                                  [--record <file> | --replay <file>] [--log <file>]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
 			"                                  [--env <name>=<value>]... [--host-dir <dir>] [-- <argument>...]\n"
-			"  ceres profile <file.casm|file.cres> [--memory <bytes>]\n"
+			"  ceres profile <file.casm|file.cres> [<machine>]\n"
 			"  ceres disasm <file.casm|file.cres> [--debug]\n"
-			"  ceres debug <file.casm|file.cres> [<source2.casm> ...] [--memory <bytes>]\n"
+			"  ceres debug <file.casm|file.cres> [<source2.casm> ...] [<machine>]\n"
 			"                                    [--no-stop-on-entry] [--server] [--no-history]\n"
+			"\n"
+			"  <machine>: [--profile micro|pocket|retro|arcade|polygon|standard|workstation|custom]\n"
+			"             [--cpu-clock <hz>] [--gpu-clock <hz>] [--ram <bytes>] [--vram <bytes>]\n"
+			"             [--max-video V0-V6] [--max-audio A0-A4] [--max-resolution <w>x<h>]\n"
 			"\n"
 			"A bare path is shorthand for 'run'.\n"
 			"\n"
@@ -36,8 +40,11 @@ namespace ceres::driver
 			"--host-dir lets it open, write and list the host's files under <dir>, and nowhere else.\n"
 			"--rtc starts the machine's real-time clock at that moment (UTC) instead of the host's.\n"
 			"--speed paces the machine's time against the host's: realtime (the default while a window is open), max\n"
-			"(the default without one: no waiting at all) or a factor such as 0.5x or 2x. --cpu-clock sets the CPU clock\n"
-			"(50M by default), in Hz with an optional k, M or G.\n"
+			"(the default without one: no waiting at all) or a factor such as 0.5x or 2x.\n"
+			"--profile picks the machine: its clocks, its RAM and VRAM and the most video and audio it has ('standard'\n"
+			"when none is given: 50 MHz, 64 MiB of RAM). Each of the other machine options starts from that profile and\n"
+			"makes it 'custom', which alone reaches 1920x1080: clocks in Hz with an optional k, M or G (the CPU up to 400M,\n"
+			"the GPU up to 1G), sizes in bytes with an optional K, M or G, multiples of 4K (RAM up to 2G, VRAM up to 1G).\n"
 			"--record writes everything the host gives the machine (input, keys, the mouse, files dropped), each with the\n"
 			"cycle it went in at; --replay feeds such a recording back at the same cycles and reads no input of the host's.\n"
 			"--log sends the host's log - the program's debug log and what the host has to say about the run, such as an\n"
@@ -67,8 +74,15 @@ namespace ceres::driver
 			bool usedServer = false;
 			bool recordHistory = true;
 			bool usedHistory = false;
-			usize memorySize = vm::Memory::DefaultSize;
-			bool usedMemory = false;
+			// The machine: a profile, and the options that change it into `custom`.
+			std::optional<ProfileId> profile;
+			std::optional<u64> cpuClockHz;
+			std::optional<u64> gpuClockHz;
+			std::optional<usize> ramBytes;
+			std::optional<usize> vramBytes;
+			std::optional<u32> maxVideo;
+			std::optional<u32> maxAudio;
+			std::optional<std::pair<u32, u32>> maxResolution;
 			std::filesystem::path disk;
 			bool usedDisk = false;            // also set by --port and --cart: none of them belongs to any command but run
 			std::vector<PortAttachment> ports;
@@ -81,7 +95,6 @@ namespace ceres::driver
 			bool strictMmio = false;
 			std::optional<i64> rtc;
 			std::optional<Speed> speed;
-			std::optional<u64> cpuClockHz;
 			std::filesystem::path record;
 			std::filesystem::path replay;
 			std::filesystem::path log;
@@ -114,10 +127,11 @@ namespace ceres::driver
 			return std::chrono::duration_cast<std::chrono::seconds>(days).count() + hour * 3600 + minute * 60 + second;
 		}
 
-		// A number of cycles per second, with an optional k, M or G and an optional Hz: 50000000, 50M, 50MHz.
-		std::expected<u64, ParseError> parseClock(std::string_view text)
+		// A number of cycles per second, with an optional k, M or G and an optional Hz: 50000000, 50M, 50MHz. Up to
+		// `limit` (plan/v2 SPEC 4: 400 MHz for the CPU, 1 GHz for the GPU).
+		std::expected<u64, ParseError> parseClock(std::string_view option, std::string_view text, u64 limit)
 		{
-			const auto bad = [&] { return std::unexpected(ParseError{ "'--cpu-clock' takes cycles per second, for example 50M or 4000000, not '" + std::string(text) + "'" }); };
+			const auto bad = [&] { return std::unexpected(ParseError{ "'" + std::string(option) + "' takes cycles per second, for example 50M or 4000000, not '" + std::string(text) + "'" }); };
 			std::string_view digits = text;
 			if (digits.size() > 2 && (digits.ends_with("Hz") || digits.ends_with("hz")))
 				digits.remove_suffix(2);
@@ -135,23 +149,89 @@ namespace ceres::driver
 			const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), value);
 			if (digits.empty() || error != std::errc{} || end != digits.data() + digits.size())
 				return bad();
-			if (value == 0 || value > 0xFFFFFFFFull / scale)
-				return std::unexpected(ParseError{ "'--cpu-clock' must be between 1 Hz and 4294967295 Hz" });
+			if (value == 0 || value > limit / scale)
+				return std::unexpected(ParseError{ "'" + std::string(option) + "' must be between 1 Hz and " + std::to_string(limit) + " Hz" });
 			return value * scale;
 		}
 
-		// The sizes Memory accepts (plan/v2 SPEC 2), checked here so a wrong one is a usage error rather than an
-		// exception out of the machine's constructor.
-		std::expected<usize, ParseError> parseMemorySize(std::string_view text)
+		// A size in bytes, with an optional K, M or G (of 1024): 65536, 64K, 64M. Whether the machine can have it is
+		// checked with the rest of the profile (checkCustomProfile).
+		std::expected<usize, ParseError> parseBytes(std::string_view option, std::string_view text)
 		{
-			usize size = 0;
-			const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), size);
-			if (error != std::errc{} || end != text.data() + text.size() || size == 0)
-				return std::unexpected(ParseError{ "--memory needs a positive integer number of bytes" });
-			if (size < vm::Memory::MinSize || size > vm::Memory::MaxSize || size % 4096 != 0)
-				return std::unexpected(ParseError{ "--memory must be a multiple of 4096 bytes from " +
-					std::to_string(vm::Memory::MinSize) + " to " + std::to_string(vm::Memory::MaxSize) });
-			return size;
+			const auto bad = [&] { return std::unexpected(ParseError{ "'" + std::string(option) + "' takes a number of bytes with an optional K, M or G, for example 64M, not '" + std::string(text) + "'" }); };
+			std::string_view digits = text;
+			u64 scale = 1;
+			if (!digits.empty())
+			{
+				const char unit = digits.back();
+				if (unit == 'k' || unit == 'K') scale = 1024;
+				else if (unit == 'm' || unit == 'M') scale = 1024 * 1024;
+				else if (unit == 'g' || unit == 'G') scale = 1024 * 1024 * 1024;
+				if (scale != 1)
+					digits.remove_suffix(1);
+			}
+			u64 value = 0;
+			const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), value);
+			if (digits.empty() || error != std::errc{} || end != digits.data() + digits.size() || value == 0 || value > (u64{ 1 } << 32) / scale)
+				return bad();
+			return static_cast<usize>(value * scale);
+		}
+
+		// A level of `--max-video` (V0-V6) or `--max-audio` (A0-A4): the letter is optional.
+		std::expected<u32, ParseError> parseLevel(std::string_view option, std::string_view text, char letter, u32 highest)
+		{
+			std::string_view digits = text;
+			if (!digits.empty() && (digits.front() == letter || digits.front() == letter + ('a' - 'A')))
+				digits.remove_prefix(1);
+			u32 value = 0;
+			const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), value);
+			if (digits.empty() || error != std::errc{} || end != digits.data() + digits.size() || value > highest)
+				return std::unexpected(ParseError{ "'" + std::string(option) + "' takes " + std::string(1, letter) + "0 to " +
+					std::string(1, letter) + std::to_string(highest) + ", not '" + std::string(text) + "'" });
+			return value;
+		}
+
+		// <width>x<height>: 1280x720.
+		std::expected<std::pair<u32, u32>, ParseError> parseResolution(std::string_view text)
+		{
+			const usize cross = text.find_first_of("xX");
+			u32 width = 0, height = 0;
+			if (cross != std::string_view::npos)
+			{
+				const auto [endW, errorW] = std::from_chars(text.data(), text.data() + cross, width);
+				const auto [endH, errorH] = std::from_chars(text.data() + cross + 1, text.data() + text.size(), height);
+				if (errorW == std::errc{} && endW == text.data() + cross && errorH == std::errc{} && endH == text.data() + text.size() && cross > 0)
+					return std::pair{ width, height };
+			}
+			return std::unexpected(ParseError{ "'--max-resolution' takes <width>x<height>, for example 1280x720, not '" + std::string(text) + "'" });
+		}
+
+		// The machine the options ask for (plan/v2 SPEC 4): the profile, `standard` by default, and any other machine
+		// option on top of it, which makes it `custom` and has to stay inside what `custom` allows.
+		std::expected<MachineProfile, ParseError> resolveMachine(const RawOptions& raw)
+		{
+			MachineProfile machine = machineProfile(raw.profile.value_or(ProfileId::Standard));
+			const bool loose = raw.cpuClockHz || raw.gpuClockHz || raw.ramBytes || raw.vramBytes || raw.maxVideo || raw.maxAudio || raw.maxResolution;
+			if (raw.cpuClockHz) machine.cpuClockHz = *raw.cpuClockHz;
+			if (raw.gpuClockHz) machine.gpuClockHz = *raw.gpuClockHz;
+			if (raw.ramBytes) machine.ramBytes = *raw.ramBytes;
+			if (raw.vramBytes) machine.vramBytes = *raw.vramBytes;
+			if (raw.maxVideo) machine.maxVideo = *raw.maxVideo;
+			if (raw.maxAudio) machine.maxAudio = *raw.maxAudio;
+			if (raw.maxResolution) { machine.maxWidth = raw.maxResolution->first; machine.maxHeight = raw.maxResolution->second; }
+			if (loose)
+				machine.id = ProfileId::Custom;
+			if (machine.id == ProfileId::Custom)
+			{
+				if (auto fits = checkCustomProfile(machine); !fits)
+					return std::unexpected(ParseError{ "No such machine: " + fits.error() });
+			}
+			return machine;
+		}
+
+		bool usesMachine(const RawOptions& raw)
+		{
+			return raw.profile || raw.cpuClockHz || raw.gpuClockHz || raw.ramBytes || raw.vramBytes || raw.maxVideo || raw.maxAudio || raw.maxResolution;
 		}
 
 		bool isCommand(std::string_view text)
@@ -271,13 +351,47 @@ namespace ceres::driver
 				if (!raw.speed)
 					return std::unexpected(ParseError{ "'--speed' takes realtime, max or a factor such as 2x, not '" + std::string(*value) + "'" });
 			}
-			else if (argument == "--cpu-clock")
+			else if (argument == "--profile")
 			{
 				auto value = nextValue(argument);
 				if (!value) return std::unexpected(value.error());
-				auto clock = parseClock(*value);
+				raw.profile = profileNamed(*value);
+				if (!raw.profile)
+					return std::unexpected(ParseError{ "'--profile' takes micro, pocket, retro, arcade, polygon, standard, workstation or custom, not '" + std::string(*value) + "'" });
+			}
+			else if (argument == "--cpu-clock" || argument == "--gpu-clock")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				const bool cpu = argument == "--cpu-clock";
+				auto clock = parseClock(argument, *value, cpu ? ProfileLimits::MaxCpuClockHz : ProfileLimits::MaxGpuClockHz);
 				if (!clock) return std::unexpected(clock.error());
-				raw.cpuClockHz = *clock;
+				(cpu ? raw.cpuClockHz : raw.gpuClockHz) = *clock;
+			}
+			else if (argument == "--ram" || argument == "--vram")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				auto bytes = parseBytes(argument, *value);
+				if (!bytes) return std::unexpected(bytes.error());
+				(argument == "--ram" ? raw.ramBytes : raw.vramBytes) = *bytes;
+			}
+			else if (argument == "--max-video" || argument == "--max-audio")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				const bool video = argument == "--max-video";
+				auto level = parseLevel(argument, *value, video ? 'V' : 'A', video ? ProfileLimits::MaxVideo : ProfileLimits::MaxAudio);
+				if (!level) return std::unexpected(level.error());
+				(video ? raw.maxVideo : raw.maxAudio) = *level;
+			}
+			else if (argument == "--max-resolution")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				auto resolution = parseResolution(*value);
+				if (!resolution) return std::unexpected(resolution.error());
+				raw.maxResolution = *resolution;
 			}
 			else if (argument == "--rtc")
 			{
@@ -286,14 +400,6 @@ namespace ceres::driver
 				auto rtc = parseRtc(*value);
 				if (!rtc) return std::unexpected(rtc.error());
 				raw.rtc = *rtc;
-			}
-			else if (argument == "--memory")
-			{
-				auto value = nextValue(argument);
-				if (!value) return std::unexpected(value.error());
-				auto memory = parseMemorySize(*value);
-				if (!memory) return std::unexpected(memory.error());
-				raw.memorySize = *memory; raw.usedMemory = true;
 			}
 			else if (argument == "-h" || argument == "--help")
 				return std::unexpected(ParseError{});
@@ -321,21 +427,27 @@ namespace ceres::driver
 			return std::unexpected(invalidOption("--symtab", command));
 		if (raw.usedGcSections && command != "link")
 			return std::unexpected(invalidOption("--gc-sections", command));
-		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio || raw.rtc || raw.speed || raw.cpuClockHz ||
+		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio || raw.rtc || raw.speed ||
 			!raw.record.empty() || !raw.replay.empty() || !raw.log.empty()) && command != "run")
 			return std::unexpected(invalidOption(raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : raw.strictMmio ? "--strict-mmio" :
-				raw.rtc ? "--rtc" : raw.speed ? "--speed" : raw.cpuClockHz ? "--cpu-clock" : !raw.record.empty() ? "--record" :
+				raw.rtc ? "--rtc" : raw.speed ? "--speed" : !raw.record.empty() ? "--record" :
 				!raw.replay.empty() ? "--replay" : !raw.log.empty() ? "--log" : "--", command));
+		// The machine's options belong to the commands that run one.
+		if (usesMachine(raw) && command != "run" && command != "profile" && command != "debug")
+			return std::unexpected(invalidOption(raw.profile ? "--profile" : "a machine option", command));
+		const auto machine = resolveMachine(raw);
+		if (!machine)
+			return std::unexpected(machine.error());
 		if (command == "asm")
 		{
-			if (raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+			if (raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			return AssembleCommand{ std::move(inputs), std::move(raw.output), raw.compileOnly, raw.listing,
 				raw.json, raw.debugInfo, raw.debugJson };
 		}
 		if (command == "link")
 		{
-			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (raw.output.empty()) return std::unexpected(ParseError{ "'ceres link' needs -o <output.cres>" });
 			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson, raw.symbolTable, raw.gcSections };
@@ -343,7 +455,7 @@ namespace ceres::driver
 		if (command == "ar")
 		{
 			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk ||
-				raw.usedMemory || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory || raw.usedOutput)
+				raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory || raw.usedOutput)
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (inputs.size() < 2) return std::unexpected(ParseError{ "'ceres ar' needs an output and at least one object" });
 			ArchiveCommand archive{ std::move(inputs.front()), {} };
@@ -360,24 +472,24 @@ namespace ceres::driver
 				return std::unexpected(ParseError{ "'--window' and '--terminal' are opposites: pick one" });
 			if (!raw.record.empty() && !raw.replay.empty())
 				return std::unexpected(ParseError{ "'--record' and '--replay' are opposites: pick one" });
-			return RunCommand{ std::move(inputs.front()), raw.memorySize, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal,
+			return RunCommand{ std::move(inputs.front()), *machine, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal,
 				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory), raw.strictMmio,
-				raw.rtc, raw.speed, raw.cpuClockHz, std::move(raw.record), std::move(raw.replay), std::move(raw.log) };
+				raw.rtc, raw.speed, std::move(raw.record), std::move(raw.replay), std::move(raw.log) };
 		}
 		if (command == "profile")
 		{
 			if (raw.compileOnly || raw.usedOutput || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
-			return ProfileCommand{ std::move(inputs.front()), raw.memorySize, raw.listing };
+			return ProfileCommand{ std::move(inputs.front()), *machine, raw.listing };
 		}
 		if (command == "disasm")
 		{
-			if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
+			if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			return DisassembleCommand{ std::move(inputs.front()), raw.debugInfo, raw.debugJson };
 		}
 		if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedTerminal)
 			return std::unexpected(invalidOption("a supplied option", command));
-		return DebugCommand{ std::move(inputs), raw.memorySize, raw.stopOnEntry, raw.server, raw.recordHistory };
+		return DebugCommand{ std::move(inputs), *machine, raw.stopOnEntry, raw.server, raw.recordHistory };
 	}
 }

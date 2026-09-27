@@ -143,10 +143,14 @@
                 "description": "Stop before the first instruction instead of running to the first breakpoint.",
                 "default": true
               },
+              "profile": {
+                "type": "string",
+                "enum": ["micro", "pocket", "retro", "arcade", "polygon", "standard", "workstation", "custom"],
+                "description": "The machine to debug on (ceres --profile). Defaults to standard: 50 MHz and 64 MiB of RAM."
+              },
               "memory": {
                 "type": "number",
-                "description": "Machine memory in bytes. Defaults to the VM's own 16 MiB.",
-                "default": 16777216
+                "description": "Machine RAM in bytes, a multiple of 4096 (ceres --ram), which makes the profile custom. Defaults to the profile's own: 64 MiB for standard."
               },
               "cwd": {
                 "type": "string",

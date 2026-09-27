@@ -2,7 +2,7 @@
 
 #include <ceres/core/base/types.h>
 #include <ceres/core/format/program.h>
-#include <ceres/vm/memory.h>
+#include <ceres/driver/profiles.h>
 
 #include <expected>
 #include <filesystem>
@@ -30,7 +30,7 @@ namespace ceres::driver
 
 	struct MachineConfig
 	{
-		usize memorySize = vm::Memory::DefaultSize;
+		MachineProfile machine = defaultMachineProfile();
 		std::filesystem::path diskImage;
 		// Media already plugged into the peripheral ports when the machine starts: {port, file, cartridge}.
 		struct Port

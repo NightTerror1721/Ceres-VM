@@ -51,6 +51,7 @@ export interface CeresLaunchArguments {
 	sources?: string[];
 	stopOnEntry?: boolean;
 	memory?: number;
+	profile?: string;
 	cwd?: string;
 	ceresPath?: string;
 	trace?: boolean;
@@ -506,8 +507,11 @@ export class CeresDebugAdapter implements vscode.DebugAdapter {
 			: await this.resolveExecutable();
 
 		const commandLine = ['debug', args.program, ...(args.sources ?? []), '--server'];
+		if (args.profile && args.profile.trim().length > 0) {
+			commandLine.push('--profile', args.profile.trim());
+		}
 		if (args.memory && args.memory > 0) {
-			commandLine.push('--memory', String(args.memory));
+			commandLine.push('--ram', String(args.memory));
 		}
 		if (args.stopOnEntry === false) {
 			commandLine.push('--no-stop-on-entry');

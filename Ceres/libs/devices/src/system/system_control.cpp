@@ -16,7 +16,9 @@ namespace ceres::devices
 			{ 0x1C, "ArgumentVector", RegisterAccess::Read,      0x0, false, "The address of argv." },
 			{ 0x20, "Environment",    RegisterAccess::Read,      0x0, false, "The address of envp." },
 			{ 0x24, "CpuClockHz",     RegisterAccess::Read,      0x0, false, "The CPU clock, in cycles per second." },
+			{ 0x28, "ProfileId",      RegisterAccess::Read,      0x5, false, "The machine's profile: 0 micro ... 5 standard, 6 workstation, 7 custom." },
 			{ 0x2C, "FaultReason",    RegisterAccess::Read,      0x0, false, "Why the last memory fault happened: a FaultReason (plan/v2 SPEC 5.4)." },
+			{ 0x38, "VramSize",       RegisterAccess::Read,      0x0, false, "How many bytes of VRAM the machine has." },
 		};
 	}
 
@@ -92,6 +94,16 @@ namespace ceres::devices
 		if (offset == FaultReasonRegister && _faultReasonGetter)
 		{
 			value = _faultReasonGetter();
+			return true;
+		}
+		if (offset == ProfileIdRegister)
+		{
+			value = _profileId;
+			return true;
+		}
+		if (offset == VramSizeRegister)
+		{
+			value = static_cast<u32>(vram().size());
 			return true;
 		}
 		if (offset == ArgumentCountRegister || offset == ArgumentVectorRegister || offset == EnvironmentRegister)

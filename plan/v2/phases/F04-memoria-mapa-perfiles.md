@@ -81,7 +81,7 @@
 - **Pasos**: tabla de perfiles; `--profile`; opciones sueltas que convierten el perfil en `custom`; comprueba
   límites (1920×1080 sólo en `custom`); `ProfileId` y `VramSize` en SystemControl; el perfil por defecto es
   `standard` (RAM de 64 MiB en lugar de los 16 MiB actuales).
-- **Aceptación**: [ ] Test por perfil (valores publicados en los registros). [ ] `--max-resolution 1920x1080` con otro perfil lo convierte en `custom`.
+- **Aceptación**: [x] Test por perfil (valores publicados en los registros). [x] `--max-resolution 1920x1080` con otro perfil lo convierte en `custom`.
 - **Commit**: `Add machine profiles (F4.5)`
 
 ### F4.6 · Documentación
@@ -165,3 +165,24 @@
   `dbg_log_enabled()`. **Desviación**: los tests comparan el log en stderr (`tests/expected/test_debug_ansi.stderr`,
   que el runner ya comprobaba) en lugar de un archivo de `--log`: es el mismo texto y no hace falta tocar el runner;
   el paso a `--log` se prueba en CeresASM (`driver_run.log_sends_the_hosts_log_to_a_file`).
+- **F4.5**: `driver/profiles.{h,cpp}`: `ProfileId` (0 micro … 7 custom), `MachineProfile` (relojes, RAM, VRAM,
+  vídeo máximo, resolución máxima, audio máximo, sprites por línea) con la tabla de SPEC 4, y `checkCustomProfile` con
+  los techos de `custom` (CPU ≤ 400 MHz, GPU ≤ 1 GHz, RAM de 8 KiB a 2 GiB y VRAM de 16 KiB a 1 GiB en múltiplos de
+  4 KiB, V0–V6, A0–A4, de 8×16 a 1920×1080). `custom` a secas son los relojes y la memoria de `standard` con los
+  techos de `custom` en lo demás. El analizador junta `--profile` y las opciones sueltas (`--cpu-clock`,
+  `--gpu-clock`, `--ram`, `--vram`, `--max-video`, `--max-audio`, `--max-resolution`) en un `MachineProfile` que
+  sustituye a `memorySize`/`cpuClockHz` en `run`, `profile` y `debug` (las tres ejecutan una máquina; las demás
+  órdenes rechazan estas opciones). **`--memory` desaparece**: `--ram` ocupa su sitio (SPEC 10) y admite `K`, `M`,
+  `G` (de 1024); los relojes, `k`, `M`, `G` (de 1000). `Memory::DefaultSize` pasa a 64 MiB (un `static_assert` lo ata
+  a `standard`, igual que `Vram::DefaultSize`). SystemControl publica `ProfileId` (`0x28`) y `VramSize` (`0x38`); el
+  runner, `driver::Machine` (`MachineConfig::machine`) y el debugger (`LaunchConfig::vramSize`, `cpuClockHz`,
+  `profileId`) montan la máquina del perfil. De momento sólo los relojes de CPU, la RAM, la VRAM y el identificador
+  hacen algo: GPU, niveles, resolución y sprites se guardan para F5 y siguientes. Tests: `driver_command`
+  (cada perfil, `--max-resolution` desde `micro` → `custom` con el resto de `micro`, límites, órdenes que no los
+  admiten) y `driver_run.the_machine_publishes_its_profile` (un programa lee MemorySize, CpuClockHz, ProfileId y
+  VramSize en los ocho perfiles). `tests/cli/cli_contract.cmake` usa `--ram`. La extensión de VS Code pasa `--ram`
+  (y `profile`, nuevo en `launch.json`) al debugger; falta empaquetarla. **STDLIB**: `CERES_DEFAULT_RAM` a 64 MiB,
+  `SYS_CTRL_CPU_CLOCK`/`PROFILE`/`FAULT_REASON`/`VRAM_SIZE`, `SYS_PROFILE_*`, `sys_profile()` y `sys_vram_size()`, y
+  `test_sys` comprueba la máquina por defecto. **Coste pendiente**: con 64 MiB, el historial del debugger compara 64 MiB
+  por instantánea (cada 20 000 instrucciones por defecto); la suite de debug pasó de 0,7 s a 2 s. Si molesta, la
+  salida es que `HostPages` pida al sistema qué páginas se escribieron (`MEM_WRITE_WATCH`/`GetWriteWatch` en Windows).

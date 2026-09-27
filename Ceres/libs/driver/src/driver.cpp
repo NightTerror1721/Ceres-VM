@@ -193,7 +193,9 @@ namespace ceres::driver
 		int executeDebug(const DebugCommand& command, std::ostream& err)
 		{
 			if (!inputsExist(command.inputs, err)) return 1;
-			auto session = DebugSession::launch({.sources = command.inputs, .memorySize = command.memorySize, .stopOnEntry = command.stopOnEntry, .recordHistory = command.recordHistory});
+			auto session = DebugSession::launch({.sources = command.inputs, .memorySize = command.machine.ramBytes, .vramSize = command.machine.vramBytes,
+				.cpuClockHz = command.machine.cpuClockHz, .profileId = static_cast<u32>(command.machine.id), .stopOnEntry = command.stopOnEntry,
+				.recordHistory = command.recordHistory});
 			if (!session) { err << session.error() << '\n'; return 1; }
 			if (command.server) { DebugServer server{**session}; return server.run(); }
 			DebugCLI cli{**session};
@@ -264,8 +266,8 @@ namespace ceres::driver
 
 			vm::ProgramArguments arguments{ { command.input.string() }, command.environment };
 			arguments.arguments.insert(arguments.arguments.end(), command.arguments.begin(), command.arguments.end());
-			return runMachine(loaded->program, command.memorySize, nullptr, command.diskImage, command.ports, std::move(arguments),
-				command.hostDirectory, services, backend.get(), MachineOptions{ command.strictMmio, command.rtc, command.speed, command.cpuClockHz, command.record, command.replay, command.logFile });
+			return runMachine(loaded->program, command.machine, nullptr, command.diskImage, command.ports, std::move(arguments),
+				command.hostDirectory, services, backend.get(), MachineOptions{ command.strictMmio, command.rtc, command.speed, command.record, command.replay, command.logFile });
 		}
 
 		int executeProfile(const ProfileCommand& command, HostServices services)
@@ -279,7 +281,7 @@ namespace ceres::driver
 				*services.diagnostics << "Cannot profile a .cres without debug information: assemble with --debug, or profile the source directly.\n";
 				return 1;
 			}
-			return runMachine(loaded->program, command.memorySize, &loaded->debugInfo, {}, {},
+			return runMachine(loaded->program, command.machine, &loaded->debugInfo, {}, {},
 				vm::ProgramArguments{ { command.input.string() }, {} }, {}, services);
 		}
 

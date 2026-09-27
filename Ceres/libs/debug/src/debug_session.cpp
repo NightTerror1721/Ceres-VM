@@ -177,7 +177,7 @@ namespace ceres::debug
 		std::unique_ptr<DebugSession> session{
 			new DebugSession(std::move(program.value()), std::move(debugInfo), config) };
 
-		session->_vm = std::make_unique<vm::CeresVM>(config.memorySize);
+		session->_vm = std::make_unique<vm::CeresVM>(config.memorySize, config.vramSize);
 		session->attachDevices();
 
 		if (auto loaded = session->_vm->loadProgram(session->_program); !loaded)
@@ -255,6 +255,8 @@ namespace ceres::debug
 		// The program's path is argv[0], on the first machine and on every one a restart builds.
 		_vm->setProgramArguments(vm::ProgramArguments{ { _config.sources.front().string() }, {} });
 		_systemControl->setFaultInfoHandlers([this] { return _vm->engine().faultAddress(); }, [this] { return _vm->engine().faultAccess(); }, [this] { return _vm->engine().faultReason(); });
+		_systemControl->setProfileId(_config.profileId);
+		_vm->io().scheduler().setClockHz(_config.cpuClockHz);
 		_systemControl->attachTo(_vm->io());
 
 		_terminal = std::make_unique<TerminalDevice>();
@@ -474,7 +476,7 @@ namespace ceres::debug
 		// A fresh machine rather than a reset one: .data has been written to by now, and a reset
 		// only rewinds the registers.
 		OutputHandler handler = std::move(_outputHandler);
-		_vm = std::make_unique<vm::CeresVM>(_config.memorySize);
+		_vm = std::make_unique<vm::CeresVM>(_config.memorySize, _config.vramSize);
 		attachDevices();
 		setOutputHandler(std::move(handler));
 

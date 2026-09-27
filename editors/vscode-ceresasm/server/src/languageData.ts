@@ -393,7 +393,7 @@ export const LINKER_SYMBOLS: Record<string, string> = {
 	__bss_start: 'Where `.bss` begins.',
 	__bss_end: 'One past the last byte of `.bss`, and the end of the loaded image.',
 	__heap_start:
-		'The first free byte above the program - the same address as `__bss_end`, under the name that says what it is for. Everything from here up is free ground, with the stack growing down to meet it. There is deliberately no `__stack_top`: the stack starts at the size of memory, which `--memory` picks at run time. Read `sp` on entry instead.'
+		'The first free byte above the program - the same address as `__bss_end`, under the name that says what it is for. Everything from here up is free ground, with the stack growing down to meet it. There is deliberately no `__stack_top`: the stack starts at the size of memory, which `--ram` (or `--profile`) picks at run time. Read `sp` on entry instead.'
 };
 
 // The interrupt numbers `interrupt NUMBER: handler` accepts by name instead of a bare literal -

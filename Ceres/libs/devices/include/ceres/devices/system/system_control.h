@@ -56,6 +56,14 @@ namespace ceres::devices
 		// Read-only: why the last memory fault happened - a vm::FaultReason (plan/v2 SPEC 5.4): 5 for a device
 		// register reached by anything but an aligned 32-bit access, 6 for a block instruction that touched a device.
 		static inline constexpr Address FaultReasonRegister = Address(0x2C);
+		// Read-only: which machine this is, a profile of plan/v2 SPEC 4 (0 micro ... 5 standard, 6 workstation,
+		// 7 custom).
+		static inline constexpr Address ProfileIdRegister = Address(0x28);
+		// Read-only: how many bytes of VRAM the machine has.
+		static inline constexpr Address VramSizeRegister = Address(0x38);
+
+		// What ProfileIdRegister reads when the host has not said: the standard profile, the default machine's.
+		static inline constexpr u32 DefaultProfileId = 5;
 
 		static inline constexpr u32 CommandShutdown = 0x01;
 		static inline constexpr u32 CommandReset = 0x02;
@@ -79,6 +87,7 @@ namespace ceres::devices
 		FaultInfoGetter _faultReasonGetter;
 		ArgumentInfoGetter _argumentGetter;
 		u32 _features = 0;
+		u32 _profileId = DefaultProfileId;
 		std::atomic<u8> _exitCode{ 0 };
 
 	public:
@@ -131,6 +140,10 @@ namespace ceres::devices
 		{
 			_argumentGetter = std::move(getter);
 		}
+
+		// The machine's profile, for ProfileIdRegister (a driver::ProfileId).
+		void setProfileId(u32 id) noexcept { _profileId = id; }
+		u32 profileId() const noexcept { return _profileId; }
 
 		// The status the program shut the machine down with: the second byte of the word it wrote
 		// (0 for a plain byte write, which is what every program written before this existed does).

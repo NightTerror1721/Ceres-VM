@@ -18,17 +18,17 @@ if(NOT assemble_error STREQUAL "")
 endif()
 
 execute_process(
-	COMMAND "${CERES_EXE}" run "${FIXTURE}" --memory invalid
+	COMMAND "${CERES_EXE}" run "${FIXTURE}" --ram invalid
 	RESULT_VARIABLE memory_result
 	OUTPUT_VARIABLE memory_output
 	ERROR_VARIABLE memory_error)
 if(NOT memory_result EQUAL 2)
-	message(FATAL_ERROR "invalid --memory must return 2, got ${memory_result}")
+	message(FATAL_ERROR "invalid --ram must return 2, got ${memory_result}")
 endif()
 if(NOT memory_output STREQUAL "")
-	message(FATAL_ERROR "invalid --memory wrote unexpected stdout: ${memory_output}")
+	message(FATAL_ERROR "invalid --ram wrote unexpected stdout: ${memory_output}")
 endif()
-string(FIND "${memory_error}" "--memory needs a positive integer number of bytes" memory_message)
+string(FIND "${memory_error}" "'--ram' takes a number of bytes" memory_message)
 if(memory_message EQUAL -1)
-	message(FATAL_ERROR "invalid --memory did not report its error: ${memory_error}")
+	message(FATAL_ERROR "invalid --ram did not report its error: ${memory_error}")
 endif()

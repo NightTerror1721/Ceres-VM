@@ -59,7 +59,7 @@ namespace ceres::driver
 		std::string startupError;
 
 		Impl(const MachineConfig& config, const MachineHost& host) :
-			vm(config.memorySize),
+			vm(config.machine.ramBytes, config.machine.vramBytes),
 			control([this] { vm.shutdown(); }, [this] { vm.requestReset(); })
 		{
 			control.setFeaturesCallback([this](u32 features)
@@ -71,6 +71,8 @@ namespace ceres::driver
 				[this](u32 address) { vm.engine().setProgramStackLimit(address); });
 			control.setFaultInfoHandlers([this] { return vm.engine().faultAddress(); }, [this] { return vm.engine().faultAccess(); }, [this] { return vm.engine().faultReason(); });
 			control.setArgumentHandler([this](u32 which) { return vm.argumentInfo(which); });
+			control.setProfileId(static_cast<u32>(config.machine.id));
+			vm.io().scheduler().setClockHz(config.machine.cpuClockHz);
 			vm.setProgramArguments(vm::ProgramArguments{ config.arguments, config.environment });
 			control.attachTo(vm.io());
 			terminal.attachTo(vm.io());
@@ -333,7 +335,7 @@ namespace ceres::driver
 		}
 	}
 
-	int runMachine(const Program& program, usize memorySize, const DebugInfo* profileInfo,
+	int runMachine(const Program& program, const MachineProfile& machine, const DebugInfo* profileInfo,
 		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, vm::ProgramArguments arguments,
 		const std::filesystem::path& hostDirectory, HostServices services, HostBackend* backend, const MachineOptions& options)
 	{
@@ -345,10 +347,9 @@ namespace ceres::driver
 			return 1;
 		}
 
-		CeresVM vm{memorySize};
+		CeresVM vm{machine.ramBytes, machine.vramBytes};
 		vm.engine().setStrictMmio(options.strictMmio);
-		if (options.cpuClockHz)
-			vm.io().scheduler().setClockHz(*options.cpuClockHz);
+		vm.io().scheduler().setClockHz(machine.cpuClockHz);
 		vm.setProgramArguments(std::move(arguments));
 		// A reset starts the program again from its entry point (CeresVM::restartIfRequested): vm.run()
 		// does that on its own, and the windowed loop below between two frames.
@@ -362,6 +363,7 @@ namespace ceres::driver
 			[&vm](u32 address) { vm.engine().setProgramStackLimit(address); });
 		control.setFaultInfoHandlers([&vm] { return vm.engine().faultAddress(); }, [&vm] { return vm.engine().faultAccess(); }, [&vm] { return vm.engine().faultReason(); });
 		control.setArgumentHandler([&vm](u32 which) { return vm.argumentInfo(which); });
+		control.setProfileId(static_cast<u32>(machine.id));
 		auto terminal = std::make_shared<TerminalDevice>();
 		TimerDevice timer;
 		DmaController dma;

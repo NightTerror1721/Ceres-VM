@@ -33,22 +33,31 @@ TEST(driver_command, invalid_memory_is_a_usage_error)
 	char program[] = "ceres";
 	char run[] = "run";
 	char input[] = "demo.casm";
-	char memory[] = "--memory";
+	char memory[] = "--ram";
 	char value[] = "nope";
 	char* argv[] = { program, run, input, memory, value };
 	auto parsed = parseCommandLine(5, argv);
 	CHECK(!parsed.has_value());
 
 	// A size the machine cannot have is refused here, not by an exception out of the machine (plan/v2 SPEC 2).
-	for (const char* size : { "100000", "4096", "2147487744" })
+	for (const char* size : { "100000", "4096", "2147487744", "3G", "0", "12Q" })
 	{
 		std::string text = size;
 		argv[4] = text.data();
 		CHECK(!parseCommandLine(5, argv).has_value());
 	}
-	std::string whole = "2147483648";
-	argv[4] = whole.data();
-	CHECK(parseCommandLine(5, argv).has_value());
+	for (const char* size : { "2147483648", "2G", "64K", "8192", "1024M" })
+	{
+		std::string text = size;
+		argv[4] = text.data();
+		CHECK(parseCommandLine(5, argv).has_value());
+	}
+
+	// --memory is gone: --ram took its place (plan/v2 SPEC 10).
+	char old[] = "--memory";
+	char size[] = "65536";
+	char* oldArgv[] = { program, run, input, old, size };
+	CHECK(!parseCommandLine(5, oldArgv).has_value());
 }
 
 TEST(driver_command, archive_has_an_output_not_a_fake_input)
@@ -237,18 +246,20 @@ TEST(driver_command, speed_and_cpu_clock_belong_to_run_alone)
 	auto parsed = parseCommandLine(7, runArgv);
 	const auto* command = parsed ? std::get_if<RunCommand>(&*parsed) : nullptr;
 	CHECK(command != nullptr && command->speed == Speed::parse("2x"));
-	CHECK(command != nullptr && command->cpuClockHz == ceres::u64{ 8000000 });
+	CHECK(command != nullptr && command->machine.cpuClockHz == ceres::u64{ 8000000 });
+	CHECK(command != nullptr && command->machine.id == ProfileId::Custom);   // a loose option makes it custom
 
 	char* profileArgv[] = { program, profile, input, speed, twice };
 	CHECK(!parseCommandLine(5, profileArgv).has_value());
 
-	for (const char* good : { "50000000", "50M", "50m", "25kHz", "1G", "4294967295" })
+	// The CPU goes up to 400 MHz (plan/v2 SPEC 4).
+	for (const char* good : { "50000000", "50M", "50m", "25kHz", "400M", "400000000" })
 	{
 		std::string text = good;
 		char* argv[] = { program, run, input, clock, text.data() };
 		CHECK(parseCommandLine(5, argv).has_value());
 	}
-	for (const char* wrong : { "0", "fast", "5G", "4294967296", "M", "-1" })
+	for (const char* wrong : { "0", "fast", "1G", "400000001", "M", "-1" })
 	{
 		std::string text = wrong;
 		char* argv[] = { program, run, input, clock, text.data() };
@@ -288,7 +299,8 @@ namespace
 		std::ostringstream diagnostics;
 		RunCommand command{.input = source};
 		command.speed = speed;
-		command.cpuClockHz = clockHz;
+		if (clockHz)
+			command.machine.cpuClockHz = *clockHz;
 		const int status = execute(command, {&input, &output, &diagnostics});
 		std::filesystem::remove(source);
 		return status;
@@ -821,4 +833,122 @@ TEST(driver_run, log_sends_the_hosts_log_to_a_file)
 	char value[] = "x.log";
 	char* argv[] = { program, asm_, input, log, value };
 	CHECK(!parseCommandLine(5, argv).has_value());   // run's alone
+}
+
+TEST(driver_command, a_profile_is_a_whole_machine_and_a_loose_option_makes_it_custom)
+{
+	// plan/v2 SPEC 4: --profile picks a row of the table; any other machine option starts from it and makes it custom.
+	char program[] = "ceres";
+	char run[] = "run";
+	char input[] = "main.casm";
+	char profileOption[] = "--profile";
+
+	char* bare[] = { program, run, input };
+	auto plain = parseCommandLine(3, bare);
+	const auto* standard = plain ? std::get_if<RunCommand>(&*plain) : nullptr;
+	CHECK(standard != nullptr && standard->machine == defaultMachineProfile());
+	CHECK(standard != nullptr && standard->machine.id == ProfileId::Standard && standard->machine.ramBytes == 64u * 1024 * 1024);
+
+	for (const MachineProfile& expected : machineProfiles())
+	{
+		std::string name{ profileName(expected.id) };
+		char* argv[] = { program, run, input, profileOption, name.data() };
+		auto parsed = parseCommandLine(5, argv);
+		const auto* command = parsed ? std::get_if<RunCommand>(&*parsed) : nullptr;
+		CHECK(command != nullptr && command->machine == expected);
+		// No profile but custom goes past 1280x720.
+		CHECK(expected.id == ProfileId::Custom || (expected.maxWidth <= 1280 && expected.maxHeight <= 720));
+	}
+
+	char micro[] = "micro";
+	char resolution[] = "--max-resolution";
+	char fullHd[] = "1920x1080";
+	char* bigger[] = { program, run, input, profileOption, micro, resolution, fullHd };
+	auto custom = parseCommandLine(7, bigger);
+	const auto* command = custom ? std::get_if<RunCommand>(&*custom) : nullptr;
+	CHECK(command != nullptr && command->machine.id == ProfileId::Custom);
+	CHECK(command != nullptr && command->machine.maxWidth == 1920u && command->machine.maxHeight == 1080u);
+	CHECK(command != nullptr && command->machine.cpuClockHz == machineProfile(ProfileId::Micro).cpuClockHz);   // the rest is micro's
+
+	char tooBig[] = "2560x1440";
+	char* wrong[] = { program, run, input, resolution, tooBig };
+	CHECK(!parseCommandLine(5, wrong).has_value());
+
+	char unknown[] = "mainframe";
+	char* badName[] = { program, run, input, profileOption, unknown };
+	CHECK(!parseCommandLine(5, badName).has_value());
+
+	char video[] = "--max-video";
+	char v7[] = "V7";
+	char* badVideo[] = { program, run, input, video, v7 };
+	CHECK(!parseCommandLine(5, badVideo).has_value());
+
+	char gpu[] = "--gpu-clock";
+	char twoGhz[] = "2G";
+	char* badGpu[] = { program, run, input, gpu, twoGhz };
+	CHECK(!parseCommandLine(5, badGpu).has_value());
+
+	// Machine options belong to the commands that run a machine.
+	char asmCommand[] = "asm";
+	char* onAsm[] = { program, asmCommand, input, profileOption, micro };
+	CHECK(!parseCommandLine(5, onAsm).has_value());
+	char debugCommand[] = "debug";
+	char* onDebug[] = { program, debugCommand, input, profileOption, micro };
+	auto debug = parseCommandLine(5, onDebug);
+	const auto* debugging = debug ? std::get_if<DebugCommand>(&*debug) : nullptr;
+	CHECK(debugging != nullptr && debugging->machine.id == ProfileId::Micro);
+}
+
+TEST(driver_run, the_machine_publishes_its_profile)
+{
+	// SystemControl reads back what the profile made (plan/v2 SPEC 5.7): MemorySize, CpuClockHz, ProfileId and
+	// VramSize, which the program writes to the terminal as four words.
+	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_profile_test.casm";
+	{
+		std::ofstream file{ source };
+		file << "@text\n"
+			"global main:\n"
+			"    la   r13, 0xFFFF0000\n"
+			"    la   r12, 0xFF000004\n"
+			"    ldr  r1, [r13 + 0x04]\n"
+			"    ldr  r2, [r13 + 0x24]\n"
+			"    ldr  r3, [r13 + 0x28]\n"
+			"    ldr  r4, [r13 + 0x38]\n"
+			"    li   r0, 0\n"
+			".loop:\n"
+			"    str  [r12 + 0], r1\n"
+			"    shr  r1, r1, 8\n"
+			"    str  [r12 + 0], r2\n"
+			"    shr  r2, r2, 8\n"
+			"    str  [r12 + 0], r3\n"
+			"    shr  r3, r3, 8\n"
+			"    str  [r12 + 0], r4\n"
+			"    shr  r4, r4, 8\n"
+			"    add  r0, r0, 1\n"
+			"    cmp  r0, 4\n"
+			"    jnz  .loop\n"
+			"    li   r0, 1\n"
+			"    str  [r13 + 0], r0\n";
+	}
+	for (const MachineProfile& machine : machineProfiles())
+	{
+		std::istringstream input;
+		std::ostringstream output;
+		std::ostringstream diagnostics;
+		RunCommand command{ .input = source };
+		command.machine = machine;
+		CHECK_EQ(execute(command, { &input, &output, &diagnostics }), 0);
+		const std::string bytes = output.str();
+		CHECK_EQ(bytes.size(), ceres::usize{ 16 });
+		if (bytes.size() != 16)
+			continue;
+		ceres::u32 words[4] = {};
+		for (ceres::usize i = 0; i < 16; ++i)
+			words[i % 4] |= static_cast<ceres::u32>(static_cast<unsigned char>(bytes[i])) << (8 * (i / 4));
+		CHECK_EQ(words[0], static_cast<ceres::u32>(machine.ramBytes));
+		CHECK_EQ(words[1], static_cast<ceres::u32>(machine.cpuClockHz));
+		CHECK_EQ(words[2], static_cast<ceres::u32>(machine.id));
+		CHECK_EQ(words[3], static_cast<ceres::u32>(machine.vramBytes));
+	}
+	std::filesystem::remove(source);
 }

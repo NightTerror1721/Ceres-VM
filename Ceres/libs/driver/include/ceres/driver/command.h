@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <optional>
 #include <ceres/driver/pacer.h>
+#include <ceres/driver/profiles.h>
 #include <string>
 #include <variant>
 #include <vector>
@@ -49,7 +50,7 @@ namespace ceres::driver
 	struct RunCommand
 	{
 		std::filesystem::path input;
-		usize memorySize = vm::Memory::DefaultSize;
+		MachineProfile machine = defaultMachineProfile();   // --profile and the options that make it custom
 		std::filesystem::path diskImage;
 		bool listing = false;
 		bool debugInfo = false;
@@ -62,7 +63,6 @@ namespace ceres::driver
 		bool strictMmio = false;                // --strict-mmio: an undeclared device register faults instead of reading 0
 		std::optional<i64> rtc;                 // --rtc: the real-time clock's start, in seconds since 1970 (UTC)
 		std::optional<Speed> speed;             // --speed realtime|max|<f>x
-		std::optional<u64> cpuClockHz;          // --cpu-clock: the CPU clock in cycles per second
 		std::filesystem::path record;           // --record: write the host's input, stamped with its cycles, here
 		std::filesystem::path replay;           // --replay: feed a recording back instead of the host's input
 		std::filesystem::path logFile;          // --log: the host's log (the debug log and the diagnostics) goes here
@@ -71,7 +71,7 @@ namespace ceres::driver
 	struct ProfileCommand
 	{
 		std::filesystem::path input;
-		usize memorySize = vm::Memory::DefaultSize;
+		MachineProfile machine = defaultMachineProfile();
 		bool listing = false;
 	};
 
@@ -85,7 +85,7 @@ namespace ceres::driver
 	struct DebugCommand
 	{
 		std::vector<std::filesystem::path> inputs;
-		usize memorySize = vm::Memory::DefaultSize;
+		MachineProfile machine = defaultMachineProfile();
 		bool stopOnEntry = true;
 		bool server = false;
 		bool recordHistory = true;
