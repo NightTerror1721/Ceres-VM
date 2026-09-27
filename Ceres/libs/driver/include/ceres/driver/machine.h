@@ -22,7 +22,6 @@ namespace ceres::driver
 		std::function<void(std::span<const u8>)> terminalOutput;
 		// The terminal's error stream (TerminalDevice::ErrorOutputRegister); empty sends it to the host's stderr.
 		std::function<void(std::span<const u8>)> terminalError;
-		std::function<void(std::string_view)> framePresented;
 		// A line of the program's debug log (DebugLogDevice), without its newline, and its level (0 error ...
 		// 3 debug); empty, and the program sees the log as not collected.
 		std::function<void(u32 level, std::string_view line)> debugLog;

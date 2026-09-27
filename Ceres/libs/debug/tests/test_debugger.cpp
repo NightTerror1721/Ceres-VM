@@ -842,11 +842,10 @@ TEST(debugger, the_debugged_machine_has_every_device_attached)
 	CHECK(io.isAttached(vm::default_mmio::Terminal));
 	CHECK(io.isAttached(vm::default_mmio::Timer));
 	CHECK(io.isAttached(vm::default_mmio::Disk));
-	CHECK(io.isAttached(vm::default_mmio::Framebuffer));
+	CHECK(io.isAttached(vm::default_mmio::Gpu));
 	CHECK(io.isAttached(vm::default_mmio::Dma));
 	CHECK(io.isAttached(vm::default_mmio::Keyboard));
 	CHECK(io.isAttached(vm::default_mmio::Mouse));
-	CHECK(io.isAttached(vm::default_mmio::Display));
 	CHECK(io.isAttached(vm::default_mmio::Gamepad));
 	CHECK(io.isAttached(vm::default_mmio::SystemControl));
 }

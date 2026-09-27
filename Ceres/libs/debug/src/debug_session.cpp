@@ -288,25 +288,18 @@ namespace ceres::debug
 		_disk = std::make_unique<DiskDevice>();
 		_disk->attachTo(_vm->io());
 
-		_framebuffer = std::make_unique<FramebufferDevice>();
-		_framebuffer->attachTo(_vm->io());
-
 		// Keyboard and mouse are host-driven, so a program under the debugger sees the same slots
-		// as one being run. Their events are not part of the time-travel recording - like the disk
-		// and the framebuffer, they are live state, not machine state to rewind.
+		// as one being run. Their events are not part of the time-travel recording - like the disk,
+		// they are live state, not machine state to rewind.
 		_keyboard = std::make_unique<KeyboardDevice>();
 		_keyboard->attachTo(_vm->io());
 		_mouse = std::make_unique<MouseDevice>();
 		_mouse->attachTo(_vm->io());
 
-		// The display and gamepad round out the machine. The display has no sink here, so presenting
-		// is a no-op (the debugger has no window); its pixel buffer is still inspectable through the
-		// debugger's memory view, exactly like every other device's state.
-		_display = std::make_unique<DisplayDevice>();
-		_display->attachTo(_vm->io());
+		// The gamepad rounds out the machine's input.
 		_gamepad = std::make_unique<GamepadDevice>();
 		_gamepad->attachTo(_vm->io());
-		// Silent, like the display: the debugger has no speakers, but a program that programs the
+		// Silent: the debugger has no speakers, but a program that programs the
 		// tone generator sees the registers it expects.
 		_audio = std::make_unique<AudioDevice>();
 		_audio->attachTo(_vm->io());
@@ -363,24 +356,6 @@ namespace ceres::debug
 		_outputHandler = std::move(handler);
 		if (!_terminal)
 			return;
-
-		if (_framebuffer)
-		{
-			// A presented frame goes wherever the program's other output goes. Left to itself the
-			// device writes to stdout, which under --server is the protocol's own stream.
-			if (_outputHandler)
-			{
-				_framebuffer->setPresentSink([this](std::string_view frame)
-				{
-					if (_outputHandler)
-						_outputHandler(std::span<const u8>(reinterpret_cast<const u8*>(frame.data()), frame.size()));
-				});
-			}
-			else
-			{
-				_framebuffer->setPresentSink({});
-			}
-		}
 
 		if (_outputHandler)
 		{

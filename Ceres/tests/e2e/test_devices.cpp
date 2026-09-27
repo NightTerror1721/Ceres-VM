@@ -14,11 +14,9 @@
 #include <ceres/vm/ceresvm.h>
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage/disk.h>
-#include <ceres/devices/video/text_framebuffer.h>
 #include <ceres/devices/input/gamepad.h>
 #include <ceres/devices/input/keyboard.h>
 #include <ceres/devices/input/mouse.h>
-#include <ceres/devices/video/display.h>
 #include <ceres/devices/video/blitter.h>
 #include <ceres/vm/bios.h>
 #include <ceres/core/format/memory_map.h>
@@ -96,7 +94,6 @@ namespace
 	constexpr Address TimerBase = default_mmio::Timer;
 	constexpr Address TerminalBase = default_mmio::Terminal;
 	constexpr Address DiskBase = default_mmio::Disk;
-	constexpr Address FramebufferBase = default_mmio::Framebuffer;
 
 	u16 Off(Address registerOffset) noexcept { return static_cast<u16>(registerOffset.value()); }
 }
@@ -331,17 +328,15 @@ TEST(devices, every_device_declares_a_sound_register_table)
 	SystemControlDevice control{};
 	DmaController dma{};
 	DiskDevice disk{ 4 };
-	FramebufferDevice framebuffer{};
 	KeyboardDevice keyboard{};
 	MouseDevice mouse{};
-	DisplayDevice display{};
 	GamepadDevice gamepad{};
 	AudioDevice audio{};
 	PeripheralDevice peripherals{};
 	HostFsDevice hostFs{};
 	BlitterDevice blitter{};
-	const std::array<const IODevice*, 14> devices{ &terminal, &timer, &control, &dma, &disk, &framebuffer, &keyboard, &mouse,
-		&display, &gamepad, &audio, &peripherals, &hostFs, &blitter };
+	const std::array<const IODevice*, 12> devices{ &terminal, &timer, &control, &dma, &disk, &keyboard, &mouse,
+		&gamepad, &audio, &peripherals, &hostFs, &blitter };
 
 	std::vector<std::string_view> names;
 	for (const IODevice* device : devices)

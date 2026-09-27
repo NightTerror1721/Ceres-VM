@@ -25,7 +25,4 @@
 #include <ceres/devices/terminal/terminal.h>
 #include <ceres/devices/video/blitter.h>
 #include <ceres/devices/video/default_font.h>
-#include <ceres/devices/video/display.h>
 #include <ceres/devices/video/gpu.h>
-#include <ceres/devices/video/text_framebuffer.h>
-#include <ceres/devices/video/text_renderer.h>

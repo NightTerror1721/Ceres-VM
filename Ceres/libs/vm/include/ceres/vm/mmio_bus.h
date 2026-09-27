@@ -215,10 +215,7 @@ namespace ceres::vm
 		static inline constexpr Address Peripherals = MmioBus::slot(0x32);
 		// The GPU: its core and display at 0x40; 0x41-0x43 (commands, 2D, 3D) are filled in F10, F13 and F14.
 		static inline constexpr Address Gpu = MmioBus::slot(0x40);
-		// The three video devices of v1 wait in free slots of the video group until the GPU replaces them: the
-		// text framebuffer and the display in F5, the blitter in F10.
-		static inline constexpr Address Framebuffer = MmioBus::slot(0x44);
-		static inline constexpr Address Display = MmioBus::slot(0x45);
+		// The blitter of v1 waits in a free slot of the video group until the GPU's 2D engine replaces it (F10).
 		static inline constexpr Address Blitter = MmioBus::slot(0x46);
 		static inline constexpr Address SystemControl = MmioBus::slot(0xFF);
 	}

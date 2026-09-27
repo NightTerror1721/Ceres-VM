@@ -13,11 +13,9 @@
 #include <ceres/vm/ceresvm.h>
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage/disk.h>
-#include <ceres/devices/video/text_framebuffer.h>
 #include <ceres/devices/input/gamepad.h>
 #include <ceres/devices/input/keyboard.h>
 #include <ceres/devices/input/mouse.h>
-#include <ceres/devices/video/display.h>
 #include <ceres/devices/audio/audio.h>
 #include <ceres/devices/storage/peripherals.h>
 #include <ceres/devices/storage/host_fs.h>
@@ -233,10 +231,8 @@ namespace ceres::debug
 		std::unique_ptr<DmaController> _dma;
 		std::unique_ptr<SystemControlDevice> _systemControl;
 		std::unique_ptr<DiskDevice> _disk;
-		std::unique_ptr<FramebufferDevice> _framebuffer;
 		std::unique_ptr<KeyboardDevice> _keyboard;
 		std::unique_ptr<MouseDevice> _mouse;
-		std::unique_ptr<DisplayDevice> _display;
 		std::unique_ptr<GamepadDevice> _gamepad;
 		std::unique_ptr<AudioDevice> _audio;
 		std::unique_ptr<PeripheralDevice> _peripherals;

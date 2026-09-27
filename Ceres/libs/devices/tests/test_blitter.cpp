@@ -67,3 +67,37 @@ TEST(blitter, the_blitter_fills_copies_keys_scales_and_indexes)
 	CHECK_EQ(blitter.read(B::StatusRegister), B::StatusError);
 	CHECK((vm.interrupts().pendingMask() & (u64{ 1 } << static_cast<u8>(B::Interrupt))) != 0);
 }
+
+TEST(blitter, a_surface_can_be_in_vram_where_the_gpus_bitmap_is)
+{
+	CeresVM vm{ Memory::DefaultSize };
+	BlitterDevice blitter{};
+	blitter.attachTo(vm.io());
+	using B = BlitterDevice;
+	// A 2x2 fill into VRAM, then a copy of one of its pixels back into RAM.
+	blitter.write(B::DstAddressRegister, 0xA0100000);
+	blitter.write(B::DstStrideRegister, 64);
+	blitter.write(B::WidthRegister, 2);
+	blitter.write(B::HeightRegister, 2);
+	blitter.write(B::ColorRegister, 0x00ABCDEFu);
+	blitter.write(B::CommandRegister, B::CommandFill);
+	CHECK_EQ(blitter.read(B::PixelsRegister), 4u);
+	CHECK_EQ(vm.vram().read<u32>(0x100000 + 64 + 4), 0x00ABCDEFu);
+	CHECK(vm.vram().written(0x100000 / Vram::PageSize));
+
+	blitter.write(B::SrcAddressRegister, 0xA0100040);
+	blitter.write(B::SrcStrideRegister, 4);
+	blitter.write(B::DstAddressRegister, 0x10000);
+	blitter.write(B::DstStrideRegister, 4);
+	blitter.write(B::WidthRegister, 1);
+	blitter.write(B::HeightRegister, 1);
+	blitter.write(B::CommandRegister, B::CommandCopy);
+	CHECK_EQ(vm.memory().readUnchecked<u32>(Address(0x10000)), 0x00ABCDEFu);
+
+	// Past the end of the VRAM is an error, as past the end of the RAM is.
+	blitter.write(B::DstAddressRegister, 0xA0000000 + static_cast<u32>(vm.vram().size()) - 4);
+	blitter.write(B::WidthRegister, 2);
+	blitter.write(B::CommandRegister, B::CommandFill);
+	CHECK_EQ(blitter.read(B::StatusRegister) & B::StatusError, B::StatusError);
+	blitter.detachFrom(vm.io());
+}

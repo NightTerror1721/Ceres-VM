@@ -33,7 +33,13 @@ namespace ceres::devices
 
 	std::span<u8> BlitterDevice::row(u32 address, u32 bytes)
 	{
-		if (bytes == 0 || memory().clampBlockSize(Address(address), bytes) != bytes)
+		if (bytes == 0)
+			return {};
+		// A surface in VRAM - the GPU's bitmap plane - as well as in RAM. A VRAM row is marked as written even
+		// when it is only read: harmless, and the blitter goes when the GPU's 2D engine comes (F10).
+		if (address >= Vram::BaseValue)
+			return vram().backs(address, bytes) ? std::span<u8>(vram().span(address - Vram::BaseValue, bytes), bytes) : std::span<u8>{};
+		if (memory().clampBlockSize(Address(address), bytes) != bytes)
 			return {};
 		return memory().peekMutBytes(Address(address), bytes);
 	}

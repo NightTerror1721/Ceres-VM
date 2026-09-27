@@ -225,3 +225,8 @@
 - **Revisión `ocr` F5.5–F5.7** (delegada, diff revisado a mano): sin fallos de comportamiento. Dos detalles del
   parser corregidos: el mensaje de opción fuera de `run` llamaba «window option» también a `--transcript` o `--type`,
   y la marca interna de `--headless` se seguía llamando `usedTerminal`.
+- **F5.8**: además de borrar `text_framebuffer`, `display` y `text_renderer` (con sus tests y
+  `tests/e2e/test_text_window.cpp`) y liberar los slots `0x44` y `0x45`, el blitter (que sigue en `0x46` hasta F10)
+  acepta superficies en VRAM, donde está ahora el plano bitmap. `pong.casm` pasa al plano bitmap (48×32 escalado en
+  la ventana, copia de RAM a VRAM con el motor de copia y ritmo por VBlank) y el tutorial 08 al plano de texto
+  (celdas de 16 bits escritas con `strh` en VRAM). Pong comprobado en la ventana; el 08 con `--screen-log`.

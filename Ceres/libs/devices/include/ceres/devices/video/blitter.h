@@ -1,6 +1,6 @@
 #pragma once
 
-// A 2D blitter: rectangle operations on RGB32 surfaces in RAM, done by the host instead of the program's
+// A 2D blitter: rectangle operations on RGB32 surfaces in RAM or VRAM, done by the host instead of the program's
 // instructions - what a game's frame spends most of its time on. A surface is an address and a stride (bytes
 // from one row to the next); an operation is a width and a height, and a command.
 //
@@ -12,7 +12,7 @@
 //               CopyIndexedKeyed leaves out the index in Color
 //
 // An operation is carried out at once; the Pixels register says how many destination pixels it wrote, and the
-// Status register's error bit is set when a row of either surface ran outside RAM (the operation stops there).
+// Status register's error bit is set when a row of either surface ran outside RAM and VRAM (the operation stops there).
 // With Control bit 0 the device raises its interrupt (25) when an operation is done, for a program that sleeps
 // meanwhile.
 
@@ -75,7 +75,7 @@ namespace ceres::devices
 		void reset() override;
 
 	private:
-		// A row of `bytes` at `address`, entirely in RAM; empty when it is not.
+		// A row of `bytes` at `address`, entirely in RAM or entirely in VRAM; empty when it is neither.
 		std::span<u8> row(u32 address, u32 bytes);
 
 		// Row y of a surface at `base` with `stride` bytes a row. A stride that would carry the address past 4 GiB is

@@ -9,11 +9,9 @@
 #include <ceres/driver/input_journal.h>
 #include <ceres/devices/devices.h>
 #include <ceres/devices/storage/disk.h>
-#include <ceres/devices/video/text_framebuffer.h>
 #include <ceres/devices/input/gamepad.h>
 #include <ceres/devices/input/keyboard.h>
 #include <ceres/devices/input/mouse.h>
-#include <ceres/devices/video/display.h>
 #include <ceres/devices/audio/audio.h>
 #include <ceres/devices/storage/peripherals.h>
 #include <ceres/devices/storage/host_fs.h>
@@ -49,10 +47,8 @@ namespace ceres::driver
 		TimerDevice timer;
 		DmaController dma;
 		DiskDevice disk;
-		FramebufferDevice framebuffer;
 		KeyboardDevice keyboard;
 		MouseDevice mouse;
-		DisplayDevice display;
 		GamepadDevice gamepad;
 		AudioDevice audio;
 		PeripheralDevice peripherals;
@@ -82,10 +78,8 @@ namespace ceres::driver
 			timer.attachTo(vm.io());
 			dma.attachTo(vm.io());
 			disk.attachTo(vm.io());
-			framebuffer.attachTo(vm.io());
 			keyboard.attachTo(vm.io());
 			mouse.attachTo(vm.io());
-			display.attachTo(vm.io());
 			gamepad.attachTo(vm.io());
 			audio.attachTo(vm.io());
 			peripherals.attachTo(vm.io());
@@ -107,8 +101,6 @@ namespace ceres::driver
 				{
 					sink(std::span<const u8>(&byte, 1));
 				});
-			if (host.framePresented)
-				framebuffer.setPresentSink(std::move(host.framePresented));
 			if (!config.diskImage.empty() && !disk.open(config.diskImage))
 				startupError = "Failed to open disk image: " + config.diskImage.string();
 			for (const MachineConfig::Port& port : config.ports)
@@ -122,13 +114,11 @@ namespace ceres::driver
 		~Impl()
 		{
 			terminal.detachFrom(vm.io());
-			framebuffer.detachFrom(vm.io());
 			disk.detachFrom(vm.io());
 			timer.detachFrom(vm.io());
 			dma.detachFrom(vm.io());
 			keyboard.detachFrom(vm.io());
 			mouse.detachFrom(vm.io());
-			display.detachFrom(vm.io());
 			gamepad.detachFrom(vm.io());
 			audio.detachFrom(vm.io());
 			peripherals.detachFrom(vm.io());
@@ -359,12 +349,10 @@ namespace ceres::driver
 		TimerDevice timer;
 		DmaController dma;
 		DiskDevice disk;
-		FramebufferDevice framebuffer;
 		// Shared, like the terminal: the console's reader thread may outlive this function and must find the
 		// device there, detached, rather than gone.
 		auto keyboard = std::make_shared<KeyboardDevice>();
 		MouseDevice mouse;
-		DisplayDevice display;
 		GamepadDevice gamepad;
 		AudioDevice audio;
 		PeripheralDevice peripherals;
@@ -375,9 +363,6 @@ namespace ceres::driver
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		debugLog.attachTo(vm.io());
-		// The v1 text framebuffer and pixel display stay until F5.8, but only the GPU is shown in the window: the
-		// framebuffer's frames go to the terminal, as without a window.
-		framebuffer.setWindowHost(false);
 		GpuDevice gpu;
 		gpu.configure(GpuDevice::Config{ .gpuClockHz = machine.gpuClockHz, .maxLevel = machine.maxVideo,
 			.maxWidth = machine.maxWidth, .maxHeight = machine.maxHeight, .refresh = options.refresh });
@@ -408,11 +393,10 @@ namespace ceres::driver
 			~DetachKeyboard() { device.detachFrom(machine.io()); }
 		} detachKeyboard{*keyboard, vm};
 		mouse.attachTo(vm.io());
-		display.attachTo(vm.io());
 		gamepad.attachTo(vm.io());
 		audio.attachTo(vm.io());
 		// The program's output never reaches the host's terminal (plan/v2 SPEC 1.4): a copy goes to --transcript when
-		// one is asked for. The v1 text framebuffer's frames go nowhere until it is retired (F5.8).
+		// one is asked for.
 		HeadlessOutput headless;
 		if (const std::string error = headless.open(options.transcript, options.screenLog); !error.empty())
 		{
@@ -426,14 +410,12 @@ namespace ceres::driver
 			TerminalDevice& device;
 			~ForgetSinks() { device.clearOutputSink(); device.setErrorSink({}); }
 		} forgetSinks{ *terminal };
-		framebuffer.setPresentSink([](std::string_view) {});
 		if (!diskImage.empty() && !disk.open(diskImage))
 		{
 			log.error("Failed to open disk image: " + diskImage.string());
 			return 1;
 		}
 		disk.attachTo(vm.io());
-		framebuffer.attachTo(vm.io());
 		peripherals.attachTo(vm.io());
 		if (!hostDirectory.empty() && !hostFs.setRoot(hostDirectory))
 		{

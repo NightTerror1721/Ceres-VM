@@ -1,89 +1,68 @@
 // Exercise 8: A real screen
 //
-// Goal: draw to the framebuffer instead of writing loose characters to the
+// Goal: draw on the screen instead of writing loose characters to the
 // terminal. The difference matters: the terminal is a stream that only
-// moves forward, and the screen is a grid that gets redrawn whole.
+// moves forward, and the screen is a grid of cells that can be changed
+// anywhere, at any time.
 //
-// The cycle is always the same:
-//   1. Set width and height (GPU_WIDTH / GPU_HEIGHT).
-//   2. GPU_CMD = 1 clears the grid and resets the write cursor to the start.
-//   3. Write cells: one at a time through GPU_DATA, or all at once through
-//      the block registers.
-//   4. GPU_CMD = 2 shows the frame.
+// The screen is the GPU's text plane. Its cells live in video memory (VRAM),
+// one after another, row by row, and the GPU's registers say where:
+//   TEXT_CELLS_BASE  the address of the first cell
+//   TEXT_COLS        how many cells a row has
+// A cell is 16 bits: the character in the low byte, the ink in bits 8-11 and
+// the background in bits 12-15 - two of the palette's first 16 colours. A
+// background of 0 is see-through.
+//
+// Nothing has to be "shown": the GPU draws the cells as they are at every
+// frame. When the program ends, the window keeps the screen as it left it.
 //
 // TRY IT YOURSELF:
-//   1. Change WIDTH and HEIGHT and watch how the frame changes (it draws itself).
+//   1. Change WIDTH and HEIGHT and watch how the box changes.
 //   2. Move the ball to another cell by changing BALL_ROW / BALL_COL.
-//   3. Draw two frames in a row with the ball in different spots.
+//   3. Give the box a background: set bits 12-15 of BLANK (try 0x1720).
 
-const GPU          = 0xFF440000   // Framebuffer's MMIO base
-const GPU_CMD       = 0x00        // offsets within it
-const GPU_WIDTH      = 0x04
-const GPU_HEIGHT      = 0x08
-const GPU_DATA         = 0x0C
-const GPU_BLOCK_ADDR    = 0xF0
-const GPU_BLOCK_LEN      = 0xF4
-const GPU_BLOCK_CMD       = 0xF8
-const BLOCK_WRITE = 2
-const SYS_CTRL   = 0xFFFF0000
-
-const CMD_CLEAR = 1
-const CMD_SHOW  = 2
+const GPU             = 0xFF400000   // the GPU's MMIO base
+const TEXT_COLS       = 0x204        // offsets within it
+const TEXT_CELLS_BASE = 0x20C
+const CURSOR_SHAPE    = 0x228
+const SYS_CTRL        = 0xFFFF0000
 
 const WIDTH  = 16
 const HEIGHT = 6
-const CELLS  = WIDTH * HEIGHT
 
 const BALL_ROW = 3
 const BALL_COL = 9
 
-@bss
-    // The whole grid, exactly as we're about to hand it to the screen.
-    let screen: u8[CELLS]
+const BORDER = 0x0E23   // '#' in yellow (14)
+const BLANK  = 0x0720   // ' ' in light grey (7)
+const BALL   = 0x0C6F   // 'o' in bright red (12)
 
 @text
 global main:
     la r13, GPU
+    ldr r10, [r13 + TEXT_CELLS_BASE]   // where the first cell is
+    ldr r11, [r13 + TEXT_COLS]
+    shl r11, r11, 1                    // bytes from one row to the next
 
-    // The screen is as big as we tell it to be, within reason: a width of
-    // zero or a hundred thousand is a typo, and the device ignores it.
-    li r1, WIDTH
-    str [r13 + GPU_WIDTH], r1
-    li r1, HEIGHT
-    str [r13 + GPU_HEIGHT], r1
+    // The terminal's blinking cursor would sit on the box: hide it.
+    xor r1, r1, r1
+    str [r13 + CURSOR_SHAPE], r1
 
     call draw_frame
     call place_ball
-
-    // Clearing resets the cursor to the start, so the dump begins at the
-    // top left; without that clear, the second frame would continue where
-    // the first one left off.
-    li r1, CMD_CLEAR
-    str [r13 + GPU_CMD], r1
-
-    la r1, screen
-    li r2, CELLS
-    str [r13 + GPU_BLOCK_ADDR], r1
-    str [r13 + GPU_BLOCK_LEN], r2
-    li r4, BLOCK_WRITE
-    str [r13 + GPU_BLOCK_CMD], r4
-
-    li r1, CMD_SHOW
-    str [r13 + GPU_CMD], r1
 
     li r0, 0x01
     la r13, SYS_CTRL
     str [r13 + 0], r0
     ret
 
-// Fills the grid: '#' on the border, ' ' inside.
+// Draws the box: BORDER round the edge, BLANK inside.
 draw_frame:
-    la r1, screen
     xor r2, r2, r2          // row
 .row:
     xor r3, r3, r3          // column
 .column:
-    li r4, 0x20             // ' ' by default
+    li r4, BLANK
 
     cmp r2, 0
     jz .border
@@ -96,11 +75,16 @@ draw_frame:
     jmp .write
 
 .border:
-    li r4, 0x23             // '#'
+    li r4, BORDER
 
 .write:
-    strb [r1], r4
-    add r1, r1, 1
+    // The cell's address: first cell + row * bytes-per-row + column * 2.
+    mul r5, r2, r11
+    add r5, r5, r10
+    shl r6, r3, 1
+    add r5, r5, r6
+    strh [r5], r4
+
     add r3, r3, 1
     cmp r3, WIDTH
     jnz .column
@@ -110,13 +94,12 @@ draw_frame:
     jnz .row
     ret
 
-// One specific cell: row * width + column, like any grid.
+// One specific cell: row * bytes-per-row + column * 2, like any grid.
 place_ball:
-    la r1, screen
     li r2, BALL_ROW
-    mul r2, r2, WIDTH
-    add r2, r2, BALL_COL
-    add r1, r1, r2
-    li r3, 0x6F             // 'o'
-    strb [r1], r3
+    mul r2, r2, r11
+    add r2, r2, r10
+    add r2, r2, BALL_COL * 2
+    li r3, BALL
+    strh [r2], r3
     ret

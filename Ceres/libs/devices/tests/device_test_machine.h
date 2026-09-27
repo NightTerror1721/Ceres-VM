@@ -88,7 +88,6 @@ namespace
 	[[maybe_unused]] constexpr Address TimerBase = default_mmio::Timer;
 	[[maybe_unused]] constexpr Address TerminalBase = default_mmio::Terminal;
 	[[maybe_unused]] constexpr Address DiskBase = default_mmio::Disk;
-	[[maybe_unused]] constexpr Address FramebufferBase = default_mmio::Framebuffer;
 
 	// Two RAM buffers a test fills and reads back.
 	[[maybe_unused]] constexpr u32 SourceBuffer = 0x1000;
