@@ -157,3 +157,15 @@
 - [ ] Suites en verde en los tres repos. [ ] Puerta «host limpio». [ ] Revisión `ocr`. [ ] Hito 1 anunciado al usuario.
 
 ## Notas
+
+- **F5.1**: las interfaces son `HostInput` (bombeo y archivos soltados), `VideoOutput` y `AudioOutput`; un host con
+  ventana es un `WindowHost` con las tres (en `shared_ptr`, porque la ventana SDL es a la vez la entrada y lo que
+  dibuja el presentador) y lo crea una `WindowHostFactory`. En `libs/sdl`, `sdl_window`, `sdl_presenter` y
+  `sdl_audio` son privados (`src/`) y el único público es `sdl_host.h` (`createSdlHost()`). Prueba manual: `pong`
+  abre su ventana al tamaño de siempre; no se capturó el contenido (PrintWindow no ve el renderer de D3D y el PC
+  estaba en uso), queda para la prueba de la ventana de F5.5.
+- **F5.2**: `display_controller.h` es sólo cabecera (aritmética pura). La GPU arranca a 640×480 (80×30 celdas) o a
+  la resolución máxima del perfil si es menor. Sólo se adjunta el slot `0x40`: `0x41–0x43` no se adjuntan hasta las
+  fases que los llenan (el dispositivo no distingue por qué slot se le accede). El evento de línea sólo existe con
+  `IrqEnable` bit 1. La GPU aún no está en el runner: entra en F5.5, con la presentación (con ella, una máquina
+  detenida salta de VBlank en VBlank en lugar de esperar al host).
