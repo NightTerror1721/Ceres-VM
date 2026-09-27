@@ -66,7 +66,7 @@ Archivo: [phases/F03-isa-64.md](phases/F03-isa-64.md)
 | F3.3 | Ensamblador: pares, mnemónicos y datos de 64 bits | F3.1 | DONE | asm@5b89e4a, cc@81f3dbc |
 | F3.4 | VM: enteros de 64 bits | F3.2, F3.3, F2.1 (ciclos) | DONE | asm@df95d0c |
 | F3.5 | VM: dobles, conversiones y memoria | F3.4 | DONE | asm@4df5ffc |
-| F3.6 | Debugger y documentación | F3.5 | DONE |  |
+| F3.6 | Debugger y documentación | F3.5 | DONE | asm@e927d43 |
 
 ## F4 · Memoria, mapa nuevo y perfiles
 
