@@ -28,6 +28,10 @@ namespace ceres::driver
 		bool exitOnHalt = false;          // --exit-on-halt: the window closes when the program ends
 		bool requireWindow = false;       // --window: a window that cannot be opened is an error
 		std::filesystem::path framesDir;  // --frames: a PNG of the screen for every Present
+		std::filesystem::path transcript; // --transcript: every byte the program wrote to the terminal
+		std::filesystem::path screenLog;  // --screen-log: the text plane as text at every Present and at the end
+		std::filesystem::path typeFile;   // --type: text typed on the terminal when the machine starts
+		std::filesystem::path keysFile;   // --keys: keyboard events at instants of the machine's time
 	};
 
 	// The parts of a host the machine runs on; each may be missing (no window: all three are).

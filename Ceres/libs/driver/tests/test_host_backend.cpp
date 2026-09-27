@@ -1,4 +1,5 @@
 #include "framework.h"
+#include "run_capture.h"
 #include <ceres/driver/driver.h>
 #include <ceres/devices/input/keyboard.h>
 
@@ -52,12 +53,9 @@ namespace
 			file << program;
 		}
 		const WindowHostFactory factory = [] { return windowOf(std::make_shared<TypingBackend>()); };
-		std::istringstream input;
-		std::ostringstream output;
-		std::ostringstream diagnostics;
-		const int result = execute(RunCommand{.input = source, .window = true}, {&input, &output, &diagnostics}, factory);
+		const CapturedRun run = captureRun(RunCommand{.input = source, .window = true}, {}, factory);
 		std::filesystem::remove(source);
-		return (result == 0 ? std::string{} : "exit " + std::to_string(result) + ": ") + output.str() + diagnostics.str();
+		return (run.status == 0 ? std::string{} : "exit " + std::to_string(run.status) + ": ") + run.output + run.diagnostics;
 	}
 
 	// What a windowed host was asked to do. It lives in the test, because the host is gone when the run is over.
@@ -124,12 +122,9 @@ namespace
 			++stats.windowsCreated;
 			return windowOf(std::make_shared<FrameWindow>(stats, canOpen));
 		};
-		std::istringstream input;
-		std::ostringstream output;
-		std::ostringstream diagnostics;
-		const int result = execute(command, {&input, &output, &diagnostics}, haveFactory ? factory : WindowHostFactory{});
+		const CapturedRun run = captureRun(command, {}, haveFactory ? factory : WindowHostFactory{});
 		std::filesystem::remove(source);
-		return { result, output.str(), diagnostics.str(), stats };
+		return { run.status, run.output, run.diagnostics, stats };
 	}
 
 	void setHeadless(const char* value)
@@ -158,13 +153,6 @@ namespace
 	std::string presentProgram()
 	{
 		return frameProgram(2, "    la   r0, 0x123456\n    str  [r13 + 0x11C], r0\n    li   r0, 1\n    str  [r13 + 0x120], r0\n");
-	}
-
-	// A text framebuffer frame with an X in its corner, presented: it goes to the terminal.
-	std::string textFrameProgram()
-	{
-		return "@text\nglobal main:\n    la   r13, 0xFF440000\n    li   r0, 88\n    str  [r13 + 0x0C], r0\n"
-			"    li   r0, 2\n    str  [r13 + 0], r0\n" + shutdown();
 	}
 
 	// A backend that records how often the loop calls it. It is what proves the cooperative loop (pump -> slice ->
@@ -252,19 +240,16 @@ TEST(driver_window, a_windowed_run_drives_the_cooperative_loop)
 		return windowOf(backend);
 	};
 
-	std::istringstream input;
-	std::ostringstream output;
-	std::ostringstream diagnostics;
-	const int result = execute(RunCommand{.input = source, .window = true},
-		{&input, &output, &diagnostics}, factory);
+	const CapturedRun run = captureRun(RunCommand{.input = source, .window = true}, {}, factory);
 	std::filesystem::remove(source);
 
-	CHECK_EQ(result, 0);
+	CHECK_EQ(run.status, 0);
 	CHECK(captured != nullptr);
 	if (!captured) return;
 
 	// The program printed its byte, waited three frames and shut down; the loop pumped and presented.
-	CHECK_EQ(output.str(), std::string{ "A" });
+	CHECK_EQ(run.output, std::string{ "A" });
+	CHECK(run.hostOutput.empty());
 	CHECK(captured->pumps >= 1);
 	CHECK(captured->presents >= 1);
 }
@@ -404,15 +389,15 @@ TEST(driver_screen, frames_writes_a_png_for_every_present)
 	std::filesystem::remove_all(dir);
 }
 
-TEST(driver_screen, terminal_keeps_the_window_out_of_it)
+TEST(driver_screen, headless_keeps_the_window_out_of_it)
 {
 	setHeadless("");
-	const Run run = runProgram(frameProgram(1), RunCommand{.terminal = true});
+	const Run run = runProgram(frameProgram(1), RunCommand{.headless = true});
 	CHECK_EQ(run.result, 0);
 	CHECK_EQ(run.stats.windowsCreated, 0);           // the host was not even asked for
 }
 
-TEST(driver_screen, the_environment_can_say_the_same_as_terminal)
+TEST(driver_screen, the_environment_can_say_the_same_as_headless)
 {
 	setHeadless("1");
 	const Run run = runProgram(frameProgram(1), RunCommand{});
@@ -458,33 +443,29 @@ TEST(driver_screen, without_a_display_the_machine_runs_without_a_window)
 	CHECK_EQ(run.stats.frames, 0);
 }
 
-TEST(driver_screen, the_v1_text_framebuffer_goes_to_the_terminal_until_it_is_retired)
-{
-	setHeadless("");
-	const Run run = runProgram(textFrameProgram(), RunCommand{});
-	CHECK_EQ(run.result, 0);
-	CHECK(run.output.starts_with("X"));
-}
-
-TEST(driver_command, terminal_and_window_together_are_refused_and_neither_belongs_to_the_other_commands)
+TEST(driver_command, headless_and_window_together_are_refused_and_neither_belongs_to_the_other_commands)
 {
 	char program[] = "ceres";
 	char run[] = "run";
 	char input[] = "demo.casm";
 	char window[] = "--window";
-	char terminal[] = "--terminal";
-	char* both[] = { program, run, input, window, terminal };
+	char headless[] = "--headless";
+	char* both[] = { program, run, input, window, headless };
 	CHECK(!parseCommandLine(5, both).has_value());
 
-	char* only[] = { program, run, input, terminal };
+	char* only[] = { program, run, input, headless };
 	auto parsed = parseCommandLine(4, only);
 	CHECK(parsed.has_value());
 	const auto* command = std::get_if<RunCommand>(&*parsed);
-	CHECK(command != nullptr && command->terminal && !command->window);
+	CHECK(command != nullptr && command->headless && !command->window);
 
 	char assemble[] = "asm";
-	char* wrong[] = { program, assemble, input, terminal };
+	char* wrong[] = { program, assemble, input, headless };
 	CHECK(!parseCommandLine(4, wrong).has_value());
+
+	char terminal[] = "--terminal";   // gone with the host's terminal
+	char* old[] = { program, run, input, terminal };
+	CHECK(!parseCommandLine(4, old).has_value());
 }
 
 TEST(driver_window, a_program_halted_for_a_key_gets_it_from_the_next_pump)

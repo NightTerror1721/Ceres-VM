@@ -1,4 +1,5 @@
 #include <ceres/driver/input_journal.h>
+#include <algorithm>
 #include <charconv>
 #include <istream>
 #include <ostream>
@@ -18,6 +19,7 @@ namespace ceres::driver
 		constexpr KindName Kinds[] = {
 			{ InputEvent::Kind::TerminalBytes, "term", 0, true },
 			{ InputEvent::Kind::TerminalClose, "term-close", 0, false },
+			{ InputEvent::Kind::Typed, "type", 0, true },
 			{ InputEvent::Kind::Key, "key", 2, false },
 			{ InputEvent::Kind::Text, "text", 0, true },
 			{ InputEvent::Kind::Mouse, "mouse", 4, false },
@@ -26,6 +28,18 @@ namespace ceres::driver
 			{ InputEvent::Kind::Quit, "quit", 0, false },
 			{ InputEvent::Kind::Reset, "reset", 0, false },
 		};
+
+		// Terminal input as far as `room` bytes, not splitting a UTF-8 character of typed text.
+		usize fitting(const InputEvent& event, usize room)
+		{
+			usize cut = std::min(room, event.data.size());
+			if (event.kind == InputEvent::Kind::Typed)
+				while (cut > 0 && cut < event.data.size() && (static_cast<u8>(event.data[cut]) & 0xC0) == 0x80)
+					--cut;
+			return cut;
+		}
+
+		bool isTerminalInput(InputEvent::Kind kind) { return kind == InputEvent::Kind::TerminalBytes || kind == InputEvent::Kind::Typed; }
 
 		const KindName& describe(InputEvent::Kind kind)
 		{
@@ -158,12 +172,18 @@ namespace ceres::driver
 		_replaying = true;
 	}
 
+	void InputHub::script(std::vector<InputEvent> events)
+	{
+		_script = std::move(events);
+		_nextScript = 0;
+	}
+
 	void InputHub::post(InputEvent event)
 	{
 		if (_replaying)
 			return;
 		const std::lock_guard lock{ _mutex };
-		if (event.kind == InputEvent::Kind::TerminalBytes && !_queue.empty() && _queue.back().kind == InputEvent::Kind::TerminalBytes)
+		if (isTerminalInput(event.kind) && !_queue.empty() && _queue.back().kind == event.kind)
 			_queue.back().data += event.data;
 		else
 			_queue.push_back(std::move(event));
@@ -217,6 +237,9 @@ namespace ceres::driver
 		case InputEvent::Kind::TerminalBytes:
 			targets.terminal.pushInput(std::string_view(event.data));
 			break;
+		case InputEvent::Kind::Typed:
+			targets.terminal.type(event.data);
+			break;
 		case InputEvent::Kind::TerminalClose:
 			targets.terminal.closeInput();
 			break;
@@ -261,15 +284,25 @@ namespace ceres::driver
 			return true;
 		}
 
+		// The script's events whose cycle has come, stamped with this one as they go in (so a replay of the
+		// recording puts them where they went).
+		while (_nextScript < _script.size() && _script[_nextScript].cycle <= cycle)
+		{
+			InputEvent event = _script[_nextScript++];
+			event.cycle = cycle;
+			apply(event, targets);
+			write(event);
+		}
+
 		std::unique_lock lock{ _mutex };
 		while (!_queue.empty())
 		{
 			InputEvent event = std::move(_queue.front());
 			_queue.pop_front();
-			if (event.kind == InputEvent::Kind::TerminalBytes)
+			if (isTerminalInput(event.kind))
 			{
 				// What does not fit in the terminal's input waits, in order, for the next injection point.
-				const usize room = targets.terminal.inputRoom();
+				const usize room = fitting(event, targets.terminal.inputRoom());
 				if (room == 0)
 				{
 					_queue.push_front(std::move(event));
@@ -277,7 +310,7 @@ namespace ceres::driver
 				}
 				if (event.data.size() > room)
 				{
-					_queue.push_front(InputEvent{ .kind = InputEvent::Kind::TerminalBytes, .data = event.data.substr(room) });
+					_queue.push_front(InputEvent{ .kind = event.kind, .data = event.data.substr(room) });
 					event.data.resize(room);
 				}
 			}
@@ -287,7 +320,7 @@ namespace ceres::driver
 			write(event);
 			lock.lock();
 			// A partial write of the terminal leaves the rest at the front: stop here, its input is full.
-			if (event.kind == InputEvent::Kind::TerminalBytes && !_queue.empty() && _queue.front().kind == InputEvent::Kind::TerminalBytes
+			if (isTerminalInput(event.kind) && !_queue.empty() && _queue.front().kind == event.kind
 				&& targets.terminal.inputRoom() == 0)
 				break;
 		}

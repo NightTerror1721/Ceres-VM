@@ -15,8 +15,9 @@ namespace ceres::driver
 			"                          [--debug] [--emit-debug-json] [-c]\n"
 			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab] [--gc-sections]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
-			"  ceres run <file.casm|file.cres> [<machine>] [--disk <image>] [--window | --terminal] [--strict-mmio]\n"
+			"  ceres run <file.casm|file.cres> [<machine>] [--disk <image>] [--window | --headless] [--strict-mmio]\n"
 			"                                  [--fullscreen] [--exit-on-halt] [--frames <dir>] [--refresh 50|60]\n"
+			"                                  [--transcript <file>] [--screen-log <file>] [--type <file>] [--keys <file>]\n"
 			"                                  [--rtc <YYYY-MM-DDThh:mm:ss>] [--speed realtime|max|<f>x]\n"
 			"                                  [--record <file> | --replay <file>] [--log <file>]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
@@ -35,8 +36,14 @@ namespace ceres::driver
 			"With a window (an SDL build), 'run' shows the machine's screen in it from the start, one frame a vertical\n"
 			"blank (--refresh: 50 or 60 a second, 60 by default), and keeps it open with the last frame when the program\n"
 			"ends, until a key is pressed or it is closed; --exit-on-halt closes it at once. --fullscreen (or F11) fills\n"
-			"the screen. --window makes a window that cannot be opened an error; --terminal (or CERES_HEADLESS in the\n"
+			"the screen. --window makes a window that cannot be opened an error; --headless (or CERES_HEADLESS in the\n"
 			"environment) opens none. --frames writes a PNG of the screen into <dir> for every Present.\n"
+			"\n"
+			"The program's input and output are its terminal's, in the window: nothing it writes reaches this terminal,\n"
+			"and nothing typed here reaches it. --transcript writes everything it wrote to its terminal to a file (the\n"
+			"error stream between ESC[E and ESC[e); --screen-log the screen as text at every Present and at the end.\n"
+			"--type types a file's text as the machine starts; --keys presses keys at instants of the machine's time\n"
+			"('<ms> down|up|press <key>' or '<ms> text <text>' a line). Without a window, the input ends after them.\n"
 			"\n"
 			"Everything after -- goes to the program: main(argc, argv) gets the input's path as argv[0], then those.\n"
 			"--env gives it an environment variable (getenv); nothing of the host's environment is passed on.\n"
@@ -81,6 +88,10 @@ namespace ceres::driver
 			bool fullscreen = false;
 			bool exitOnHalt = false;
 			std::filesystem::path framesDir;
+			std::filesystem::path transcript;
+			std::filesystem::path screenLog;
+			std::filesystem::path typeFile;
+			std::filesystem::path keysFile;
 			u32 refresh = 60;
 			bool usedScreen = false;
 			// The machine: a profile, and the options that change it into `custom`.
@@ -109,7 +120,7 @@ namespace ceres::driver
 			std::filesystem::path log;
 			bool window = false;
 			bool usedWindow = false;
-			bool terminal = false;
+			bool headless = false;
 			bool usedTerminal = false;
 		};
 
@@ -350,7 +361,15 @@ namespace ceres::driver
 				raw.usedDisk = true;
 			}
 			else if (argument == "--window") { raw.window = true; raw.usedWindow = true; }
-			else if (argument == "--terminal") { raw.terminal = true; raw.usedTerminal = true; }
+			else if (argument == "--headless") { raw.headless = true; raw.usedTerminal = true; }
+			else if (argument == "--transcript" || argument == "--screen-log" || argument == "--type" || argument == "--keys")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				(argument == "--transcript" ? raw.transcript : argument == "--screen-log" ? raw.screenLog :
+					argument == "--type" ? raw.typeFile : raw.keysFile) = *value;
+				raw.usedScreen = true;
+			}
 			else if (argument == "--strict-mmio") raw.strictMmio = true;
 			else if (argument == "--fullscreen") { raw.fullscreen = true; raw.usedScreen = true; }
 			else if (argument == "--exit-on-halt") { raw.exitOnHalt = true; raw.usedScreen = true; }
@@ -495,14 +514,15 @@ namespace ceres::driver
 		{
 			if (raw.compileOnly || raw.usedOutput || raw.usedJson || raw.usedDebugJson || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
-			if (raw.window && raw.terminal)
-				return std::unexpected(ParseError{ "'--window' and '--terminal' are opposites: pick one" });
+			if (raw.window && raw.headless)
+				return std::unexpected(ParseError{ "'--window' and '--headless' are opposites: pick one" });
 			if (!raw.record.empty() && !raw.replay.empty())
 				return std::unexpected(ParseError{ "'--record' and '--replay' are opposites: pick one" });
-			return RunCommand{ std::move(inputs.front()), *machine, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal,
+			return RunCommand{ std::move(inputs.front()), *machine, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.headless,
 				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory), raw.strictMmio,
 				raw.rtc, raw.speed, std::move(raw.record), std::move(raw.replay), std::move(raw.log), raw.refresh, raw.fullscreen,
-				raw.exitOnHalt, std::move(raw.framesDir) };
+				raw.exitOnHalt, std::move(raw.framesDir), std::move(raw.transcript), std::move(raw.screenLog), std::move(raw.typeFile),
+				std::move(raw.keysFile) };
 		}
 		if (command == "profile")
 		{

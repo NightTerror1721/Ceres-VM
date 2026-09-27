@@ -2,6 +2,7 @@
 // the files they name plugged in before the program starts, and the program reading them through the registers.
 
 #include "framework.h"
+#include "run_capture.h"
 #include <ceres/driver/command.h>
 #include <ceres/driver/driver.h>
 #include <ceres/driver/machine.h>
@@ -41,14 +42,11 @@ namespace
 	std::string run(const char* name, const std::string& source, std::vector<PortAttachment> ports)
 	{
 		const auto program = write(name, source);
-		std::istringstream input;
-		std::ostringstream output;
-		std::ostringstream diagnostics;
 		RunCommand command{ .input = program };
 		command.ports = std::move(ports);
-		const int result = execute(command, { &input, &output, &diagnostics });
+		const CapturedRun result = captureRun(command);
 		std::filesystem::remove(program);
-		return result == 0 ? output.str() : "exit " + std::to_string(result) + ": " + diagnostics.str();
+		return result.status == 0 ? result.output : "exit " + std::to_string(result.status) + ": " + result.diagnostics;
 	}
 
 	// Prints the number of sectors port 0 reports, as a digit.
@@ -229,14 +227,11 @@ TEST(driver_ports, a_file_dropped_on_the_window_is_plugged_into_the_first_free_p
 	host->dropped = stick;
 	const WindowHostFactory factory = [&] { return WindowHost{ host, host, nullptr }; };
 
-	std::istringstream input;
-	std::ostringstream output;
-	std::ostringstream diagnostics;
-	const int result = execute(RunCommand{ .input = program, .window = true }, { &input, &output, &diagnostics }, factory);
+	const CapturedRun result = captureRun(RunCommand{ .input = program, .window = true }, {}, factory);
 	std::filesystem::remove(program);
 	std::filesystem::remove(stick);
 
-	CHECK_EQ(result, 0);
-	CHECK_EQ(output.str(), std::string{ "02" });     // an event for port 0, which holds two sectors
-	CHECK_EQ(diagnostics.str(), std::string{});
+	CHECK_EQ(result.status, 0);
+	CHECK_EQ(result.output, std::string{ "02" });     // an event for port 0, which holds two sectors
+	CHECK_EQ(result.diagnostics, std::string{});
 }

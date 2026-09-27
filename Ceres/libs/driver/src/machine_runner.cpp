@@ -1,5 +1,6 @@
 #include "machine_runner.h"
-#include "console_input.h"
+#include "headless_output.h"
+#include "key_script.h"
 #include "png_writer.h"
 
 #include <ceres/driver/driver.h>
@@ -178,33 +179,13 @@ namespace ceres::driver
 
 	namespace
 	{
-		// A code point as UTF-8, the way the hub keeps typed text (one outside Unicode becomes U+FFFD).
-		std::string encodeUtf8(u32 codePoint)
+		// A whole file, or nothing when it cannot be read.
+		std::optional<std::string> readFile(const std::filesystem::path& path)
 		{
-			if (codePoint > 0x10FFFF || (codePoint >= 0xD800 && codePoint <= 0xDFFF))
-				codePoint = 0xFFFD;
-			std::string out;
-			if (codePoint < 0x80)
-				out += static_cast<char>(codePoint);
-			else if (codePoint < 0x800)
-			{
-				out += static_cast<char>(0xC0 | (codePoint >> 6));
-				out += static_cast<char>(0x80 | (codePoint & 0x3F));
-			}
-			else if (codePoint < 0x10000)
-			{
-				out += static_cast<char>(0xE0 | (codePoint >> 12));
-				out += static_cast<char>(0x80 | ((codePoint >> 6) & 0x3F));
-				out += static_cast<char>(0x80 | (codePoint & 0x3F));
-			}
-			else
-			{
-				out += static_cast<char>(0xF0 | (codePoint >> 18));
-				out += static_cast<char>(0x80 | ((codePoint >> 12) & 0x3F));
-				out += static_cast<char>(0x80 | ((codePoint >> 6) & 0x3F));
-				out += static_cast<char>(0x80 | (codePoint & 0x3F));
-			}
-			return out;
+			std::ifstream file(path, std::ios::binary);
+			if (!file)
+				return std::nullopt;
+			return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
 		}
 
 		std::string interruptName(InterruptNumber number)
@@ -430,9 +411,22 @@ namespace ceres::driver
 		display.attachTo(vm.io());
 		gamepad.attachTo(vm.io());
 		audio.attachTo(vm.io());
-		terminal->setOutputSink([out = services.output](u8 byte) { out->put(static_cast<char>(byte)); out->flush(); });
-		terminal->setErrorSink([err = services.diagnostics](u8 byte) { err->put(static_cast<char>(byte)); err->flush(); });
-		framebuffer.setPresentSink([out = services.output](std::string_view frame) { *out << frame; out->flush(); });
+		// The program's output never reaches the host's terminal (plan/v2 SPEC 1.4): a copy goes to --transcript when
+		// one is asked for. The v1 text framebuffer's frames go nowhere until it is retired (F5.8).
+		HeadlessOutput headless;
+		if (const std::string error = headless.open(options.transcript, options.screenLog); !error.empty())
+		{
+			log.error(error);
+			return 1;
+		}
+		terminal->setOutputSink([&headless](u8 byte) { headless.transcriptByte(byte, false); });
+		terminal->setErrorSink([&headless](u8 byte) { headless.transcriptByte(byte, true); });
+		struct ForgetSinks
+		{
+			TerminalDevice& device;
+			~ForgetSinks() { device.clearOutputSink(); device.setErrorSink({}); }
+		} forgetSinks{ *terminal };
+		framebuffer.setPresentSink([](std::string_view) {});
 		if (!diskImage.empty() && !disk.open(diskImage))
 		{
 			log.error("Failed to open disk image: " + diskImage.string());
@@ -457,23 +451,6 @@ namespace ceres::driver
 				return 1;
 			}
 		}
-
-		// The reader of an input stream other than std::cin, joined before this returns: the stream belongs to
-		// the caller and may be gone once it does. Declared ahead of doneOnExit so that it is destroyed after it
-		// and the reader has already been told the machine is done.
-		struct JoinOnExit
-		{
-			std::thread thread;
-			~JoinOnExit() { if (thread.joinable()) thread.join(); }
-		} streamReader;
-
-		// Raised when the machine is done, so a console reader stops.
-		const auto machineDone = std::make_shared<std::atomic<bool>>(false);
-		struct DoneOnExit
-		{
-			std::shared_ptr<std::atomic<bool>> flag;
-			~DoneOnExit() { flag->store(true, std::memory_order_release); }
-		} doneOnExit{machineDone};
 
 		// Every input the host gives the machine waits here and goes in between two slices, stamped with its
 		// cycle (input_journal.h). Shared, like the terminal: the stdin reader may outlive this function, and
@@ -539,68 +516,9 @@ namespace ceres::driver
 				input->post(InputEvent{ .kind = InputEvent::Kind::FileDrop, .data = std::string(utf8.begin(), utf8.end()) });
 			});
 
-		// When standard input is a console, it can give the program more than lines. The program asks through
-		// the terminal's ModeRegister for keys as they are pressed; a window already has them.
-		std::shared_ptr<ConsoleInput> console;
-		if (services.input == &std::cin)
-			console = ConsoleInput::open();
-		struct RestoreConsole
-		{
-			std::shared_ptr<ConsoleInput> console;
-			~RestoreConsole() { if (console) console->restore(); }
-		} restoreConsole{console};
-		// What is typed in the window goes to the terminal as well as the keyboard: through its line discipline, or at
-		// once in raw mode (plan/v2 SPEC 8.3).
-		if (host.windowed())
-			keyboard->setKeystrokeSink([terminal](u32 keystroke) { terminal->typeKeystroke(keystroke); });
-
-		if (input->replaying())
-		{
-			// A replay feeds the recorded input and nothing else: the host's is not read at all.
-		}
-		else if (console)
-		{
-			// Everything the console gives goes through the hub, which holds what the terminal's ring has no room for.
-			std::thread([console, input, machineDone]
-			{
-				ConsoleInput::Sink sink;
-				sink.bytes = [&](std::span<const u8> bytes)
-				{
-					input->post(InputEvent{ .kind = InputEvent::Kind::TerminalBytes, .data = std::string(bytes.begin(), bytes.end()) });
-				};
-				sink.key = [&](u32 code, bool pressed) { input->key(code, pressed); };
-				sink.text = [&](u32 codePoint) { input->text(encodeUtf8(codePoint)); };
-				sink.endOfInput = [&] { input->post(InputEvent{ .kind = InputEvent::Kind::TerminalClose }); };
-				sink.stopped = [&] { return machineDone->load(std::memory_order_acquire); };
-				console->run(sink);
-			}).detach();
-		}
-		else if (services.input != nullptr)
-		{
-			// A blocked read of std::cin cannot be cancelled portably, so that reader is left behind
-			// when the machine is done; std::cin outlives it. Any other stream is the caller's and ends
-			// (a string, a file), so its reader is joined before returning (streamReader). Shared
-			// ownership prevents a stale reader from touching a destroyed device; detachFrom clears
-			// its VM connection on return.
-			//
-			// The ring holds 64 bytes and drops what does not fit, which is right for a keystroke
-			// source but wrong for a pipe: a program that is busy for a moment would lose the tail of
-			// a piped file. The hub is the flow control: it holds the bytes and gives the ring what it
-			// has room for at each injection point.
-			auto reader = [stream = services.input, input]
-			{
-				char c;
-				while (stream->get(c))
-					input->post(InputEvent{ .kind = InputEvent::Kind::TerminalBytes, .data = std::string(1, c) });
-				// The stream ended (a pipe ran dry, or the user closed stdin): say so, so a program
-				// waiting for more can stop waiting.
-				input->post(InputEvent{ .kind = InputEvent::Kind::TerminalClose });
-			};
-			if (services.input == &std::cin)
-				std::thread(std::move(reader)).detach();
-			else
-				streamReader.thread = std::thread(std::move(reader));
-		}
+		// What is typed - in the window, or by --keys - goes to the terminal as well as the keyboard: through its line
+		// discipline, or at once in raw mode (plan/v2 SPEC 8.3). The host's own stdin is never read.
+		keyboard->setKeystrokeSink([terminal](u32 keystroke) { terminal->typeKeystroke(keystroke); });
 
 		if (auto loaded = vm.loadProgram(program); !loaded)
 		{
@@ -639,7 +557,46 @@ namespace ceres::driver
 					return 1;
 				}
 				host.video = nullptr;
+				host.input = nullptr;
 			}
+		}
+
+		// Scripted input (plan/v2 SPEC 10): --type is typed as the machine starts, --keys at the instants it names.
+		// Without a window nobody else can type, so the terminal's input ends once they are done - at once when there
+		// are none. A replay has its own.
+		if (!input->replaying())
+		{
+			std::vector<InputEvent> script;
+			if (!options.keysFile.empty())
+			{
+				const auto text = readFile(options.keysFile);
+				auto events = text ? parseKeyScript(*text, vm.io().scheduler().clockHz()) : std::unexpected(std::string("it cannot be read"));
+				if (!events)
+				{
+					log.error("--keys " + options.keysFile.string() + ": " + events.error());
+					return 1;
+				}
+				script = std::move(*events);
+			}
+			if (!options.typeFile.empty())
+			{
+				const auto text = readFile(options.typeFile);
+				if (!text)
+				{
+					log.error("--type: cannot read " + options.typeFile.string());
+					return 1;
+				}
+				if (!text->empty())
+					input->post(InputEvent{ .kind = InputEvent::Kind::Typed, .data = *text });
+			}
+			if (!host.windowed())
+			{
+				if (script.empty())
+					input->post(InputEvent{ .kind = InputEvent::Kind::TerminalClose });
+				else
+					script.push_back(InputEvent{ .cycle = script.back().cycle + sliceCycles, .kind = InputEvent::Kind::TerminalClose });
+			}
+			input->script(std::move(script));
 		}
 		if (!options.framesDir.empty())
 		{
@@ -666,6 +623,8 @@ namespace ceres::driver
 		gpu.setVblankObserver([&](bool presented)
 		{
 			bool composed = false;
+			if (presented && headless.hasScreenLog())
+				headless.screen(gpu.screenText(), false);
 			if (presented && !options.framesDir.empty() && !framesFailed)
 			{
 				gpu.compose(frame);
@@ -746,6 +705,8 @@ namespace ceres::driver
 		}
 		if (profileInfo)
 			printProfile(vm, *profileInfo, *services.diagnostics);
+		headless.screen(gpu.screenText(), true);
+		headless.finish();
 
 		// The program is done, but the window stays with its last frame and says how it ended, until it is closed or
 		// a key is pressed (plan/v2 D22) - unless --exit-on-halt, or the host is the one that ended the run.

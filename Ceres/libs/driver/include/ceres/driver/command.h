@@ -54,8 +54,8 @@ namespace ceres::driver
 		std::filesystem::path diskImage;
 		bool listing = false;
 		bool debugInfo = false;
-		bool window = false;     // --window: open the window at once
-		bool terminal = false;   // --terminal: no window; the text framebuffer goes to the terminal
+		bool window = false;     // --window: a window that cannot be opened is an error
+		bool headless = false;   // --headless: no window (so does CERES_HEADLESS in the environment)
 		std::vector<PortAttachment> ports;
 		std::vector<std::string> arguments;     // after --: argv[1] on (argv[0] is the input's path)
 		std::vector<std::string> environment;   // --env NAME=value, in order
@@ -70,6 +70,10 @@ namespace ceres::driver
 		bool fullscreen = false;                // --fullscreen: the window takes the whole screen (F11 toggles it)
 		bool exitOnHalt = false;                // --exit-on-halt: the window closes when the program ends
 		std::filesystem::path framesDir;        // --frames: a PNG of the screen for every Present, into this directory
+		std::filesystem::path transcript;       // --transcript: every byte the program writes to the terminal
+		std::filesystem::path screenLog;        // --screen-log: the text plane as text at every Present and at the end
+		std::filesystem::path typeFile;         // --type: text typed on the terminal as the machine starts
+		std::filesystem::path keysFile;         // --keys: keyboard events at instants of the machine's time
 	};
 
 	struct ProfileCommand

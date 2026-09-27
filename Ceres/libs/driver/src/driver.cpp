@@ -205,12 +205,11 @@ namespace ceres::driver
 			return cli.run();
 		}
 
-		// --terminal, or CERES_HEADLESS set to something other than "", "0" or "false": scripts and tests set the
-		// variable so that programs which draw into the text framebuffer print their frames to the terminal
-		// instead of opening a window. An explicit --window still wins.
-		bool terminalRequested(const RunCommand& command)
+		// --headless, or CERES_HEADLESS set to something other than "", "0" or "false": scripts and tests set the
+		// variable so that no window opens. An explicit --window still wins.
+		bool headlessRequested(const RunCommand& command)
 		{
-			if (command.terminal)
+			if (command.headless)
 				return true;
 			const char* value = std::getenv("CERES_HEADLESS");
 			if (value == nullptr)
@@ -248,7 +247,7 @@ namespace ceres::driver
 					return 1;
 				}
 			}
-			else if (windowHost && !terminalRequested(command))
+			else if (windowHost && !headlessRequested(command))
 			{
 				// A machine with a screen: its window opens when it starts. If there turns out to be no display, it
 				// runs without one.
@@ -268,7 +267,8 @@ namespace ceres::driver
 				command.hostDirectory, services, HostIo{ host.input.get(), host.video.get(), host.audio.get() },
 				MachineOptions{ .strictMmio = command.strictMmio, .rtc = command.rtc, .speed = command.speed, .record = command.record,
 					.replay = command.replay, .logFile = command.logFile, .refresh = command.refresh, .fullscreen = command.fullscreen,
-					.exitOnHalt = command.exitOnHalt, .requireWindow = command.window, .framesDir = command.framesDir });
+					.exitOnHalt = command.exitOnHalt, .requireWindow = command.window, .framesDir = command.framesDir,
+					.transcript = command.transcript, .screenLog = command.screenLog, .typeFile = command.typeFile, .keysFile = command.keysFile });
 		}
 
 		int executeProfile(const ProfileCommand& command, HostServices services)

@@ -1,0 +1,22 @@
+// Writes "out" to its output, "err" to its error stream and "!" to its output again, then leaves with status 0.
+// Under `ceres run --headless` none of it may reach the process's own stdout or stderr (plan/v2 SPEC 1.4); the
+// transcript has it all, the error stream between ESC[E and ESC[e.
+@text
+global main:
+    la   r13, 0xFF000000        // the terminal
+    li   r1, 111                // 'o'
+    str  [r13 + 0x04], r1
+    li   r1, 117                // 'u'
+    str  [r13 + 0x04], r1
+    li   r1, 116                // 't'
+    str  [r13 + 0x04], r1
+    li   r1, 101                // 'e'
+    str  [r13 + 0x14], r1       // ErrorOutput
+    li   r1, 114                // 'r'
+    str  [r13 + 0x14], r1
+    str  [r13 + 0x14], r1
+    li   r1, 33                 // '!'
+    str  [r13 + 0x04], r1
+    la   r13, 0xFFFF0000
+    li   r0, 1
+    str  [r13 + 0], r0

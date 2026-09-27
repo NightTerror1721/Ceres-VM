@@ -2,6 +2,7 @@
 // starts the program again from its entry point, with its image as it was loaded, instead of stopping.
 
 #include "framework.h"
+#include "run_capture.h"
 #include <ceres/driver/command.h>
 #include <ceres/driver/driver.h>
 #include <ceres/devices/devices.h>
@@ -27,13 +28,9 @@ namespace
 			std::ofstream file(path, std::ios::binary | std::ios::trunc);
 			file << source;
 		}
-		std::istringstream input;
-		std::ostringstream output;
-		std::ostringstream diagnostics;
-		RunCommand command{ .input = path };
-		const int result = execute(command, { &input, &output, &diagnostics });
+		const CapturedRun result = captureRun(RunCommand{ .input = path });
 		std::filesystem::remove(path);
-		return result == 0 ? output.str() : "exit " + std::to_string(result) + ": " + diagnostics.str();
+		return result.status == 0 ? result.output : "exit " + std::to_string(result.status) + ": " + result.diagnostics;
 	}
 
 	// A host with a window that nothing happens in: what the windowed loop does between frames.
@@ -118,13 +115,10 @@ TEST(driver_reset, a_windowed_host_restarts_the_program_between_frames_too)
 		auto host = std::make_shared<QuietWindow>();
 		return WindowHost{ host, host, nullptr };
 	};
-	std::istringstream input;
-	std::ostringstream output;
-	std::ostringstream diagnostics;
-	const int result = execute(RunCommand{ .input = path, .window = true }, { &input, &output, &diagnostics }, factory);
+	const CapturedRun result = captureRun(RunCommand{ .input = path, .window = true }, {}, factory);
 	std::filesystem::remove(path);
-	CHECK_EQ(result, 0);
-	CHECK_EQ(output.str(), std::string{ "1727" });
+	CHECK_EQ(result.status, 0);
+	CHECK_EQ(result.output, std::string{ "1727" });
 }
 
 TEST(driver_reset, a_reset_disarms_the_timer_and_drops_a_transfer_in_flight)

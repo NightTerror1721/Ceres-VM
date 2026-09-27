@@ -29,7 +29,8 @@ namespace ceres::driver
 	{
 		enum class Kind : u8
 		{
-			TerminalBytes,   // bytes for the terminal's input (`data`)
+			TerminalBytes,   // bytes for the terminal's input (`data`), past its line discipline
+			Typed,           // text typed on the terminal (`data`, UTF-8), through its line discipline (--type)
 			TerminalClose,   // the terminal's input ended
 			Key,             // a key: `values[0]` the code, `values[1]` 1 pressed or 0 released
 			Text,            // typed text, UTF-8 (`data`)
@@ -78,6 +79,8 @@ namespace ceres::driver
 		std::vector<InputEvent> _replay;
 		usize _nextReplay = 0;
 		bool _replaying = false;
+		std::vector<InputEvent> _script;   // --keys: events at cycles of their own, besides the host's
+		usize _nextScript = 0;
 
 		void apply(const InputEvent& event, InputTargets& targets);
 		void write(const InputEvent& event);
@@ -91,6 +94,9 @@ namespace ceres::driver
 		// --replay: the events are injected at their cycles, and whatever the host posts is ignored.
 		void replay(std::vector<InputEvent> events);
 		bool replaying() const noexcept { return _replaying; }
+		// --keys: these events go in at their cycles (the first injection point at or after each), along with
+		// whatever the host posts.
+		void script(std::vector<InputEvent> events);
 
 		// From any thread. Ignored while replaying. Bytes for the terminal join the bytes already waiting.
 		void post(InputEvent event);

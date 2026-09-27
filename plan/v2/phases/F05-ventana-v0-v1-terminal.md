@@ -212,3 +212,13 @@
   escribir, 2 leer, 3 error): se actualizaron los ejemplos y los tests e2e. La sesión del debugger tiene ahora GPU
   (el terminal dibuja en ella); su estado interno no está en las instantáneas del historial (su VRAM sí). Prueba
   manual: `01_hola` en la ventana muestra el texto, el cursor y el título `[terminado: código 0]`.
+- **F5.7**: `--headless` sustituye a `--terminal` (que ahora es una opción desconocida); `--window` se queda y
+  choca con `--headless`. `--screen-log` escribe cada pantalla tras una línea `--- present <n> ---` y la última tras
+  `--- end ---`. `--type` pasa por la disciplina de línea (con eco en pantalla, que no va al transcript); `--keys`
+  lee líneas `<ms> down|up|press <tecla>` o `<ms> text <texto>` (archivo `key_script.{h,cpp}`) y el hub las inyecta
+  en su ciclo, junto a la entrada del host; los dos quedan en `--record`. Sin ventana, la entrada del terminal se
+  cierra tras lo guionizado (enseguida si no hay nada); con `--replay`, lo que diga la grabación. Se borran
+  `console_input.{h,cpp}`, `key_decoder.h` y su test: el runner no lee el stdin del host ni escribe en su stdout (los
+  frames del framebuffer de texto de la v1 se descartan hasta F5.8). Test de aceptación en `tests/cli`:
+  `headless_output` ejecuta el binario y comprueba stdout y stderr vacíos y el transcript exacto; `determinism` lee
+  ya el transcript. Los tests del driver leen la salida con `run_capture.h`.

@@ -1,4 +1,5 @@
 #include "framework.h"
+#include "run_capture.h"
 #include <ceres/driver/command.h>
 #include <ceres/driver/driver.h>
 #include <ceres/driver/machine.h>
@@ -504,11 +505,11 @@ TEST(driver_machine, host_receives_terminal_output)
 	CHECK_EQ(machine.droppedInputBytes(), ceres::u64{0});
 }
 
-TEST(driver_run, piped_input_longer_than_the_ring_is_held_back_not_dropped)
+TEST(driver_run, typed_input_reaches_a_program_that_reads_it_late)
 {
-	// The program is busy for a while before it reads anything. The terminal's ring holds 63 bytes,
-	// so an input reader that only pushed would have thrown most of the 300 bytes away by then; it has
-	// to wait for the program instead. Each byte is echoed as it arrives.
+	// The program is busy for a while before it reads anything; the 300 characters typed with --type wait for it
+	// in the terminal (a line without its Enter goes in whole when the input ends). Each byte is echoed as it
+	// is read.
 	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_flow_test.casm";
 	{
 		std::ofstream file{source};
@@ -543,15 +544,13 @@ TEST(driver_run, piped_input_longer_than_the_ring_is_held_back_not_dropped)
 	for (int i = 0; i < 300; ++i)
 		sent.push_back(static_cast<char>('!' + (i * 7) % 90));
 
-	std::istringstream input{sent};
-	std::ostringstream output;
-	std::ostringstream diagnostics;
-	const int result = execute(RunCommand{.input = source}, {&input, &output, &diagnostics});
+	const CapturedRun run = captureRun(RunCommand{.input = source}, sent);
 	std::filesystem::remove(source);
 
-	CHECK_EQ(result, 0);
-	CHECK_EQ(output.str().size(), sent.size());
-	CHECK_EQ(output.str(), sent);
+	CHECK_EQ(run.status, 0);
+	CHECK_EQ(run.output.size(), sent.size());
+	CHECK_EQ(run.output, sent);
+	CHECK(run.hostOutput.empty());   // nothing of the program's reaches the host's stdout
 }
 
 TEST(driver_run, unread_input_does_not_keep_the_run_from_ending)
@@ -568,14 +567,11 @@ TEST(driver_run, unread_input_does_not_keep_the_run_from_ending)
 			"    str  [r7 + 0], r0\n";
 	}
 
-	std::istringstream input{std::string(5000, 'x')};
-	std::ostringstream output;
-	std::ostringstream diagnostics;
-	const int result = execute(RunCommand{.input = source}, {&input, &output, &diagnostics});
+	const CapturedRun run = captureRun(RunCommand{.input = source}, std::string(5000, 'x'));
 	std::filesystem::remove(source);
 
-	CHECK_EQ(result, 0);
-	CHECK(output.str().empty());
+	CHECK_EQ(run.status, 0);
+	CHECK(run.output.empty());
 }
 
 TEST(driver_machine, host_receives_presented_frames)
@@ -661,14 +657,11 @@ TEST(driver_run, a_program_can_read_until_the_end_of_its_input)
 	}
 
 	const std::string sent = std::string(300, 'q') + "\nlast\n";
-	std::istringstream input{sent};
-	std::ostringstream output;
-	std::ostringstream diagnostics;
-	const int result = execute(RunCommand{.input = source}, {&input, &output, &diagnostics});
+	const CapturedRun run = captureRun(RunCommand{.input = source}, sent);
 	std::filesystem::remove(source);
 
-	CHECK_EQ(result, 3);
-	CHECK_EQ(output.str(), sent);
+	CHECK_EQ(run.status, 3);
+	CHECK_EQ(run.output, sent);
 }
 
 namespace
@@ -688,6 +681,7 @@ namespace
 		struct Run
 		{
 			std::filesystem::path path;
+			std::filesystem::path transcript;
 			std::istringstream input;
 			std::ostringstream output;
 			std::ostringstream diagnostics;
@@ -695,6 +689,7 @@ namespace
 		};
 		auto run = std::make_shared<Run>();
 		run->path = std::filesystem::temp_directory_path() / name;
+		run->transcript = uniqueTempPath("ceres_bounded_transcript");
 		{
 			std::ofstream file{run->path, std::ios::binary | std::ios::trunc};
 			file << source;
@@ -702,12 +697,16 @@ namespace
 		std::future<int> status = run->status.get_future();
 		std::thread([run, logFile]
 		{
-			run->status.set_value(execute(RunCommand{.input = run->path, .logFile = logFile}, {&run->input, &run->output, &run->diagnostics}));
+			RunCommand command{.input = run->path, .logFile = logFile};
+			command.transcript = run->transcript;
+			run->status.set_value(execute(command, {&run->input, &run->output, &run->diagnostics}));
 		}).detach();
 		if (status.wait_for(limit) != std::future_status::ready)
 			return {};
 		std::filesystem::remove(run->path);
-		return { status.get(), run->output.str(), run->diagnostics.str() };
+		std::string transcript = readWhole(run->transcript);
+		std::filesystem::remove(run->transcript);
+		return { status.get(), std::move(transcript), run->diagnostics.str() };
 	}
 }
 
@@ -932,13 +931,11 @@ TEST(driver_run, the_machine_publishes_its_profile)
 	}
 	for (const MachineProfile& machine : machineProfiles())
 	{
-		std::istringstream input;
-		std::ostringstream output;
-		std::ostringstream diagnostics;
 		RunCommand command{ .input = source };
 		command.machine = machine;
-		CHECK_EQ(execute(command, { &input, &output, &diagnostics }), 0);
-		const std::string bytes = output.str();
+		const CapturedRun run = captureRun(command);
+		CHECK_EQ(run.status, 0);
+		const std::string bytes = run.output;
 		CHECK_EQ(bytes.size(), ceres::usize{ 16 });
 		if (bytes.size() != 16)
 			continue;

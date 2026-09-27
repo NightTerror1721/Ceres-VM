@@ -22,3 +22,10 @@ add_test(NAME determinism
 		-DCERES_EXE=$<TARGET_FILE:ceres>
 		-DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/clock_dance.casm
 		-P ${CMAKE_CURRENT_SOURCE_DIR}/determinism.cmake)
+
+# The program's output never reaches the host's terminal: it goes to the window, and to --transcript (plan/v2 F5.7).
+add_test(NAME headless_output
+	COMMAND ${CMAKE_COMMAND}
+		-DCERES_EXE=$<TARGET_FILE:ceres>
+		-DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/both_streams.casm
+		-P ${CMAKE_CURRENT_SOURCE_DIR}/headless_output.cmake)

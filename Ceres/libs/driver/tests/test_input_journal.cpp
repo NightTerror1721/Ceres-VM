@@ -1,6 +1,7 @@
 // Stamped input (plan/v2 SPEC 3.3): the host's input goes in between slices with its cycle, and a recording of it
 // replays the same run.
 #include "framework.h"
+#include "run_capture.h"
 #include <ceres/driver/command.h>
 #include <ceres/driver/driver.h>
 #include <ceres/driver/input_journal.h>
@@ -182,12 +183,9 @@ TEST(input_journal, a_recorded_run_replays_the_same_way)
 
 	const auto run = [&](std::string typed, RunCommand command)
 	{
-		std::istringstream input(std::move(typed));
-		std::ostringstream output;
-		std::ostringstream diagnostics;
 		command.input = source;
-		const int status = execute(command, { &input, &output, &diagnostics });
-		return std::pair{ status, output.str() };
+		const ceres::testing::CapturedRun result = ceres::testing::captureRun(command, typed);
+		return std::pair{ result.status, result.output };
 	};
 
 	RunCommand record;
