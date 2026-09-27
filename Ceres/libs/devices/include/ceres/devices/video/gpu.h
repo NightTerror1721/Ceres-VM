@@ -11,6 +11,7 @@
 #include <ceres/devices/video/display_controller.h>
 #include <ceres/devices/video/gpu_executor.h>
 #include <ceres/devices/video/software_executor.h>
+#include <ceres/devices/video/text_plane.h>
 #include <ceres/vm/mmio_bus.h>
 
 #include <functional>
@@ -101,6 +102,7 @@ namespace ceres::devices
 		Config _config;
 		video::DisplayController _display;
 		std::unique_ptr<video::GpuExecutor> _executor = std::make_unique<video::SoftwareExecutor>();
+		video::TextPlane _text;
 
 		u32 _mode = 0;
 		u32 _control = ControlDisplayOn;
@@ -143,6 +145,10 @@ namespace ceres::devices
 		u32 mode() const noexcept { return _mode; }
 		u64 frameCounter() const noexcept { return _frameCounter; }
 		const video::DisplayController& display() const noexcept { return _display; }
+		video::TextPlane& textPlane() noexcept { return _text; }
+		const video::TextPlane& textPlane() const noexcept { return _text; }
+		// The text plane's screen as text, a line a row (what --screen-log writes).
+		std::string screenText() const { return _text.toText(vram()); }
 
 		// Back to the state the machine starts in: the boot resolution, level V0, the timing from now.
 		void reset() override;

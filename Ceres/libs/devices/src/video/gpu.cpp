@@ -31,6 +31,22 @@ namespace ceres::devices
 			{ 0x118, "FrameCounter",    RegisterAccess::Read,            0x0, false, "Vertical blanks since the start (32 bits, wraps)." },
 			{ 0x11C, "BackgroundColor", RegisterAccess::ReadWrite,       0x0, false, "0x00RRGGBB, behind every plane." },
 			{ 0x120, "Present",         RegisterAccess::Write,           0x0, false, "1 applies the pending bases at the next vertical blank." },
+			{ 0x200, "TextEnable",      RegisterAccess::ReadWrite,       0x1, false, "1 shows the text plane." },
+			{ 0x204, "TextCols",        RegisterAccess::Read,            0x0, false, "Columns of cells: Width / 8." },
+			{ 0x208, "TextRows",        RegisterAccess::Read,            0x0, false, "Rows of cells: Height / 16." },
+			{ 0x20C, "CellsBase",       RegisterAccess::ReadWrite,       0x0, false, "The first cell, in VRAM (a Present applies it)." },
+			{ 0x210, "CellFormat",      RegisterAccess::ReadWrite,       0x0, false, "0 16-bit cells (glyph, ink, background), 1 32-bit." },
+			{ 0x214, "FontBase",        RegisterAccess::ReadWrite,       0x0, false, "The font, 16 bytes a glyph (a Present applies it)." },
+			{ 0x218, "GlyphCount",      RegisterAccess::ReadWrite,       256, false, "Glyphs in the font, 1-256; the others draw blank." },
+			{ 0x21C, "TextPaletteBase", RegisterAccess::ReadWrite,       0x0, false, "256 entries of 0x00RRGGBB (a Present applies it)." },
+			{ 0x220, "CursorX",         RegisterAccess::ReadWrite,       0x0, false, "The cursor's column." },
+			{ 0x224, "CursorY",         RegisterAccess::ReadWrite,       0x0, false, "The cursor's row." },
+			{ 0x228, "CursorShape",     RegisterAccess::ReadWrite,       0x0, false, "Bits 1:0 none, underline, block or bar; bit 8 blinks." },
+			{ 0x22C, "ScrollbackBase",  RegisterAccess::ReadWrite,       0x0, false, "The ring of rows that scrolled off the top." },
+			{ 0x230, "ScrollbackLines", RegisterAccess::ReadWrite,       0x0, false, "How many rows the ring holds." },
+			{ 0x234, "ScrollY",         RegisterAccess::ReadWrite,       0x0, false, "Rows of the ring shown at the top; 0 shows the live screen." },
+			{ 0x238, "ScrollbackHead",  RegisterAccess::ReadWrite,       0x0, false, "The row of the ring the next scrolled-off line goes in." },
+			{ 0x23C, "ScrollbackCount", RegisterAccess::ReadWrite,       0x0, false, "The rows the ring holds now." },
 		};
 
 		constexpr RegisterMap Map{ "gpu", Registers };
@@ -85,6 +101,13 @@ namespace ceres::devices
 			_display.setClock(clock->clockHz());
 		_display.restart(now());
 		setResolution(std::min(BootWidth, _config.maxWidth), std::min(BootHeight, _config.maxHeight));
+		// The VRAM as the machine starts (plan/v2 SPEC 7.4); only once attached, when there is a VRAM to write.
+		if (scheduler() != nullptr)
+		{
+			_text.reset(video::TextPlane::bootLayout(_config.maxWidth / video::TextPlane::CellWidth, _config.maxHeight / video::TextPlane::CellHeight, vram().size()),
+				_width / video::TextPlane::CellWidth, _height / video::TextPlane::CellHeight);
+			_text.writeBootData(vram());
+		}
 		scheduleVblank();
 		scheduleLine();
 	}
@@ -94,6 +117,8 @@ namespace ceres::devices
 		_width = std::clamp<u32>(width, 8, _config.maxWidth);
 		_height = std::clamp<u32>(height, 16, _config.maxHeight);
 		_display.setHeight(_height);
+		if (_text.cols() != _width / video::TextPlane::CellWidth || _text.rows() != _height / video::TextPlane::CellHeight)
+			_text.setGeometry(_width / video::TextPlane::CellWidth, _height / video::TextPlane::CellHeight);
 	}
 
 	void GpuDevice::scheduleVblank()
@@ -120,6 +145,8 @@ namespace ceres::devices
 		++_nextFrame;
 		const bool presented = _presentPending;
 		_presentPending = false;
+		if (presented)
+			_text.applyPending();
 		_irqStatus |= IrqVblank;
 		if ((_irqEnable & IrqVblank) != 0)
 			raiseInterrupt(VblankInterrupt);
@@ -156,11 +183,14 @@ namespace ceres::devices
 		state.displayOn = (_control & ControlDisplayOn) != 0;
 		state.background = _background;
 		state.frameCounter = _frameCounter;
+		state.text = &_text;
 		_executor->compose(state, vram(), frame);
 	}
 
 	u32 GpuDevice::read(Address offset)
 	{
+		if (video::TextPlane::handles(offset.value()))
+			return _text.read(offset.value());
 		switch (offset.value())
 		{
 			case IdRegister.value(): return IdValue;
@@ -199,6 +229,11 @@ namespace ceres::devices
 
 	void GpuDevice::write(Address offset, u32 value)
 	{
+		if (video::TextPlane::handles(offset.value()))
+		{
+			_text.write(offset.value(), value);
+			return;
+		}
 		switch (offset.value())
 		{
 			case ModeRegister.value():

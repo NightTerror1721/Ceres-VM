@@ -399,8 +399,13 @@ A entero: truncan hacia cero y saturan (NaN → 0), como `ftoi`. A float: redond
 `Mode` (0–6) elige el nivel; no puede superar `MaxLevel` (del perfil). Cada nivel incluye los anteriores.
 
 - **Celda de texto de 16 bits** (la de por defecto, D20): bits 7:0 el carácter (glifo 0–255), 11:8 la tinta y
-  15:12 el fondo (índices de las 16 primeras entradas de la paleta). La disposición de la celda de 32 bits es
-  PROVISIONAL y se fija en F5.3.
+  15:12 el fondo (índices de las 16 primeras entradas de la paleta). **Celda de 32 bits** (fijada en F5.3): 7:0 el
+  glifo, 15:8 la tinta y 23:16 el fondo (las 256 entradas), bit 24 subrayado, bit 25 invierte tinta y fondo.
+  En las dos, un fondo 0 es transparente: se ve lo que hay debajo (el plano bitmap, el color de fondo).
+- **Fuente** (F5.3): 8×16, 1 bpp, 16 bytes por glifo, bit 7 el píxel de la izquierda. Los glifos `0x20–0x7E` y
+  `0xA0–0xFF` son Latin-1; `0x80–0x9F` (controles en Latin-1) llevan las líneas de caja y bloques
+  (`─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬█▀▄░▒▓■•▲▼`), a los que el terminal traduce esos puntos de código.
+- **Paleta al arrancar**: las 16 de ANSI (VGA), el cubo 6×6×6 de xterm y sus 24 grises.
 - **Límites retro** (D17): el límite de sprites por línea del perfil (tabla de §4) se aplica en todos los perfiles.
   En `micro` y `pocket`, además, la VRAM sólo se puede escribir durante el VBlank; qué hace una escritura fuera de
   él se fija en F8.3.
@@ -436,7 +441,7 @@ El scanout compone por línea, no consume ciclos de GPU y aplica los límites po
 | `0x118` | FrameCounter | R | |
 | `0x11C` | BackgroundColor | RW | XRGB8888 |
 | `0x120` | Present | W | 1: aplicar las bases pendientes en el próximo VBlank |
-| `0x200–0x23F` | Plano de texto | RW | Enable, Cols, Rows, CellsBase, CellFormat (0: 16 bits, 1: 32 bits), FontBase, GlyphCount, PaletteBase, CursorX, CursorY, CursorShape, ScrollbackBase, ScrollbackLines, ScrollY |
+| `0x200–0x23F` | Plano de texto | RW | Enable `0x200`, Cols `0x204` (R), Rows `0x208` (R), CellsBase `0x20C`, CellFormat `0x210` (0: 16 bits, 1: 32 bits), FontBase `0x214`, GlyphCount `0x218`, PaletteBase `0x21C`, CursorX `0x220`, CursorY `0x224`, CursorShape `0x228` (1:0 nada, subrayado, bloque, barra; b8 parpadeo), ScrollbackBase `0x22C`, ScrollbackLines `0x230`, ScrollY `0x234`, ScrollbackHead `0x238`, ScrollbackCount `0x23C`. Las bases (celdas, fuente, paleta) se aplican con `Present` |
 | `0x240–0x27F` | Plano bitmap | RW | Enable, Base, BackBase, Pitch, Format, Width, Height, ScrollX, ScrollY, Buffers, PaletteBase |
 | `0x280–0x2BF` | Motor de copia | RW | Src, Dst, Length, FillValue, Command (1 copy, 2 fill), Status |
 | `0x300–0x3FF` | V2–V3 | RW | Capas, capa afín, sprites, tabla de líneas (se fija en F8 y F10) |

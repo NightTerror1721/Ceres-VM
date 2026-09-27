@@ -10,6 +10,8 @@
 
 #include <ceres/core/base/types.h>
 
+#include <array>
+
 namespace ceres::devices
 {
 	inline constexpr u8 TextFontGlyphs[256][7] = {
@@ -270,4 +272,106 @@ namespace ceres::devices
 		{ 0x01, 0x01, 0x0F, 0x11, 0x11, 0x0F, 0x01 }, // U+00FE þ
 		{ 0x0A, 0x11, 0x11, 0x1E, 0x10, 0x11, 0x0E } // U+00FF ÿ
 	};
+
+	// The GPU's font (plan/v2 SPEC 7.4): 256 glyphs of 8x16 pixels, 1 bit a pixel, 16 bytes a glyph - a byte a row,
+	// top to bottom, bit 7 the leftmost pixel. Built from the dot-matrix shapes above as the text window drew them:
+	// each dot one pixel wide and two tall, a pixel of margin above, below and to the left. The strokes | - _ = run to
+	// the edge of the cell, so frames join up. Latin-1 has no glyphs at 0x80-0x9F (they are controls), so those 32
+	// hold the box-drawing and block characters a text interface wants; the terminal maps their code points there
+	// (BoxGlyphCodePoints).
+	inline constexpr u32 FontGlyphBytes = 16;
+	inline constexpr u32 FontGlyphCount = 256;
+
+	// The code point each glyph 0x80-0x9F draws.
+	inline constexpr std::array<u32, 32> BoxGlyphCodePoints = {
+		0x2500, 0x2502, 0x250C, 0x2510, 0x2514, 0x2518, 0x251C, 0x2524,   // ─ │ ┌ ┐ └ ┘ ├ ┤
+		0x252C, 0x2534, 0x253C, 0x2550, 0x2551, 0x2554, 0x2557, 0x255A,   // ┬ ┴ ┼ ═ ║ ╔ ╗ ╚
+		0x255D, 0x2560, 0x2563, 0x2566, 0x2569, 0x256C, 0x2588, 0x2580,   // ╝ ╠ ╣ ╦ ╩ ╬ █ ▀
+		0x2584, 0x2591, 0x2592, 0x2593, 0x25A0, 0x2022, 0x25B2, 0x25BC,   // ▄ ░ ▒ ▓ ■ • ▲ ▼
+	};
+
+	namespace font_detail
+	{
+		inline constexpr u32 Left = 1, Right = 2, Up = 4, Down = 8;
+
+		// Which way the lines of a box glyph run, single (low nibble) and double (high nibble).
+		constexpr u32 boxArms(u32 index) noexcept
+		{
+			constexpr u32 arms[22] = {
+				Left | Right, Up | Down, Right | Down, Left | Down, Right | Up, Left | Up, Up | Down | Right, Up | Down | Left,
+				Left | Right | Down, Left | Right | Up, Left | Right | Up | Down,
+				(Left | Right) << 4, (Up | Down) << 4, (Right | Down) << 4, (Left | Down) << 4, (Right | Up) << 4,
+				(Left | Up) << 4, (Up | Down | Right) << 4, (Up | Down | Left) << 4, (Left | Right | Down) << 4,
+				(Left | Right | Up) << 4, (Left | Right | Up | Down) << 4 };
+			return index < 22 ? arms[index] : 0;
+		}
+
+		constexpr bool boxPixel(u32 index, u32 x, u32 y) noexcept
+		{
+			if (index < 22)
+			{
+				const u32 single = boxArms(index) & 15;
+				const u32 twin = boxArms(index) >> 4;
+				if (single != 0)
+				{
+					const bool h = (y == 7 || y == 8) && (((single & Left) != 0 && x <= 4) || ((single & Right) != 0 && x >= 3));
+					const bool v = (x == 3 || x == 4) && (((single & Up) != 0 && y <= 8) || ((single & Down) != 0 && y >= 7));
+					return h || v;
+				}
+				const bool h = (y == 6 || y == 9) && (((twin & Left) != 0 && x <= 5) || ((twin & Right) != 0 && x >= 2));
+				const bool v = (x == 2 || x == 5) && (((twin & Up) != 0 && y <= 9) || ((twin & Down) != 0 && y >= 6));
+				return h || v;
+			}
+			switch (index)
+			{
+				case 22: return true;                                   // █
+				case 23: return y < 8;                                  // ▀
+				case 24: return y >= 8;                                 // ▄
+				case 25: return (x + y) % 4 == 0;                       // ░
+				case 26: return (x + y) % 2 == 0;                       // ▒
+				case 27: return (x + y) % 4 != 0;                       // ▓
+				case 28: return x >= 1 && x <= 6 && y >= 4 && y <= 11;  // ■
+				case 29: return x >= 3 && x <= 4 && y >= 7 && y <= 8;   // •
+				case 30: return y >= 4 && y <= 11 && 2 * (x > 3 ? x - 4 : 3 - x) <= y - 4;   // ▲
+				case 31: return y >= 4 && y <= 11 && 2 * (x > 3 ? x - 4 : 3 - x) <= 11 - y;                                          // ▼
+				default: return false;
+			}
+		}
+
+		// The 5x7 shape's dot under pixel (x, y), with the box strokes of ASCII stretched to the cell's edges.
+		constexpr bool asciiPixel(u32 c, u32 x, u32 y) noexcept
+		{
+			switch (c)
+			{
+				case '|': return x == 3 || x == 4;
+				case '-': return y == 7 || y == 8;
+				case '_': return y == 14 || y == 15;
+				case '=': return y == 5 || y == 6 || y == 9 || y == 10;
+				default: break;
+			}
+			if (x < 1 || x > 5 || y < 1 || y > 14)
+				return false;
+			return ((TextFontGlyphs[c][(y - 1) / 2] >> (x - 1)) & 1u) != 0;
+		}
+
+		constexpr std::array<u8, FontGlyphCount * FontGlyphBytes> buildFont() noexcept
+		{
+			std::array<u8, FontGlyphCount * FontGlyphBytes> font{};
+			for (u32 c = 0; c < FontGlyphCount; ++c)
+				for (u32 y = 0; y < FontGlyphBytes; ++y)
+				{
+					u8 row = 0;
+					for (u32 x = 0; x < 8; ++x)
+					{
+						const bool on = (c >= 0x80 && c < 0xA0) ? boxPixel(c - 0x80, x, y) : asciiPixel(c, x, y);
+						if (on)
+							row = static_cast<u8>(row | (0x80u >> x));
+					}
+					font[c * FontGlyphBytes + y] = row;
+				}
+			return font;
+		}
+	}
+
+	inline constexpr std::array<u8, FontGlyphCount * FontGlyphBytes> DefaultFont8x16 = font_detail::buildFont();
 }

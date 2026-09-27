@@ -169,3 +169,8 @@
   fases que los llenan (el dispositivo no distingue por qué slot se le accede). El evento de línea sólo existe con
   `IrqEnable` bit 1. La GPU aún no está en el runner: entra en F5.5, con la presentación (con ella, una máquina
   detenida salta de VBlank en VBlank en lugar de esperar al host).
+- **F5.3**: la fuente de 8×16 se genera en `default_font.h` (constexpr) desde la tabla 5×7, como la dibujaba la
+  ventana; `0x80–0x9F` llevan caja y bloques. Cols y Rows son de sólo lectura (Width/8, Height/16). Se añaden
+  `ScrollbackHead` (`0x238`) y `ScrollbackCount` (`0x23C`) para el anillo del scrollback, que el terminal (F5.6)
+  llena. Un fondo 0 es transparente. `CursorShape` bit 8 parpadea cada 16 fotogramas. SPEC §7.1 y §7.3 recogen la
+  celda de 32 bits, la fuente, la paleta y los offsets.
