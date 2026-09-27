@@ -430,6 +430,21 @@ TEST(timer, the_alarm_is_scheduled_on_the_first_cycle_at_or_after_its_instant)
 	timer.detachFrom(vm.io());
 }
 
+TEST(timer, an_alarm_further_off_than_the_cycle_count_reaches_never_fires)
+{
+	// 2^64 - 1 ns at the fastest clock is more cycles than 64 bits hold: the alarm waits for ever instead of wrapping
+	// round to a cycle already past.
+	CeresVM vm;
+	vm.io().scheduler().setClockHz(0xFFFFFFFFull);
+	TimerDevice timer{};
+	timer.attachTo(vm.io());
+	timer.write(TimerDevice::AlarmLowRegister, 0xFFFFFFFFu);
+	timer.write(TimerDevice::AlarmHighRegister, 0xFFFFFFFFu);
+	CHECK(!vm.interrupts().hasPending());
+	CHECK_EQ(vm.io().scheduler().cycleOf(timer, TimerDevice::AlarmEvent), NoScheduledEvent - 1);
+	timer.detachFrom(vm.io());
+}
+
 TEST(timer, writing_to_the_nanosecond_registers_changes_nothing)
 {
 	TimerDevice timer{};

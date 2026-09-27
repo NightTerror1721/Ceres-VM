@@ -60,7 +60,13 @@ namespace ceres::devices
 	u64 TimerDevice::cycleAtNanos(u64 instant) const noexcept
 	{
 		const u64 hz = clockHz();
-		return (instant / NanosPerSecond) * hz + ((instant % NanosPerSecond) * hz + NanosPerSecond - 1) / NanosPerSecond;
+		// An instant further off than the cycle counter reaches - centuries, at a fast clock - is never: wrapping
+		// round to a small cycle would fire the alarm at once.
+		const u64 seconds = instant / NanosPerSecond;
+		const u64 part = ((instant % NanosPerSecond) * hz + NanosPerSecond - 1) / NanosPerSecond;
+		if (seconds > (NoScheduledEvent - 1 - part) / hz)
+			return NoScheduledEvent - 1;
+		return seconds * hz + part;
 	}
 
 	void TimerDevice::syncCountdown() noexcept

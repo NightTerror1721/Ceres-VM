@@ -111,7 +111,7 @@
 
 ## Cierre de la fase
 
-- [x] Suites en verde. [x] `benchmark_vm` igual o mejor que en `BASELINE.md`. [ ] Revisión `ocr`.
+- [x] Suites en verde. [x] `benchmark_vm` igual o mejor que en `BASELINE.md`. [x] Revisión `ocr`.
 
 ## Notas
 
@@ -208,3 +208,9 @@
   CeresASM 9/9, Ceres-C 11/11, STDLIB 311 comprobaciones. `benchmark_vm` `mixed` 138,0 frente a 134,3 de BASELINE (y
   139 de la F2.1 medidos alternados en la misma sesión). La revisión `ocr` queda pendiente: el servicio devolvía HTTP 429
   y después dejó de responder; la de cierre de la F1 tampoco llegó a completarse.
+- **Revisión `ocr` de cierre (2026-09-27)**, en modo delegado sobre `f3042fc^..cd86e81` porque el proveedor del LLM no
+  responde; hecha tras F3. Corregidos en «Fix the OCR findings on the F2 clocks»: (1) `TimerDevice::cycleAtNanos`
+  desbordaba con una alarma más lejana de lo que cuenta el contador de ciclos (siglos, con un `--cpu-clock` alto): el
+  ciclo daba la vuelta y la alarma saltaba en el acto; ahora queda en «nunca». (2) `--rtc` aceptaba horas, minutos o
+  segundos negativos (`T-1:00:00`). Revisados sin hallazgos: el planificador (desempate determinista; un periodo 0 no lo
+  bloquea), el `Pacer`, el bucle del ejecutor, el lector de grabaciones de entrada y `--cpu-clock`.

@@ -105,7 +105,7 @@ namespace ceres::driver
 				return bad();
 			const std::chrono::year_month_day date{ std::chrono::year{ year }, std::chrono::month{ static_cast<unsigned>(month) },
 				std::chrono::day{ static_cast<unsigned>(day) } };
-			if (!date.ok() || year < 1970 || hour > 23 || minute > 59 || second > 59)
+			if (!date.ok() || year < 1970 || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59)
 				return bad();
 			const auto days = std::chrono::sys_days{ date }.time_since_epoch();
 			return std::chrono::duration_cast<std::chrono::seconds>(days).count() + hour * 3600 + minute * 60 + second;

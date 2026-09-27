@@ -179,7 +179,7 @@ TEST(driver_command, rtc_takes_a_utc_moment_and_belongs_to_run_alone)
 	char* profileArgv[] = { program, profile, input, option, moment };
 	CHECK(!parseCommandLine(5, profileArgv).has_value());
 
-	for (const char* wrong : { "2026-02-30T00:00:00", "1969-12-31T23:59:59", "2026-09-26 12:00:00", "2026-09-26T24:00:00", "tomorrow" })
+	for (const char* wrong : { "2026-02-30T00:00:00", "1969-12-31T23:59:59", "2026-09-26 12:00:00", "2026-09-26T24:00:00", "2026-09-26T-1:00:00", "2026-09-26T12:-5:00", "tomorrow" })
 	{
 		std::string text = wrong;
 		char* wrongArgv[] = { program, run, input, option, text.data() };
