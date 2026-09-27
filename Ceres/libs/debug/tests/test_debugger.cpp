@@ -461,6 +461,9 @@ TEST(debugger, the_debug_log_goes_to_the_error_stream_and_its_break_stops_the_pr
 		"    str  [r13 + 0], r0\r\n"
 		"    str  [r13 + 12], r0\r\n"
 		"    li   r1, 7\r\n"
+		"    li   r0, 1\r\n"
+		"    la   r13, 0xFFFF0000\r\n"
+		"    str  [r13 + 0], r0\r\n"
 		"    ret\r\n";
 	TempSource source{ LogSource, "debuglog" };
 	auto session = launchOrNull(source);
@@ -490,6 +493,9 @@ TEST(debugger, the_vram_reads_back_through_its_physical_addresses)
 		"    la  r1, 0xA0000000\r\n"
 		"    li  r2, 0x1234\r\n"
 		"    str [r1 + 16], r2\r\n"
+		"    li  r0, 1\r\n"
+		"    la  r13, 0xFFFF0000\r\n"
+		"    str [r13 + 0], r0\r\n"
 		"    ret\r\n";
 	TempSource source{ VramSource, "vram" };
 	auto session = launchOrNull(source);

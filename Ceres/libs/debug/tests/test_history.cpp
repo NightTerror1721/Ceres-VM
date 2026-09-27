@@ -340,6 +340,9 @@ TEST(history, going_back_restores_the_vram_too)
 		".skip:\r\n"
 		"    cmp r3, 3000\r\n"
 		"    jnz .loop\r\n"
+		"    li r0, 1\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    str [r13 + 0], r0\r\n"
 		"    ret\r\n";
 	TempSource source{ VramLoop, "vram" };
 	auto session = launchOrNull(source);
