@@ -7,7 +7,8 @@ Language support for **CASM**, the assembler of the [Ceres](../../README.md) vir
 - Syntax highlighting for `.casm` files: sections, keywords, types, mnemonics, registers,
   labels, macro parameters (`$reg`) and hygienic macro labels (`%%loop`), literals and comments.
   Mnemonics and registers highlight case-insensitively (matching the real lexer); everything else
-  is lowercase-only, also matching it.
+  is lowercase-only, also matching it. A dotted mnemonic (`fadd.d`, `fcvt.l.d`) is one word, as
+  the lexer reads it, and the register pairs `x0`-`x6` and `d0`-`d7` are registers.
 - Live diagnostics: every time you edit or save a `.casm` file, the extension runs the real
   `ceres` compiler in the background (`ceres asm <file> --json`) and shows its errors as
   in-editor squiggles. The mark covers the whole statement rather than the single character
@@ -31,7 +32,7 @@ Language support for **CASM**, the assembler of the [Ceres](../../README.md) vir
   of the device behind a port number in an `in`/`out` — with a note when that port is one of
   the ones reserved in the map but not backed by anything.
 - Completion: mnemonics, pseudo-instructions, keywords, types, section directives, registers by
-  number and by role, the linker-defined symbols, and every constant/variable/label/macro
+  number and by role, the register pairs, the linker-defined symbols, and every constant/variable/label/macro
   currently in scope.
 - Find references and rename: labels (scope-correct for repeated local `.name` labels), constants,
   variables, macro parameters and hygienic macro labels, all within the files the language itself

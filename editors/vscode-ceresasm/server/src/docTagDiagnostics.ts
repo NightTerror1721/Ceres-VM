@@ -13,7 +13,8 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { OperandKind } from './docTags';
 import { getCleanedLines, SymbolIndexer, VisibleSymbols } from './symbolIndex';
 
-const STATEMENT_HEAD_RE = /^(\s*)([A-Za-z_][A-Za-z0-9_]*)\b/;
+// A name followed by a dot is the start of a dotted mnemonic (`fadd.d`), never a macro call.
+const STATEMENT_HEAD_RE = /^(\s*)([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_.])/;
 const REGISTER_RE = /^(?:r(?:[0-9]|1[0-5])|sp|fp|at|lr)$/i;
 const FLOAT_REGISTER_RE = /^f(?:[0-9]|1[0-5])$/i;
 const NUMERIC_RE = /^[+-]?(?:0[xX][0-9a-fA-F]+|0[bB][01]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)$/;

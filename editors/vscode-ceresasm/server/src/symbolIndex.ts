@@ -238,13 +238,14 @@ const MACRO_PARAM_RE = /\$[A-Za-z_][A-Za-z0-9_]*/g;
 // body has to be tracked: without it every field is indexed as a label of the enclosing file.
 const STRUCT_FIELD_RE = /^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:\s*\[[^\]]*\])*)\s*$/;
 
-// What a scalar type occupies, and what it has to be aligned to - the two are the same for every
-// type the machine has. The assembler is the authority; this repeats the table so that a field
+// What a scalar type occupies. It is also what the type has to be aligned to, up to 4: the 64-bit
+// types take eight bytes but align to 4, all `ldrd` and `fldr.d` ask for. The assembler is the authority; this repeats the table so that a field
 // offset can be shown without running it.
 const SCALAR_SIZES: Record<string, number> = {
 	u8: 1, i8: 1, char: 1, bool: 1, byte: 1, port: 1, irq: 1,
 	u16: 2, i16: 2, half: 2,
-	u32: 4, i32: 4, f32: 4, ptr: 4, word: 4
+	u32: 4, i32: 4, f32: 4, ptr: 4, word: 4,
+	u64: 8, i64: 8, f64: 8
 };
 
 export function buildFileIndex(uri: string, text: string): FileIndex {
@@ -517,7 +518,7 @@ function measureType(typeText: string, index: FileIndex, measure: (symbol: Struc
 	let element: MeasuredType | null = null;
 	const scalarSize = SCALAR_SIZES[baseName];
 	if (scalarSize !== undefined) {
-		element = { size: scalarSize, alignment: scalarSize };
+		element = { size: scalarSize, alignment: Math.min(scalarSize, 4) };
 	} else {
 		const nested = index.structs.get(baseName);
 		if (!nested) {
@@ -760,7 +761,16 @@ export interface TokenAtPosition {
 	endCharacter: number;
 }
 
-const TOKEN_RE = /\$[A-Za-z_][A-Za-z0-9_]*|%%[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\.[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*/g;
+// A dotted binary64 mnemonic (`fadd.d`, `fcvt.l.d`) is one token, the way the assembler's lexer
+// reads it when it is written without spaces - otherwise it would come apart into `fadd` and a
+// `.d` member reference. Tried first, and case-insensitively like every mnemonic.
+export const DOTTED_MNEMONIC_RE =
+	/(?<![A-Za-z0-9_.])(?:fcvt\.(?:d\.(?:s|wu|w|lu|l)|s\.(?:d|lu|l)|(?:wu|w)\.d|(?:lu|l)\.(?:d|s))|(?:fadd|fsub|fmul|fdiv|fma|fsqrt|fcmp|fmin|fmax|fmod|fneg|fabs|fround|ffloor|fceil|ftrunc|fcopysign|fclass|fmov|fldr|fstr|mtf|mff)\.d)(?![A-Za-z0-9_.])/i;
+const TOKEN_RE = new RegExp(
+	`${DOTTED_MNEMONIC_RE.source}|` +
+		/\$[A-Za-z_][A-Za-z0-9_]*|%%[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\.[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*/.source,
+	'gi'
+);
 
 // True where a match is not a name at all: the tail of a number (`0x01` reads as `x01`), or the
 // body of a character literal (`'O'` reads as `O`). Both used to be handed to every provider as

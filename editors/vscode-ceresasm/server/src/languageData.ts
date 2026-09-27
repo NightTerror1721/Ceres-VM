@@ -206,6 +206,103 @@ export const MNEMONICS: Record<string, MnemonicDoc> = {
 	mtf: { operands: 'fd, rs', summary: 'Moves the bit pattern from an integer register into a float register, without converting.' },
 	mff: { operands: 'rd, fs', summary: 'Moves the bit pattern from a float register into an integer register, without converting.' },
 
+	// 64-bit integers on register pairs - 0xD7-0xED (docs/34-64-bit.md). A pair `xN` is
+	// r(2N):r(2N+1), low word in the even register; x7 would be fp:sp and is refused.
+	add64: { operands: 'xd, xs, xt', summary: '64-bit addition. Sets Zero, Sign (bit 63), Carry and Overflow of 64 bits.' },
+	sub64: { operands: 'xd, xs, xt', summary: '64-bit subtraction. Sets Zero, Sign, Carry (the borrow) and Overflow of 64 bits.' },
+	neg64: { operands: 'xd, xs', summary: '64-bit negation: `xd = -xs`.' },
+	cmp64: {
+		operands: 'xs, xt',
+		summary: 'Sets the flags of `xs - xt` without writing a result. Every comparison jump works after it as after `cmp`: `jls`, `jab`, `jbe`...'
+	},
+	mull: { operands: 'xd, rs, rt', summary: 'Widening unsigned multiplication: `xd = (u64)rs * (u64)rt`.' },
+	imull: { operands: 'xd, rs, rt', summary: 'Widening signed multiplication: `xd = (i64)rs * (i64)rt`.' },
+	mul64: { operands: 'xd, xs, xt', summary: 'The low 64 bits of `xs * xt`.' },
+	div64: {
+		operands: 'xd, xs, xt',
+		summary: 'Unsigned 64-bit division. A zero divisor does what `div` does - the Trap flag, or the `DivisionByZero` interrupt - and leaves the destination alone.'
+	},
+	idiv64: { operands: 'xd, xs, xt', summary: 'Signed 64-bit division. INT64_MIN / -1 gives INT64_MIN and sets Overflow.' },
+	mod64: { operands: 'xd, xs, xt', summary: 'Unsigned 64-bit remainder.' },
+	imod64: { operands: 'xd, xs, xt', summary: 'Signed 64-bit remainder. INT64_MIN % -1 gives 0.' },
+	shl64: {
+		operands: 'xd, xs, rt|0..63',
+		summary: '64-bit logical shift left, by `rt & 63` or an immediate 0-63. Carry is the last bit shifted out; a shift by 0 changes nothing, flags included.'
+	},
+	shr64: { operands: 'xd, xs, rt|0..63', summary: '64-bit logical (zero-filling) shift right, by `rt & 63` or an immediate 0-63.' },
+	sar64: { operands: 'xd, xs, rt|0..63', summary: '64-bit arithmetic (sign-extending) shift right, by `rt & 63` or an immediate 0-63.' },
+	sxt64: { operands: 'xd, rs', summary: 'Sign-extends a 32-bit register into a pair: `xd = (i64)(i32)rs`.' },
+	clz64: { operands: 'rd, xs', summary: 'Counts the leading zero bits of a pair into a 32-bit register. Zero has sixty-four of them.' },
+	ctz64: { operands: 'rd, xs', summary: 'Counts the trailing zero bits of a pair into a 32-bit register. Zero has sixty-four of them.' },
+	popcnt64: { operands: 'rd, xs', summary: 'Counts the set bits of a pair into a 32-bit register.' },
+	mov64: { operands: 'xd, xs', summary: 'Copies a pair. Sets no flags.' },
+	ldrd: {
+		operands: 'xd, [rs + imm16|rt]',
+		summary: 'Loads eight bytes into a pair, low word first, aligned to 4. A bracketed symbol loads a 64-bit variable (`ldrd x1, [total]`).'
+	},
+	strd: {
+		operands: '[rd + imm16|rt], xs',
+		summary: 'Stores a pair as eight bytes, low word first, aligned to 4. **The destination comes first**, as in `str`; `strd [total], x1` stores into a variable.'
+	},
+	li64: {
+		operands: 'xd, imm64',
+		pseudo: true,
+		summary: 'Pseudo-instruction: puts a 64-bit constant in a pair, from the literal pool - a PC-relative `ldrd`.'
+	},
+
+	// binary64 doubles on float-register pairs - 0xEF-0xFE, 0x7A-0x7E. A pair `dN` is
+	// f(2N):f(2N+1). Each sets the flags of the 32-bit instruction it mirrors, if any.
+	'fadd.d': { operands: 'dd, ds, dt', summary: 'Double addition. Flags as `fadd`.' },
+	'fsub.d': { operands: 'dd, ds, dt', summary: 'Double subtraction. Flags as `fsub`.' },
+	'fmul.d': { operands: 'dd, ds, dt', summary: 'Double multiplication. Flags as `fmul`.' },
+	'fdiv.d': {
+		operands: 'dd, ds, dt',
+		summary: 'Double division. A zero divisor does what `div` does unless `FeatureIeeeDivide` is on.'
+	},
+	'fma.d': { operands: 'dd, ds, dt', summary: 'Fused multiply-accumulate: `dd = dd + ds * dt`, with **one** rounding.' },
+	'fsqrt.d': { operands: 'dd, ds', summary: 'Double square root. Sets no flags.' },
+	'fcmp.d': { operands: 'ds, dt', summary: 'Compares two doubles and sets the flags `fcmp` sets.' },
+	'fmin.d': { operands: 'dd, ds, dt', summary: 'Double minimum.' },
+	'fmax.d': { operands: 'dd, ds, dt', summary: 'Double maximum.' },
+	'fmod.d': { operands: 'dd, ds, dt', summary: 'Double remainder, as `fmod`. A zero divisor does what `fdiv.d` does.' },
+	'fneg.d': { operands: 'dd, ds', summary: 'Double negation.' },
+	'fabs.d': { operands: 'dd, ds', summary: 'Double absolute value. Sets no flags.' },
+	'fround.d': { operands: 'dd, ds', summary: 'Rounds a double to the nearest integer, ties to even.' },
+	'ffloor.d': { operands: 'dd, ds', summary: 'Rounds a double toward negative infinity.' },
+	'fceil.d': { operands: 'dd, ds', summary: 'Rounds a double toward positive infinity.' },
+	'ftrunc.d': { operands: 'dd, ds', summary: 'Truncates a double toward zero.' },
+	'fcopysign.d': { operands: 'dd, ds, dt', summary: 'The magnitude of `ds` with the sign of `dt`.' },
+	'fclass.d': { operands: 'rd, ds', summary: 'Writes the one-hot mask `fclass` gives, for a double, into `rd`.' },
+	'fmov.d': { operands: 'dd, ds', summary: 'Copies a double pair.' },
+	'fldr.d': {
+		operands: 'dd, [rs + imm16|rt]',
+		summary: 'Loads eight bytes into a double pair, aligned to 4. A bracketed symbol loads a 64-bit variable (`fldr.d d1, [scale]`).'
+	},
+	'fstr.d': {
+		operands: '[rd + imm16|rt], ds',
+		summary: 'Stores a double pair as eight bytes, aligned to 4. The destination comes first, as in `str`.'
+	},
+	'mtf.d': { operands: 'dd, xs', summary: 'Moves the bits of an integer pair into a double pair, without converting.' },
+	'mff.d': { operands: 'xd, ds', summary: 'Moves the bits of a double pair into an integer pair, without converting.' },
+
+	// fcvt.<to>.<from>: `w` a signed 32-bit integer, `wu` unsigned, `l` a signed integer pair,
+	// `lu` unsigned, `s` a float, `d` a double pair. To a float or a double: rounded to nearest
+	// even. To an integer: truncated toward zero and saturated, with NaN as 0.
+	'fcvt.d.s': { operands: 'dd, fs', summary: 'Converts a float to a double.' },
+	'fcvt.s.d': { operands: 'fd, ds', summary: 'Converts a double to a float, rounded to nearest even.' },
+	'fcvt.d.w': { operands: 'dd, rs', summary: 'Converts a signed 32-bit integer to a double.' },
+	'fcvt.d.wu': { operands: 'dd, rs', summary: 'Converts an unsigned 32-bit integer to a double.' },
+	'fcvt.w.d': { operands: 'rd, ds', summary: 'Converts a double to a signed 32-bit integer, truncated toward zero and saturated at the ends of the range (NaN is 0).' },
+	'fcvt.wu.d': { operands: 'rd, ds', summary: 'Converts a double to an unsigned 32-bit integer, truncated toward zero and saturated at the ends of the range (NaN is 0).' },
+	'fcvt.d.l': { operands: 'dd, xs', summary: 'Converts a signed 64-bit integer pair to a double, rounded to nearest even.' },
+	'fcvt.d.lu': { operands: 'dd, xs', summary: 'Converts an unsigned 64-bit integer pair to a double, rounded to nearest even.' },
+	'fcvt.l.d': { operands: 'xd, ds', summary: 'Converts a double to a signed 64-bit integer pair, truncated toward zero and saturated at the ends of the range (NaN is 0).' },
+	'fcvt.lu.d': { operands: 'xd, ds', summary: 'Converts a double to an unsigned 64-bit integer pair, truncated toward zero and saturated at the ends of the range (NaN is 0).' },
+	'fcvt.s.l': { operands: 'fd, xs', summary: 'Converts a signed 64-bit integer pair to a float, rounded to nearest even.' },
+	'fcvt.s.lu': { operands: 'fd, xs', summary: 'Converts an unsigned 64-bit integer pair to a float, rounded to nearest even.' },
+	'fcvt.l.s': { operands: 'xd, fs', summary: 'Converts a float to a signed 64-bit integer pair, truncated toward zero and saturated at the ends of the range (NaN is 0).' },
+	'fcvt.lu.s': { operands: 'xd, fs', summary: 'Converts a float to an unsigned 64-bit integer pair, truncated toward zero and saturated at the ends of the range (NaN is 0).' },
+
 	// I/O used to live here (0x90-0xA3, later 0xA0-0xB3): a dedicated `in`/`out` family addressing
 	// 256 single-byte ports. It is retired. Devices are reached through ordinary loads and stores
 	// now, at an address in the top 16 MiB of the address space - see the MMIO map in
@@ -266,10 +363,13 @@ export const TYPES: Record<string, string> = {
 	u8: 'Unsigned 8-bit integer.',
 	u16: 'Unsigned 16-bit integer.',
 	u32: 'Unsigned 32-bit integer.',
+	u64: 'Unsigned 64-bit integer: eight bytes, low word first, aligned to 4. What an integer pair (`x0`-`x6`) loads and stores.',
 	i8: 'Signed 8-bit integer.',
 	i16: 'Signed 16-bit integer.',
 	i32: 'Signed 32-bit integer.',
+	i64: 'Signed 64-bit integer: eight bytes, low word first, aligned to 4. What an integer pair (`x0`-`x6`) loads and stores.',
 	f32: 'IEEE-754 32-bit float.',
+	f64: 'IEEE-754 binary64 double: eight bytes, low word first, aligned to 4. What a double pair (`d0`-`d7`) loads and stores.',
 	char: 'Alias for `u8`.',
 	bool: 'Alias for `u8`.',
 	string: 'Alias for an unsized `u8[]`.',
@@ -342,7 +442,7 @@ export const SECTIONS: Record<string, string> = {
 // of `at`, kept so that sources written against the old name still parse.
 const NAMED_REGISTERS: Record<string, number> = { sp: 15, fp: 14, at: 13, lr: 13 };
 
-// r0-r15 use the low nibble as index; anything outside 0-15 is not a valid register operand.
+// x0-x6 and d0-d7 name register pairs. r0-r15 use the low nibble as index; anything outside 0-15 is not a valid register operand.
 export function describeRegister(name: string): string | null {
 	const named = NAMED_REGISTERS[name.toLowerCase()];
 	if (named !== undefined) {
@@ -352,6 +452,11 @@ export function describeRegister(name: string): string | null {
 
 \`lr\` is the deprecated spelling of \`at\`; nothing in the machine links through r13.`
 			: description;
+	}
+
+	const pair = /^([xXdD])(\d)$/.exec(name);
+	if (pair) {
+		return describePair(pair[1].toLowerCase() === 'd', Number(pair[2]));
 	}
 
 	const match = /^([rRfF])(\d{1,2})$/.exec(name);
@@ -367,6 +472,17 @@ export function describeRegister(name: string): string | null {
 		return `32-bit IEEE-754 float register (bank ${index}/15).`;
 	}
 	return describeIntegerRegister(index);
+}
+
+// x0-x6 and d0-d7, the low word in the even register. x7 would be r14:r15 - fp and sp - and the
+// assembler refuses it, so it is no register here either.
+function describePair(isDouble: boolean, index: number): string | null {
+	if (index > (isDouble ? 7 : 6)) {
+		return null;
+	}
+	const bank = isDouble ? 'f' : 'r';
+	const holds = isDouble ? 'an IEEE-754 binary64 double' : 'a 64-bit integer';
+	return `Register pair holding ${holds}: \`${bank}${2 * index}\` (low word) and \`${bank}${2 * index + 1}\` (high word).`;
 }
 
 function describeIntegerRegister(index: number): string {

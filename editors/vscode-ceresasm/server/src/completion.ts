@@ -20,6 +20,10 @@ export function provideCompletion(document: TextDocument, position: Position, in
 	if (member) {
 		return member;
 	}
+	const dotted = dottedMnemonicCompletions(document, position, indexer);
+	if (dotted) {
+		return dotted;
+	}
 
 	for (const [name, doc] of Object.entries(MNEMONICS)) {
 		items.push({
@@ -53,6 +57,14 @@ export function provideCompletion(document: TextDocument, position: Position, in
 	for (let i = 0; i <= 15; i++) {
 		items.push({ label: `r${i}`, kind: CompletionItemKind.Variable, detail: 'integer register' });
 		items.push({ label: `f${i}`, kind: CompletionItemKind.Variable, detail: 'float register' });
+	}
+
+	// The pairs: x7 would be fp:sp, which the assembler refuses.
+	for (let i = 0; i <= 7; i++) {
+		if (i < 7) {
+			items.push({ label: `x${i}`, kind: CompletionItemKind.Variable, detail: `integer pair (r${2 * i}:r${2 * i + 1})` });
+		}
+		items.push({ label: `d${i}`, kind: CompletionItemKind.Variable, detail: `double pair (f${2 * i}:f${2 * i + 1})` });
 	}
 
 	// The three registers that answer to a role as well as to a number.
@@ -125,6 +137,33 @@ export function provideCompletion(document: TextDocument, position: Position, in
 	}
 
 	return items;
+}
+
+// `fcvt.` or `fadd.` at the head of a statement: the editor's word stops at the dot, so an item
+// labelled `fadd.d` would be inserted after it (`fadd.fadd.d`). Each item replaces the whole
+// dotted prefix instead. Asked after memberCompletions, so a struct or module keeps its own name.
+function dottedMnemonicCompletions(document: TextDocument, position: Position, indexer: SymbolIndexer): CompletionItem[] | null {
+	const lineText = getCleanedLines(indexer, document.uri)[position.line] ?? '';
+	const match = /^(\s*)([A-Za-z]+(?:\.[A-Za-z]*)+)$/.exec(lineText.slice(0, position.character));
+	if (!match) {
+		return null;
+	}
+
+	const typed = match[2].toLowerCase();
+	const range = { start: { line: position.line, character: match[1].length }, end: position };
+	const items: CompletionItem[] = [];
+	for (const [name, doc] of Object.entries(MNEMONICS)) {
+		if (name.includes('.') && name.startsWith(typed)) {
+			items.push({
+				label: name,
+				kind: CompletionItemKind.Keyword,
+				detail: doc.operands ? `${name} ${doc.operands}` : name,
+				documentation: doc.summary,
+				textEdit: { range, newText: name }
+			});
+		}
+	}
+	return items.length > 0 ? items : null;
 }
 
 // `Frame.` and `math.` - the two things a dot after a name can mean here.

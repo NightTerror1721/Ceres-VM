@@ -3,8 +3,9 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { getCleanedLines, MacroSymbol, SymbolIndexer } from './symbolIndex';
 
 // A macro call looks exactly like an instruction - an identifier, then comma-separated operands -
-// so the leading name is found the same way everywhere else in this codebase finds it.
-const STATEMENT_HEAD_RE = /^(\s*)([A-Za-z_][A-Za-z0-9_]*)\b/;
+// so the leading name is found the same way everywhere else in this codebase finds it. A name
+// followed by a dot is the start of a dotted mnemonic (`fadd.d`), never a macro call.
+const STATEMENT_HEAD_RE = /^(\s*)([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_.])/;
 
 function countTopLevelCommas(text: string): number {
 	let depth = 0;
