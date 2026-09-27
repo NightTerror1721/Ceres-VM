@@ -11,9 +11,9 @@
 //     ESC (or close)        quit — the window host handles this
 //
 // The machine draws the whole frame into a pixel buffer in RAM, blits it to the
-// DisplayDevice (slot 7) and presents it, once per loop. The ball bounces off
+// DisplayDevice (slot 0x45) and presents it, once per loop. The ball bounces off
 // the top and side walls and off the paddle; let it slip past the paddle and it
-// resets to the centre. The keyboard (slot 5) reports physical SDL scancodes,
+// resets to the centre. The keyboard (slot 0x10) reports physical SDL scancodes,
 // not ASCII — see the I/O devices page for the full table.
 //
 // The game's speed is instruction-based, not wall-clock: raise FRAME_DELAY to
@@ -24,8 +24,8 @@
 //   2. Change PADDLE_W for a wider or narrower paddle.
 //   3. Add a score: count bounces and draw them as a bar of pixels at the top.
 
-// The pixel display (slot 7) and the keyboard (slot 5).
-const DISP            = 0xFF070000
+// The pixel display (slot 0x45) and the keyboard (slot 0x10).
+const DISP            = 0xFF450000
 const DISP_CMD        = 0x00
 const DISP_WIDTH      = 0x04
 const DISP_HEIGHT     = 0x08
@@ -35,8 +35,8 @@ const DISP_BLOCK_CMD  = 0xF8
 const BLOCK_WRITE     = 2
 const CMD_PRESENT     = 2
 
-const KEY_STATUS      = 0xFF050000
-const KEY_EVENT       = 0xFF050004
+const KEY_STATUS      = 0xFF100000
+const KEY_EVENT       = 0xFF100004
 
 // Grid size and geometry. The window scales these pixels up, so the picture is
 // deliberately chunky.

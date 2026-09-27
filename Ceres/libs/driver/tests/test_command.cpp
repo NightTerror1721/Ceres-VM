@@ -562,7 +562,7 @@ TEST(driver_machine, host_receives_presented_frames)
 		std::ofstream file{source};
 		file << "@text\n"
 			"global main:\n"
-			"    la r13, 0xFF030000\n"
+			"    la r13, 0xFF440000\n"
 			"    li r0, 2\n"
 			"    str [r13 + 4], r0\n"
 			"    li r0, 1\n"

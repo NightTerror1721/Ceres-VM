@@ -742,7 +742,7 @@ TEST(objects, an_interrupt_binding_reaches_a_handler_defined_in_another_object)
 		"    iret\r\n");
 	ws.write("main.casm",
 		"import \"lib.casm\"\r\n"
-		"interrupt UserInterrupt1: term_isr\r\n"
+		"interrupt UserInterrupt3: term_isr\r\n"
 		"\r\n"
 		"@text\r\n"
 		"global main:\r\n"
@@ -759,7 +759,7 @@ TEST(objects, an_interrupt_binding_reaches_a_handler_defined_in_another_object)
 	CHECK_EQ(program->interruptBindings.size(), usize{ 1 });
 	if (!program->interruptBindings.empty())
 	{
-		CHECK_EQ(program->interruptBindings.front().interruptNumber, u8{ 17 });
+		CHECK_EQ(program->interruptBindings.front().interruptNumber, u8{ 19 });
 		CHECK(program->interruptBindings.front().isExternal());
 		CHECK_EQ(program->interruptBindings.front().symbol, std::string{ "term_isr" });
 	}
@@ -845,7 +845,7 @@ TEST(objects, an_interrupt_bound_to_a_handler_the_link_never_receives_is_a_link_
 		"    iret\r\n");
 	ws.write("main.casm",
 		"import \"lib.casm\"\r\n"
-		"interrupt UserInterrupt1: term_isr\r\n"
+		"interrupt UserInterrupt3: term_isr\r\n"
 		"\r\n"
 		"@text\r\n"
 		"global main:\r\n"

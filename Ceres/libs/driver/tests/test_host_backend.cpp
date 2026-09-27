@@ -88,7 +88,7 @@ namespace
 	// enough for the host to have had its turn (it looks between slices of 4096 instructions).
 	std::string presentProgram(std::string_view letters)
 	{
-		std::string text = "@text\nglobal main:\n    la   r13, 0xFF030000\n";
+		std::string text = "@text\nglobal main:\n    la   r13, 0xFF440000\n";
 		int label = 0;
 		for (char letter : letters)
 		{
@@ -258,7 +258,7 @@ TEST(driver_window, a_program_that_asked_for_raw_keys_reads_them_and_the_termina
 		"@text\n"
 		"global main:\n"
 		"    la   r13, 0xFF000000\n"
-		"    la   r12, 0xFF050000\n"
+		"    la   r12, 0xFF100000\n"
 		"    li   r0, 1\n"
 		"    str  [r13 + 0x18], r0\n"
 		"    ldr  r5, [r13 + 0x18]\n"       // what the host granted: raw (1) and keystrokes (2)
@@ -441,7 +441,7 @@ TEST(driver_window, a_program_halted_for_a_key_gets_it_from_the_next_pump)
 	// pump(), between slices of steps, and a halted step used to sleep a millisecond: a slice of 4096
 	// of them held the next pump back for four seconds. A halted machine now ends its slice.
 	const char* program =
-		"interrupt 19: on_key\n"
+		"interrupt 20: on_key\n"
 		"@text\n"
 		"global main:\n"
 		"    sti\n"

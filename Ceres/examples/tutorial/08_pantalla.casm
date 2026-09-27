@@ -16,7 +16,7 @@
 //   2. Move the ball to another cell by changing BALL_ROW / BALL_COL.
 //   3. Draw two frames in a row with the ball in different spots.
 
-const GPU          = 0xFF030000   // Framebuffer's MMIO base
+const GPU          = 0xFF440000   // Framebuffer's MMIO base
 const GPU_CMD       = 0x00        // offsets within it
 const GPU_WIDTH      = 0x04
 const GPU_HEIGHT      = 0x08

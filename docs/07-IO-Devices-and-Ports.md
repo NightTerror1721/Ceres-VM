@@ -22,23 +22,30 @@ collide.
                                                                         0xFF000000
 ```
 
-| Base | Slot | Device |
-| --- | --- | --- |
-| `0xFF000000` | 0 | Terminal |
-| `0xFF010000` | 1 | Timer |
-| `0xFF020000` | 2 | Disk |
-| `0xFF030000` | 3 | Framebuffer |
-| `0xFF040000` | 4 | DMA controller |
-| `0xFF050000` | 5 | Keyboard |
-| `0xFF060000` | 6 | Mouse |
-| `0xFF070000` | 7 | Display (pixel framebuffer) |
-| `0xFF080000` | 8 | Gamepad |
-| `0xFF090000` | 9 | Audio (tone generator) |
-| `0xFF0A0000` | 10 | Peripheral ports (plug-in media) |
-| `0xFF0B0000` | 11 | Host files (semihosting) |
-| `0xFF0C0000` | 12 | Blitter (2D rectangle operations) |
-| `0xFF0D0000`–`0xFFFE0000` | 13–254 | Reserved for future default devices |
-| `0xFFFF0000` | 255 | System control |
+The slots go by group (plan/v2 SPEC 5.5): `0x00` system, `0x10` input, `0x20` audio, `0x30` storage, `0x40`
+video, `0xFF` control. Each device has its own interrupt, numbered by group the same way (see
+[Interrupts and exceptions](08-Interrupts-and-Exceptions.md)).
+
+| Base | Slot | Device | Interrupt |
+| --- | --- | --- | --- |
+| `0xFF000000` | `0x00` | Terminal | 19 (input) |
+| `0xFF010000` | `0x01` | Timer | 16 (countdown), 17 (alarm) |
+| `0xFF020000` | `0x02` | DMA controller | 18 |
+| `0xFF030000` | `0x03` | Debug log (plan/v2 F4.4) | — |
+| `0xFF100000` | `0x10` | Keyboard | 20 |
+| `0xFF110000` | `0x11` | Mouse | 21 |
+| `0xFF120000` | `0x12` | Gamepad | 22 |
+| `0xFF200000` | `0x20` | Audio (tone generator) | 28 |
+| `0xFF300000` | `0x30` | Disk | (24, not raised yet) |
+| `0xFF310000` | `0x31` | Host files (semihosting) | (25, not raised yet) |
+| `0xFF320000` | `0x32` | Peripheral ports (plug-in media) | 26 |
+| `0xFF400000`–`0xFF430000` | `0x40`–`0x43` | The GPU (plan/v2 F5) | 32–35 |
+| `0xFF440000` | `0x44` | Framebuffer (text grid), until the GPU replaces it in F5 | — |
+| `0xFF450000` | `0x45` | Display (pixel framebuffer), until F5 | — |
+| `0xFF460000` | `0x46` | Blitter (2D rectangle operations), until F10 | 34 |
+| `0xFFFF0000` | `0xFF` | System control | — |
+
+Every other slot is reserved.
 
 Every slot is `MmioBus::SlotSize` (0x10000 = 64 KiB) wide, computed as `MmioBus::slot(index)` —
 `default_mmio::Terminal`, `default_mmio::Timer`, and so on, in
@@ -199,9 +206,9 @@ masked, it stays pending until it is. Either way it ends a `halt`.
 
 **The alarm** is the countdown's counterpart on the nanosecond clock: an absolute instant rather than a
 count of cycles. Write the low word, then the high word, which arms it; it is scheduled on the first
-cycle at or after the instant, and there it raises `UserInterrupt8` (interrupt number **24**, its own, so
+cycle at or after the instant, and there it raises `UserInterrupt1` (interrupt number **17**, its own, so
 a handler never has to ask which of the two fired) once and disarms. An instant already past fires at
-once. (The new device map of F4.3 moves it to 17.)
+once.
 
 **While halted** the machine executes nothing, and its clock jumps straight to the next event - the
 countdown, the alarm, a DMA transfer - so a timer armed for N cycles fires N cycles later whether the
@@ -225,7 +232,7 @@ A sleep until instant `t` (a `u64` of nanoseconds, in `r2:r1`):
 la   r13, 0xFF010020   // AlarmLow
 str  [r13 + 0], r1     // low word first
 str  [r13 + 4], r2     // the high word arms it
-halt                    // the alarm's request (IRQ 24) ends it
+halt                    // the alarm's request (IRQ 17) ends it
 ```
 
 ### `TerminalDevice` (`0xFF000000`)
@@ -267,7 +274,7 @@ uses it. That suits `scanf`; it does not suit a menu. A program that wants each 
 `ModeRaw` to `ModeRegister` and reads back what it was given:
 
 - `ModeRaw | ModeKeystrokes` (`3`): the host took the console out of line mode, or has a window with a keyboard.
-  The keys arrive on the [keyboard's](#keyboarddevice-0xff050000) `KeyRegister`, in the order they were typed,
+  The keys arrive on the [keyboard's](#keyboarddevice-0xff100000) `KeyRegister`, in the order they were typed,
   with no echo (the program draws what it wants shown). Writing `0` puts the console back.
 - `0`: nothing changed. The input is a pipe or a file, so the program keeps reading the terminal's bytes -
   a menu can still be driven from a file that spells an arrow key the way a terminal sends it (`ESC [ A`).
@@ -295,7 +302,7 @@ arrives whole however busy the program is. (The ring keeps one slot free, so it 
 bytes.) Only a host that calls `pushInput()` itself — a debugger, an embedding — can overflow it, and
 for that source dropping is still the behaviour: `DroppedInputRegister` counts what was lost.
 
-Each `pushInput()` call that actually adds a byte to the ring buffer also raises `UserInterrupt1` —
+Each `pushInput()` call that actually adds a byte to the ring buffer also raises `UserInterrupt3` (19) —
 so a program need not poll `StatusRegister` in a busy loop to notice input; it can `sti`/`halt` instead
 and be woken the instant a byte arrives, the same wake-up pattern the timer uses above. See
 [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) and
@@ -306,7 +313,7 @@ The block registers work here too: writing a RAM address to `BLOCK_ADDR`, a leng
 and `2` to `BLOCK_CMD` prints that many bytes in three word-stores instead of a byte-by-byte loop —
 this is exactly what [`examples/main.casm`](../Ceres/examples/main.casm)'s `print` routine does.
 
-### `DiskDevice` (`0xFF020000`)
+### `DiskDevice` (`0xFF300000`)
 
 Block storage in sectors of 512 bytes, in
 [`storage/disk.h`](../Ceres/libs/devices/include/ceres/devices/storage/disk.h). One sector moves at a time: the
@@ -322,14 +329,14 @@ sector register selects which, and the block registers move it.
 
 ```casm
 li   r1, 3
-la   r13, 0xFF020008   // Disk's SectorRegister
+la   r13, 0xFF300008   // Disk's SectorRegister
 str  [r13 + 0], r1      // which sector
-la   r13, 0xFF0200F0    // Disk's BLOCK_ADDR
+la   r13, 0xFF3000F0    // Disk's BLOCK_ADDR
 str  [r13 + 0], r_buf
-la   r13, 0xFF0200F4     // BLOCK_LEN
+la   r13, 0xFF3000F4     // BLOCK_LEN
 li   r2, 512
 str  [r13 + 0], r2
-la   r13, 0xFF0200F8      // BLOCK_CMD
+la   r13, 0xFF3000F8      // BLOCK_CMD
 li   r3, 1                 // read sector -> buffer
 str  [r13 + 0], r3
 ```
@@ -343,7 +350,7 @@ puts a host file behind it, creating it if it is not there. Writing `1` to `Comm
 out, and so does the device going away when the run ends, so a program that forgets to flush still
 keeps its data.
 
-### `FramebufferDevice` (`0xFF030000`)
+### `FramebufferDevice` (`0xFF440000`)
 
 A grid of characters that a program draws into and then shows. Not pixels: a grid redrawn whole is what a
 text game or interface on this VM actually wants — the terminal's own output is a stream that only ever
@@ -383,15 +390,15 @@ frame looked at waits for a key first.
 
 ```casm
 li   r1, 20
-la   r13, 0xFF030004   // GPU_WIDTH
+la   r13, 0xFF440004   // GPU_WIDTH
 str  [r13 + 0], r1
 li   r1, 10
-la   r13, 0xFF030008    // GPU_HEIGHT
+la   r13, 0xFF440008    // GPU_HEIGHT
 str  [r13 + 0], r1
 li   r1, 1
-la   r13, 0xFF030000     // GPU_CMD
+la   r13, 0xFF440000     // GPU_CMD
 str  [r13 + 0], r1        // clear
-// ... write BLOCK_ADDR/BLOCK_LEN, then 2 to BLOCK_CMD (0xFF0300F8) to blit the whole grid ...
+// ... write BLOCK_ADDR/BLOCK_LEN, then 2 to BLOCK_CMD (0xFF4400F8) to blit the whole grid ...
 li   r1, 2
 str  [r13 + 0], r1         // show it
 ```
@@ -414,7 +421,7 @@ grid resets the attributes too. A presented frame goes to
 stdout by default, and a host that would rather route it elsewhere — an editor, a test —
 installs a sink with `setPresentSink`.
 
-### `DmaController` (`0xFF040000`)
+### `DmaController` (`0xFF020000`)
 
 A real DMA engine — the successor to the pseudo-DMA `inm`/`outm` used to be. It moves memory to
 memory directly, without a program copying it word by word.
@@ -430,18 +437,18 @@ memory directly, without a program copying it word by word.
 
 The copy does not happen on the instruction that arms it: a transfer takes one cycle for every 8 bytes
 (at least one), and lands on its own event on the machine's scheduler, as the timer's countdown does, so
-a program waiting on the completion interrupt (`UserInterrupt2`) always sees a real handoff rather than
+a program waiting on the completion interrupt (`UserInterrupt2`, 18) always sees a real handoff rather than
 an already-finished copy. A program that would rather poll reads `StatusRegister` instead.
 
 ```casm
-la   r13, 0xFF040000   // DMA's SourceRegister
+la   r13, 0xFF020000   // DMA's SourceRegister
 str  [r13 + 0], r_src
-la   r13, 0xFF040004    // DestinationRegister
+la   r13, 0xFF020004    // DestinationRegister
 str  [r13 + 0], r_dst
-la   r13, 0xFF040008     // LengthRegister
+la   r13, 0xFF020008     // LengthRegister
 li   r1, 256
 str  [r13 + 0], r1
-la   r13, 0xFF04000C      // CommandRegister
+la   r13, 0xFF02000C      // CommandRegister
 li   r1, 1
 str  [r13 + 0], r1          // arm it - the copy lands on the next tick
 ```
@@ -450,7 +457,7 @@ Because both endpoints are physical addresses in the same space, a device that l
 backing buffer as an MMIO aperture (rather than through block registers) can be a DMA source or
 destination too — RAM↔RAM, RAM↔device, or device↔device all become the same operation.
 
-### `KeyboardDevice` (`0xFF050000`)
+### `KeyboardDevice` (`0xFF100000`)
 
 A keyboard, distinct from the terminal: the terminal delivers a stream of characters with no notion
 of which key produced them, while the keyboard reports *events* — a code plus a pressed/released
@@ -481,11 +488,11 @@ like the others and raises the same interrupt. This is what a menu or a text fie
 Events queue up in a 64-entry ring, exactly like the terminal's input. The host feeds the device one
 event at a time with `pushKey(code, pressed)` — the code is whatever the host maps a physical key to
 (a scan code, or the ASCII value of a character), kept in the low 31 bits so an SDL scancode fits —
-and each push that actually lands an event raises `UserInterrupt3` (interrupt 19). A full queue drops
+and each push that actually lands an event raises `UserInterrupt4` (interrupt 20). A full queue drops
 events; the host can read the count with `droppedEvents()`.
 
 ```casm
-la   r13, 0xFF050000   // Keyboard's base
+la   r13, 0xFF100000   // Keyboard's base
 .loop:
     ldr  r1, [r13 + 0]  // StatusRegister - bit 0 set when a key event is waiting
     and  r1, r1, 1
@@ -493,7 +500,7 @@ la   r13, 0xFF050000   // Keyboard's base
     ldr  r1, [r13 + 4]  // EventRegister - bits 30:0 are the code, bit 31 is pressed/released
 ```
 
-### `MouseDevice` (`0xFF060000`)
+### `MouseDevice` (`0xFF110000`)
 
 A mouse reporting movement two ways at once: a delta since the program last read it (what a game
 wants frame to frame) and an absolute position accumulated from every motion (what an editor wants).
@@ -509,10 +516,10 @@ wants frame to frame) and an absolute position accumulated from every motion (wh
 | `0x18` | `WheelRegister` | Read | Signed wheel movement since the last read (consumed on read). |
 
 The host reports movement with `pushMotion(dx, dy, buttons, wheel)`; deltas and the wheel accumulate
-until read, and each push that changes state raises `UserInterrupt4` (interrupt 20). Absolute
+until read, and each push that changes state raises `UserInterrupt5` (interrupt 21). Absolute
 position and buttons are plain state and never reset.
 
-### `DisplayDevice` (`0xFF070000`)
+### `DisplayDevice` (`0xFF450000`)
 
 A pixel framebuffer, the display half of the "consola retro" the roadmap wants: a grid of RGB32
 pixels (`0x00RRGGBB`, top byte ignored) that a program draws into and then presents. It is a
@@ -540,22 +547,22 @@ texture instead (see the [SDL3 plan](29-SDL3-Integration-Plan.md)).
 
 ```casm
 li   r1, 320
-la   r13, 0xFF070004   // DISP_WIDTH
+la   r13, 0xFF450004   // DISP_WIDTH
 str  [r13 + 0], r1
 li   r1, 200
-la   r13, 0xFF070008   // DISP_HEIGHT
+la   r13, 0xFF450008   // DISP_HEIGHT
 str  [r13 + 0], r1
-// ... write BLOCK_ADDR/BLOCK_LEN, then 2 to BLOCK_CMD (0xFF0700F8) to blit the pixels ...
+// ... write BLOCK_ADDR/BLOCK_LEN, then 2 to BLOCK_CMD (0xFF4500F8) to blit the pixels ...
 li   r1, 2
-la   r13, 0xFF070000   // DISP_CMD
+la   r13, 0xFF450000   // DISP_CMD
 str  [r13 + 0], r1     // present
 ```
 
-### `GamepadDevice` (`0xFF080000`)
+### `GamepadDevice` (`0xFF120000`)
 
 A gamepad, **polled rather than event-driven**: a game loop reads the button mask and the axes every
 frame instead of draining a queue. The host reports the whole current state with
-`pushState(...)`, and a state that actually changed raises `UserInterrupt5` (interrupt 21) — so a
+`pushState(...)`, and a state that actually changed raises `UserInterrupt6` (interrupt 22) — so a
 program can either poll the registers or `sti`/`halt` and wake on input.
 
 | Offset | Register | Direction | Meaning |
@@ -567,14 +574,14 @@ program can either poll the registers or `sti`/`halt` and wake on input.
 | `0x18`/`0x1C` | `LeftTriggerRegister` / `RightTriggerRegister` | Read | Triggers (0…32767). |
 
 ```casm
-la   r13, 0xFF080000   // Gamepad's base
+la   r13, 0xFF120000   // Gamepad's base
 .loop:
     ldr  r1, [r13 + 4]  // ButtonsRegister - bit 0 is the south/A button
     and  r1, r1, 1
     jz   .loop          // wait until A is held
 ```
 
-### `AudioDevice` (`0xFF090000`)
+### `AudioDevice` (`0xFF200000`)
 
 A tone generator: one voice, a note at a time. Not a sample player — a beeper with a choice of timbre,
 the audio half of the retro console. The device holds what the program asked for; a host with speakers
@@ -591,12 +598,12 @@ host to play it the machine is silent and never busy.
 | `0x14` | `CommandRegister` | Write | `1` plays a tone with the registers above (replacing one already playing), `2` stops. |
 
 When a tone runs its whole duration the host reports it (`toneFinished()`): the busy bit clears and
-`UserInterrupt6` (22) is raised, so a program can wait with `sti`/`halt`. A tone that is stopped or
+`UserInterrupt12` (28) is raised, so a program can wait with `sti`/`halt`. A tone that is stopped or
 replaced raises nothing. An unattached slot reads all-ones, which is how a program tells this machine has
 no audio at all.
 
 ```casm
-la   r13, 0xFF090000
+la   r13, 0xFF200000
 li   r1, 440
 str  [r13 + 4], r1     // frequency
 li   r1, 200
@@ -621,13 +628,13 @@ its status bit never keeps a program waiting. A reset silences them.
 | `0x28` | `ChannelCountRegister` | Read | `4`. |
 | `0x40 + n × 0x20` | per channel | Read/write | `+0x00` frequency (Hz, 20–20000), `+0x04` volume (0–255), `+0x08` waveform, `+0x0C` duty of a square (1–255 of 256; 128 is half), `+0x10` attack, `+0x14` decay and `+0x1C` release in milliseconds, `+0x18` the sustain level (0–255). |
 
-### `PeripheralDevice` (`0xFF0A0000`)
+### `PeripheralDevice` (`0xFF320000`)
 
 Things plugged in while the machine runs: four ports where the host connects and disconnects media - a memory
 stick, a game cartridge - and the program is told when it happens. The disk in slot 2 stays the machine's own
 internal drive, fixed for the run; this is the other thing, what a person plugs in. A port is empty, holds a
 **storage** medium (512-byte sectors that can be read and written, like the disk) or a **cartridge** (sectors that can
-only be read). Raises `UserInterrupt7` (23) for every connection or disconnection.
+only be read). Raises `UserInterrupt10` (26) for every connection or disconnection.
 
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |
@@ -658,7 +665,7 @@ or the machine ends.
 
 The debugger's time travel does not record connections: stepping back over one leaves the medium as it is.
 
-### `HostFsDevice` (`0xFF0B0000`)
+### `HostFsDevice` (`0xFF310000`)
 
 Files of the host, reached by name: semihosting. `ceres run prog.cres --host-dir <dir>` gives the machine one
 directory of the host, and the program opens, reads, writes, lists and removes files under it - levels, saves,
@@ -699,7 +706,7 @@ on success, minus an errno number on failure, in the C library's numbering (`ENO
 The C library's `fopen("host:levels/1.txt", "r")` goes through it, and `ceres/hostfs.h` wraps it one
 operation per function.
 
-### `BlitterDevice` (`0xFF0C0000`)
+### `BlitterDevice` (`0xFF460000`)
 
 Rectangle operations on RGB32 surfaces in RAM, done by the host rather than by the program's instructions —
 what a game's frame spends most of its time on. A surface is an address (its first pixel) and a stride (bytes
@@ -714,7 +721,7 @@ from one row to the next); an operation is a width, a height and a command, carr
 | `0x1C` | `ColorRegister` | Write | The fill colour, or the key a keyed copy leaves out (an index, for an indexed one). |
 | `0x20` | `ScaleRegister` | Write | 1–8: each source pixel becomes a block this size in `CopyScaled`. |
 | `0x24` | `PaletteAddressRegister` | Write | 256 RGB32 entries in RAM, for the indexed copies. |
-| `0x28` | `ControlRegister` | Read/write | Bit 0: raise interrupt 25 when an operation is done. |
+| `0x28` | `ControlRegister` | Read/write | Bit 0: raise interrupt 34 when an operation is done. |
 | `0x2C` | `StatusRegister` | Read | Bit 0: the last operation ran a row outside RAM and stopped there. |
 | `0x30` | `PixelsRegister` | Read | How many destination pixels the last operation wrote. |
 

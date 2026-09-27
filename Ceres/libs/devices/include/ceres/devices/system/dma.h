@@ -27,7 +27,7 @@ namespace ceres::devices
 		static inline constexpr u32 StatusBusy = 1u << 0;
 		static inline constexpr u32 StatusDone = 1u << 1;
 
-		// Third user interrupt: UserInterrupt0 is the timer's, UserInterrupt1 the terminal's.
+		// 18 (plan/v2 SPEC 5.6): the timer's countdown and alarm have 16 and 17.
 		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt2;
 
 	private:

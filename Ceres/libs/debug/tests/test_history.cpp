@@ -635,7 +635,7 @@ constexpr std::string_view DmaInFlight =
 	"    add r3, r3, 1\r\n"
 	"    cmp r3, 1000\r\n"
 	"    jnz .before\r\n"
-	"    la r10, 0xFF040000\r\n"
+	"    la r10, 0xFF020000\r\n"
 	"    la r1, 0x100000\r\n"
 	"    str [r10 + 0], r1\r\n"
 	"    la r1, 0x200000\r\n"

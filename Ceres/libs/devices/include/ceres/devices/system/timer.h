@@ -35,9 +35,9 @@ namespace ceres::devices
 		// STI to be delivered and cannot surprise a program that never asked for it.
 		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt0;
 
-		// Which interrupt the alarm requests when its instant comes: its own, so a handler never has to ask
-		// which of the two fired. (SPEC 5.7 gives it 17, which the terminal holds until the new map of F4.3.)
-		static inline constexpr InterruptNumber AlarmInterrupt = InterruptNumber::UserInterrupt8;
+		// Which interrupt the alarm requests when its instant comes: its own, 17, so a handler never has to ask
+		// which of the two fired (plan/v2 SPEC 5.6).
+		static inline constexpr InterruptNumber AlarmInterrupt = InterruptNumber::UserInterrupt1;
 
 		// The scheduler tags of the timer's two events.
 		static inline constexpr u32 CountdownEvent = 0;

@@ -61,9 +61,8 @@ namespace ceres::devices
 		static inline constexpr u32 EventPressed = 1u << 31;      // Set when the key was pressed, clear when released.
 		static inline constexpr u32 EventCodeMask = 0x7FFFFFFFu;  // The key code lives in the low 31 bits.
 
-		// Fourth user interrupt: UserInterrupt0 is the timer's, UserInterrupt1 the terminal's,
-		// UserInterrupt2 the DMA controller's.
-		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt3;
+		// 20, the first of the input group's (plan/v2 SPEC 5.6).
+		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt4;
 
 		static inline constexpr usize EventBufferCapacity = 64;
 

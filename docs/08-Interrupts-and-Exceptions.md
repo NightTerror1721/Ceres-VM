@@ -32,14 +32,25 @@ enum class InterruptNumber : u8
 
 - **0–15 are reserved** (`ReservedInterruptCount = 16`) for system exceptions. These are **always
   deliverable**, regardless of the Interrupt flag (`sti`/`cli` only mask *user* interrupts).
-- **16–63 are user interrupts** (48 of them), only delivered while the Interrupt flag is set. Four
-  devices raise one today: the timer, always `UserInterrupt0` (16); the terminal, `UserInterrupt1`
-  (17) whenever `pushInput()` adds a byte to its buffer; the DMA controller, `UserInterrupt2` (18)
-  when a transfer completes; the keyboard and mouse, `UserInterrupt3` (19) and `UserInterrupt4`
-  (20), when an event, a typed character or a motion arrives; the gamepad, `UserInterrupt5` (21); and
-  the audio device, `UserInterrupt6` (22), when a tone has finished. The terminal also raises its
-  interrupt when its input is closed — see
-  [I/O devices and ports](07-IO-Devices-and-Ports.md#timerdevice-ports-0x10-0x12).
+- **16–63 are user interrupts** (48 of them), only delivered while the Interrupt flag is set. The
+  devices take theirs by group (plan/v2 SPEC 5.6):
+
+  | Number | Raised by | Number | Raised by |
+  | --- | --- | --- | --- |
+  | 16 | the timer's countdown | 28 | the audio device, when a tone has finished |
+  | 17 | the timer's alarm | 29–31 | reserved for audio |
+  | 18 | the DMA controller, when a transfer completes | 32 | the GPU's VBlank (F5) |
+  | 19 | the terminal, when `pushInput()` adds a byte or its input is closed | 33 | the GPU's line compare (F5) |
+  | 20 | the keyboard, for each event | 34 | the GPU's fence or copy engine; the blitter until then |
+  | 21 | the mouse, for each change | 35 | a GPU fault (F5) |
+  | 22 | the gamepad, for each change | 36–63 | reserved |
+  | 23 | reserved | | |
+  | 24 | the disk (nothing raises it yet) | | |
+  | 25 | the host file device (nothing raises it yet) | | |
+  | 26 | the peripheral ports, on each connection or disconnection | | |
+  | 27 | reserved | | |
+
+  See [I/O devices and ports](07-IO-Devices-and-Ports.md).
 
 `MemoryFault` (3) is raised by a store whose target overlaps the loaded program's `.text` or lies in
 the vector table or the BIOS (below `0x400`) — see

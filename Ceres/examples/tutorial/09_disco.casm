@@ -29,7 +29,7 @@ const TERM_BLOCK_ADDR  = 0xF0
 const TERM_BLOCK_LEN     = 0xF4
 const TERM_BLOCK_CMD      = 0xF8
 
-const DISK          = 0xFF020000   // Disk's MMIO base
+const DISK          = 0xFF300000   // Disk's MMIO base
 const DISK_STATUS    = 0x00        // offsets within it
 const DISK_CMD         = 0x04
 const DISK_SECTOR       = 0x08

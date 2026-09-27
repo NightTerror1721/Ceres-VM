@@ -71,10 +71,9 @@ namespace ceres::devices
 		static inline constexpr u32 MinFrequency = 20;
 		static inline constexpr u32 MaxFrequency = 20000;
 
-		// Seventh user interrupt (the timer, terminal, DMA controller, keyboard, mouse and gamepad
-		// have 0-5): a tone that ran its full duration has finished. A tone that was stopped, or
-		// replaced, does not raise it.
-		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt6;
+		// 28, the audio group's first (plan/v2 SPEC 5.6): a tone that ran its full duration has finished. A tone
+		// that was stopped, or replaced, does not raise it.
+		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt12;
 
 		struct Tone
 		{

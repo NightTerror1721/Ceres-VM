@@ -38,10 +38,10 @@ namespace ceres::devices
 		static inline constexpr u32 BlockCommandWriteError = 3;   // RAM out to the error stream
 
 		// Which interrupt pushInput() requests once new bytes are actually sitting in the buffer.
-		// The second user interrupt (the first, UserInterrupt0, is the timer's) - so a program that
-		// never expects terminal input keeps working exactly as before: STI is still required, and
-		// nothing raises this unless pushInput() is called at all.
-		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt1;
+		// 19 (plan/v2 SPEC 5.6), after the timer's two and the DMA's. A user interrupt, so a program that never
+		// expects terminal input keeps working exactly as before: STI is still required, and nothing raises this
+		// unless pushInput() is called at all.
+		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt3;
 
 	public:
 		// Kept small to model a simple UART. Hosts can detect loss through droppedInputBytes().

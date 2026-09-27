@@ -50,7 +50,8 @@ namespace ceres::devices
 
 		static inline constexpr u32 ControlInterrupt = 1u << 0;
 		static inline constexpr u32 StatusError = 1u << 0;
-		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt9;   // 25
+		// 34, the GPU's "copy engine" interrupt (plan/v2 SPEC 5.6), which the blitter becomes in F10.
+		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt18;
 
 		static inline constexpr u32 MaxScale = 8;
 

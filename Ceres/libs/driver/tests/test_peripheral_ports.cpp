@@ -56,7 +56,7 @@ namespace
 	const char* SectorsOfPortZero =
 		"@text\n"
 		"global main:\n"
-		"    la r1, 0xFF0A0000\n"
+		"    la r1, 0xFF320000\n"
 		"    ldr r2, [r1 + 0x2C]\n"
 		"    add r2, r2, 48\n"
 		"    la r3, 0xFF000004\n"
@@ -72,7 +72,7 @@ namespace
 		"    let buf: u8[8]\n"
 		"@text\n"
 		"global main:\n"
-		"    la r1, 0xFF0A0000\n"
+		"    la r1, 0xFF320000\n"
 		"    li r2, 1\n"
 		"    str [r1 + 0x08], r2\n"
 		"    li r2, 0\n"
@@ -200,7 +200,7 @@ namespace
 	const char* WaitForAMedium =
 		"@text\n"
 		"global main:\n"
-		"    la r1, 0xFF0A0000\n"
+		"    la r1, 0xFF320000\n"
 		".wait:\n"
 		"    ldr r2, [r1 + 0x00]\n"
 		"    and r2, r2, 1\n"

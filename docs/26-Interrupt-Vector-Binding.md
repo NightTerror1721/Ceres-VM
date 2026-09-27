@@ -13,7 +13,7 @@ running program can never patch it directly.
 
 ```casm
 interrupt UserInterrupt0: timer_isr
-interrupt 17: term_isr
+interrupt 19: term_isr
 ```
 
 A top-level declaration, valid wherever `const` is — it needs no `@text`/`@data`/`@rodata` section,
@@ -21,7 +21,7 @@ because it emits no code or data of its own, only a binding the linker resolves.
 
 Either side of the number is accepted:
 
-- A literal (`interrupt 17: term_isr`).
+- A literal (`interrupt 19: term_isr`).
 - A named constant. The assembler predefines the reserved names from `InterruptNumber` and
   `UserInterrupt0` through `UserInterrupt47` as ordinary constants in every file, so no `import` is
   needed:
@@ -66,13 +66,13 @@ happens to be declared later in the same file.
 
 ## A worked example: waking on terminal input
 
-`TerminalDevice::pushInput()` raises `UserInterrupt1` whenever it actually adds a byte to its input
+`TerminalDevice::pushInput()` raises `UserInterrupt3` (19) whenever it actually adds a byte to its input
 buffer (see [I/O devices and ports](07-IO-Devices-and-Ports.md#terminaldevice-ports-0x00-0x02)).
 Binding a handler for it turns the busy-wait every program used to need on `TERM_STATUS` into a real
 wake-up:
 
 ```casm
-interrupt UserInterrupt1: term_isr
+interrupt UserInterrupt3: term_isr
 
 @text
 global main:
@@ -88,7 +88,7 @@ term_isr:
 
 Without the `interrupt` line, the same `sti`/`halt` still wakes up the instant input arrives — but
 falls through to the BIOS's shared stub (print `E`, halt again) instead of `term_isr`, because
-nothing pointed vector 17 anywhere else.
+nothing pointed vector 19 anywhere else.
 
 ## Storage in `.cres`
 
@@ -148,7 +148,7 @@ global term_isr:
 ```casm
 // main.casm
 import "lib.casm"
-interrupt UserInterrupt1: term_isr
+interrupt UserInterrupt3: term_isr
 
 @text
 global main:

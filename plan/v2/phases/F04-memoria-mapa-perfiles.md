@@ -59,7 +59,7 @@
   2. **STDLIB**: bases de `include/ceres.h` y números de IRQ de cada cabecera; `asm/` si alguna rutina usa direcciones.
   3. **Ceres-C**: busca direcciones `0xFF0…` que cambien (el terminal y SystemControl no cambian); actualiza
      ejemplos y tests que usen otras.
-- **Aceptación**: [ ] Las tres suites en verde. [ ] Ninguna dirección antigua (`0xFF02…`–`0xFF0C…` con el
+- **Aceptación**: [x] Las tres suites en verde. [x] Ninguna dirección antigua (`0xFF02…`–`0xFF0C…` con el
   significado viejo) queda en los tres repos.
 - **Commit** (uno por repo): `Regroup the device map and renumber the interrupts (F4.3)`
 
@@ -131,3 +131,19 @@
   `test_debugger.cpp`. `benchmark_vm` (gcc-ipo, intercalado con F4.1): `mixed` 136,1 → 140,4 (+3 %), `ram` +3 %,
   `push-pop` +3 %, `block-256` 125,5 → 120,2 (−4 %). La primera versión perdía un 9 % en bloques; sacar de línea el
   camino de VRAM y los bucles byte a byte lo dejó en −4 %, y el resto parece disposición del código, como en F3.2.
+- **F4.3**: `default_mmio` por grupos (SPEC 5.5): terminal `0x00`, timer `0x01`, DMA `0x02`, teclado `0x10`, ratón
+  `0x11`, gamepad `0x12`, audio `0x20` (un slot: los cuatro de la SPEC llegan con F9/F11), disco `0x30`, HostFs `0x31`,
+  periféricos `0x32`, y **provisionalmente** framebuffer de texto `0x44`, display `0x45` y blitter `0x46` hasta que F5 y
+  F10 los retiren. IRQ (SPEC 5.6): cuenta atrás 16, alarma 17, DMA 18, terminal 19, teclado 20, ratón 21, gamepad 22,
+  periféricos 26, audio 28 y el blitter 34 (la del «motor de copia» de la GPU, en la que se convertirá). El disco y
+  HostFs no lanzan interrupciones todavía: sus 24 y 25 quedan reservadas y la STDLIB no les da nombre. `bios.h` no
+  cambia (su último vector por defecto sigue siendo el 16). Las direcciones antiguas se reescribieron con un mapa de
+  una sola pasada (la DMA ocupa el antiguo slot del disco): ejemplos (`pong.casm`, tutoriales 08 y 09), tests de driver,
+  debug y e2e, y los documentos de CeresASM (07, 08, 16, 26 y 29; la tabla de slots de 07 lleva ya la IRQ de cada uno,
+  y 08 la tabla de IRQ; el resto de 07 lo completa F4.6). `docs/README.md` y `docs/29` conservan los números antiguos
+  donde cuentan historia. **Ceres-C**: sólo el test de `--run-arg` leía un registro de periféricos (`0xFF32002C`); los
+  tests de `__interrupt_vector` y `docs/10-Interrupts.md` pasan el terminal al 19 y la tabla de IRQ a la nueva.
+  **STDLIB**: bases de `ceres.h`, `interrupts.h` (`IRQ_ALARM` 17, `IRQ_TERMINAL` 19 … `IRQ_BLITTER` 34,
+  `IRQ_DEVICE_LAST` 34), el módulo `irq` enlaza un stub sólo para los números que lanza un dispositivo (hay huecos:
+  `irq_attach` devuelve −1 en los demás) y `irq_name` los nombra; comentarios de las cabeceras; `test_user_irq17`
+  pasa a `test_user_irq19`; referencia regenerada con `node tools/gendocs.js`.

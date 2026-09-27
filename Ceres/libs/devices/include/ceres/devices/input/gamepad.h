@@ -11,7 +11,7 @@ namespace ceres::devices
 
 	// A gamepad, polled rather than event-driven: a game loop reads the button mask and the axes
 	// every frame instead of draining a queue. The host pushes the current state with pushState();
-	// a state that actually changed raises UserInterrupt5, so a program can also wait on it.
+	// a state that actually changed raises interrupt 22, so a program can also wait on it.
 	class GamepadDevice final : public IODevice
 	{
 	public:
@@ -44,8 +44,8 @@ namespace ceres::devices
 		static inline constexpr u16 ButtonDpadLeft = 1u << 13;
 		static inline constexpr u16 ButtonDpadRight = 1u << 14;
 
-		// Sixth user interrupt: the timer, terminal, DMA controller, keyboard and mouse take 0-4.
-		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt5;
+		// 22 (plan/v2 SPEC 5.6), after the keyboard's and the mouse's.
+		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt6;
 
 	private:
 		u16 _buttons = 0;

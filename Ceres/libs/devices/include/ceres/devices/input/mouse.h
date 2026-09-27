@@ -28,8 +28,8 @@ namespace ceres::devices
 		static inline constexpr u8 ButtonRight = 1u << 1;
 		static inline constexpr u8 ButtonMiddle = 1u << 2;
 
-		// Fifth user interrupt: the timer, terminal, DMA controller and keyboard take 0-3.
-		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt4;
+		// 21 (plan/v2 SPEC 5.6), after the keyboard's.
+		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt5;
 
 	private:
 		i32 _x = 0;

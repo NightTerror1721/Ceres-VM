@@ -364,7 +364,7 @@ TEST(modules, an_imported_module_interrupt_binding_is_installed)
 {
 	Workspace ws{ "interrupt" };
 	ws.write("io.casm",
-		"interrupt UserInterrupt1: term_isr\r\n"
+		"interrupt UserInterrupt3: term_isr\r\n"
 		"@text\r\n"
 		"term_isr:\r\n"
 		"    iret\r\n");
@@ -381,7 +381,7 @@ TEST(modules, an_imported_module_interrupt_binding_is_installed)
 	if (!r.ok()) { Registry::instance().recordFailure(r.joinedErrors()); return; }
 	CHECK_EQ(r.program->interruptVectors().size(), usize{ 1 });
 	if (r.program->interruptVectors().size() == 1)
-		CHECK_EQ(r.program->interruptVectors()[0].interruptNumber, u8{ 17 });
+		CHECK_EQ(r.program->interruptVectors()[0].interruptNumber, u8{ 19 });
 }
 
 // Named imports: the escape hatch for two modules that export the same name.

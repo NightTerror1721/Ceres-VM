@@ -3,7 +3,7 @@
 // Things that are plugged in while the machine runs: a small controller with a few ports, where the host connects
 // and disconnects media - a memory stick, a cartridge - and the program is told when it happens.
 //
-// The disk in slot 2 stays the machine's own internal drive, fixed for the life of the run. This is the other
+// The disk in slot 0x30 stays the machine's own internal drive, fixed for the life of the run. This is the other
 // thing: what a person plugs in. A port holds nothing, a storage medium (sectors it can read and write, like the
 // disk) or a cartridge (sectors it can only read). Connecting or disconnecting one queues an event and raises the
 // device's interrupt, and the program reads the events, asks the selected port what it holds, and moves sectors in
@@ -53,10 +53,10 @@ namespace ceres::devices
 		static inline constexpr u32 PortCount = 4;
 		static inline constexpr u32 SectorSize = 512;
 
-		// The eighth user interrupt (the timer, terminal, DMA controller, keyboard, mouse, gamepad and audio have 0-6):
-		// something was connected or disconnected. It is raised for each event, so a handler that reads one event per
-		// interrupt sees them all; reading until EventRegister gives 0 is the same thing.
-		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt7;
+		// 26, after the disk's 24 and the host file device's 25 (plan/v2 SPEC 5.6): something was connected or
+		// disconnected. It is raised for each event, so a handler that reads one event per interrupt sees them all;
+		// reading until EventRegister gives 0 is the same thing.
+		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt10;
 
 		// StatusRegister
 		static inline constexpr u32 StatusEventPending = 1u << 0;

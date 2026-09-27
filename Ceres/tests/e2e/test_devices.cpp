@@ -178,7 +178,7 @@ TEST(devices, the_interrupt_directive_installs_a_real_handler_for_terminal_input
 	// The whole path this feature exists for: a real .casm program, assembled and loaded exactly
 	// as `ceres run` would, ends up with its own handler in the vector table instead of the BIOS's.
 	AssembleResult r = assembleSource(
-		"interrupt UserInterrupt1: term_isr\r\n"
+		"interrupt UserInterrupt3: term_isr\r\n"
 		"@text\r\n"
 		"global main:\r\n"
 		"    sti\r\n"
@@ -210,7 +210,7 @@ TEST(devices, the_interrupt_directive_installs_a_real_handler_for_terminal_input
 
 	terminal.pushInput('Q');
 
-	vm.engine().step(); // delivers UserInterrupt1 and, in the same step, runs `la`
+	vm.engine().step(); // delivers UserInterrupt3 and, in the same step, runs `la`
 	vm.engine().step(); // ldrb
 	vm.engine().step(); // strb
 	vm.engine().step(); // iret

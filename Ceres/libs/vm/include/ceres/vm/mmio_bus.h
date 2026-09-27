@@ -200,20 +200,23 @@ namespace ceres::vm
 	{
 		using vm::MmioBus;
 
-		static inline constexpr Address Terminal = MmioBus::slot(0);
-		static inline constexpr Address Timer = MmioBus::slot(1);
-		static inline constexpr Address Disk = MmioBus::slot(2);
-		static inline constexpr Address Framebuffer = MmioBus::slot(3);
-		static inline constexpr Address Dma = MmioBus::slot(4);
-		static inline constexpr Address Keyboard = MmioBus::slot(5);
-		static inline constexpr Address Mouse = MmioBus::slot(6);
-		static inline constexpr Address Display = MmioBus::slot(7);
-		static inline constexpr Address Gamepad = MmioBus::slot(8);
-		static inline constexpr Address Audio = MmioBus::slot(9);
-		static inline constexpr Address Peripherals = MmioBus::slot(10);
-		static inline constexpr Address HostFs = MmioBus::slot(11);
-		static inline constexpr Address Blitter = MmioBus::slot(12);
-		// Slots 13-254 reserved for future default devices.
-		static inline constexpr Address SystemControl = MmioBus::slot(255);
+		// By group (plan/v2 SPEC 5.5): 0x00 system, 0x10 input, 0x20 audio, 0x30 storage, 0x40 video, 0xFF control.
+		// Every other slot is reserved.
+		static inline constexpr Address Terminal = MmioBus::slot(0x00);
+		static inline constexpr Address Timer = MmioBus::slot(0x01);
+		static inline constexpr Address Dma = MmioBus::slot(0x02);
+		static inline constexpr Address Keyboard = MmioBus::slot(0x10);
+		static inline constexpr Address Mouse = MmioBus::slot(0x11);
+		static inline constexpr Address Gamepad = MmioBus::slot(0x12);
+		static inline constexpr Address Audio = MmioBus::slot(0x20);
+		static inline constexpr Address Disk = MmioBus::slot(0x30);
+		static inline constexpr Address HostFs = MmioBus::slot(0x31);
+		static inline constexpr Address Peripherals = MmioBus::slot(0x32);
+		// The three video devices of v1 wait in free slots of the video group until the GPU (0x40-0x43) replaces
+		// them: the text framebuffer and the display in F5, the blitter in F10.
+		static inline constexpr Address Framebuffer = MmioBus::slot(0x44);
+		static inline constexpr Address Display = MmioBus::slot(0x45);
+		static inline constexpr Address Blitter = MmioBus::slot(0x46);
+		static inline constexpr Address SystemControl = MmioBus::slot(0xFF);
 	}
 }
