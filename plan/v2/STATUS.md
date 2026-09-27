@@ -90,7 +90,7 @@ Archivo: [phases/F05-ventana-v0-v1-terminal.md](phases/F05-ventana-v0-v1-termina
 | F5.1 | Interfaces del host y división del backend SDL (sin cambiar comportamiento) | fase: F4, decisiones P03, P07, P08, P09 | DONE | asm@01d1626 |
 | F5.2 | Núcleo de la GPU, pantalla y VBlank | F5.1 | DONE | asm@0542c80 |
 | F5.3 | Plano de texto (V0) | F5.2 | DONE | asm@534ca35 |
-| F5.4 | Plano bitmap y motor de copia (V1) | F5.3 | DONE |  |
+| F5.4 | Plano bitmap y motor de copia (V1) | F5.3 | DONE | asm@266a91d |
 | F5.5 | Presentación por VBlank y ventana | F5.4 | TODO |  |
 | F5.6 | Terminal virtual y pantalla de fallo | F5.3 | TODO |  |
 | F5.7 | Salidas sin ventana y entrada guionizada | F5.6 | TODO |  |

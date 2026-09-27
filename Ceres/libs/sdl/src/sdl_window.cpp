@@ -54,7 +54,11 @@ namespace ceres::sdl
 		if (_window)
 			SDL_DestroyWindow(_window);
 		if (_videoStarted)
+		{
 			SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
+			if (SDL_WasInit(0) == 0)
+				SDL_Quit();   // the last part of the host to let go of SDL shuts it down, as the one backend did
+		}
 	}
 
 	bool SdlWindow::pump(driver::InputSink& input)

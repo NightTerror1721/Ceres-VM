@@ -179,3 +179,7 @@
   entero. Al arrancar, el plano está apagado, en XRGB8888 al tamaño de la pantalla, con tres búferes preparados tras
   el scrollback si caben en la VRAM y la paleta del texto. El motor de copia mueve los bytes al terminar (no a
   medias) y un relleno alinea su patrón a la dirección, como lo haría un `str`.
+- **Revisión `ocr` F5.1–F5.4** (modo delegado: el diff revisado a mano con las reglas de `ocr delegate rule`): un
+  hallazgo real, corregido: al partir el backend nadie llamaba ya a `SDL_Quit` al cerrar el último subsistema. Queda
+  apuntado para F5.6: el historial del debugger no guarda el estado interno de la GPU (fotograma, planos), sólo sus
+  eventos; y con `custom` una VRAM mínima no cabe el terminal de 1920×1080, así que el texto no se ve.

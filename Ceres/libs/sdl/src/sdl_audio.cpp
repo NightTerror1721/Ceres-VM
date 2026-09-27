@@ -10,7 +10,11 @@ namespace ceres::sdl
 	{
 		detachAudio();
 		if (_audioStarted)
+		{
 			SDL_QuitSubSystem(SDL_INIT_AUDIO);
+			if (SDL_WasInit(0) == 0)
+				SDL_Quit();   // the last part of the host to let go of SDL shuts it down
+		}
 	}
 
 	void SdlAudio::attachAudio(devices::AudioDevice& audio)
