@@ -93,7 +93,7 @@
 
 ## Cierre de la fase
 
-- [ ] Suites en verde en los tres repos. [ ] Puerta de memoria del host. [ ] `benchmark_vm` dentro del 1 %. [ ] Revisión `ocr`.
+- [x] Suites en verde en los tres repos. [x] Puerta de memoria del host. [x] `benchmark_vm` dentro del 1 %. [x] Revisión `ocr`.
 
 ## Notas
 
@@ -193,3 +193,11 @@
   (sección «Profiles» con la tabla, las opciones sueltas y los registros), y lo que quedaba de `--memory` en 09,
   12, 16, 19, 22 y 24, además de `35-Devices-and-Bus` (motivos 2–4), `22-Debugger` (`vram read`/`vram dump`, el
   log y `Break`) y el índice.
+- **Cierre**: las tres suites pasan sobre CeresASM a5d6b29 (CeresASM 9/9, Ceres-C 11/11, STDLIB 311 comprobaciones).
+  Puerta de memoria: la de F4.1 (6 MiB residentes con 2 GiB de RAM). `benchmark_vm` (gcc-ipo, el binario de antes
+  de F4 y el final intercalados, cuatro pasadas, con el PC en uso): `mixed` 124,7 → 125,4 MIPS (+0,5 %); `ram` +6 %,
+  `mmio` +10 %, `call-ret` +6 %, `push-pop` +3 %; `loop` −2,7 % y `block-256` −1,2 %. Revisiones `ocr` en modo
+  delegado (el normal sigue sin responder): F4.1–F4.3 → 896d43c (un `--memory` inválido terminaba con `terminate`;
+  el historial del debugger no guardaba la VRAM); F4.4–F4.6 → a5d6b29 (una máquina que el host no puede reservar
+  terminaba con `bad_alloc`; la CLI anunciaba el `Break` como «Breakpoint 0»). Aparte, 1bc5ce5: dos tests del
+  debugger de F4.2 y F4.4 acababan en `ret` sin apagar la máquina y la suite de debug tardaba 48 s en lugar de 1.

@@ -79,7 +79,7 @@ Archivo: [phases/F04-memoria-mapa-perfiles.md](phases/F04-memoria-mapa-perfiles.
 | F4.3 | Mapa MMIO por grupos e IRQ nuevas (tres repos) | F4.2 | DONE | asm@6bd55e6, cc@0564009, lib@4b70687 |
 | F4.4 | Registro de depuración y `HostLog` | F4.3 | DONE | asm@7491da2, lib@880be18 |
 | F4.5 | Perfiles de máquina | F4.4 | DONE | asm@d8e4b5a, lib@c82b6fa |
-| F4.6 | Documentación | F4.5 | DONE |  |
+| F4.6 | Documentación | F4.5 | DONE | asm@0cad326 |
 
 ## F5 · La ventana es el ordenador: GPU V0–V1 y terminal virtual
 
