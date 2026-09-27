@@ -20,6 +20,9 @@ namespace ceres::casm
 				case DataTypeScalarCode::I16: return static_cast<u8>(ScalarType::I16);
 				case DataTypeScalarCode::I32: return static_cast<u8>(ScalarType::I32);
 				case DataTypeScalarCode::F32: return static_cast<u8>(ScalarType::F32);
+				case DataTypeScalarCode::U64: return static_cast<u8>(ScalarType::U64);
+				case DataTypeScalarCode::I64: return static_cast<u8>(ScalarType::I64);
+				case DataTypeScalarCode::F64: return static_cast<u8>(ScalarType::F64);
 				default:                      return static_cast<u8>(ScalarType::Invalid);
 			}
 		}
@@ -446,6 +449,13 @@ namespace ceres::casm
 						writeToBuffer(buffer, static_cast<f32>(scalarValue.value().f32Value));
 						break;
 
+					// Eight bytes, low word first, the way a pair is laid out in memory (plan/v2 SPEC 6.2).
+					case DataTypeScalarCode::U64:
+					case DataTypeScalarCode::I64:
+					case DataTypeScalarCode::F64:
+						writeToBuffer(buffer, scalarValue.rawBits64());
+						break;
+
 					default:
 						reportError(statement.line(), "Unsupported data type for scalar value in data statement");
 						return;
@@ -725,6 +735,10 @@ namespace ceres::casm
 							encodedInstruction.setSImm24(param.fixedValueS24());
 							break;
 
+						case OpcodeParameterType::SUBFIELD:
+							encodedInstruction = Instruction(encodedInstruction.raw() | param.fixedValueU16());
+							break;
+
 						default:
 							reportError(statement.line(), "Unsupported fixed parameter type for instruction encoding");
 							return;
@@ -765,6 +779,49 @@ namespace ceres::casm
 						case OpcodeParameterType::FT:
 							encodedInstruction.setFt(operandInfo.asFloatingPointRegister().regIndex);
 							break;
+
+						// A pair is stored as its even register's number (plan/v2 SPEC 6.2).
+						case OpcodeParameterType::XD:
+							encodedInstruction.setRd(static_cast<u8>(operandInfo.asIntegerPair().pairIndex * 2));
+							break;
+
+						case OpcodeParameterType::XS:
+							encodedInstruction.setRs(static_cast<u8>(operandInfo.asIntegerPair().pairIndex * 2));
+							break;
+
+						case OpcodeParameterType::XT:
+							encodedInstruction.setRt(static_cast<u8>(operandInfo.asIntegerPair().pairIndex * 2));
+							break;
+
+						case OpcodeParameterType::DD:
+							encodedInstruction.setRd(static_cast<u8>(operandInfo.asDoublePair().pairIndex * 2));
+							break;
+
+						case OpcodeParameterType::DS:
+							encodedInstruction.setRs(static_cast<u8>(operandInfo.asDoublePair().pairIndex * 2));
+							break;
+
+						case OpcodeParameterType::DT:
+							encodedInstruction.setRt(static_cast<u8>(operandInfo.asDoublePair().pairIndex * 2));
+							break;
+
+						case OpcodeParameterType::IMM6:
+						{
+							const auto sourceValue = immediateSourceValue(operandInfo);
+							if (!sourceValue.has_value())
+							{
+								reportError(statement.line(), "Operand {} cannot supply an immediate value", operandIndex);
+								return;
+							}
+							// A 64-bit shift moves 0 to 63 places; anything else is a mistake, not a count to wrap.
+							if (*sourceValue > 63)
+							{
+								reportError(statement.line(), "Shift amount {} is out of range: a 64-bit shift takes 0 to 63", static_cast<i32>(*sourceValue));
+								return;
+							}
+							encodedInstruction = Instruction(fields::ShiftAmount::set(encodedInstruction.raw(), *sourceValue));
+							break;
+						}
 
 						case OpcodeParameterType::IMM16_LOW:
 						{

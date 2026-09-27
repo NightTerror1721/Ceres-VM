@@ -209,6 +209,8 @@ namespace ceres::casm
 		u32 _nextLiteralIndex = 0;
 		void parseRegisterAlias(bool isGlobal);
 		std::optional<u8> indexRegisterOf(const Token& token) const;
+		Operand registerOperand(const RegisterInfo& info, std::string_view written);
+		std::vector<Operand> parseInstructionOperands(std::optional<Mnemonic> mnemonic);
 		bool atQualifiedName() const noexcept;
 		Identifier parseQualifiedName();
 

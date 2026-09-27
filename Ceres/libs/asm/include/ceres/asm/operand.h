@@ -20,6 +20,18 @@ namespace ceres::casm
 		u8 regIndex; // Floating-point register index (0-15)
 	};
 
+	// A register pair of the 64-bit instructions (plan/v2 SPEC 6.2): xN is rN*2:rN*2+1, dN is fN*2:fN*2+1. Kept as the
+	// pair's number; the encoding stores the even register's.
+	struct IntegerPairOperand
+	{
+		u8 pairIndex; // x0-x6
+	};
+
+	struct DoublePairOperand
+	{
+		u8 pairIndex; // d0-d7
+	};
+
 	struct ImmediateOperand
 	{
 		u32 value; // Immediate value (32-bit unsigned integer)
@@ -124,6 +136,8 @@ namespace ceres::casm
 			std::monostate,
 			RegisterOperand,
 			FloatingPointRegisterOperand,
+			IntegerPairOperand,
+			DoublePairOperand,
 			ImmediateOperand,
 			IdentifierOperand,
 			MemoryOperand,
@@ -157,6 +171,10 @@ namespace ceres::casm
 		constexpr bool isValid() const noexcept { return !_value.valueless_by_exception() && !std::holds_alternative<std::monostate>(_value); }
 		constexpr bool isRegister() const noexcept { return std::holds_alternative<RegisterOperand>(_value); }
 		constexpr bool isFloatingPointRegister() const noexcept { return std::holds_alternative<FloatingPointRegisterOperand>(_value); }
+		constexpr bool isIntegerPair() const noexcept { return std::holds_alternative<IntegerPairOperand>(_value); }
+		constexpr bool isDoublePair() const noexcept { return std::holds_alternative<DoublePairOperand>(_value); }
+		// Any register of any bank: what an alias can stand for.
+		constexpr bool isAnyRegister() const noexcept { return isRegister() || isFloatingPointRegister() || isIntegerPair() || isDoublePair(); }
 		constexpr bool isImmediate() const noexcept { return std::holds_alternative<ImmediateOperand>(_value); }
 		constexpr bool isIdentifier() const noexcept { return std::holds_alternative<IdentifierOperand>(_value); }
 		constexpr bool isMemory() const noexcept { return std::holds_alternative<MemoryOperand>(_value); }
@@ -168,6 +186,8 @@ namespace ceres::casm
 
 		constexpr const RegisterOperand& asRegister() const noexcept { return std::get<RegisterOperand>(_value); }
 		constexpr const FloatingPointRegisterOperand& asFloatingPointRegister() const noexcept { return std::get<FloatingPointRegisterOperand>(_value); }
+		constexpr const IntegerPairOperand& asIntegerPair() const noexcept { return std::get<IntegerPairOperand>(_value); }
+		constexpr const DoublePairOperand& asDoublePair() const noexcept { return std::get<DoublePairOperand>(_value); }
 		constexpr const ImmediateOperand& asImmediate() const noexcept { return std::get<ImmediateOperand>(_value); }
 		constexpr const IdentifierOperand& asIdentifier() const noexcept { return std::get<IdentifierOperand>(_value); }
 		const ConstExprOperand& asConstExpr() const noexcept { return std::get<ConstExprOperand>(_value); }
@@ -183,6 +203,10 @@ namespace ceres::casm
 				return OperandType::IntegralRegister;
 			else if (isFloatingPointRegister())
 				return OperandType::FloatingPointRegister;
+			else if (isIntegerPair())
+				return OperandType::IntegerPair;
+			else if (isDoublePair())
+				return OperandType::DoublePair;
 			else if (isImmediate())
 				return OperandType::Immediate;
 			else if (isIdentifier() || isConstExpr())
@@ -219,6 +243,9 @@ namespace ceres::casm
 					case DataTypeScalarCode::U32: return deref ? OperandType::AtVariableU32 : OperandType::VariableU32;
 					case DataTypeScalarCode::I32: return deref ? OperandType::AtVariableS32 : OperandType::VariableS32;
 					case DataTypeScalarCode::F32: return deref ? OperandType::AtVariableF32 : OperandType::VariableF32;
+					case DataTypeScalarCode::U64: return deref ? OperandType::AtVariableU64 : OperandType::VariableU64;
+					case DataTypeScalarCode::I64: return deref ? OperandType::AtVariableS64 : OperandType::VariableS64;
+					case DataTypeScalarCode::F64: return deref ? OperandType::AtVariableF64 : OperandType::VariableF64;
 					default: return OperandType::Invalid;
 				}
 			}
@@ -239,6 +266,8 @@ namespace ceres::casm
 	public:
 		static Operand makeRegister(u8 regIndex) noexcept { return Operand{ RegisterOperand{ regIndex } }; }
 		static Operand makeFloatingPointRegister(u8 regIndex) noexcept { return Operand{ FloatingPointRegisterOperand{ regIndex } }; }
+		static Operand makeIntegerPair(u8 pairIndex) noexcept { return Operand{ IntegerPairOperand{ pairIndex } }; }
+		static Operand makeDoublePair(u8 pairIndex) noexcept { return Operand{ DoublePairOperand{ pairIndex } }; }
 		static Operand makeImmediate(u32 value) noexcept { return Operand{ ImmediateOperand{ value } }; }
 		static Operand makeIdentifier(Identifier name, bool isLocal) noexcept { return Operand{ IdentifierOperand{ name, isLocal } }; }
 		static Operand makeDereferencedIdentifier(Identifier name, bool isLocal) noexcept { return Operand{ IdentifierOperand{ name, isLocal, true } }; }
@@ -282,11 +311,49 @@ namespace ceres::casm
 		static std::expected<Operand, std::string_view> makeFromLiteralValue(const LiteralValue& value) noexcept;
 	};
 
+	enum class RegisterKind : u8
+	{
+		Integer,      // r0-r15, sp, fp, at
+		Float,        // f0-f15
+		IntegerPair,  // x0-x7 (x7 is named only to be refused: it would be fp:sp)
+		DoublePair,   // d0-d7
+	};
+
 	struct RegisterInfo
 	{
-		u8 index; // Register index (0-15)
-		bool isFloatingPoint; // Whether the register is a floating-point register
+		u8 index; // Register index (0-15), or the pair's number
+		RegisterKind kind = RegisterKind::Integer;
+
+		constexpr bool isInteger() const noexcept { return kind == RegisterKind::Integer; }
+
+		// The highest integer pair a program can name: x7 would be r14:r15, the frame and stack pointers.
+		static inline constexpr u8 LastIntegerPair = 6;
 
 		static std::optional<RegisterInfo> get(Identifier name) noexcept;
+
+		// The operand this register is written as. x7 is the one register name that is not one (see LastIntegerPair):
+		// the caller reports it.
+		Operand toOperand() const noexcept
+		{
+			switch (kind)
+			{
+				case RegisterKind::Float:       return Operand::makeFloatingPointRegister(index);
+				case RegisterKind::IntegerPair: return Operand::makeIntegerPair(index);
+				case RegisterKind::DoublePair:  return Operand::makeDoublePair(index);
+				default:                        return Operand::makeRegister(index);
+			}
+		}
 	};
+
+	// Whether two operands name the same register of the same bank, for an alias declared twice.
+	inline bool sameRegister(const Operand& a, const Operand& b) noexcept
+	{
+		if (a.type() != b.type())
+			return false;
+		if (a.isRegister()) return a.asRegister().regIndex == b.asRegister().regIndex;
+		if (a.isFloatingPointRegister()) return a.asFloatingPointRegister().regIndex == b.asFloatingPointRegister().regIndex;
+		if (a.isIntegerPair()) return a.asIntegerPair().pairIndex == b.asIntegerPair().pairIndex;
+		if (a.isDoublePair()) return a.asDoublePair().pairIndex == b.asDoublePair().pairIndex;
+		return false;
+	}
 }

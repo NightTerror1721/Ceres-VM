@@ -920,6 +920,158 @@ namespace ceres::casm
 		inst(Opcode::FTOII, Mnemonic::FTOII, OpcodeParameterType::RD, OpcodeParameterType::FS),
 		inst(Opcode::MTF, Mnemonic::MTF, OpcodeParameterType::FD, OpcodeParameterType::RS),
 		inst(Opcode::MFF, Mnemonic::MFF, OpcodeParameterType::RD, OpcodeParameterType::FS),
+
+		// 64-bit integers on register pairs (plan/v2 SPEC 6.4).
+		inst(Opcode::ADD64, Mnemonic::ADD64, OpcodeParameterType::XD, OpcodeParameterType::XS, OpcodeParameterType::XT),
+		inst(Opcode::SUB64, Mnemonic::SUB64, OpcodeParameterType::XD, OpcodeParameterType::XS, OpcodeParameterType::XT),
+		inst(Opcode::MUL64, Mnemonic::MUL64, OpcodeParameterType::XD, OpcodeParameterType::XS, OpcodeParameterType::XT),
+		inst(Opcode::DIV64, Mnemonic::DIV64, OpcodeParameterType::XD, OpcodeParameterType::XS, OpcodeParameterType::XT),
+		inst(Opcode::IDIV64, Mnemonic::IDIV64, OpcodeParameterType::XD, OpcodeParameterType::XS, OpcodeParameterType::XT),
+		inst(Opcode::MOD64, Mnemonic::MOD64, OpcodeParameterType::XD, OpcodeParameterType::XS, OpcodeParameterType::XT),
+		inst(Opcode::IMOD64, Mnemonic::IMOD64, OpcodeParameterType::XD, OpcodeParameterType::XS, OpcodeParameterType::XT),
+		inst(Opcode::NEG64, Mnemonic::NEG64, OpcodeParameterType::XD, OpcodeParameterType::XS),
+		inst(Opcode::MOV64, Mnemonic::MOV64, OpcodeParameterType::XD, OpcodeParameterType::XS),
+		inst(Opcode::CMP64, Mnemonic::CMP64, OpcodeParameterType::XS, OpcodeParameterType::XT),
+		inst(Opcode::MULL, Mnemonic::MULL, OpcodeParameterType::XD, OpcodeParameterType::RS, OpcodeParameterType::RT),
+		inst(Opcode::IMULL, Mnemonic::IMULL, OpcodeParameterType::XD, OpcodeParameterType::RS, OpcodeParameterType::RT),
+		inst(Opcode::SHL64, Mnemonic::SHL64, OpcodeParameterType::XD, OpcodeParameterType::XS, OpcodeParameterType::RT),
+		inst(Opcode::SHR64, Mnemonic::SHR64, OpcodeParameterType::XD, OpcodeParameterType::XS, OpcodeParameterType::RT),
+		inst(Opcode::SAR64, Mnemonic::SAR64, OpcodeParameterType::XD, OpcodeParameterType::XS, OpcodeParameterType::RT),
+		inst(sig(Mnemonic::SHL64, OperandType::IntegerPair, OperandType::IntegerPair, OperandType::Immediate), op(Opcode::SHI64, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 1), param(OpcodeParameterType::IMM6, 2), paramUFixed(OpcodeParameterType::SUBFIELD, 0x00))),
+		inst(sig(Mnemonic::SHR64, OperandType::IntegerPair, OperandType::IntegerPair, OperandType::Immediate), op(Opcode::SHI64, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 1), param(OpcodeParameterType::IMM6, 2), paramUFixed(OpcodeParameterType::SUBFIELD, 0x40))),
+		inst(sig(Mnemonic::SAR64, OperandType::IntegerPair, OperandType::IntegerPair, OperandType::Immediate), op(Opcode::SHI64, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 1), param(OpcodeParameterType::IMM6, 2), paramUFixed(OpcodeParameterType::SUBFIELD, 0x80))),
+		inst(Opcode::SXT64, Mnemonic::SXT64, OpcodeParameterType::XD, OpcodeParameterType::RS),
+		inst(sig(Mnemonic::CLZ64, OperandType::IntegralRegister, OperandType::IntegerPair), op(Opcode::BITS64, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::XS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x00))),
+		inst(sig(Mnemonic::CTZ64, OperandType::IntegralRegister, OperandType::IntegerPair), op(Opcode::BITS64, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::XS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x01))),
+		inst(sig(Mnemonic::POPCNT64, OperandType::IntegralRegister, OperandType::IntegerPair), op(Opcode::BITS64, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::XS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x02))),
+		inst(Opcode::LDRD, Mnemonic::LDRD, OpcodeParameterType::XD, OpcodeParameterType::RS_SIMM16),
+		inst(Opcode::LDRDX, Mnemonic::LDRD, OpcodeParameterType::XD, OpcodeParameterType::RS_RT),
+		inst(Opcode::STRD, Mnemonic::STRD, OpcodeParameterType::RD_SIMM16, OpcodeParameterType::XS),
+		inst(Opcode::STRDX, Mnemonic::STRD, OpcodeParameterType::RD_RT, OpcodeParameterType::XS),
+
+		// binary64 doubles on float register pairs.
+		inst(Opcode::FADDD, Mnemonic::FADD_D, OpcodeParameterType::DD, OpcodeParameterType::DS, OpcodeParameterType::DT),
+		inst(Opcode::FSUBD, Mnemonic::FSUB_D, OpcodeParameterType::DD, OpcodeParameterType::DS, OpcodeParameterType::DT),
+		inst(Opcode::FMULD, Mnemonic::FMUL_D, OpcodeParameterType::DD, OpcodeParameterType::DS, OpcodeParameterType::DT),
+		inst(Opcode::FDIVD, Mnemonic::FDIV_D, OpcodeParameterType::DD, OpcodeParameterType::DS, OpcodeParameterType::DT),
+		inst(Opcode::FMAD, Mnemonic::FMA_D, OpcodeParameterType::DD, OpcodeParameterType::DS, OpcodeParameterType::DT),
+		inst(Opcode::FMODD, Mnemonic::FMOD_D, OpcodeParameterType::DD, OpcodeParameterType::DS, OpcodeParameterType::DT),
+		inst(Opcode::FCOPYSIGND, Mnemonic::FCOPYSIGN_D, OpcodeParameterType::DD, OpcodeParameterType::DS, OpcodeParameterType::DT),
+		inst(Opcode::FSQRTD, Mnemonic::FSQRT_D, OpcodeParameterType::DD, OpcodeParameterType::DS),
+		inst(Opcode::FMOVD, Mnemonic::FMOV_D, OpcodeParameterType::DD, OpcodeParameterType::DS),
+		inst(Opcode::FCMPD, Mnemonic::FCMP_D, OpcodeParameterType::DS, OpcodeParameterType::DT),
+		inst(sig(Mnemonic::FMIN_D, OperandType::DoublePair, OperandType::DoublePair, OperandType::DoublePair), op(Opcode::FMINMAXD, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::DS, 1), param(OpcodeParameterType::DT, 2), paramUFixed(OpcodeParameterType::SUBFIELD, 0x00))),
+		inst(sig(Mnemonic::FMAX_D, OperandType::DoublePair, OperandType::DoublePair, OperandType::DoublePair), op(Opcode::FMINMAXD, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::DS, 1), param(OpcodeParameterType::DT, 2), paramUFixed(OpcodeParameterType::SUBFIELD, 0x01))),
+		inst(sig(Mnemonic::FNEG_D, OperandType::DoublePair, OperandType::DoublePair), op(Opcode::FUNARYD, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x00))),
+		inst(sig(Mnemonic::FABS_D, OperandType::DoublePair, OperandType::DoublePair), op(Opcode::FUNARYD, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x01))),
+		inst(sig(Mnemonic::FROUND_D, OperandType::DoublePair, OperandType::DoublePair), op(Opcode::FUNARYD, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x02))),
+		inst(sig(Mnemonic::FFLOOR_D, OperandType::DoublePair, OperandType::DoublePair), op(Opcode::FUNARYD, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x03))),
+		inst(sig(Mnemonic::FCEIL_D, OperandType::DoublePair, OperandType::DoublePair), op(Opcode::FUNARYD, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x04))),
+		inst(sig(Mnemonic::FTRUNC_D, OperandType::DoublePair, OperandType::DoublePair), op(Opcode::FUNARYD, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x05))),
+		inst(Opcode::FCLASSD, Mnemonic::FCLASS_D, OpcodeParameterType::RD, OpcodeParameterType::DS),
+		inst(Opcode::FLDRD, Mnemonic::FLDR_D, OpcodeParameterType::DD, OpcodeParameterType::RS_SIMM16),
+		inst(Opcode::FLDRDX, Mnemonic::FLDR_D, OpcodeParameterType::DD, OpcodeParameterType::RS_RT),
+		inst(Opcode::FSTRD, Mnemonic::FSTR_D, OpcodeParameterType::RD_SIMM16, OpcodeParameterType::DS),
+		inst(Opcode::FSTRDX, Mnemonic::FSTR_D, OpcodeParameterType::RD_RT, OpcodeParameterType::DS),
+		inst(Opcode::MTFD, Mnemonic::MTF_D, OpcodeParameterType::DD, OpcodeParameterType::XS),
+		inst(Opcode::MFFD, Mnemonic::MFF_D, OpcodeParameterType::XD, OpcodeParameterType::DS),
+
+		// A 64-bit variable (plan/v2 SPEC 6): ldv/stv, `ldrd x1, [var]` and the rest, and li64's pooled constant, which
+		// is a variable too. The far forms build the address first - in the pair's own even register for an integer
+		// pair, in `at` for a double pair and for a store - and a load within reach is relaxed to one PC-relative word.
+		// There is no PC-relative 64-bit store, so a store stays three words.
+		inst(sig(Mnemonic::LDV, OperandType::IntegerPair, OperandType::VariableU64), {
+			op(Opcode::LUI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
+			op(Opcode::ORI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), param(OpcodeParameterType::IMM16_LOW, 1)),
+			op(Opcode::LDRD, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LI64, OperandType::IntegerPair, OperandType::VariableU64), {
+			op(Opcode::LUI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
+			op(Opcode::ORI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), param(OpcodeParameterType::IMM16_LOW, 1)),
+			op(Opcode::LDRD, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LDVP, OperandType::IntegerPair, OperandType::VariableU64), op(Opcode::LDRDP, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::REL_SIMM16, 1))),
+		inst(sig(Mnemonic::STV, OperandType::VariableU64, OperandType::IntegerPair), {
+			op(Opcode::LUI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::IMM16, 0, 16)),
+			op(Opcode::ORI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), paramUFixed(OpcodeParameterType::RS, ScratchRegister), param(OpcodeParameterType::IMM16_LOW, 0)),
+			op(Opcode::STRD, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::XS, 1), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LDV, OperandType::IntegerPair, OperandType::VariableS64), {
+			op(Opcode::LUI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
+			op(Opcode::ORI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), param(OpcodeParameterType::IMM16_LOW, 1)),
+			op(Opcode::LDRD, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LI64, OperandType::IntegerPair, OperandType::VariableS64), {
+			op(Opcode::LUI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
+			op(Opcode::ORI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), param(OpcodeParameterType::IMM16_LOW, 1)),
+			op(Opcode::LDRD, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LDVP, OperandType::IntegerPair, OperandType::VariableS64), op(Opcode::LDRDP, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::REL_SIMM16, 1))),
+		inst(sig(Mnemonic::STV, OperandType::VariableS64, OperandType::IntegerPair), {
+			op(Opcode::LUI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::IMM16, 0, 16)),
+			op(Opcode::ORI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), paramUFixed(OpcodeParameterType::RS, ScratchRegister), param(OpcodeParameterType::IMM16_LOW, 0)),
+			op(Opcode::STRD, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::XS, 1), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LDRD, OperandType::IntegerPair, OperandType::AtVariableU64), {
+			op(Opcode::LUI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
+			op(Opcode::ORI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), param(OpcodeParameterType::IMM16_LOW, 1)),
+			op(Opcode::LDRD, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LDVP, OperandType::IntegerPair, OperandType::AtVariableU64), op(Opcode::LDRDP, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::REL_SIMM16, 1))),
+		inst(sig(Mnemonic::STRD, OperandType::AtVariableU64, OperandType::IntegerPair), {
+			op(Opcode::LUI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::IMM16, 0, 16)),
+			op(Opcode::ORI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), paramUFixed(OpcodeParameterType::RS, ScratchRegister), param(OpcodeParameterType::IMM16_LOW, 0)),
+			op(Opcode::STRD, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::XS, 1), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LDRD, OperandType::IntegerPair, OperandType::AtVariableS64), {
+			op(Opcode::LUI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::IMM16, 1, 16)),
+			op(Opcode::ORI, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), param(OpcodeParameterType::IMM16_LOW, 1)),
+			op(Opcode::LDRD, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::XS, 0), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LDVP, OperandType::IntegerPair, OperandType::AtVariableS64), op(Opcode::LDRDP, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::REL_SIMM16, 1))),
+		inst(sig(Mnemonic::STRD, OperandType::AtVariableS64, OperandType::IntegerPair), {
+			op(Opcode::LUI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::IMM16, 0, 16)),
+			op(Opcode::ORI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), paramUFixed(OpcodeParameterType::RS, ScratchRegister), param(OpcodeParameterType::IMM16_LOW, 0)),
+			op(Opcode::STRD, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::XS, 1), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LDV, OperandType::DoublePair, OperandType::VariableF64), {
+			op(Opcode::LUI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::IMM16, 1, 16)),
+			op(Opcode::ORI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), paramUFixed(OpcodeParameterType::RS, ScratchRegister), param(OpcodeParameterType::IMM16_LOW, 1)),
+			op(Opcode::FLDRD, param(OpcodeParameterType::DD, 0), paramUFixed(OpcodeParameterType::RS, ScratchRegister), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LDVP, OperandType::DoublePair, OperandType::VariableF64), op(Opcode::FLDRDP, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::REL_SIMM16, 1))),
+		inst(sig(Mnemonic::STV, OperandType::VariableF64, OperandType::DoublePair), {
+			op(Opcode::LUI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::IMM16, 0, 16)),
+			op(Opcode::ORI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), paramUFixed(OpcodeParameterType::RS, ScratchRegister), param(OpcodeParameterType::IMM16_LOW, 0)),
+			op(Opcode::FSTRD, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::FLDR_D, OperandType::DoublePair, OperandType::AtVariableF64), {
+			op(Opcode::LUI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::IMM16, 1, 16)),
+			op(Opcode::ORI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), paramUFixed(OpcodeParameterType::RS, ScratchRegister), param(OpcodeParameterType::IMM16_LOW, 1)),
+			op(Opcode::FLDRD, param(OpcodeParameterType::DD, 0), paramUFixed(OpcodeParameterType::RS, ScratchRegister), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+		inst(sig(Mnemonic::LDVP, OperandType::DoublePair, OperandType::AtVariableF64), op(Opcode::FLDRDP, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::REL_SIMM16, 1))),
+		inst(sig(Mnemonic::FSTR_D, OperandType::AtVariableF64, OperandType::DoublePair), {
+			op(Opcode::LUI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::IMM16, 0, 16)),
+			op(Opcode::ORI, paramUFixed(OpcodeParameterType::RD, ScratchRegister), paramUFixed(OpcodeParameterType::RS, ScratchRegister), param(OpcodeParameterType::IMM16_LOW, 0)),
+			op(Opcode::FSTRD, paramUFixed(OpcodeParameterType::RD, ScratchRegister), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::IMM16, 0))
+		}),
+
+		// fcvt, by its kind in bits 3:0 (plan/v2 SPEC 6.5): destination first, then source.
+		inst(sig(Mnemonic::FCVT_D_S, OperandType::DoublePair, OperandType::FloatingPointRegister), op(Opcode::FCVT, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::FS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x00))),
+		inst(sig(Mnemonic::FCVT_S_D, OperandType::FloatingPointRegister, OperandType::DoublePair), op(Opcode::FCVT, param(OpcodeParameterType::FD, 0), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x01))),
+		inst(sig(Mnemonic::FCVT_D_W, OperandType::DoublePair, OperandType::IntegralRegister), op(Opcode::FCVT, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::RS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x02))),
+		inst(sig(Mnemonic::FCVT_D_WU, OperandType::DoublePair, OperandType::IntegralRegister), op(Opcode::FCVT, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::RS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x03))),
+		inst(sig(Mnemonic::FCVT_W_D, OperandType::IntegralRegister, OperandType::DoublePair), op(Opcode::FCVT, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x04))),
+		inst(sig(Mnemonic::FCVT_WU_D, OperandType::IntegralRegister, OperandType::DoublePair), op(Opcode::FCVT, param(OpcodeParameterType::RD, 0), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x05))),
+		inst(sig(Mnemonic::FCVT_D_L, OperandType::DoublePair, OperandType::IntegerPair), op(Opcode::FCVT, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::XS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x06))),
+		inst(sig(Mnemonic::FCVT_D_LU, OperandType::DoublePair, OperandType::IntegerPair), op(Opcode::FCVT, param(OpcodeParameterType::DD, 0), param(OpcodeParameterType::XS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x07))),
+		inst(sig(Mnemonic::FCVT_L_D, OperandType::IntegerPair, OperandType::DoublePair), op(Opcode::FCVT, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x08))),
+		inst(sig(Mnemonic::FCVT_LU_D, OperandType::IntegerPair, OperandType::DoublePair), op(Opcode::FCVT, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::DS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x09))),
+		inst(sig(Mnemonic::FCVT_S_L, OperandType::FloatingPointRegister, OperandType::IntegerPair), op(Opcode::FCVT, param(OpcodeParameterType::FD, 0), param(OpcodeParameterType::XS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x0A))),
+		inst(sig(Mnemonic::FCVT_S_LU, OperandType::FloatingPointRegister, OperandType::IntegerPair), op(Opcode::FCVT, param(OpcodeParameterType::FD, 0), param(OpcodeParameterType::XS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x0B))),
+		inst(sig(Mnemonic::FCVT_L_S, OperandType::IntegerPair, OperandType::FloatingPointRegister), op(Opcode::FCVT, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::FS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x0C))),
+		inst(sig(Mnemonic::FCVT_LU_S, OperandType::IntegerPair, OperandType::FloatingPointRegister), op(Opcode::FCVT, param(OpcodeParameterType::XD, 0), param(OpcodeParameterType::FS, 1), paramUFixed(OpcodeParameterType::SUBFIELD, 0x0D))),
 	};
 
 	std::optional<InstructionInfo> InstructionInfo::find(InstructionSignature signature) noexcept

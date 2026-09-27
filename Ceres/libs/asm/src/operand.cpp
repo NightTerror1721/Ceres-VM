@@ -31,7 +31,15 @@ namespace ceres::casm
 			case DataTypeScalarCode::I32:
 				return Operand::makeImmediate(static_cast<u32>(scalarValue.value().i32Value));
 
+			case DataTypeScalarCode::U64:
+			case DataTypeScalarCode::I64:
+				// A 64-bit constant is an immediate only when its value needs no more than 32 bits.
+				if (!scalarValue.fitsIn32Bits())
+					return std::unexpected("A 64-bit constant does not fit in an instruction's immediate: put it in a pair with li64");
+				return Operand::makeImmediate(scalarValue.rawBits());
+
 			case DataTypeScalarCode::F32:
+			case DataTypeScalarCode::F64:
 				return std::unexpected("Floating-point literals are not directly supported as operands");
 
 			default:
@@ -59,22 +67,27 @@ namespace ceres::casm
 			const char first = static_cast<char>(std::tolower(static_cast<unsigned char>(name[0])));
 			const char second = static_cast<char>(std::tolower(static_cast<unsigned char>(name[1])));
 			if (first == 's' && second == 'p')
-				return RegisterInfo{ static_cast<u8>(GeneralPurposeRegisterPool::StackPointerIndex), false };
+				return RegisterInfo{ static_cast<u8>(GeneralPurposeRegisterPool::StackPointerIndex) };
 			if (first == 'f' && second == 'p')
-				return RegisterInfo{ static_cast<u8>(GeneralPurposeRegisterPool::FramePointerIndex), false };
+				return RegisterInfo{ static_cast<u8>(GeneralPurposeRegisterPool::FramePointerIndex) };
 			if (first == 'a' && second == 't')
-				return RegisterInfo{ static_cast<u8>(GeneralPurposeRegisterPool::AssemblerTempIndex), false };
+				return RegisterInfo{ static_cast<u8>(GeneralPurposeRegisterPool::AssemblerTempIndex) };
 			if (first == 'l' && second == 'r') // Deprecated spelling of `at`.
-				return RegisterInfo{ static_cast<u8>(GeneralPurposeRegisterPool::AssemblerTempIndex), false };
+				return RegisterInfo{ static_cast<u8>(GeneralPurposeRegisterPool::AssemblerTempIndex) };
 		}
 
-		bool isFloatingPoint = false;
-		if (name[0] == 'R' || name[0] == 'r')
-			isFloatingPoint = false;
-		else if (name[0] == 'F' || name[0] == 'f')
-			isFloatingPoint = true;
-		else
-			return std::nullopt; // Invalid register prefix
+		// The pairs of the 64-bit instructions (plan/v2 SPEC 6.2): x0-x7 and d0-d7, eight of each since a pair is two of
+		// the sixteen registers. x7 is recognised so that writing it says what is wrong with it.
+		RegisterKind kind = RegisterKind::Integer;
+		unsigned maxIndex = static_cast<unsigned>(maxRegisterIndex);
+		switch (name[0])
+		{
+			case 'R': case 'r': kind = RegisterKind::Integer; break;
+			case 'F': case 'f': kind = RegisterKind::Float; break;
+			case 'X': case 'x': kind = RegisterKind::IntegerPair; maxIndex = 7; break;
+			case 'D': case 'd': kind = RegisterKind::DoublePair; maxIndex = 7; break;
+			default: return std::nullopt; // Invalid register prefix
+		}
 
         unsigned index = 0;
 		const char* start = name.data() + 1;
@@ -82,9 +95,9 @@ namespace ceres::casm
 		const auto result = std::from_chars(start, end, index); // Validate the register index
 		// Ensure parsing succeeded, consumed the whole string, at least one digit was read,
 		// and the index is within range.
-		if (result.ec != std::errc() || result.ptr != end || result.ptr == start || index > static_cast<unsigned>(maxRegisterIndex))
+		if (result.ec != std::errc() || result.ptr != end || result.ptr == start || index > maxIndex)
 			return std::nullopt; // Invalid register index
 
-		return RegisterInfo{ static_cast<u8>(index), isFloatingPoint };
+		return RegisterInfo{ static_cast<u8>(index), kind };
 	}
 }

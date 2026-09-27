@@ -317,9 +317,7 @@ namespace ceres::casm
 		if (!registerInfo.has_value())
 			error("'{}' is not a register", registerToken.lexeme());
 
-		Operand operand = registerInfo->isFloatingPoint
-			? Operand::makeFloatingPointRegister(registerInfo->index)
-			: Operand::makeRegister(registerInfo->index);
+		Operand operand = registerOperand(*registerInfo, registerToken.lexeme());
 
 		// Saying the same thing twice is not a mistake, and it happens for a good reason: a file
 		// that declares the convention's own names and also imports the module that publishes
@@ -327,11 +325,7 @@ namespace ceres::casm
 		// register is an error.
 		if (const auto existing = _registerAliases.find(name); existing != _registerAliases.end())
 		{
-			const bool sameRegister = existing->second.isRegister() == operand.isRegister() &&
-				(operand.isRegister()
-					? existing->second.asRegister().regIndex == operand.asRegister().regIndex
-					: existing->second.asFloatingPointRegister().regIndex == operand.asFloatingPointRegister().regIndex);
-			if (!sameRegister)
+			if (!sameRegister(existing->second, operand))
 				error("'{}' is already an alias for another register", name);
 			return;
 		}
@@ -381,17 +375,51 @@ namespace ceres::casm
 
 		if (labelLevel == LabelLevel::File && atQualifiedName())
 		{
-			// Only a macro can be called by a qualified name; an instruction is never one.
-			Identifier qualified = parseQualifiedName();
-			std::vector<Operand> qualifiedArguments;
-			while (!_cursor.isCurrentEndOfLineOrEndOfFile())
+			// A name with dots in it is a 64-bit float instruction - fadd.d, fcvt.d.l, written with no space around
+			// the dots - or else a module's macro, module.name. The whole dotted run is read first, then asked.
+			const Token first = _cursor.consume(TokenType::Identifier, "Expected an instruction or a qualified name");
+			std::string dotted{ first.lexeme() };
+			u32 end = first.column() + static_cast<u32>(first.lexeme().size());
+			usize parts = 1;
+			while (_cursor.match(TokenType::Dot) && _cursor.current().line() == first.line() && _cursor.current().column() == end &&
+				_cursor.peek().is(TokenType::Identifier) && _cursor.peek().line() == first.line() && _cursor.peek().column() == end + 1)
 			{
-				qualifiedArguments.push_back(parseOperand());
-				if (!_cursor.match(TokenType::Comma))
-					break;
-				_cursor.next();
+				_cursor.next(); // Consume '.'
+				const Token part = _cursor.consume(TokenType::Identifier, "Expected a name after '.'");
+				dotted += '.';
+				dotted += part.lexeme();
+				end = part.column() + static_cast<u32>(part.lexeme().size());
+				++parts;
 			}
-			return Statement::makeMacroCall(_file, line, qualified, std::move(qualifiedArguments));
+
+			const auto parseArguments = [this]
+			{
+				std::vector<Operand> arguments;
+				while (!_cursor.isCurrentEndOfLineOrEndOfFile())
+				{
+					arguments.push_back(parseOperand());
+					if (!_cursor.match(TokenType::Comma))
+						break;
+					_cursor.next();
+				}
+				return arguments;
+			};
+
+			if (const std::optional<Mnemonic> dottedMnemonic = stringToMnemonic(dotted, false); dottedMnemonic.has_value())
+				return Statement::makeInstruction(_file, line, *dottedMnemonic, parseInstructionOperands(dottedMnemonic));
+
+			// Only a macro can be called by a qualified name, and a qualified name has one dot.
+			if (parts == 1)
+			{
+				_cursor.consume(TokenType::Dot, "Expected '.' in a qualified name");
+				const Token nameToken = _cursor.consume(TokenType::Identifier, "Expected a name after '.' in a qualified name");
+				dotted = std::format("{}.{}", first.lexeme(), nameToken.lexeme());
+			}
+			else if (parts > 2)
+				error("'{}' is not an instruction, and a module's macro is written module.name", dotted);
+
+			const Identifier qualified = _stringPool.makeIdentifier(dotted);
+			return Statement::makeMacroCall(_file, line, qualified, parseArguments());
 		}
 
 		Token identifierToken = _cursor.consume(TokenType::Identifier, "Expected identifier for label or instruction");
@@ -405,17 +433,8 @@ namespace ceres::casm
 		if (labelLevel != LabelLevel::File)
 			error("Global or local label specifier must be followed by a label declaration");
 
-		std::vector<Operand> operands;
-
-		while (!_cursor.isCurrentEndOfLineOrEndOfFile())
-		{
-			operands.push_back(parseOperand());
-			if (!_cursor.match(TokenType::Comma))
-				break;
-			_cursor.next(); // Consume ',' and continue parsing operands
-		}
-
 		std::optional<Mnemonic> mnemonic = stringToMnemonic(identifierToken.lexeme(), false);
+		std::vector<Operand> operands = parseInstructionOperands(mnemonic);
 		if (mnemonic.has_value())
 			return Statement::makeInstruction(_file, line, *mnemonic, std::move(operands));
 
@@ -679,6 +698,8 @@ namespace ceres::casm
 			{
 				_cursor.consume(TokenType::Comma, "dimof takes a symbol and a dimension index");
 				Token indexToken = _cursor.consume(TokenType::LiteralInteger, "Expected a literal dimension index in dimof");
+				if (indexToken.isWideInteger())
+					error("A dimension index does not need 64 bits");
 				dimensionIndex = indexToken.integerValue();
 			}
 			else if (_cursor.match(TokenType::Comma))
@@ -700,16 +721,23 @@ namespace ceres::casm
 
 		if (_cursor.match(TokenType::LiteralInteger))
 		{
-			const u32 value = _cursor.current().integerValue();
+			// Past 32 bits a literal is a u64 (plan/v2 SPEC 6); a 32-bit use of it is refused where it is used.
+			const Token token = _cursor.current();
 			_cursor.next();
-			return ConstExpr::makeLiteral(LiteralScalar::make(value));
+			if (token.isWideInteger())
+				return ConstExpr::makeLiteral(LiteralScalar::makeU64(token.wideIntegerValue()));
+			// `-5` read as one token is a negative number, so a 64-bit use widens it with its sign.
+			if (token.lexeme().starts_with('-'))
+				return ConstExpr::makeLiteral(LiteralScalar::makeI32(static_cast<i32>(token.integerValue())));
+			return ConstExpr::makeLiteral(LiteralScalar::make(token.integerValue()));
 		}
 
 		if (_cursor.match(TokenType::LiteralFloat))
 		{
-			const f32 value = _cursor.current().floatValue();
+			// To double precision: the evaluator narrows it to a float outside a 64-bit context.
+			const f64 value = _cursor.current().doubleValue();
 			_cursor.next();
-			return ConstExpr::makeLiteral(LiteralScalar::make(value));
+			return ConstExpr::makeLiteral(LiteralScalar::makeF64(value));
 		}
 
 		if (_cursor.match(TokenType::LiteralChar))
@@ -819,10 +847,51 @@ namespace ceres::casm
 			auto folded = evaluateConstExpr(expression, nullptr);
 			if (!folded.has_value())
 				error("{}", folded.error());
+			if (!folded->fitsIn32Bits())
+				error("{} does not fit in 32 bits: a 64-bit constant goes in a pair with li64", expression.toString());
 			return Operand::makeImmediate(folded->asRawValue());
 		}
 
 		return Operand::makeConstExpr(std::move(expression));
+	}
+
+	// The operands of an instruction, or of a macro call when `mnemonic` is empty. li64's constant, and a constant loaded
+	// into a double pair with ldv, go to the literal pool as a 64-bit datum (plan/v2 SPEC 6): an instruction has no room
+	// for one, and the pool keeps it to the full 64 bits and to double precision.
+	std::vector<Operand> Parser::parseInstructionOperands(std::optional<Mnemonic> mnemonic)
+	{
+		std::vector<Operand> operands;
+		while (!_cursor.isCurrentEndOfLineOrEndOfFile())
+		{
+			const bool constantAhead = _cursor.match(TokenType::LiteralInteger) || _cursor.match(TokenType::LiteralFloat) ||
+				_cursor.match(TokenType::LiteralChar) || _cursor.match(TokenType::Minus) || _cursor.match(TokenType::ParenOpen) ||
+				(_cursor.match(TokenType::Identifier) && !RegisterInfo::get(_cursor.current().identifierValue()).has_value());
+			const bool pooledInteger = mnemonic == Mnemonic::LI64 && operands.size() == 1 && constantAhead;
+			const bool pooledDouble = mnemonic == Mnemonic::LDV && operands.size() == 1 && operands[0].isDoublePair() &&
+				(_cursor.match(TokenType::LiteralFloat) || _cursor.match(TokenType::LiteralInteger) || _cursor.match(TokenType::Minus) ||
+					_cursor.match(TokenType::ParenOpen));
+			if (pooledInteger || pooledDouble)
+			{
+				const DataTypeScalarCode code = pooledInteger ? DataTypeScalarCode::I64 : DataTypeScalarCode::F64;
+				operands.push_back(poolLiteral(LiteralValueReference::makeExpression(parseConstExpr()), DataTypeReference::makeScalar(code)));
+			}
+			else
+				operands.push_back(parseOperand());
+
+			if (!_cursor.match(TokenType::Comma))
+				break;
+			_cursor.next(); // Consume ',' and continue parsing operands
+		}
+		return operands;
+	}
+
+	// A register as an operand. x7 is the one register name that is not a register: it would be r14:r15, the frame and
+	// stack pointers (plan/v2 SPEC 6.2).
+	Operand Parser::registerOperand(const RegisterInfo& info, std::string_view written)
+	{
+		if (info.kind == RegisterKind::IntegerPair && info.index > RegisterInfo::LastIntegerPair)
+			error("'{}' is not a register pair: it would be r14:r15, the frame and stack pointers (x0-x6)", written);
+		return info.toOperand();
 	}
 
 	// An integer register written where a displacement would go, by its own name or by an alias.
@@ -830,11 +899,11 @@ namespace ceres::casm
 	std::optional<u8> Parser::indexRegisterOf(const Token& token) const
 	{
 		if (const auto reg = RegisterInfo::get(token.identifierValue()); reg.has_value())
-			return reg->isFloatingPoint ? std::nullopt : std::optional<u8>{ reg->index };
+			return reg->isInteger() ? std::optional<u8>{ reg->index } : std::nullopt;
 
 		if (const auto alias = _registerAliases.find(std::string(token.lexeme())); alias != _registerAliases.end())
 		{
-			if (alias->second.isFloatingPointRegister())
+			if (!alias->second.isRegister())
 				return std::nullopt;
 			return alias->second.asRegister().regIndex;
 		}
@@ -899,7 +968,7 @@ namespace ceres::casm
 			}
 
 			u8 baseRegIndex = 0;
-			bool baseIsFloat = false;
+			bool baseIsInteger = true;
 			if (!baseParameter.isNull())
 			{
 				// Nothing to look up yet; the argument answers it.
@@ -907,19 +976,19 @@ namespace ceres::casm
 			else if (const auto baseReg = RegisterInfo::get(baseRegToken.identifierValue()); baseReg.has_value())
 			{
 				baseRegIndex = baseReg->index;
-				baseIsFloat = baseReg->isFloatingPoint;
+				baseIsInteger = baseReg->isInteger();
 			}
 			else if (const auto alias = _registerAliases.find(std::string(baseRegToken.lexeme())); alias != _registerAliases.end())
 			{
 				// An alias names a register, so it can be a base too.
-				baseIsFloat = alias->second.isFloatingPointRegister();
-				baseRegIndex = baseIsFloat ? alias->second.asFloatingPointRegister().regIndex : alias->second.asRegister().regIndex;
+				baseIsInteger = alias->second.isRegister();
+				baseRegIndex = baseIsInteger ? alias->second.asRegister().regIndex : 0;
 			}
 			else
 				error("Invalid register '{}' for memory operand", baseRegToken.lexeme());
 
-			if (baseIsFloat)
-				error("Base register for memory operand must be a general-purpose register, not a floating-point register");
+			if (!baseIsInteger)
+				error("Base register for memory operand must be a general-purpose register, not '{}'", baseRegToken.lexeme());
 
 			// Everything below fills this in: the parts arrive in the order they are written.
 			MemoryOperand memory;
@@ -940,6 +1009,8 @@ namespace ceres::casm
 
 			if (_cursor.match(TokenType::LiteralInteger))
 			{
+				if (_cursor.current().isWideInteger())
+					error("A displacement is a signed 16-bit number, not {}", _cursor.current().lexeme());
 				u32 offset = _cursor.current().integerValue();
 				if (isMinus)
 					offset = static_cast<u32>(-static_cast<i32>(offset));
@@ -999,9 +1070,7 @@ namespace ceres::casm
 			if (regInfo.has_value())
 			{
 				_cursor.next(); // Consume the register identifier
-				return regInfo->isFloatingPoint
-					? Operand::makeFloatingPointRegister(regInfo->index)
-					: Operand::makeRegister(regInfo->index);
+				return registerOperand(*regInfo, regToken.lexeme());
 			}
 
 			if (const auto alias = _registerAliases.find(std::string(regToken.lexeme())); alias != _registerAliases.end())

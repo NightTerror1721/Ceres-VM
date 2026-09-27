@@ -351,6 +351,10 @@ namespace ceres::casm
 				if (expectsInteger && DataType::isIntegerScalarCode(elementCode))
 					continue; // Untyped integer literal; width is validated at resolution time.
 
+				const bool expectsFloat = expectedType == DataTypeScalarCode::F32 || expectedType == DataTypeScalarCode::F64;
+				if (expectsFloat && (elementCode == DataTypeScalarCode::F32 || elementCode == DataTypeScalarCode::F64))
+					continue; // A float literal is either width until it is resolved.
+
 				return false; // Found an element with an incompatible type
 			}
 			return true; // All elements are compatible with the expected type

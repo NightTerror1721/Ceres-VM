@@ -69,7 +69,8 @@ namespace ceres::casm
 			std::monostate,
 			Identifier,
 			u32,
-			f32,
+			u64,    // an integer literal that does not fit in 32 bits (plan/v2 SPEC 6: 64-bit data)
+			f64,    // a float literal, kept to double precision; a 32-bit use narrows it
 			char,
 			bool,
 			LiteralString,
@@ -92,7 +93,8 @@ namespace ceres::casm
 	public:
 		constexpr TokenPayload(Identifier identifier) noexcept : _value(identifier) {}
 		constexpr TokenPayload(u32 intValue) noexcept : _value(intValue) {}
-		constexpr TokenPayload(f32 floatValue) noexcept : _value(floatValue) {}
+		constexpr TokenPayload(u64 wideValue) noexcept : _value(wideValue) {}
+		constexpr TokenPayload(f64 floatValue) noexcept : _value(floatValue) {}
 		constexpr TokenPayload(char charValue) noexcept : _value(charValue) {}
 		constexpr TokenPayload(bool boolValue) noexcept : _value(boolValue) {}
 		constexpr TokenPayload(LiteralString strValue) noexcept : _value(strValue) {}
@@ -101,8 +103,9 @@ namespace ceres::casm
 
 		constexpr bool hasValue() const noexcept { return !_value.valueless_by_exception() && !std::holds_alternative<std::monostate>(_value); }
 		constexpr bool isIdentifier() const noexcept { return std::holds_alternative<Identifier>(_value); }
-		constexpr bool isInteger() const noexcept { return std::holds_alternative<u32>(_value); }
-        constexpr bool isFloat() const noexcept { return std::holds_alternative<f32>(_value); }
+		constexpr bool isInteger() const noexcept { return std::holds_alternative<u32>(_value) || std::holds_alternative<u64>(_value); }
+		constexpr bool isWideInteger() const noexcept { return std::holds_alternative<u64>(_value); }
+		constexpr bool isFloat() const noexcept { return std::holds_alternative<f64>(_value); }
 		constexpr bool isChar() const noexcept { return std::holds_alternative<char>(_value); }
 		constexpr bool isBool() const noexcept { return std::holds_alternative<bool>(_value); }
 		constexpr bool isLiteralString() const noexcept { return std::holds_alternative<LiteralString>(_value); }
@@ -110,8 +113,11 @@ namespace ceres::casm
 		constexpr bool isKeywordType() const noexcept { return std::holds_alternative<KeywordType>(_value); }
 
 		constexpr Identifier asIdentifier() const noexcept { return std::get<Identifier>(_value); }
-		constexpr u32 asInteger() const noexcept { return std::get<u32>(_value); }
-		constexpr f32 asFloat() const noexcept { return std::get<f32>(_value); }
+		// The low 32 bits of a wide literal: a caller that wants 32 bits asks isWideInteger first.
+		constexpr u32 asInteger() const noexcept { return isWideInteger() ? static_cast<u32>(std::get<u64>(_value)) : std::get<u32>(_value); }
+		constexpr u64 asWideInteger() const noexcept { return isWideInteger() ? std::get<u64>(_value) : std::get<u32>(_value); }
+		constexpr f32 asFloat() const noexcept { return static_cast<f32>(std::get<f64>(_value)); }
+		constexpr f64 asDouble() const noexcept { return std::get<f64>(_value); }
 		constexpr char asChar() const noexcept { return std::get<char>(_value); }
 		constexpr bool asBool() const noexcept { return std::get<bool>(_value); }
 		constexpr LiteralString asLiteralString() const noexcept { return std::get<LiteralString>(_value); }
@@ -152,7 +158,12 @@ namespace ceres::casm
 
 		constexpr Identifier identifierValue() const noexcept { return _payload.asIdentifier(); }
 		constexpr u32 integerValue() const noexcept { return _payload.asInteger(); }
+		// Whether an integer literal needs more than 32 bits, and its whole value when it does.
+		constexpr bool isWideInteger() const noexcept { return _payload.isWideInteger(); }
+		constexpr u64 wideIntegerValue() const noexcept { return _payload.asWideInteger(); }
+		// A float literal narrowed to 32 bits, and as it was written, to double precision.
 		constexpr f32 floatValue() const noexcept { return _payload.asFloat(); }
+		constexpr f64 doubleValue() const noexcept { return _payload.asDouble(); }
 		constexpr char charValue() const noexcept { return _payload.asChar(); }
 		constexpr bool boolValue() const noexcept { return _payload.asBool(); }
 		constexpr LiteralString literalStringValue() const noexcept { return _payload.asLiteralString(); }
@@ -240,7 +251,11 @@ namespace ceres::casm
 		{
 			return Token{ TokenType::LiteralString, lexeme, value, line, column };
 		}
-		static Token makeLiteralFloat(std::string_view lexeme, float value, u32 line, u32 column) noexcept
+		static Token makeLiteralWideInteger(std::string_view lexeme, u64 value, u32 line, u32 column) noexcept
+		{
+			return Token{ TokenType::LiteralInteger, lexeme, value, line, column };
+		}
+		static Token makeLiteralFloat(std::string_view lexeme, f64 value, u32 line, u32 column) noexcept
 		{
 			return Token{ TokenType::LiteralFloat, lexeme, value, line, column };
 		}

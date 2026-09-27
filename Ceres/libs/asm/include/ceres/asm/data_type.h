@@ -23,6 +23,10 @@ namespace ceres::casm
 		I16,
 		I32,
 		F32,
+		// 64 bits (plan/v2 SPEC 6): what a register pair holds. Aligned to 4, as ldrd and fldr.d need.
+		U64,
+		I64,
+		F64,
 	};
 
 	// Which spelling a type was written with. An alias resolves to an underlying scalar - `ptr` is a
@@ -144,7 +148,10 @@ namespace ceres::casm
 				case DataTypeScalarCode::I16: return 2;
 				case DataTypeScalarCode::U32:
 				case DataTypeScalarCode::I32:
-				case DataTypeScalarCode::F32: return 4;
+				case DataTypeScalarCode::F32:
+				case DataTypeScalarCode::U64:
+				case DataTypeScalarCode::I64:
+				case DataTypeScalarCode::F64: return 4;
 				default: return 1;
 			}
 		}
@@ -164,6 +171,9 @@ namespace ceres::casm
 				case DataTypeScalarCode::I16: scalarSize = 2; break;
 				case DataTypeScalarCode::I32: scalarSize = 4; break;
 				case DataTypeScalarCode::F32: scalarSize = 4; break;
+				case DataTypeScalarCode::U64: scalarSize = 8; break;
+				case DataTypeScalarCode::I64: scalarSize = 8; break;
+				case DataTypeScalarCode::F64: scalarSize = 8; break;
 				default: scalarSize = 0; break;
 			}
 			if (scalarSize == 0)
@@ -211,6 +221,9 @@ namespace ceres::casm
 			if (str == "i16") return makeScalar(DataTypeScalarCode::I16);
 			if (str == "i32") return makeScalar(DataTypeScalarCode::I32);
 			if (str == "f32") return makeScalar(DataTypeScalarCode::F32);
+			if (str == "u64") return makeScalar(DataTypeScalarCode::U64);
+			if (str == "i64") return makeScalar(DataTypeScalarCode::I64);
+			if (str == "f64") return makeScalar(DataTypeScalarCode::F64);
 			if (str == "ptr") return makePtr();
 			if (str == "char") return makeChar();
 			if (str == "bool") return makeBool();
@@ -238,7 +251,14 @@ namespace ceres::casm
 				scalarCode == DataTypeScalarCode::U32 ||
 				scalarCode == DataTypeScalarCode::I8 ||
 				scalarCode == DataTypeScalarCode::I16 ||
-				scalarCode == DataTypeScalarCode::I32;
+				scalarCode == DataTypeScalarCode::I32 ||
+				scalarCode == DataTypeScalarCode::U64 ||
+				scalarCode == DataTypeScalarCode::I64;
+		}
+
+		static constexpr bool isWideScalarCode(DataTypeScalarCode scalarCode) noexcept
+		{
+			return scalarCode == DataTypeScalarCode::U64 || scalarCode == DataTypeScalarCode::I64 || scalarCode == DataTypeScalarCode::F64;
 		}
 
 		static constexpr std::string_view aliasToString(DataTypeAlias alias) noexcept
@@ -282,6 +302,9 @@ namespace ceres::casm
 				case DataTypeScalarCode::I16: return "i16";
 				case DataTypeScalarCode::I32: return "i32";
 				case DataTypeScalarCode::F32: return "f32";
+				case DataTypeScalarCode::U64: return "u64";
+				case DataTypeScalarCode::I64: return "i64";
+				case DataTypeScalarCode::F64: return "f64";
 				default: return "invalid";
 			}
 		}

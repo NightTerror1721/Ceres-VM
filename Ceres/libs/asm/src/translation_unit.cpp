@@ -420,6 +420,8 @@ namespace ceres::casm
 		const auto folded = evaluateConstExpr(directive.value, symbolLookup());
 		if (!folded.has_value())
 			error(line, "{}", folded.error());
+		if (!folded->fitsIn32Bits())
+			error(line, "The value does not fit in 32 bits");
 		const i64 value = static_cast<i64>(static_cast<i32>(folded->asRawValue()));
 
 		if (directive.kind == DirectiveStatement::Kind::Assert)
@@ -666,6 +668,8 @@ namespace ceres::casm
 			error(line, "Array size '{}' could not be resolved: {}", expression.toString(), value.error());
 		if (value->isFloat())
 			error(line, "Array size '{}' is a floating point value", expression.toString());
+		if (!value->fitsIn32Bits())
+			error(line, "Array size '{}' does not fit in 32 bits", expression.toString());
 
 		const i32 size = static_cast<i32>(value->asRawValue());
 		if (size <= 0)
@@ -700,7 +704,9 @@ namespace ceres::casm
 			}
 		}
 
-		auto value = evaluateConstExpr(element.expression(), symbolLookup());
+		// An initializer of a 64-bit type is worked out in 64 bits and in double precision (plan/v2 SPEC 6).
+		const bool wide = targetScalarCode.has_value() && DataType::isWideScalarCode(*targetScalarCode);
+		auto value = evaluateConstExpr(element.expression(), symbolLookup(), wide);
 		if (!value.has_value())
 			error(line, "{}", value.error());
 

@@ -133,6 +133,8 @@ namespace ceres::casm
 			};
 
 			auto value = evaluateConstExpr(operand.asConstExpr().expression, lookup);
+			if (value.has_value() && !value->fitsIn32Bits())
+				error(line, "{} does not fit in 32 bits: a 64-bit constant goes in a pair with li64", operand.asConstExpr().expression.toString());
 			if (value.has_value())
 				operand = Operand::makeImmediate(value->asRawValue());
 			else if (unresolvedSymbols == nullptr)

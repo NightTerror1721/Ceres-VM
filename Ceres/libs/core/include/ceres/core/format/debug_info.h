@@ -31,6 +31,9 @@ namespace ceres::fmt
 		I16 = 5,
 		I32 = 6,
 		F32 = 7,
+		U64 = 8,
+		I64 = 9,
+		F64 = 10,
 	};
 
 	enum class SymbolKind : u8

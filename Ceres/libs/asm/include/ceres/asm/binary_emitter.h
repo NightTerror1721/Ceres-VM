@@ -130,11 +130,11 @@ namespace ceres::casm
 				buffer.insert(buffer.end(), value.begin(), value.end());
 				buffer.push_back('\0'); // Null-terminate the string)
 			}
-			else if constexpr (Arithmetic<T> && sizeof(T) <= 4)
+			else if constexpr (Arithmetic<T> && sizeof(T) <= 8)
 			{
-				// An integer or a float of up to four bytes, low byte first whatever the host: its bits as an
+				// An integer or a float of up to eight bytes, low byte first whatever the host: its bits as an
 				// unsigned integer of the same size, stored little-endian (plan/v2 SPEC 6.6).
-				using Bits = std::conditional_t<sizeof(T) == 1, u8, std::conditional_t<sizeof(T) == 2, u16, u32>>;
+				using Bits = std::conditional_t<sizeof(T) == 1, u8, std::conditional_t<sizeof(T) == 2, u16, std::conditional_t<sizeof(T) == 4, u32, u64>>>;
 				u8 bytes[sizeof(T)];
 				storeLittleEndian(bytes, std::bit_cast<Bits>(value));
 				buffer.insert(buffer.end(), bytes, bytes + sizeof(T));

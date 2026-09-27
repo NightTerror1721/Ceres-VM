@@ -175,7 +175,12 @@ namespace ceres::casm
 		{
 			switch (_kind)
 			{
-				case Kind::Literal: return std::to_string(_literal.asRawValue());
+				case Kind::Literal:
+					if (_literal.isFloat())
+						return std::to_string(_literal.asDouble());
+					if (_literal.isWide())
+						return _literal.isSigned() ? std::to_string(static_cast<i64>(_literal.rawBits64())) : std::to_string(_literal.rawBits64());
+					return std::to_string(_literal.asRawValue());
 				case Kind::Identifier: return std::string(_name.str());
 				case Kind::Query:
 				{

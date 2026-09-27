@@ -301,8 +301,9 @@ namespace ceres::casm
 
 		if (isFloat)
 		{
-			// Parse as floating point (base 10 only) without allocations using std::from_chars.
-			float value = 0.0f;
+			// Parse as floating point (base 10 only) without allocations using std::from_chars, to double precision: an
+			// f64 keeps all of it, and a 32-bit use narrows it to the nearest float.
+			f64 value = 0.0;
 			auto res = std::from_chars(text.data(), text.data() + text.size(), value);
 			if (res.ec != std::errc() || res.ptr != text.data() + text.size())
 				return Token::makeInvalid(startLine, startColumn);
@@ -326,18 +327,23 @@ namespace ceres::casm
 
 			constexpr u64 NEG_LIMIT = static_cast<u64>(-(static_cast<i64>(std::numeric_limits<i32>::min())));
 			constexpr u64 POS_LIMIT = static_cast<u64>(std::numeric_limits<u32>::max());
+			constexpr u64 WIDE_NEG_LIMIT = u64{ 1 } << 63;
 
+			// Past 32 bits a literal is a wide one, for the 64-bit data and constants (plan/v2 SPEC 6); a 32-bit use of
+			// it is refused where it is used.
 			if (isNegative)
 			{
-				if (tmp > NEG_LIMIT)
+				if (tmp > WIDE_NEG_LIMIT)
 					return Token::makeInvalid(startLine, startColumn);
+				if (tmp > NEG_LIMIT)
+					return Token::makeLiteralWideInteger(text, static_cast<u64>(0) - tmp, startLine, startColumn);
 				u32 value = static_cast<u32>(-static_cast<i64>(tmp));
 				return Token::makeLiteralInteger(text, value, startLine, startColumn);
 			}
 			else
 			{
 				if (tmp > POS_LIMIT)
-					return Token::makeInvalid(startLine, startColumn);
+					return Token::makeLiteralWideInteger(text, tmp, startLine, startColumn);
 				u32 value = static_cast<u32>(tmp);
 				return Token::makeLiteralInteger(text, value, startLine, startColumn);
 			}

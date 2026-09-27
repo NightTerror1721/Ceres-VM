@@ -183,9 +183,7 @@ namespace ceres::casm
 				if (!registerInfo.has_value())
 					continue; // Not a register: the parser reports it when it reaches that line
 
-				aliases.insert_or_assign(std::string(tokens[i + 2].lexeme()), registerInfo->isFloatingPoint
-					? Operand::makeFloatingPointRegister(registerInfo->index)
-					: Operand::makeRegister(registerInfo->index));
+				aliases.insert_or_assign(std::string(tokens[i + 2].lexeme()), registerInfo->toOperand());
 			}
 		}
 

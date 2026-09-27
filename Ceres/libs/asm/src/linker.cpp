@@ -5,6 +5,50 @@
 
 namespace ceres::casm
 {
+	namespace
+	{
+		std::string_view registerBankName(OperandType type) noexcept
+		{
+			switch (type)
+			{
+				case OperandType::IntegralRegister: return "an integer register (r0-r15)";
+				case OperandType::FloatingPointRegister: return "a float register (f0-f15)";
+				case OperandType::IntegerPair: return "an integer pair (x0-x6)";
+				case OperandType::DoublePair: return "a double pair (d0-d7)";
+				default: return "something else";
+			}
+		}
+
+		// An operand of the wrong register bank, where one that is a pair or should be one (plan/v2 SPEC 6.2) is what
+		// stops the signature from matching: `add64 x1, r2, x3`, `mull r2, r4, r5`. Only these, so the 32-bit
+		// instructions keep the diagnostics they had.
+		std::optional<std::string> wrongRegisterBank(const InstructionSignature& written)
+		{
+			static constexpr OperandType Banks[] = { OperandType::IntegralRegister, OperandType::FloatingPointRegister,
+				OperandType::IntegerPair, OperandType::DoublePair };
+			const auto isBank = [](OperandType type) { return std::ranges::find(Banks, type) != std::end(Banks); };
+			const auto isPair = [](OperandType type) { return type == OperandType::IntegerPair || type == OperandType::DoublePair; };
+
+			for (usize i = 0; i < InstructionSignature::MaxOperandsPerInstruction; ++i)
+			{
+				const OperandType have = written.operands[i];
+				if (!isBank(have))
+					continue;
+				for (const OperandType want : Banks)
+				{
+					if (want == have || (!isPair(want) && !isPair(have)))
+						continue;
+					InstructionSignature tried = written;
+					tried.operands[i] = want;
+					if (InstructionInfo::find(tried).has_value())
+						return std::format("'{}' takes {} as operand {}, not {}", mnemonicToString(written.mnemonic),
+							registerBankName(want), i + 1, registerBankName(have));
+				}
+			}
+			return std::nullopt;
+		}
+	}
+
 	// An instruction's size is fixed before anything knows where the variable it names will end
 	// up: the build pass adds section sizes as it walks, and needs each size to do it. So LDV and
 	// STV reserve three words whether or not the one-word LDVP/STVP would reach.
@@ -138,6 +182,12 @@ namespace ceres::casm
 				const auto shortForm = InstructionInfo::shortFormOf(
 					instruction.mnemonic, variableIsFirst, variable->asVariable().dereferenced);
 				if (!shortForm.has_value())
+					continue;
+
+				// A long form has a short one only where that exists for these operands: a 64-bit store has none.
+				InstructionSignature shortSignature = instruction.signature();
+				shortSignature.mnemonic = shortForm.value();
+				if (!InstructionInfo::find(shortSignature).has_value())
 					continue;
 
 				const i64 target = static_cast<i64>(variable->asVariable().address.value());
@@ -358,6 +408,10 @@ namespace ceres::casm
 										"'{}' takes its destination first: write the last two operands the other way round",
 										mnemonicToString(instructionStatement.mnemonic));
 							}
+
+							// A pair where a single register goes, or the other way round (plan/v2 SPEC 6.2): say which.
+							if (const auto hint = wrongRegisterBank(instructionStatement.signature()); hint.has_value())
+								error(statement.line(), "{}", *hint);
 
 							error(statement.line(), "Invalid instruction syntax: {}", instructionStatement.signature().toString());
 						}

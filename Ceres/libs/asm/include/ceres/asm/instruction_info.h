@@ -18,6 +18,8 @@ namespace ceres::casm
 		Invalid = 0,				// Invalid operand type
 		IntegralRegister,			// Integral register (e.g., r0, r1, ..., r15)
 		FloatingPointRegister,		// Floating-point register (e.g., f0, f1, ..., f15)
+		IntegerPair,				// A pair of integer registers, x0-x6 (plan/v2 SPEC 6.2)
+		DoublePair,					// A pair of float registers holding a double, d0-d7
 		Immediate,					// Immediate value (e.g., 42, 0xFF, etc.)
 		RegisterPlusAddress,		// Register plus address (e.g., [r0 + 0x10], [r1 + label], etc.)
 		RegisterPlusRegister,		// Register plus register (e.g., [r0 + r1]) - an index, not a displacement
@@ -36,6 +38,9 @@ namespace ceres::casm
 		VariableU32,				// 32-bit variable (for pseudo-instructions)
 		VariableS32,				// 32-bit signed variable (for pseudo-instructions)
 		VariableF32,				// Floating-point variable (for pseudo-instructions)
+		// The 64-bit variables (plan/v2 SPEC 6), bare and in brackets. At the end so nothing above moves.
+		VariableU64, VariableS64, VariableF64,
+		AtVariableU64, AtVariableS64, AtVariableF64,
 		Label,						// Label operand (for branch instructions)
 	};
 
@@ -68,6 +73,11 @@ namespace ceres::casm
 		REL_SIMM16,		// A variable's address as a displacement from the instruction itself, for the
 						// PC-relative loads and stores. Out of reach is an error, not a truncation.
 		REL_ADDR20,		// A branch target as a 20-bit displacement, for BL - the four bits Rd took
+		// The 64-bit instructions (plan/v2 SPEC 6): a pair in a register field, stored as its even register's number.
+		XD, XS, XT,		// An integer pair, x0-x6
+		DD, DS, DT,		// A double pair, d0-d7
+		IMM6,			// A shift amount, 0-63, in bits 5:0 (shl64/shr64/sar64 by an immediate)
+		SUBFIELD,		// Fixed only: bits the opcode's subfield takes, already in place, ORed into the word
 	};
 
 
@@ -180,12 +190,23 @@ namespace ceres::casm
 				case OpcodeParameterType::FT:
 					return OperandType::FloatingPointRegister;
 
+				case OpcodeParameterType::XD:
+				case OpcodeParameterType::XS:
+				case OpcodeParameterType::XT:
+					return OperandType::IntegerPair;
+
+				case OpcodeParameterType::DD:
+				case OpcodeParameterType::DS:
+				case OpcodeParameterType::DT:
+					return OperandType::DoublePair;
+
 				case OpcodeParameterType::IMM8:
 				case OpcodeParameterType::IMM16:
 				case OpcodeParameterType::IMM16_LOW:
 				case OpcodeParameterType::IMM24:
 				case OpcodeParameterType::SIMM16:
 				case OpcodeParameterType::SIMM24:
+				case OpcodeParameterType::IMM6:
 					return OperandType::Immediate;
 
 				case OpcodeParameterType::RD_SIMM16:
@@ -212,6 +233,8 @@ namespace ceres::casm
 			{
 				case OperandType::IntegralRegister: return "Reg";
 				case OperandType::FloatingPointRegister: return "FReg";
+				case OperandType::IntegerPair: return "XPair";
+				case OperandType::DoublePair: return "DPair";
 				case OperandType::Immediate: return "Imm";
 				case OperandType::RegisterPlusAddress: return "Reg+Addr";
 				case OperandType::RegisterPlusRegister: return "Reg+Reg";
@@ -243,6 +266,12 @@ namespace ceres::casm
 				case OperandType::VariableU32: return "VarU32";
 				case OperandType::VariableS32: return "VarS32";
 				case OperandType::VariableF32: return "VarF32";
+				case OperandType::VariableU64: return "VarU64";
+				case OperandType::VariableS64: return "VarS64";
+				case OperandType::VariableF64: return "VarF64";
+				case OperandType::AtVariableU64: return "[VarU64]";
+				case OperandType::AtVariableS64: return "[VarS64]";
+				case OperandType::AtVariableF64: return "[VarF64]";
 				default: return "Unknown";
 			}
 		}
@@ -520,6 +549,10 @@ namespace ceres::casm
 				// These have both: `mov r1, counter` is the address and has nothing to relax, while
 				// `mov r1, [counter]` is the contents and does. The bracket is the difference.
 				case Mnemonic::LDR: return dereferenced ? std::optional{ Mnemonic::LDVP } : std::nullopt;
+				// The 64-bit loads (plan/v2 SPEC 6): li64's pooled constant, and `ldrd x1, [var]`/`fldr.d d1, [var]`.
+				case Mnemonic::LI64: return Mnemonic::LDVP;
+				case Mnemonic::LDRD:
+				case Mnemonic::FLDR_D: return dereferenced ? std::optional{ Mnemonic::LDVP } : std::nullopt;
 				case Mnemonic::STR: return dereferenced ? std::optional{ Mnemonic::STVP } : std::nullopt;
 				case Mnemonic::MOV:
 					if (!dereferenced)

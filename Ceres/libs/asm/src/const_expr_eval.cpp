@@ -1,6 +1,7 @@
 #include <ceres/asm/const_expr_eval.h>
 #include <ceres/asm/symbol_table.h>
 #include <format>
+#include <limits>
 
 namespace ceres::casm
 {
@@ -49,12 +50,84 @@ namespace ceres::casm
 		}
 	}
 
-	std::expected<LiteralScalar, std::string> evaluateConstExpr(const ConstExpr& expression, const ConstExprSymbolLookup& lookup)
+	namespace
+	{
+		// An integer operand as a 64-bit signed number: a signed one keeps its sign, an unsigned one does not grow one.
+		i64 wideInteger(const LiteralScalar& value) noexcept { return static_cast<i64>(value.rawBits64()); }
+
+		// An operand as a double: a float as it is, an integer as the number it is.
+		f64 wideFloat(const LiteralScalar& value) noexcept
+		{
+			if (value.isFloat())
+				return value.asDouble();
+			return value.isWide() || value.isSigned() ? static_cast<f64>(wideInteger(value)) : static_cast<f64>(value.rawBits64());
+		}
+
+		std::expected<LiteralScalar, std::string> wideFloatBinary(ConstExpr::Op op, f64 a, f64 b)
+		{
+			switch (op)
+			{
+				case ConstExpr::Op::Add: return LiteralScalar::makeF64(a + b);
+				case ConstExpr::Op::Subtract: return LiteralScalar::makeF64(a - b);
+				case ConstExpr::Op::Multiply: return LiteralScalar::makeF64(a * b);
+				case ConstExpr::Op::Divide:
+					if (b == 0.0)
+						return std::unexpected("Division by zero in constant expression");
+					return LiteralScalar::makeF64(a / b);
+				case ConstExpr::Op::Equal: return LiteralScalar::makeI32(a == b ? 1 : 0);
+				case ConstExpr::Op::NotEqual: return LiteralScalar::makeI32(a != b ? 1 : 0);
+				case ConstExpr::Op::Less: return LiteralScalar::makeI32(a < b ? 1 : 0);
+				case ConstExpr::Op::LessEqual: return LiteralScalar::makeI32(a <= b ? 1 : 0);
+				case ConstExpr::Op::Greater: return LiteralScalar::makeI32(a > b ? 1 : 0);
+				case ConstExpr::Op::GreaterEqual: return LiteralScalar::makeI32(a >= b ? 1 : 0);
+				case ConstExpr::Op::Modulo:
+					return std::unexpected("'%' has no meaning for floating-point values");
+				default: return std::unexpected("Unknown operator in constant expression");
+			}
+		}
+
+		// 64-bit integer arithmetic, wrapping as the machine's does rather than as signed overflow in C++ would.
+		std::expected<LiteralScalar, std::string> wideIntegerBinary(ConstExpr::Op op, i64 a, i64 b)
+		{
+			const u64 ua = static_cast<u64>(a);
+			const u64 ub = static_cast<u64>(b);
+			constexpr i64 Min = std::numeric_limits<i64>::min();
+			switch (op)
+			{
+				case ConstExpr::Op::Add: return LiteralScalar::makeI64(static_cast<i64>(ua + ub));
+				case ConstExpr::Op::Subtract: return LiteralScalar::makeI64(static_cast<i64>(ua - ub));
+				case ConstExpr::Op::Multiply: return LiteralScalar::makeI64(static_cast<i64>(ua * ub));
+				case ConstExpr::Op::Divide:
+					if (b == 0)
+						return std::unexpected("Division by zero in constant expression");
+					return LiteralScalar::makeI64(a == Min && b == -1 ? Min : a / b);
+				case ConstExpr::Op::Modulo:
+					if (b == 0)
+						return std::unexpected("Remainder by zero in constant expression");
+					return LiteralScalar::makeI64(a == Min && b == -1 ? 0 : a % b);
+				case ConstExpr::Op::Equal: return LiteralScalar::makeI32(a == b ? 1 : 0);
+				case ConstExpr::Op::NotEqual: return LiteralScalar::makeI32(a != b ? 1 : 0);
+				case ConstExpr::Op::Less: return LiteralScalar::makeI32(a < b ? 1 : 0);
+				case ConstExpr::Op::LessEqual: return LiteralScalar::makeI32(a <= b ? 1 : 0);
+				case ConstExpr::Op::Greater: return LiteralScalar::makeI32(a > b ? 1 : 0);
+				case ConstExpr::Op::GreaterEqual: return LiteralScalar::makeI32(a >= b ? 1 : 0);
+				default: return std::unexpected("Unknown operator in constant expression");
+			}
+		}
+	}
+
+	std::expected<LiteralScalar, std::string> evaluateConstExpr(const ConstExpr& expression, const ConstExprSymbolLookup& lookup, bool wide)
 	{
 		switch (expression.kind())
 		{
 			case ConstExpr::Kind::Literal:
-				return expression.literal();
+			{
+				// A float literal is read to double precision; outside a 64-bit context it is the float it always was.
+				const LiteralScalar literal = expression.literal();
+				if (literal.isF64() && !wide)
+					return LiteralScalar::makeF32(static_cast<f32>(literal.asDouble()));
+				return literal;
+			}
 
 			case ConstExpr::Kind::Identifier:
 			{
@@ -74,24 +147,35 @@ namespace ceres::casm
 
 			case ConstExpr::Kind::Binary:
 			{
-				auto lhs = evaluateConstExpr(expression.left(), lookup);
+				auto lhs = evaluateConstExpr(expression.left(), lookup, wide);
 				if (!lhs.has_value())
 					return lhs;
 
 				if (expression.op() == ConstExpr::Op::Negate)
 				{
+					if (lhs->isF64())
+						return LiteralScalar::makeF64(-lhs->asDouble());
 					if (lhs->isFloat())
 						return LiteralScalar::makeF32(-lhs->value().f32Value);
+					if (wide || lhs->isWide())
+						return LiteralScalar::makeI64(static_cast<i64>(u64{ 0 } - lhs->rawBits64()));
 					return LiteralScalar::makeI32(-static_cast<i32>(lhs->asRawValue()));
 				}
 
-				auto rhs = evaluateConstExpr(expression.right(), lookup);
+				auto rhs = evaluateConstExpr(expression.right(), lookup, wide);
 				if (!rhs.has_value())
 					return rhs;
 
+				const bool floating = lhs->isFloat() || rhs->isFloat();
+				// A 64-bit context, or a 64-bit operand, makes the operation a 64-bit one.
+				if (floating && (wide || lhs->isF64() || rhs->isF64()))
+					return wideFloatBinary(expression.op(), wideFloat(*lhs), wideFloat(*rhs));
+				if (!floating && (wide || lhs->isWide() || rhs->isWide()))
+					return wideIntegerBinary(expression.op(), wideInteger(*lhs), wideInteger(*rhs));
+
 				// A float on either side makes the whole operation floating point, so `PI * 2`
 				// stays a float instead of being truncated on the way through.
-				if (lhs->isFloat() || rhs->isFloat())
+				if (floating)
 				{
 					const f32 a = lhs->isFloat() ? lhs->value().f32Value : static_cast<f32>(static_cast<i32>(lhs->asRawValue()));
 					const f32 b = rhs->isFloat() ? rhs->value().f32Value : static_cast<f32>(static_cast<i32>(rhs->asRawValue()));
