@@ -27,7 +27,7 @@
   2. `Memory` usa `HostPages` en lugar del vector; `MaxSize = 0x80000000`; el camino rápido sigue siendo un
      `memcpy` sobre memoria contigua.
   3. `sp` inicial = `RamSize` (comprueba que `0x80000000` no desborda en ningún cálculo con `u32`).
-- **Aceptación**: [ ] Test: una máquina de 2 GiB arranca y ejecuta un programa. [ ] Puerta: con 2 GiB y un
+- **Aceptación**: [x] Test: una máquina de 2 GiB arranca y ejecuta un programa. [x] Puerta: con 2 GiB y un
   programa pequeño la memoria residente del proceso es de pocos MiB (apúntalo en «Notas»).
 - **Commit**: `Reserve machine memory lazily and allow 2 GiB of RAM (F4.1)`
 
@@ -95,3 +95,16 @@
 - [ ] Suites en verde en los tres repos. [ ] Puerta de memoria del host. [ ] `benchmark_vm` dentro del 1 %. [ ] Revisión `ocr`.
 
 ## Notas
+
+- **F4.1**: `HostPages` (`core/base/host_pages.h`) reserva con `VirtualAlloc(MEM_RESERVE | MEM_COMMIT)` en Windows
+  (comprometer sólo cuenta contra el límite de compromiso; la página se pone a cero y se hace residente al tocarla) y
+  con `mmap(MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE)` en POSIX; es movible y no copiable. `Memory` la usa en lugar
+  del `std::vector`, con `MaxSize = 0x80000000`; el camino rápido sigue siendo un `memcpy` sobre memoria contigua. El
+  `sp` del programa arranca en `RamSize - 4 KiB` y el de los manejadores en `RamSize` (`0x80000000` con 2 GiB, que
+  cabe en `u32`; los cálculos de pila ya iban en `u64` o no pasan de `RamSize`). Test `libs/vm/tests/test_memory.cpp`:
+  una máquina de 2 GiB guarda en `0x40000000`, apila, desapila y atiende una interrupción en la pila del sistema.
+  **Puerta de memoria** (`ceres run 01_hola.casm --terminal`, pico del conjunto de trabajo): con `--memory 1073741824`
+  el binario anterior llega a 1033 MiB y el nuevo a 6,0 MiB; con 2 GiB, 6,0 MiB (con 16 MiB, 5,0). `benchmark_vm`
+  (gcc-ipo, antes y después intercalados, tres pasadas estables): `mixed` 135,4 y 136,1 MIPS, `ram` 111,8 y 111,4.
+  Pendiente para quien lo necesite: el historial del debugger (`history.cpp`) copia y compara la RAM entera en cada
+  instantánea, así que con mucha RAM toca todas sus páginas; con el perfil `standard` (64 MiB) es asumible.

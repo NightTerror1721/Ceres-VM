@@ -1,11 +1,11 @@
 #pragma once
 
 #include <ceres/core/base/types.h>
+#include <ceres/core/base/host_pages.h>
 #include <ceres/core/isa/address.h>
 #include <ceres/core/isa/instructions.h>
 #include <ceres/core/format/memory_map.h>
 #include <algorithm>
-#include <vector>
 #include <string>
 #include <stdexcept>
 #include <cstring>
@@ -22,7 +22,7 @@ namespace ceres::vm
 		using ByteType = u8;
 
 		static inline constexpr usize DefaultSize = 1024 * 1024 * 16; // 16 MiB
-		static inline constexpr usize MaxSize = 1024 * 1024 * 1024; // 1 GiB
+		static inline constexpr usize MaxSize = 0x80000000; // 2 GiB: all of 0x00000000-0x7FFFFFFF (plan/v2 SPEC 2)
 		static inline constexpr usize MinSize = 8192; // 8 KiB: the system stack's 4 KiB and room for a program
 
 		// The top of memory belongs to interrupt handlers, not to the program. A handler used to
@@ -41,14 +41,21 @@ namespace ceres::vm
 		static inline constexpr Address UnrestrictedSegmentStart = fmt::MemoryMap::UnrestrictedSegmentStart;
 
 	private:
-		std::vector<ByteType> _data;
+		// Zero until written, and resident only where written: a 2 GiB machine running a small program costs
+		// the host a few MiB (HostPages).
+		HostPages _data;
 
-	public:
-		explicit Memory(usize size = DefaultSize) :
-			_data(size, 0) // Initialize memory with zeros
+		static usize checkedSize(usize size)
 		{
 			if (size < MinSize || size > MaxSize)
 				throw std::invalid_argument("Memory size must be between " + std::to_string(MinSize) + " and " + std::to_string(MaxSize) + " bytes.");
+			return size;
+		}
+
+	public:
+		explicit Memory(usize size = DefaultSize) :
+			_data(checkedSize(size))
+		{
 		}
 
 		Memory(const Memory&) = delete;
@@ -59,7 +66,7 @@ namespace ceres::vm
 		Memory& operator=(Memory&&) = delete;
 
 	public:
-		constexpr usize size() const noexcept { return _data.size(); }
+		forceinline usize size() const noexcept { return _data.size(); }
 
 		forceinline Instruction readInstruction(Address address) const
 		{

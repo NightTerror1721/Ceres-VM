@@ -12,7 +12,7 @@
 namespace ceres::vm
 {
 	// The top 16 MiB of the 32-bit address space, reserved exclusively for devices. It costs no real
-	// RAM in any configuration: Memory::MaxSize is 1 GiB (0x40000000), nowhere near 0xFF000000, so
+	// RAM in any configuration: Memory::MaxSize is 2 GiB (0x80000000), nowhere near 0xFF000000, so
 	// this window can never collide with a program's own memory regardless of how much RAM the
 	// machine was given. Split into 256 slots of 64 KiB each — the same device-count limit
 	// IOPorts::MaxPorts used to impose, but each device now gets a whole window of ordinary,
