@@ -139,6 +139,8 @@ namespace ceres::debug
 			"    l [loc]      source around the current line\n"
 			"    dis [count]  disassembly around the program counter\n"
 			"    x <loc> [n]  dump n bytes of memory; `x` alone continues the last dump\n"
+			"    vram read <off> [n]          dump n bytes of the VRAM from offset off\n"
+			"    vram dump <off> <n> <file>   write n bytes of the VRAM from offset off to a file\n"
 			"    vars         global variables and constants\n"
 			"    cov          how many times each line has run; zero means never reached\n"
 			"    p <expr>     evaluate: r3, sp < 0x1000, total, scores[2], [r1 + 4], u8[r2]\n"
@@ -942,6 +944,38 @@ namespace ceres::debug
 				count = parseNumber(argument(2)).value_or(count);
 
 			dumpMemory(address, count);
+			return true;
+		}
+
+		if (command == "vram")
+		{
+			const auto offset = parseNumber(argument(2));
+			if (argument(1) == "read" && offset.has_value())
+			{
+				const u32 count = argument(3).empty() ? 64 : parseNumber(argument(3)).value_or(64);
+				if (*offset >= _session.vramSize())
+					std::cout << std::format("  The VRAM is {} bytes; {:#x} is past it.\n", _session.vramSize(), *offset);
+				else
+					dumpMemory(vm::Vram::BaseValue + *offset, count);
+				return true;
+			}
+			const auto count = parseNumber(argument(3));
+			if (argument(1) == "dump" && offset.has_value() && count.has_value() && !argument(4).empty())
+			{
+				const std::vector<u8> bytes = *offset < _session.vramSize()
+					? _session.readMemory(vm::Vram::BaseValue + *offset, *count)
+					: std::vector<u8>{};
+				std::ofstream file{ std::filesystem::path(std::string(argument(4))), std::ios::binary };
+				if (!file)
+				{
+					std::cout << "  Cannot write '" << argument(4) << "'.\n";
+					return true;
+				}
+				file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+				std::cout << std::format("  Wrote {} byte(s) of the VRAM from {:#x} to {}.\n", bytes.size(), *offset, argument(4));
+				return true;
+			}
+			std::cout << "  Usage: vram read <offset> [n] | vram dump <offset> <n> <file>\n";
 			return true;
 		}
 

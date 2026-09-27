@@ -23,6 +23,13 @@ namespace ceres::fmt
 		// The rest of the memory (address 0x00000400 - 0xFFFFFFFF) is available for unrestricted use by programs.
 		inline constexpr usize UnrestrictedSegmentStartValue = NullPageSegmentSize + BiosSegmentSize;
 
+		// The physical map (plan/v2 SPEC 2): the RAM from 0 up to 2 GiB, the VRAM from 0xA0000000 up to 1 GiB, the
+		// devices' 16 MiB at the top, and nothing in between.
+		inline constexpr u32 RamLimitValue = 0x80000000;      // the RAM ends here at the most
+		inline constexpr u32 VramStartValue = 0xA0000000;
+		inline constexpr u32 VramLimitValue = 0xE0000000;     // the VRAM ends here at the most
+		inline constexpr u32 MmioStartValue = 0xFF000000;
+
 		inline constexpr Address NullPageSegmentStart = 0_addr;
 		inline constexpr Address BiosSegmentStart = NullPageSegmentStart + Address(NullPageSegmentSize);
 		inline constexpr Address UnrestrictedSegmentStart = NullPageSegmentStart + Address(UnrestrictedSegmentStartValue);

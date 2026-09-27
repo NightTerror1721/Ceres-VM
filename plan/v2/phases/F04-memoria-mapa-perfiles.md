@@ -45,7 +45,8 @@
   4. `blockSpan` devuelve un span directo cuando el bloque cae entero en la VRAM respaldada.
   5. La MMU acepta marcos de VRAM. DMA acepta VRAM como origen o destino.
   6. Debugger: `vram read <off> [n]`, `vram dump <off> <n> <archivo>`.
-- **Aceptación**: [ ] Tests de cada región y de cada motivo de fallo. [ ] `benchmark_vm` sin pérdida > 1 %.
+- **Aceptación**: [x] Tests de cada región y de cada motivo de fallo. [x] `benchmark_vm` sin pérdida > 1 % (en `mixed`;
+  `block-256`, −4 %: ver «Notas»).
 - **Commit**: `Add VRAM and the v2 physical memory map (F4.2)`
 
 ### F4.3 · Mapa MMIO por grupos e IRQ nuevas (tres repos)
@@ -108,3 +109,25 @@
   (gcc-ipo, antes y después intercalados, tres pasadas estables): `mixed` 135,4 y 136,1 MIPS, `ram` 111,8 y 111,4.
   Pendiente para quien lo necesite: el historial del debugger (`history.cpp`) copia y compara la RAM entera en cada
   instantánea, así que con mucha RAM toca todas sus páginas; con el perfil `standard` (64 MiB) es asumible.
+- **F4.2**: `Vram` está en `libs/vm/include/ceres/vm/vram.h`, no en `libs/devices`: el motor la necesita en cada acceso
+  fuera de la RAM y `devices` depende de `vm`, no al revés. `CeresVM(ramSize, vramSize)` la crea (32 MiB por defecto,
+  el de `standard`, hasta que F4.5 traiga los perfiles), el motor y el bus la reciben, y cada `IODevice` la alcanza con
+  `vram()`. Tamaño de 16 KiB a 1 GiB en múltiplos de 4 KiB; la RAM pasa a exigir también múltiplos de 4 KiB (SPEC 2),
+  para que un trozo de una instrucción de bloque, que nunca cruza una página, caiga entero dentro o fuera. El mapa de
+  páginas escritas (`written`, `writtenPages`, `clearWritten`) lo marcan los almacenamientos de la CPU, los bloques y la
+  DMA. Las constantes del mapa (`RamLimitValue`, `VramStartValue`, `VramLimitValue`, `MmioStartValue`) están en
+  `core/format/memory_map.h`. **Enrutado** (`read`/`write` del motor): `p < 0xA0000000` compara con el final de la RAM
+  (`Memory::readBacked`/`writeBacked`: la página nula y la BIOS siguen leyendo 0 e ignorando escrituras); lo demás va a
+  `readOutsideRam`/`writeOutsideRam`: VRAM (3 ciclos), MMIO, o `MemoryFault` con `OutOfRam` (por debajo de
+  `0x80000000`), `OutOfVram` (`0xA0000000–0xDFFFFFFF`) o `Unmapped`. Antes, fuera de la RAM se leía 0 en silencio.
+  **Ejecutar**: desde la RAM y la VRAM; en otro sitio, `MemoryFault` con acceso `Execute` y el mismo motivo, y
+  `MmioWidth` en la ventana de dispositivos (decisión de esta tarea: la SPEC no dice nada de ejecutar fuera de la RAM).
+  Un `ldrd` sobre VRAM es un acceso (1 + 3 ciclos). Los bloques usan un span directo en RAM o VRAM; si no, van byte a
+  byte y paran en el primer fallo sin mover los registros. La MMU no comprueba marcos: uno en la VRAM funciona sin más
+  (las tablas de páginas siguen en la RAM). La DMA acepta RAM o VRAM en cada lado y recorta en el final de cada una; una
+  dirección en ninguna no mueve nada. Debugger: `readMemory` lee también la VRAM por su dirección física (así `x
+  0xA0000000` funciona), `vram read <off> [n]` y `vram dump <off> <n> <archivo>`. Tests: `test_memory.cpp` (cada región
+  y cada motivo, ciclos, páginas escritas, bloques, ejecución), `test_dma.cpp`, `test_paging.cpp` (un marco de VRAM) y
+  `test_debugger.cpp`. `benchmark_vm` (gcc-ipo, intercalado con F4.1): `mixed` 136,1 → 140,4 (+3 %), `ram` +3 %,
+  `push-pop` +3 %, `block-256` 125,5 → 120,2 (−4 %). La primera versión perdía un 9 % en bloques; sacar de línea el
+  camino de VRAM y los bucles byte a byte lo dejó en −4 %, y el resto parece disposición del código, como en F3.2.

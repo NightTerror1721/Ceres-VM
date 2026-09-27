@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ceres/vm/mmio_bus.h>
+#include <span>
 
 namespace ceres::devices
 {
@@ -10,9 +11,8 @@ namespace ceres::devices
 	// A real DMA engine, not the pseudo-DMA the port opcodes used to be: SRC/DST/LEN/CMD are
 	// ordinary registers, and a transfer takes time - one cycle for every 8 bytes (plan/v2 SPEC 5.7) - and
 	// lands on its own event on the machine's scheduler, as the timer's countdown does, so a program can
-	// either poll STATUS or wait for the interrupt. It moves memory the VM already knows how to move
-	// (Memory::copyBytesUnchecked): RAM to RAM today, and RAM to or from a device's own MMIO window
-	// once a device chooses to expose one, since both are just addresses in the same space.
+	// either poll STATUS or wait for the interrupt. Source and destination are physical addresses in the
+	// RAM or the VRAM, in any combination; a device's registers are not a run of bytes to move.
 	class DmaController : public IODevice
 	{
 	public:
@@ -76,5 +76,10 @@ namespace ceres::devices
 		u32 read(Address offset) override;
 		void write(Address offset, u32 value) override;
 		const RegisterMap& registers() const override;
+
+	private:
+		// [address, address + length) as the bytes of the RAM or the VRAM that back it, cut short where they end;
+		// empty when the address is in neither.
+		std::span<u8> region(u32 address, u32 length);
 	};
 }

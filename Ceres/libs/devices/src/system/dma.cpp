@@ -1,5 +1,6 @@
 #include <ceres/devices/system/dma.h>
 #include <algorithm>
+#include <cstring>
 
 namespace ceres::devices
 {
@@ -25,18 +26,37 @@ namespace ceres::devices
 			events->cancel(*this, 0);
 	}
 
+	std::span<u8> DmaController::region(u32 address, u32 length)
+	{
+		if (address < Vram::BaseValue)
+		{
+			const u32 size = memory().clampBlockSizeUnchecked(Address(address), length);
+			if (size == 0)
+				return {};
+			return memory().peekMutBytesUnchecked(Address(address), size);
+		}
+		if (!vram().backs(address, 1))
+			return {};
+		const u32 offset = address - Vram::BaseValue;
+		return { const_cast<u8*>(vram().data()) + offset, vram().clamp(offset, length) };
+	}
+
 	void DmaController::onEvent(u32, u64)
 	{
 		if (!_pending)
 			return;
 
-		// A SRC/DST/LEN that runs past the end of memory is clamped rather than fatal: the
-		// copy moves what fits, and TransferredRegister reports exactly how much.
-		const u32 effective = std::min(
-			memory().clampBlockSizeUnchecked(Address(_source), _length),
-			memory().clampBlockSizeUnchecked(Address(_destination), _length));
+		// A SRC/DST/LEN that runs past the end of the RAM or the VRAM is clamped rather than fatal: the
+		// copy moves what fits, and TransferredRegister reports exactly how much. Either side can be RAM or
+		// VRAM (plan/v2 SPEC 5.7); an address in neither moves nothing.
+		const std::span<u8> from = region(_source, _length);
+		const std::span<u8> to = region(_destination, _length);
+		const u32 effective = static_cast<u32>(std::min(from.size(), to.size()));
 
-		memory().copyBytesUnchecked(Address(_source), Address(_destination), effective);
+		if (effective > 0)
+			std::memmove(to.data(), from.data(), effective);
+		if (_destination >= Vram::BaseValue && effective > 0)
+			vram().markWritten(_destination - Vram::BaseValue, effective);
 		// RAM to RAM always moves the whole length, but a source device that yields fewer
 		// bytes (a short terminal read) would land a smaller number here - which is exactly
 		// what this register exists to report.

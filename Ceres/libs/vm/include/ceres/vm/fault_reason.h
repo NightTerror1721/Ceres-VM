@@ -7,12 +7,13 @@
 namespace ceres::vm
 {
 	// Why the last memory fault happened, beyond which interrupt it raised: what SystemControl's FaultReason
-	// register reports (plan/v2 SPEC 5.4), for a memory fault and for an illegal instruction. The machine raises the
-	// reasons it has a cause for; OutOfRam, OutOfVram and Unmapped wait for the memory map of plan/v2 F4.
+	// register reports (plan/v2 SPEC 5.4), for a memory fault and for an illegal instruction. OutOfRam, OutOfVram and
+	// Unmapped are the physical map's (SPEC 2): an access, a fetch or a block past the RAM, past the VRAM, or into an
+	// empty region.
 	enum class FaultReason : u32
 	{
 		None = 0,
-		Alignment = 1,      // a misaligned access to RAM
+		Alignment = 1,      // a misaligned access to RAM or VRAM
 		OutOfRam = 2,
 		OutOfVram = 3,
 		Unmapped = 4,

@@ -16,7 +16,9 @@ namespace ceres::vm
 
 	// Two-level, 4 KiB-paged translation: a 10/10/12 split over a 32-bit virtual address, the same
 	// shape i386 used over 4 GiB of address space backed by far less physical RAM - exactly Ceres's
-	// situation, with 1 GiB the most any configuration will ever have behind it.
+	// situation, with 2 GiB of RAM and 1 GiB of VRAM the most any configuration has behind it. A leaf's frame
+	// can be anywhere in the physical map: RAM, VRAM or the device window; the engine routes the physical
+	// address it gives as it would one it was handed directly. Page tables themselves live in RAM.
 	//
 	// A page directory is always one page (1024 entries * 4 bytes = 4 KiB) and is the only structure
 	// that must be resident for paging to be on at all; page tables are the program's own to

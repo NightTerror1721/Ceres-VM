@@ -361,8 +361,11 @@ namespace ceres::debug
 		std::optional<SourceLocation> currentLocation() const;
 		u32 programCounter() const;
 
+		// A physical address: the RAM, or the VRAM from 0xA0000000 (plan/v2 SPEC 2). Cut short where either ends.
 		std::vector<u8> readMemory(u32 address, u32 size) const;
 		bool writeMemory(u32 address, std::span<const u8> bytes);
+		// The VRAM's size in bytes.
+		usize vramSize() const;
 
 		// `before` instructions of context ahead of `address`, then `count` from it. Reading
 		// backwards is exact rather than a guess because every instruction is four bytes.

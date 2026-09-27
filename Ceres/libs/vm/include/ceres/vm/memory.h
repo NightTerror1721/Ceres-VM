@@ -22,7 +22,7 @@ namespace ceres::vm
 		using ByteType = u8;
 
 		static inline constexpr usize DefaultSize = 1024 * 1024 * 16; // 16 MiB
-		static inline constexpr usize MaxSize = 0x80000000; // 2 GiB: all of 0x00000000-0x7FFFFFFF (plan/v2 SPEC 2)
+		static inline constexpr usize MaxSize = fmt::MemoryMap::RamLimitValue; // 2 GiB: all of 0x00000000-0x7FFFFFFF (plan/v2 SPEC 2)
 		static inline constexpr usize MinSize = 8192; // 8 KiB: the system stack's 4 KiB and room for a program
 
 		// The top of memory belongs to interrupt handlers, not to the program. A handler used to
@@ -45,10 +45,12 @@ namespace ceres::vm
 		// the host a few MiB (HostPages).
 		HostPages _data;
 
+		// A whole number of 4 KiB pages (plan/v2 SPEC 2), so a block instruction's chunk, which never crosses a
+		// page, is wholly in the RAM or wholly past it.
 		static usize checkedSize(usize size)
 		{
-			if (size < MinSize || size > MaxSize)
-				throw std::invalid_argument("Memory size must be between " + std::to_string(MinSize) + " and " + std::to_string(MaxSize) + " bytes.");
+			if (size < MinSize || size > MaxSize || size % 4096 != 0)
+				throw std::invalid_argument("Memory size must be a multiple of 4096 bytes between " + std::to_string(MinSize) + " and " + std::to_string(MaxSize) + " bytes.");
 			return size;
 		}
 
@@ -67,6 +69,9 @@ namespace ceres::vm
 
 	public:
 		forceinline usize size() const noexcept { return _data.size(); }
+		// The bytes themselves, for the execution engine's block instructions once they have checked the range.
+		forceinline ByteType* data() noexcept { return _data.data(); }
+		forceinline const ByteType* data() const noexcept { return _data.data(); }
 
 		forceinline Instruction readInstruction(Address address) const
 		{
@@ -228,6 +233,45 @@ namespace ceres::vm
 		forceinline void writeUnchecked(Address address, T value) noexcept
 		{
 			writeRaw<T, 0>(address, value); // Unchecked write that allows access to the null page (for instructions, etc.)
+		}
+
+		// The execution engine's own access, once it has checked that [base, base + sizeof(T)) is in the RAM: only
+		// the null page and the BIOS below FirstValidIndex are left to tell apart (a load reads zero there, a store
+		// is dropped), so a load or a store is one comparison and one memcpy.
+		template <typename T, usize FirstValidIndex> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= Register::Size)
+		forceinline T readBacked(usize base) const noexcept
+		{
+			if constexpr (FirstValidIndex > 0)
+			{
+				if (base < FirstValidIndex) [[unlikely]]
+					return T{};
+			}
+			if constexpr (std::endian::native == std::endian::little)
+			{
+				T value;
+				std::memcpy(&value, _data.data() + base, sizeof(T));
+				return value;
+			}
+			else if constexpr (FloatingPoint<T>)
+				return std::bit_cast<T>(readRaw<u32, 0>(Address(static_cast<u32>(base))));
+			else
+				return readRaw<T, 0>(Address(static_cast<u32>(base)));
+		}
+
+		template <typename T, usize FirstValidIndex> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= Register::Size)
+		forceinline void writeBacked(usize base, T value) noexcept
+		{
+			if constexpr (FirstValidIndex > 0)
+			{
+				if (base < FirstValidIndex) [[unlikely]]
+					return;
+			}
+			if constexpr (std::endian::native == std::endian::little)
+				std::memcpy(_data.data() + base, &value, sizeof(T));
+			else if constexpr (FloatingPoint<T>)
+				writeRaw<u32, 0>(Address(static_cast<u32>(base)), std::bit_cast<u32>(value));
+			else
+				writeRaw<T, 0>(Address(static_cast<u32>(base)), value);
 		}
 
 	private:

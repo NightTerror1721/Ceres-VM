@@ -1,6 +1,7 @@
 #pragma once
 
 #include "memory.h"
+#include "vram.h"
 #include "mmio_bus.h"
 #include "fault_reason.h"
 #include <ceres/core/isa/cycles.h>
@@ -34,6 +35,7 @@ namespace ceres::vm
 		Address _pc; // Program Counter (PC)
 		FlagRegister _flags; // Flags register
 		Memory& _memory;
+		Vram& _vram;
 		MmioBus& _mmioBus;
 		InterruptController& _interrupts;
 		Mmu _mmu;
@@ -138,8 +140,8 @@ namespace ceres::vm
 
 
 	public:
-		explicit ExecutionEngine(Memory& memory, MmioBus& mmioBus, InterruptController& interrupts) :
-			_memory(memory), _mmioBus(mmioBus), _interrupts(interrupts)
+		explicit ExecutionEngine(Memory& memory, Vram& vram, MmioBus& mmioBus, InterruptController& interrupts) :
+			_memory(memory), _vram(vram), _mmioBus(mmioBus), _interrupts(interrupts)
 		{
 			_mmioBus.scheduler().bindTo(&_cycles, &_nextEvent);   // the devices' events are kept in this CPU's cycles
 		}
@@ -344,7 +346,40 @@ namespace ceres::vm
 			const auto physical = translate(_pc, MmuAccess::Execute);
 			if (!physical.has_value())
 				return Instruction(0); // Never executed: step() checks _faulted and skips execute().
-			return _memory.readInstruction(*physical);
+			const u32 p = physical->value();
+			if (p <= _memory.size() - Instruction::Size) [[likely]]
+				return Instruction(_memory.readBacked<Instruction::RawType, 0>(p));
+			return fetchOutsideRam(p);
+		}
+
+		// An instruction from the VRAM runs as one from the RAM does. Anywhere else there is nothing to run: past the
+		// RAM, past the VRAM or in an empty region, a MemoryFault with the reason the data access would have (SPEC
+		// 5.4), and in the device window one with MmioWidth, since a device register is only read by a 32-bit load.
+		Instruction fetchOutsideRam(u32 physical) noexcept
+		{
+			if (_vram.backs(physical, Instruction::Size))
+				return Instruction(_vram.read<Instruction::RawType>(physical - Vram::BaseValue));
+			const FaultReason reason = MmioBus::contains(Address(physical)) ? FaultReason::MmioWidth : unbackedReason(physical);
+			noteFault(_pc, FaultAccess::Execute, Instruction::Size, reason);
+			triggerInterrupt(InterruptNumber::MemoryFault);
+			return Instruction(0);
+		}
+
+		// Why a physical address outside the RAM, the VRAM and the device window has nothing behind it (SPEC 2).
+		FaultReason unbackedReason(u32 physical) const noexcept
+		{
+			if (physical < fmt::MemoryMap::RamLimitValue)
+				return FaultReason::OutOfRam;
+			if (Vram::inWindow(physical))
+				return FaultReason::OutOfVram;
+			return FaultReason::Unmapped;
+		}
+
+		// A load or a store that reached no memory: MemoryFault with the reason, the access and its size.
+		void unbacked(Address address, u32 physical, FaultAccess access, u32 size) noexcept
+		{
+			noteFault(address, access, size, unbackedReason(physical));
+			triggerInterrupt(InterruptNumber::MemoryFault);
 		}
 		// A no-op once this instruction has already faulted: triggerInterrupt has redirected the PC
 		// to the handler, and a handler still mid-execution after that must not then walk it forward
@@ -422,11 +457,40 @@ namespace ceres::vm
 			if (!physical.has_value())
 				return T{};
 
-			// The top 16 MiB of physical address space is never backed by Memory - see MmioBus. A
-			// physical address there routes here instead, whether it arrived as-is (paging off) or
-			// as the frame a page table happened to map to (paging on): mapping a device's window
-			// into a program's own virtual space is then just an ordinary page table entry.
-			if (MmioBus::contains(*physical))
+			// The physical map (plan/v2 SPEC 2): below 0xA0000000 the RAM, the only region a program touches all the
+			// time, for one comparison with the end of the RAM; everything else after the one comparison that sends
+			// it away. The null page and the BIOS read as zero, as they always have.
+			const u32 p = physical->value();
+			if (p < Vram::BaseValue) [[likely]]
+			{
+				if (p > _memory.size() - sizeof(T)) [[unlikely]]
+				{
+					unbacked(address, p, FaultAccess::Read, static_cast<u32>(sizeof(T)));
+					return T{};
+				}
+				if (chargeMemory)
+					_cycles += isa::cycles::RamAccess;
+				return _memory.readBacked<T, Memory::UnrestrictedSegmentStartValue>(p);
+			}
+			return readOutsideRam<T>(address, p, chargeMemory);
+		}
+
+		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
+		T readOutsideRam(Address address, u32 p, bool chargeMemory) noexcept
+		{
+			if (_vram.backs(p, sizeof(T)))
+			{
+				if (chargeMemory)
+					_cycles += isa::cycles::VramAccess;
+				return _vram.read<T>(p - Vram::BaseValue);
+			}
+
+			// The top 16 MiB of physical address space is the devices' - see MmioBus. A physical address there
+			// routes here, whether it arrived as-is (paging off) or as the frame a page table happened to map to
+			// (paging on): mapping a device's window into a program's own virtual space is then just an ordinary
+			// page table entry.
+			const Address physical = Address(p);
+			if (MmioBus::contains(physical))
 			{
 				// A device register takes an aligned 32-bit access and nothing else (plan/v2 SPEC 5.1); the
 				// alignment was already checked. Decided at compile time, so RAM accesses pay nothing for it.
@@ -436,7 +500,7 @@ namespace ceres::vm
 					triggerInterrupt(InterruptNumber::MemoryFault);
 					return T{};
 				}
-				if (_strictMmio && !_mmioBus.declares(*physical)) [[unlikely]]
+				if (_strictMmio && !_mmioBus.declares(physical)) [[unlikely]]
 				{
 					noteFault(address, FaultAccess::Read, static_cast<u32>(sizeof(T)), FaultReason::MmioUndeclared);
 					triggerInterrupt(InterruptNumber::MemoryFault);
@@ -444,17 +508,13 @@ namespace ceres::vm
 				}
 				_cycles += isa::cycles::MmioAccess;
 				if constexpr (FloatingPoint<T>)
-					return std::bit_cast<T>(_mmioBus.read(*physical));
+					return std::bit_cast<T>(_mmioBus.read(physical));
 				else
-					return static_cast<T>(_mmioBus.read(*physical));
+					return static_cast<T>(_mmioBus.read(physical));
 			}
 
-			if (chargeMemory)
-				_cycles += isa::cycles::RamAccess;
-			if constexpr (FloatingPoint<T>)
-				return _memory.readFloat(*physical);
-			else
-				return _memory.read<T>(*physical);
+			unbacked(address, p, FaultAccess::Read, static_cast<u32>(sizeof(T)));
+			return T{};
 		}
 
 		// Returns false when the write would land in the program's own text, or in the vector table
@@ -484,7 +544,37 @@ namespace ceres::vm
 			if (!physical.has_value())
 				return;
 
-			if (MmioBus::contains(*physical))
+			// The same routing as read(). A store below 0x400 is refused by checkWritable before it gets here, and
+			// one that gets here anyway (a push, an interrupt's frame) is dropped, as it always was.
+			const u32 p = physical->value();
+			if (p < Vram::BaseValue) [[likely]]
+			{
+				if (p > _memory.size() - sizeof(T)) [[unlikely]]
+				{
+					unbacked(address, p, FaultAccess::Write, static_cast<u32>(sizeof(T)));
+					return;
+				}
+				if (chargeMemory)
+					_cycles += isa::cycles::RamAccess;
+				_memory.writeBacked<T, Memory::UnrestrictedSegmentStartValue>(p, value);
+				return;
+			}
+			writeOutsideRam<T>(address, p, value, chargeMemory);
+		}
+
+		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
+		void writeOutsideRam(Address address, u32 p, T value, bool chargeMemory) noexcept
+		{
+			if (_vram.backs(p, sizeof(T)))
+			{
+				if (chargeMemory)
+					_cycles += isa::cycles::VramAccess;
+				_vram.write<T>(p - Vram::BaseValue, value);
+				return;
+			}
+
+			const Address physical = Address(p);
+			if (MmioBus::contains(physical))
 			{
 				if constexpr (sizeof(T) != sizeof(u32))
 				{
@@ -492,7 +582,7 @@ namespace ceres::vm
 					triggerInterrupt(InterruptNumber::MemoryFault);
 					return;
 				}
-				if (_strictMmio && !_mmioBus.declares(*physical)) [[unlikely]]
+				if (_strictMmio && !_mmioBus.declares(physical)) [[unlikely]]
 				{
 					noteFault(address, FaultAccess::Write, static_cast<u32>(sizeof(T)), FaultReason::MmioUndeclared);
 					triggerInterrupt(InterruptNumber::MemoryFault);
@@ -500,18 +590,13 @@ namespace ceres::vm
 				}
 				_cycles += isa::cycles::MmioAccess;
 				if constexpr (FloatingPoint<T>)
-					_mmioBus.write(*physical, std::bit_cast<u32>(value));
+					_mmioBus.write(physical, std::bit_cast<u32>(value));
 				else
-					_mmioBus.write(*physical, static_cast<u32>(value));
+					_mmioBus.write(physical, static_cast<u32>(value));
 				return;
 			}
 
-			if (chargeMemory)
-				_cycles += isa::cycles::RamAccess;
-			if constexpr (FloatingPoint<T>)
-				_memory.writeFloat(*physical, value);
-			else
-				_memory.write(*physical, value);
+			unbacked(address, p, FaultAccess::Write, static_cast<u32>(sizeof(T)));
 		}
 
 		template <ExecutionFlag Flag>
@@ -1574,9 +1659,10 @@ namespace ceres::vm
 			return n < toPageEndB ? n : toPageEndB;
 		}
 
-		// A chunk as one span of RAM, or nullptr when it does not lie wholly in the RAM a program reaches
-		// (the vector table and the BIOS, the device window, past the end): then it goes a byte at a time
-		// through read<u8>/write<u8>, which say what every such byte does.
+		// A chunk as one span of RAM or of VRAM, or nullptr when it does not lie wholly in the RAM a program reaches
+		// or in the backed VRAM (the vector table and the BIOS, past the end of either): then it goes a byte at a
+		// time through read<u8>/write<u8>, which say what every such byte does - and the loop stops at the first
+		// that faults, leaving the registers as they were for the handler's IRET to run the chunk again.
 		// A block instruction never reaches a device: a register is not a run of bytes (plan/v2 SPEC 5.1). Raises
 		// MemoryFault and returns true when this side of the chunk is in the device window. A chunk never
 		// crosses a page, and the window starts on one, so a chunk is wholly in it or wholly out.
@@ -1589,12 +1675,47 @@ namespace ceres::vm
 			return true;
 		}
 
-		u8* blockSpan(Address physical, u32 size) noexcept
+		// `forWrite`: the chunk is stored to, so a VRAM chunk marks its pages as written.
+		forceinline u8* blockSpan(Address physical, u32 size, bool forWrite) noexcept
 		{
 			const u64 base = physical.value();
-			if (base < Memory::UnrestrictedSegmentStartValue || MmioBus::contains(physical) || base + size > _memory.size())
+			if (base >= Memory::UnrestrictedSegmentStartValue && base + size <= _memory.size()) [[likely]]
+				return _memory.data() + base;
+			return vramBlockSpan(physical.value(), size, forWrite);
+		}
+
+		neverinline u8* vramBlockSpan(u32 physical, u32 size, bool forWrite) noexcept
+		{
+			if (!_vram.backs(physical, size))
 				return nullptr;
-			return _memory.peekMutBytesUnchecked(physical, size).data();
+			const u32 offset = physical - Vram::BaseValue;
+			return forWrite ? _vram.span(offset, size) : const_cast<u8*>(_vram.data()) + offset;
+		}
+
+		// A chunk a byte at a time, through read<u8>/write<u8>: false at the first byte that faults.
+		neverinline bool copyBytewise(u32 dst, u32 src, u32 n) noexcept
+		{
+			for (u32 i = 0; i < n; ++i)
+			{
+				const u8 byte = read<u8>(Address(src + i));
+				if (_faulted)
+					return false;
+				write<u8>(Address(dst + i), byte);
+				if (_faulted)
+					return false;
+			}
+			return true;
+		}
+
+		neverinline bool setBytewise(u32 dst, u8 value, u32 n) noexcept
+		{
+			for (u32 i = 0; i < n; ++i)
+			{
+				write<u8>(Address(dst + i), value);
+				if (_faulted)
+					return false;
+			}
+			return true;
 		}
 
 		void chargeBlock(u64 start, u32 bytes, bool finished) noexcept
@@ -1630,8 +1751,8 @@ namespace ceres::vm
 				return;
 			if (refuseDeviceBlock(Address(src), *from, FaultAccess::Read, n) || refuseDeviceBlock(Address(dst), *to, FaultAccess::Write, n))
 				return;
-			u8* s = blockSpan(*from, n);
-			u8* d = blockSpan(*to, n);
+			u8* s = blockSpan(*from, n, false);
+			u8* d = blockSpan(*to, n, true);
 			if (s != nullptr && d != nullptr)
 			{
 				// Lowest byte first, as the instruction is defined: an overlap with the destination above the
@@ -1644,11 +1765,8 @@ namespace ceres::vm
 				else
 					std::memmove(d, s, n);
 			}
-			else
-			{
-				for (u32 i = 0; i < n; ++i)
-					write<u8>(Address(dst + i), read<u8>(Address(src + i)));
-			}
+			else if (!copyBytewise(dst, src, n))
+				return;
 			setReg(inst.rd(), dst + n);
 			setReg(inst.rs(), src + n);
 			setReg(inst.rt(), count - n);
@@ -1679,13 +1797,10 @@ namespace ceres::vm
 				return;
 			if (refuseDeviceBlock(Address(dst), *to, FaultAccess::Write, n))
 				return;
-			if (u8* d = blockSpan(*to, n); d != nullptr)
+			if (u8* d = blockSpan(*to, n, true); d != nullptr)
 				std::memset(d, value, n);
-			else
-			{
-				for (u32 i = 0; i < n; ++i)
-					write<u8>(Address(dst + i), value);
-			}
+			else if (!setBytewise(dst, value, n))
+				return;
 			setReg(inst.rd(), dst + n);
 			setReg(inst.rt(), count - n);
 			chargeBlock(start, n, count == n);
@@ -1723,8 +1838,8 @@ namespace ceres::vm
 				return;
 			if (refuseDeviceBlock(Address(a), *pa, FaultAccess::Read, n) || refuseDeviceBlock(Address(b), *pb, FaultAccess::Read, n))
 				return;
-			const u8* x = blockSpan(*pa, n);
-			const u8* y = blockSpan(*pb, n);
+			const u8* x = blockSpan(*pa, n, false);
+			const u8* y = blockSpan(*pb, n, false);
 			u32 i = 0;
 			u8 left = 0, right = 0;
 			if (x != nullptr && y != nullptr)
@@ -1739,6 +1854,8 @@ namespace ceres::vm
 				{
 					left = read<u8>(Address(a + i));
 					right = read<u8>(Address(b + i));
+					if (_faulted)
+						return;
 					if (left != right)
 						break;
 				}
@@ -1791,7 +1908,7 @@ namespace ceres::vm
 			if (refuseDeviceBlock(Address(a), *pa, FaultAccess::Read, n))
 				return;
 			u32 i = n;
-			if (const u8* x = blockSpan(*pa, n); x != nullptr)
+			if (const u8* x = blockSpan(*pa, n, false); x != nullptr)
 			{
 				if (const void* hit = std::memchr(x, value, n); hit != nullptr)
 					i = static_cast<u32>(static_cast<const u8*>(hit) - x);
@@ -1800,7 +1917,10 @@ namespace ceres::vm
 			{
 				for (u32 k = 0; k < n; ++k)
 				{
-					if (read<u8>(Address(a + k)) == value)
+					const u8 byte = read<u8>(Address(a + k));
+					if (_faulted)
+						return;
+					if (byte == value)
 					{
 						i = k;
 						break;

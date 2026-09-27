@@ -20,7 +20,7 @@ namespace ceres::vm
 	class MmioBus
 	{
 	public:
-		static inline constexpr u32 BaseValue = 0xFF000000;
+		static inline constexpr u32 BaseValue = fmt::MemoryMap::MmioStartValue;
 		static inline constexpr Address Base = Address(BaseValue);
 		static inline constexpr u32 SlotSize = 0x00010000; // 64 KiB
 		static inline constexpr usize MaxDevices = 256;
@@ -38,6 +38,7 @@ namespace ceres::vm
 		// keeps its registers today; one above is looked up in its table). Built on attach, so an access tests a bit.
 		std::array<u64, MaxDevices> _declared{};
 		Memory& _memory;
+		Vram& _vram;
 		InterruptController& _interrupts;
 
 	public:
@@ -50,7 +51,7 @@ namespace ceres::vm
 		MmioBus& operator=(MmioBus&&) = delete;
 
 	public:
-		MmioBus(Memory& memory, InterruptController& interrupts) : _memory(memory), _interrupts(interrupts)
+		MmioBus(Memory& memory, Vram& vram, InterruptController& interrupts) : _memory(memory), _vram(vram), _interrupts(interrupts)
 		{
 			_devices.fill(nullptr);
 		}
@@ -109,6 +110,7 @@ namespace ceres::vm
 			_declared[index] = declaredMask(device);
 			const std::lock_guard lock{device._connectionMutex};
 			device._memory = &_memory;
+			device._vram = &_vram;
 			device._interrupts = &_interrupts;
 			device._scheduler = &_scheduler;
 		}
@@ -124,6 +126,7 @@ namespace ceres::vm
 				_declared[index] = mask;
 				const std::lock_guard lock{device._connectionMutex};
 				device._memory = &_memory;
+				device._vram = &_vram;
 				device._interrupts = &_interrupts;
 				device._scheduler = &_scheduler;
 			}
@@ -140,6 +143,7 @@ namespace ceres::vm
 				{
 					const std::lock_guard lock{device->_connectionMutex};
 					device->_memory = nullptr;
+					device->_vram = nullptr;
 					device->_interrupts = nullptr;
 					device->_scheduler = nullptr;
 					_scheduler.cancelAll(*device);   // nothing may call back a device that is gone

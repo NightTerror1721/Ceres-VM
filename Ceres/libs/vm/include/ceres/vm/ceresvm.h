@@ -35,6 +35,7 @@ namespace ceres::vm
 	{
 	private:
 		Memory _memory;
+		Vram _vram;
 		InterruptController _interrupts;
 		MmioBus _mmioBus;
 		BIOS _bios;
@@ -63,10 +64,11 @@ namespace ceres::vm
 		void placeArguments() noexcept;
 
 	public:
-		explicit CeresVM(usize memorySize = Memory::DefaultSize) :
+		explicit CeresVM(usize memorySize = Memory::DefaultSize, usize vramSize = Vram::DefaultSize) :
 			_memory(memorySize),
-			_mmioBus(_memory, _interrupts),
-			_engine(_memory, _mmioBus, _interrupts)
+			_vram(vramSize),
+			_mmioBus(_memory, _vram, _interrupts),
+			_engine(_memory, _vram, _mmioBus, _interrupts)
 		{}
 
 		CeresVM(const CeresVM&) = delete;
@@ -126,6 +128,8 @@ namespace ceres::vm
 		// without going through a full Program.
 		Memory& memory() noexcept { return _memory; }
 		const Memory& memory() const noexcept { return _memory; }
+		Vram& vram() noexcept { return _vram; }
+		const Vram& vram() const noexcept { return _vram; }
 
 		ExecutionEngine& engine() noexcept { return _engine; }
 		const ExecutionEngine& engine() const noexcept { return _engine; }

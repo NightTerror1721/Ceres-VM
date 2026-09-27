@@ -51,3 +51,39 @@ TEST(dma, a_dma_transfer_past_the_end_of_memory_is_clamped_not_fatal)
 	CHECK_EQ(dma.read(DmaController::TransferredRegister), u32{ 4 });
 	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 4), std::string{ "WXYZ" });
 }
+
+TEST(dma, a_dma_transfer_moves_between_ram_and_vram)
+{
+	// RAM to VRAM and back (plan/v2 SPEC 5.7). The store into the VRAM marks its page, as a CPU store would, and a
+	// transfer that runs past the end of the VRAM is clamped the way one past the end of the RAM is.
+	Machine m{ Instruction::NOP(), Instruction::NOP(), Instruction::NOP(), Instruction::NOP() };
+
+	DmaController dma{};
+	dma.attachTo(m.vm().io());
+	fill(m.memory(), SourceBuffer, "PIXELS");
+
+	auto transfer = [&](u32 from, u32 to, u32 length)
+	{
+		dma.write(DmaController::SourceRegister, from);
+		dma.write(DmaController::DestinationRegister, to);
+		dma.write(DmaController::LengthRegister, length);
+		dma.write(DmaController::CommandRegister, DmaController::CommandStart);
+		m.step(2);
+	};
+
+	const u32 vramAt = Vram::BaseValue + 3 * Vram::PageSize + 8;
+	transfer(SourceBuffer, vramAt, 6);
+	CHECK_EQ(dma.read(DmaController::TransferredRegister), u32{ 6 });
+	CHECK(m.vm().vram().written(3));
+	CHECK_EQ(m.vm().vram().writtenPages(), usize{ 1 });
+
+	transfer(vramAt, DestinationBuffer, 6);
+	CHECK_EQ(readBack(m.memory(), DestinationBuffer, 6), std::string{ "PIXELS" });
+
+	const u32 vramEnd = Vram::BaseValue + static_cast<u32>(m.vm().vram().size());
+	transfer(SourceBuffer, vramEnd - 2, 6);
+	CHECK_EQ(dma.read(DmaController::TransferredRegister), u32{ 2 });
+
+	transfer(SourceBuffer, 0x90000000u, 6);   // the empty region: nothing moves
+	CHECK_EQ(dma.read(DmaController::TransferredRegister), u32{ 0 });
+}

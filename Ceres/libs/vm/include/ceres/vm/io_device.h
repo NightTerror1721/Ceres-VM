@@ -3,6 +3,7 @@
 #include <ceres/core/base/types.h>
 #include <ceres/core/isa/address.h>
 #include "memory.h"
+#include "vram.h"
 #include "interrupt_controller.h"
 #include "register_map.h"
 #include "scheduler.h"
@@ -21,8 +22,9 @@ namespace ceres::vm
 	{
 	private:
 		Memory* _memory = nullptr;
+		Vram* _vram = nullptr;
 		InterruptController* _interrupts = nullptr;
-		Scheduler* _scheduler = nullptr;   // set by the bus on attach, like the two above
+		Scheduler* _scheduler = nullptr;   // set by the bus on attach, like the three above
 		// A host input thread may call raiseInterrupt while a machine is being torn down.
 		// The bus clears both pointers under this lock before the VM can be destroyed.
 		std::mutex _connectionMutex;
@@ -55,6 +57,8 @@ namespace ceres::vm
 	protected:
 		Memory& memory() { return *_memory; }
 		const Memory& memory() const { return *_memory; }
+		Vram& vram() { return *_vram; }
+		const Vram& vram() const { return *_vram; }
 
 		// The machine's event scheduler, or nullptr while the device is not attached to a bus.
 		Scheduler* scheduler() noexcept { return _scheduler; }

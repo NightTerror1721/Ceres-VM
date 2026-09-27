@@ -122,6 +122,28 @@ TEST(paging, a_mapped_page_translates_reads_and_writes_to_its_physical_frame)
 	CHECK_EQ(m.memory().readUnchecked<u32>(Address(FrameA)), 0x1234u);
 }
 
+TEST(paging, a_page_can_map_a_frame_of_the_vram)
+{
+	// plan/v2 SPEC 2: a leaf's frame can be in the VRAM; the store lands there and marks the VRAM page.
+	Machine m{
+		Instruction::LI(1, static_cast<u16>(PageDirectory)),
+		Instruction::MTP(1),
+		Instruction::PGON(),
+		Instruction::LUI(2, 0x0080),      // r2 = MappedVA
+		Instruction::LI(4, 0x7E57),
+		Instruction::STR(2, 4, 12),
+		Instruction::LDR(3, 2, 12),
+	};
+	mapCodeIdentity(m);
+	mapPage(m, PageDirectory, DataTable, 2, 0, Vram::BaseValue + 2 * Vram::PageSize, Mmu::PtePresent | Mmu::PteWritable);
+
+	m.step(7);
+
+	CHECK_EQ(m.reg(3), 0x7E57u);
+	CHECK_EQ(m.vm().vram().read<u32>(2 * Vram::PageSize + 12), 0x7E57u);
+	CHECK(m.vm().vram().written(2));
+}
+
 TEST(paging, a_virtual_address_above_the_end_of_ram_is_translated_too)
 {
 	// 0x80000000 is far past this machine's 16 MiB, and still a page like any other (directory slot 512).

@@ -447,6 +447,36 @@ TEST(debugger, registers_and_memory_can_be_written_from_outside)
 		CHECK_EQ(readBack[0], u8{ 0xDE });
 }
 
+TEST(debugger, the_vram_reads_back_through_its_physical_addresses)
+{
+	// A program stores into the VRAM; the debugger reads it at 0xA0000000 up (plan/v2 SPEC 2), and cuts a read
+	// short where the VRAM ends.
+	constexpr std::string_view VramSource =
+		"@text\r\n"
+		"global main:\r\n"
+		"    la  r1, 0xA0000000\r\n"
+		"    li  r2, 0x1234\r\n"
+		"    str [r1 + 16], r2\r\n"
+		"    ret\r\n";
+	TempSource source{ VramSource, "vram" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+	session->start();
+	session->resume();
+
+	const std::vector<u8> bytes = session->readMemory(0xA0000010, 4);
+	CHECK_EQ(bytes.size(), usize{ 4 });
+	if (bytes.size() == 4)
+	{
+		CHECK_EQ(bytes[0], u8{ 0x34 });
+		CHECK_EQ(bytes[1], u8{ 0x12 });
+	}
+	const u32 end = vm::Vram::BaseValue + static_cast<u32>(session->vramSize());
+	CHECK_EQ(session->readMemory(end - 2, 8).size(), usize{ 2 });
+	CHECK(session->readMemory(end, 4).empty());
+}
+
 TEST(debugger, globals_are_rendered_through_the_types_the_assembler_recorded)
 {
 	constexpr std::string_view VarSource =

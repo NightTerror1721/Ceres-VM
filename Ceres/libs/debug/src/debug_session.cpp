@@ -1443,6 +1443,17 @@ namespace ceres::debug
 		if (size == 0)
 			return out;
 
+		if (address >= vm::Vram::BaseValue)
+		{
+			const vm::Vram& vram = _vm->vram();
+			if (!vram.backs(address, 1))
+				return out;
+			const u32 offset = address - vm::Vram::BaseValue;
+			const u32 clamped = vram.clamp(offset, size);
+			out.assign(vram.data() + offset, vram.data() + offset + clamped);
+			return out;
+		}
+
 		const usize memorySize = _vm->memory().size();
 		if (address >= memorySize)
 			return out;
@@ -1453,6 +1464,11 @@ namespace ceres::debug
 		// which are exactly the regions the program itself is kept out of.
 		_vm->memory().readBytesUnchecked(vm::Address(address), out);
 		return out;
+	}
+
+	usize DebugSession::vramSize() const
+	{
+		return _vm->vram().size();
 	}
 
 	bool DebugSession::writeMemory(u32 address, std::span<const u8> bytes)
