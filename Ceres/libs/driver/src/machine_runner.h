@@ -21,6 +21,7 @@ namespace ceres::driver
 		std::optional<u64> cpuClockHz;    // --cpu-clock; unset, the standard 50 MHz
 		std::filesystem::path record;     // --record: the host's input, stamped with its cycles, written here
 		std::filesystem::path replay;     // --replay: a recording fed back instead of the host's input
+		std::filesystem::path logFile;    // --log: the host's log goes here instead of the diagnostics stream
 	};
 
 	int runMachine(const fmt::Program& program, usize memorySize, const fmt::DebugInfo* profileInfo,

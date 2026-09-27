@@ -238,6 +238,9 @@ namespace ceres::debug
 		std::unique_ptr<PeripheralDevice> _peripherals;
 		std::unique_ptr<HostFsDevice> _hostFs;
 		std::unique_ptr<BlitterDevice> _blitter;
+		std::unique_ptr<DebugLogDevice> _debugLog;
+		// The program wrote the debug log's Break register during the last instruction: stepOnce stops there.
+		bool _breakRequested = false;
 
 		std::vector<Breakpoint> _breakpoints;
 		std::vector<DataBreakpoint> _dataBreakpoints;

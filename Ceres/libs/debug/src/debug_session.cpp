@@ -302,6 +302,27 @@ namespace ceres::debug
 		_blitter = std::make_unique<BlitterDevice>();
 		_blitter->attachTo(_vm->io());
 
+		// The debug log goes where the program's error stream goes, as the host's log would put it; its Break stops
+		// the program like a breakpoint (plan/v2 SPEC 5.7). Neither acts while going back through the history: that
+		// ground has been covered, and its lines were shown the first time.
+		_debugLog = std::make_unique<DebugLogDevice>();
+		_debugLog->setSink([this](u32 level, std::string_view line)
+		{
+			if (_history.isReplaying())
+				return;
+			const OutputHandler& handler = _errorHandler ? _errorHandler : _outputHandler;
+			if (!handler)
+				return;
+			const std::string text = std::format("[ceres:{}] {}\n", DebugLogDevice::levelName(level), line);
+			handler(std::span<const u8>(reinterpret_cast<const u8*>(text.data()), text.size()));
+		});
+		_debugLog->setBreakHandler([this]
+		{
+			if (!_history.isReplaying())
+				_breakRequested = true;
+		});
+		_debugLog->attachTo(_vm->io());
+
 		setOutputHandler(_outputHandler); // Routes both the terminal and the screen
 
 		// Recorded rather than acted on: triggerInterrupt is noexcept and in the middle of
@@ -1033,6 +1054,7 @@ namespace ceres::debug
 		}
 
 		_lastInterrupt = {};
+		_breakRequested = false;
 		engine.step();
 
 		const u32 pcAfter = engine.programCounter().value();
@@ -1070,6 +1092,15 @@ namespace ceres::debug
 			event.message = _lastInterrupt.entered
 				? std::format("{} raised at {}", describe(_lastInterrupt.number), where)
 				: std::format("{} raised at {}, with no handler installed", describe(_lastInterrupt.number), where);
+			return event;
+		}
+
+		// The program asked for it (the debug log's Break): a breakpoint no one set, on the instruction after the store.
+		if (_breakRequested)
+		{
+			_breakRequested = false;
+			StopEvent event = makeStop(StopReason::Breakpoint);
+			event.message = "The program asked to stop: " + event.message;
 			return event;
 		}
 

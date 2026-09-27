@@ -18,6 +18,7 @@
 #include <ceres/devices/storage/disk.h>
 #include <ceres/devices/storage/host_fs.h>
 #include <ceres/devices/storage/peripherals.h>
+#include <ceres/devices/system/debug_log.h>
 #include <ceres/devices/system/dma.h>
 #include <ceres/devices/system/system_control.h>
 #include <ceres/devices/system/timer.h>

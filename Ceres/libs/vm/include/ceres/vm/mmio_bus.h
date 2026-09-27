@@ -205,6 +205,7 @@ namespace ceres::vm
 		static inline constexpr Address Terminal = MmioBus::slot(0x00);
 		static inline constexpr Address Timer = MmioBus::slot(0x01);
 		static inline constexpr Address Dma = MmioBus::slot(0x02);
+		static inline constexpr Address DebugLog = MmioBus::slot(0x03);
 		static inline constexpr Address Keyboard = MmioBus::slot(0x10);
 		static inline constexpr Address Mouse = MmioBus::slot(0x11);
 		static inline constexpr Address Gamepad = MmioBus::slot(0x12);

@@ -147,3 +147,21 @@
   `IRQ_DEVICE_LAST` 34), el módulo `irq` enlaza un stub sólo para los números que lanza un dispositivo (hay huecos:
   `irq_attach` devuelve −1 en los demás) y `irq_name` los nombra; comentarios de las cabeceras; `test_user_irq17`
   pasa a `test_user_irq19`; referencia regenerada con `node tools/gendocs.js`.
+- **F4.4**: `DebugLogDevice` (`devices/system/debug_log.{h,cpp}`, slot `0x03`, `default_mmio::DebugLog`) con los
+  registros de SPEC 5.7; `Level` guarda 0–3 (un valor mayor cuenta como 3), una línea sin fin se envía a trozos de
+  4096 bytes y un reset tira la línea a medias y vuelve a `info`. `Enabled` es 1 cuando el host ha puesto un sumidero.
+  `HostLog` (`driver/host_log.{h,cpp}`) escribe `[ceres:<nivel>] <línea>` (`error`, `warn`, `info`, `debug`) en el
+  flujo de diagnósticos o en el archivo de `--log` (sólo `ceres run`; un archivo que no se puede escribir es un
+  error antes de arrancar), con un mutex porque escriben la máquina y el host. Pasan por él el registro de
+  depuración y **todos** los diagnósticos de `runMachine` (disco, `--host-dir`, puertos, carga, grabación,
+  reproducción y la excepción sin manejar, que ahora sale como `[ceres:error] Unhandled …`); el informe de
+  `ceres profile` sigue siendo texto suelto en stderr, y el flujo de error del terminal sigue yendo al stderr del
+  host hasta F5. `driver::Machine` (la API para incrustar) lo expone como `MachineHost::debugLog`. **Debugger**: las
+  líneas van a la salida de error de la sesión (o a la normal si no hay) con el mismo formato, y `Break` detiene el
+  programa en la instrucción siguiente con `StopReason::Breakpoint` y el mensaje «The program asked to stop: …»;
+  ninguna de las dos cosas actúa mientras se reproduce el historial. **STDLIB**: `DEBUGLOG_BASE` en `ceres.h`;
+  `log_msg`/`LOGx`, `dbg_hexdump`, `dbg_where` y `dbg_span_end` escriben en el registro (el formato con
+  `__vformat_ext`, carácter a carácter) y ya no llevan su `[nivel]`, que pone el host; nuevos `dbg_break()` y
+  `dbg_log_enabled()`. **Desviación**: los tests comparan el log en stderr (`tests/expected/test_debug_ansi.stderr`,
+  que el runner ya comprobaba) en lugar de un archivo de `--log`: es el mismo texto y no hace falta tocar el runner;
+  el paso a `--log` se prueba en CeresASM (`driver_run.log_sends_the_hosts_log_to_a_file`).

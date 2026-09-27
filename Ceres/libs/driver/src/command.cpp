@@ -17,7 +17,7 @@ namespace ceres::driver
 			"  ceres ar <output.car> <file.cobj> [...]\n"
 			"  ceres run <file.casm|file.cres> [--memory <bytes>] [--disk <image>] [--window | --terminal] [--strict-mmio]\n"
 			"                                  [--rtc <YYYY-MM-DDThh:mm:ss>] [--speed realtime|max|<f>x] [--cpu-clock <hz>]\n"
-			"                                  [--record <file> | --replay <file>]\n"
+			"                                  [--record <file> | --replay <file>] [--log <file>]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
 			"                                  [--env <name>=<value>]... [--host-dir <dir>] [-- <argument>...]\n"
 			"  ceres profile <file.casm|file.cres> [--memory <bytes>]\n"
@@ -39,7 +39,9 @@ namespace ceres::driver
 			"(the default without one: no waiting at all) or a factor such as 0.5x or 2x. --cpu-clock sets the CPU clock\n"
 			"(50M by default), in Hz with an optional k, M or G.\n"
 			"--record writes everything the host gives the machine (input, keys, the mouse, files dropped), each with the\n"
-			"cycle it went in at; --replay feeds such a recording back at the same cycles and reads no input of the host's.\n";
+			"cycle it went in at; --replay feeds such a recording back at the same cycles and reads no input of the host's.\n"
+			"--log sends the host's log - the program's debug log and what the host has to say about the run, such as an\n"
+			"exception nobody handled - to a file instead of stderr, one '[ceres:<level>] <line>' each.\n";
 
 		struct RawOptions
 		{
@@ -82,6 +84,7 @@ namespace ceres::driver
 			std::optional<u64> cpuClockHz;
 			std::filesystem::path record;
 			std::filesystem::path replay;
+			std::filesystem::path log;
 			bool window = false;
 			bool usedWindow = false;
 			bool terminal = false;
@@ -210,6 +213,12 @@ namespace ceres::driver
 				if (!value) return std::unexpected(value.error());
 				(argument == "--record" ? raw.record : raw.replay) = *value;
 			}
+			else if (argument == "--log")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				raw.log = *value;
+			}
 			else if (argument == "-o" || argument == "--output")
 			{
 				auto value = nextValue(argument);
@@ -313,10 +322,10 @@ namespace ceres::driver
 		if (raw.usedGcSections && command != "link")
 			return std::unexpected(invalidOption("--gc-sections", command));
 		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio || raw.rtc || raw.speed || raw.cpuClockHz ||
-			!raw.record.empty() || !raw.replay.empty()) && command != "run")
+			!raw.record.empty() || !raw.replay.empty() || !raw.log.empty()) && command != "run")
 			return std::unexpected(invalidOption(raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : raw.strictMmio ? "--strict-mmio" :
 				raw.rtc ? "--rtc" : raw.speed ? "--speed" : raw.cpuClockHz ? "--cpu-clock" : !raw.record.empty() ? "--record" :
-				!raw.replay.empty() ? "--replay" : "--", command));
+				!raw.replay.empty() ? "--replay" : !raw.log.empty() ? "--log" : "--", command));
 		if (command == "asm")
 		{
 			if (raw.usedMemory || raw.usedDisk || raw.usedWindow || raw.usedTerminal || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
@@ -353,7 +362,7 @@ namespace ceres::driver
 				return std::unexpected(ParseError{ "'--record' and '--replay' are opposites: pick one" });
 			return RunCommand{ std::move(inputs.front()), raw.memorySize, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal,
 				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory), raw.strictMmio,
-				raw.rtc, raw.speed, raw.cpuClockHz, std::move(raw.record), std::move(raw.replay) };
+				raw.rtc, raw.speed, raw.cpuClockHz, std::move(raw.record), std::move(raw.replay), std::move(raw.log) };
 		}
 		if (command == "profile")
 		{

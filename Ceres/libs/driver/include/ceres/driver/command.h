@@ -65,6 +65,7 @@ namespace ceres::driver
 		std::optional<u64> cpuClockHz;          // --cpu-clock: the CPU clock in cycles per second
 		std::filesystem::path record;           // --record: write the host's input, stamped with its cycles, here
 		std::filesystem::path replay;           // --replay: feed a recording back instead of the host's input
+		std::filesystem::path logFile;          // --log: the host's log (the debug log and the diagnostics) goes here
 	};
 
 	struct ProfileCommand

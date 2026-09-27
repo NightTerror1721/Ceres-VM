@@ -2,6 +2,7 @@
 #include "console_input.h"
 
 #include <ceres/driver/driver.h>
+#include <ceres/driver/host_log.h>
 #include <ceres/driver/pacer.h>
 #include <ceres/driver/input_journal.h>
 #include <ceres/devices/devices.h>
@@ -54,6 +55,7 @@ namespace ceres::driver
 		PeripheralDevice peripherals;
 		HostFsDevice hostFs;
 		BlitterDevice blitter;
+		DebugLogDevice debugLog;
 		std::string startupError;
 
 		Impl(const MachineConfig& config, const MachineHost& host) :
@@ -88,6 +90,9 @@ namespace ceres::driver
 			peripherals.attachTo(vm.io());
 			hostFs.attachTo(vm.io());
 			blitter.attachTo(vm.io());
+			debugLog.attachTo(vm.io());
+			if (host.debugLog)
+				debugLog.setSink(host.debugLog);
 			if (!config.hostDirectory.empty() && !hostFs.setRoot(config.hostDirectory))
 				startupError = "Not a directory: " + config.hostDirectory.string();
 
@@ -128,6 +133,7 @@ namespace ceres::driver
 			peripherals.detachFrom(vm.io());
 			hostFs.detachFrom(vm.io());
 			blitter.detachFrom(vm.io());
+			debugLog.detachFrom(vm.io());
 			control.detachFrom(vm.io());
 		}
 	};
@@ -331,6 +337,14 @@ namespace ceres::driver
 		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, vm::ProgramArguments arguments,
 		const std::filesystem::path& hostDirectory, HostServices services, HostBackend* backend, const MachineOptions& options)
 	{
+		// What the host says about the run, and the program's debug log: to the diagnostics stream, or to --log.
+		HostLog log{ *services.diagnostics };
+		if (!options.logFile.empty() && !log.openFile(options.logFile))
+		{
+			*services.diagnostics << "Cannot write the log " << options.logFile.string() << '\n';
+			return 1;
+		}
+
 		CeresVM vm{memorySize};
 		vm.engine().setStrictMmio(options.strictMmio);
 		if (options.cpuClockHz)
@@ -363,8 +377,11 @@ namespace ceres::driver
 		PeripheralDevice peripherals;
 		HostFsDevice hostFs;
 		BlitterDevice blitter;
+		DebugLogDevice debugLog;
+		debugLog.setSink([&log](u32 level, std::string_view line) { log.write(level, line); });
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
+		debugLog.attachTo(vm.io());
 		framebuffer.setWindowHost(backend != nullptr && backend->showsText());
 		if (options.rtc)
 			timer.setRtcStart(*options.rtc);
@@ -386,7 +403,7 @@ namespace ceres::driver
 		framebuffer.setPresentSink([out = services.output](std::string_view frame) { *out << frame; out->flush(); });
 		if (!diskImage.empty() && !disk.open(diskImage))
 		{
-			*services.diagnostics << "Failed to open disk image: " << diskImage.string() << '\n';
+			log.error("Failed to open disk image: " + diskImage.string());
 			return 1;
 		}
 		disk.attachTo(vm.io());
@@ -394,7 +411,7 @@ namespace ceres::driver
 		peripherals.attachTo(vm.io());
 		if (!hostDirectory.empty() && !hostFs.setRoot(hostDirectory))
 		{
-			*services.diagnostics << "--host-dir: not a directory: " << hostDirectory.string() << '\n';
+			log.error("--host-dir: not a directory: " + hostDirectory.string());
 			return 1;
 		}
 		hostFs.attachTo(vm.io());
@@ -404,7 +421,7 @@ namespace ceres::driver
 			std::string error;
 			if (!peripherals.attachFile(port.port, port.path, port.cartridge ? PeripheralDevice::Kind::Cartridge : PeripheralDevice::Kind::Storage, &error))
 			{
-				*services.diagnostics << "Failed to plug in " << port.path.string() << ": " << error << '\n';
+				log.error("Failed to plug in " + port.path.string() + ": " + error);
 				return 1;
 			}
 		}
@@ -441,7 +458,7 @@ namespace ceres::driver
 			recording.open(options.record, std::ios::binary);
 			if (!recording)
 			{
-				*services.diagnostics << "Cannot write the input recording " << options.record.string() << '\n';
+				log.error("Cannot write the input recording " + options.record.string());
 				return 1;
 			}
 			input->record(recording);
@@ -452,7 +469,7 @@ namespace ceres::driver
 			auto events = file ? readInputRecording(file) : std::unexpected(std::string("it cannot be opened"));
 			if (!events)
 			{
-				*services.diagnostics << "Cannot replay " << options.replay.string() << ": " << events.error() << '\n';
+				log.error("Cannot replay " + options.replay.string() + ": " + events.error());
 				return 1;
 			}
 			input->replay(std::move(*events));
@@ -475,13 +492,13 @@ namespace ceres::driver
 			HostBackend* backend;
 			~DropHandler() { if (backend) backend->setFileDropHandler({}); }
 		} dropHandler{backend};
-		const auto plugIn = [&peripherals, diagnostics = services.diagnostics](const std::filesystem::path& path)
+		const auto plugIn = [&peripherals, &log](const std::filesystem::path& path)
 		{
 			const bool cartridge = path.extension() == ".cart";
 			std::string error;
 			const int port = peripherals.attachToFreePort(path, cartridge ? PeripheralDevice::Kind::Cartridge : PeripheralDevice::Kind::Storage, &error);
 			if (port < 0)
-				*diagnostics << "Could not plug in " << path.string() << ": " << error << '\n';
+				log.error("Could not plug in " + path.string() + ": " + error);
 		};
 		if (backend)
 			backend->setFileDropHandler([input](const std::filesystem::path& path)
@@ -571,7 +588,7 @@ namespace ceres::driver
 		if (auto loaded = vm.loadProgram(program); !loaded)
 		{
 			terminal->detachFrom(vm.io());
-			*services.diagnostics << "Failed to load program: " << loaded.error() << '\n';
+			log.error("Failed to load program: " + loaded.error());
 			return 1;
 		}
 		if (profileInfo)
@@ -583,7 +600,7 @@ namespace ceres::driver
 		if (auto powered = vm.powerOn(); !powered)
 		{
 			terminal->detachFrom(vm.io());
-			*services.diagnostics << "Failed to power on: " << powered.error() << '\n';
+			log.error("Failed to power on: " + powered.error());
 			return 1;
 		}
 
@@ -649,7 +666,7 @@ namespace ceres::driver
 		}
 
 		if (const auto unhandled = describeUnhandledException(vm))
-			*services.diagnostics << *unhandled << '\n';
+			log.error(*unhandled);
 		if (profileInfo)
 			printProfile(vm, *profileInfo, *services.diagnostics);
 		terminal->detachFrom(vm.io());

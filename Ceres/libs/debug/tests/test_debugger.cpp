@@ -447,6 +447,39 @@ TEST(debugger, registers_and_memory_can_be_written_from_outside)
 		CHECK_EQ(readBack[0], u8{ 0xDE });
 }
 
+TEST(debugger, the_debug_log_goes_to_the_error_stream_and_its_break_stops_the_program)
+{
+	// plan/v2 SPEC 5.7: a line of the debug log reaches the debugger's output as the host's log writes it, and a
+	// write to Break stops the program on the next instruction, as a breakpoint would.
+	constexpr std::string_view LogSource =
+		"@text\r\n"
+		"global main:\r\n"
+		"    la   r13, 0xFF030000\r\n"
+		"    li   r0, 111\r\n"
+		"    str  [r13 + 0], r0\r\n"
+		"    li   r0, 10\r\n"
+		"    str  [r13 + 0], r0\r\n"
+		"    str  [r13 + 12], r0\r\n"
+		"    li   r1, 7\r\n"
+		"    ret\r\n";
+	TempSource source{ LogSource, "debuglog" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+	std::string errors;
+	session->setOutputHandler([](std::span<const u8>) {});
+	session->setErrorHandler([&errors](std::span<const u8> bytes) { errors.append(bytes.begin(), bytes.end()); });
+	session->start();
+
+	const debug::StopEvent event = session->resume();
+	CHECK(event.reason == debug::StopReason::Breakpoint);
+	CHECK(event.message.starts_with("The program asked to stop"));
+	CHECK_EQ(errors, std::string("[ceres:info] o\n"));
+	CHECK(session->registers().general[1] != 7u);           // stopped before `li r1, 7`
+	session->resume();
+	CHECK_EQ(session->registers().general[1], 7u);
+}
+
 TEST(debugger, the_vram_reads_back_through_its_physical_addresses)
 {
 	// A program stores into the VRAM; the debugger reads it at 0xA0000000 up (plan/v2 SPEC 2), and cuts a read

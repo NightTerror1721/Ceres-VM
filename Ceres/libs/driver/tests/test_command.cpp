@@ -671,7 +671,7 @@ namespace
 	// `source` under `ceres run`, on a thread of its own that is given `limit` to end: a run that hangs fails the
 	// test that asked instead of holding up the whole suite. One that does not end is left behind, with what it
 	// writes to, since nothing can stop it from outside.
-	BoundedRun runWithin(const char* name, const std::string& source, std::chrono::seconds limit)
+	BoundedRun runWithin(const char* name, const std::string& source, std::chrono::seconds limit, std::filesystem::path logFile = {})
 	{
 		struct Run
 		{
@@ -688,9 +688,9 @@ namespace
 			file << source;
 		}
 		std::future<int> status = run->status.get_future();
-		std::thread([run]
+		std::thread([run, logFile]
 		{
-			run->status.set_value(execute(RunCommand{.input = run->path}, {&run->input, &run->output, &run->diagnostics}));
+			run->status.set_value(execute(RunCommand{.input = run->path, .logFile = logFile}, {&run->input, &run->output, &run->diagnostics}));
 		}).detach();
 		if (status.wait_for(limit) != std::future_status::ready)
 			return {};
@@ -718,7 +718,7 @@ TEST(driver_run, an_unhandled_fault_ends_the_run_with_status_1_and_says_what_it_
 	CHECK_EQ(*run.status, 1);
 	CHECK(run.output.empty());
 	// main starts at 0x400 and the load is its second instruction.
-	CHECK_EQ(run.diagnostics, std::string("Unhandled AlignmentFault at 0x00000404: read of 4 bytes at 0x00000601 (FaultReason 1, Alignment)\n"));
+	CHECK_EQ(run.diagnostics, std::string("[ceres:error] Unhandled AlignmentFault at 0x00000404: read of 4 bytes at 0x00000601 (FaultReason 1, Alignment)\n"));
 }
 
 TEST(driver_run, an_unhandled_fault_on_a_device_register_reports_its_fault_reason)
@@ -740,7 +740,7 @@ TEST(driver_run, an_unhandled_fault_on_a_device_register_reports_its_fault_reaso
 	if (!run.status) return;
 	CHECK_EQ(*run.status, 1);
 	CHECK(run.output.empty());
-	CHECK(run.diagnostics.starts_with("Unhandled MemoryFault at 0x"));
+	CHECK(run.diagnostics.starts_with("[ceres:error] Unhandled MemoryFault at 0x"));
 	CHECK(run.diagnostics.find(": write of 1 bytes at 0xFF000004 (FaultReason 5, MmioWidth)\n") != std::string::npos);
 }
 
@@ -760,5 +760,65 @@ TEST(driver_run, an_unhandled_trap_ends_the_run_too)
 	CHECK(run.status.has_value());
 	if (!run.status) return;
 	CHECK_EQ(*run.status, 1);
-	CHECK_EQ(run.diagnostics, std::string("Unhandled Trap at 0x00000404\n"));
+	CHECK_EQ(run.diagnostics, std::string("[ceres:error] Unhandled Trap at 0x00000404\n"));
+}
+
+namespace
+{
+	// Two lines of the debug log (plan/v2 SPEC 5.7), a warning and an info one, and then a trap nobody handles.
+	constexpr const char* DebugLogProgram =
+		"@text\n"
+		"global main:\n"
+		"    la   r13, 0xFF030000\n"
+		"    li   r0, 1\n"
+		"    str  [r13 + 4], r0\n"
+		"    li   r0, 72\n"
+		"    str  [r13 + 0], r0\n"
+		"    li   r0, 105\n"
+		"    str  [r13 + 0], r0\n"
+		"    li   r0, 10\n"
+		"    str  [r13 + 0], r0\n"
+		"    li   r0, 2\n"
+		"    str  [r13 + 4], r0\n"
+		"    li   r0, 33\n"
+		"    str  [r13 + 0], r0\n"
+		"    str  [r13 + 8], r0\n"
+		"    ldr  r1, [r13 + 16]\n"
+		"    add  r1, r1, 48\n"
+		"    la   r13, 0xFF000004\n"
+		"    str  [r13 + 0], r1\n"
+		"    trap\n";
+}
+
+TEST(driver_run, the_debug_log_and_the_diagnostics_go_to_the_hosts_log)
+{
+	// Without --log: stderr, as "[ceres:<level>] <line>", and the program sees the log collected (Enabled 1).
+	const BoundedRun run = runWithin("ceres_driver_debug_log_test.casm", DebugLogProgram, std::chrono::seconds(10));
+	CHECK(run.status.has_value());
+	if (!run.status) return;
+	CHECK_EQ(run.output, std::string("1"));
+	CHECK_EQ(run.diagnostics, std::string("[ceres:warn] Hi\n[ceres:info] !\n[ceres:error] Unhandled Trap at 0x00000454\n"));
+}
+
+TEST(driver_run, log_sends_the_hosts_log_to_a_file)
+{
+	const std::filesystem::path logFile = std::filesystem::temp_directory_path() / "ceres_driver_debug_log_test.log";
+	std::filesystem::remove(logFile);
+	const BoundedRun run = runWithin("ceres_driver_debug_log_file_test.casm", DebugLogProgram, std::chrono::seconds(10), logFile);
+	CHECK(run.status.has_value());
+	if (!run.status) return;
+	CHECK(run.diagnostics.empty());
+	std::ifstream file{ logFile, std::ios::binary };
+	const std::string written{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+	CHECK_EQ(written, std::string("[ceres:warn] Hi\n[ceres:info] !\n[ceres:error] Unhandled Trap at 0x00000454\n"));
+	file.close();
+	std::filesystem::remove(logFile);
+
+	char program[] = "ceres";
+	char asm_[] = "asm";
+	char input[] = "demo.casm";
+	char log[] = "--log";
+	char value[] = "x.log";
+	char* argv[] = { program, asm_, input, log, value };
+	CHECK(!parseCommandLine(5, argv).has_value());   // run's alone
 }

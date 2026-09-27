@@ -76,8 +76,8 @@ Archivo: [phases/F04-memoria-mapa-perfiles.md](phases/F04-memoria-mapa-perfiles.
 | --- | --- | --- | --- | --- |
 | F4.1 | Reserva perezosa de la RAM y 2 GiB | fase: F2 | DONE | asm@42f7300 |
 | F4.2 | VRAM y regiones del mapa físico | F4.1 | DONE | asm@a12d461 |
-| F4.3 | Mapa MMIO por grupos e IRQ nuevas (tres repos) | F4.2 | DONE |  |
-| F4.4 | Registro de depuración y `HostLog` | F4.3 | TODO |  |
+| F4.3 | Mapa MMIO por grupos e IRQ nuevas (tres repos) | F4.2 | DONE | asm@6bd55e6, cc@0564009, lib@4b70687 |
+| F4.4 | Registro de depuración y `HostLog` | F4.3 | DONE |  |
 | F4.5 | Perfiles de máquina | F4.4 | TODO |  |
 | F4.6 | Documentación | F4.5 | TODO |  |
 
