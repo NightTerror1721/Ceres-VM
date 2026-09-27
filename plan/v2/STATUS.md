@@ -94,8 +94,8 @@ Archivo: [phases/F05-ventana-v0-v1-terminal.md](phases/F05-ventana-v0-v1-termina
 | F5.5 | Presentación por VBlank y ventana | F5.4 | DONE | asm@0f8b19a |
 | F5.6 | Terminal virtual y pantalla de fallo | F5.3 | DONE | asm@6e9ef59 |
 | F5.7 | Salidas sin ventana y entrada guionizada | F5.6 | DONE | asm@39ca8d9 |
-| F5.8 | Retirar los dispositivos de texto y píxeles antiguos | F5.5, F5.7 | DONE |  |
-| F5.9 | Ceres-C: tests y ejemplos sin stdout del host | F5.7 | TODO |  |
+| F5.8 | Retirar los dispositivos de texto y píxeles antiguos | F5.5, F5.7 | DONE | asm@dd96b1a |
+| F5.9 | Ceres-C: tests y ejemplos sin stdout del host | F5.7 | DONE | cc@630db42 |
 | F5.10 | STDLIB: cabeceras de vídeo y terminal | F5.8 | TODO |  |
 | F5.11 | STDLIB: tests y ejemplos sin ventana | F5.10, F5.9 | TODO |  |
 | F5.12 | Puerta «host limpio» y documentación | F5.11 | TODO |  |

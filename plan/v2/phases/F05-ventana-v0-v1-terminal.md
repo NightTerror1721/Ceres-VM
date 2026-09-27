@@ -230,3 +230,8 @@
   acepta superficies en VRAM, donde está ahora el plano bitmap. `pong.casm` pasa al plano bitmap (48×32 escalado en
   la ventana, copia de RAM a VRAM con el motor de copia y ritmo por VBlank) y el tutorial 08 al plano de texto
   (celdas de 16 bits escritas con `strh` en VRAM). Pong comprobado en la ventana; el 08 con `--screen-log`.
+- **F5.9**: `tests/framework/ceres_tool.h` gana `runProgram` (`--headless --speed max --transcript`, `--type` si hay
+  entrada) y `plainTranscript`, que quita las marcas del error dejando sus bytes en su sitio y añade detrás lo que
+  el propio `ceres` dijo, como hacía `2>&1`: así los `.expected` no cambian. Las suites `e2e` y `examples` corren con
+  `CERES_HEADLESS=1` para que un `ceresc --run` bajo test no abra ventana. `ctest` de Ceres-C: 11/11 contra el
+  `ceres` de dd96b1a.
