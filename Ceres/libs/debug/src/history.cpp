@@ -118,7 +118,7 @@ namespace ceres::debug
 		for (usize i = 0; i < vm::GeneralPurposeRegisterPool::Count; ++i)
 			engine.setRegister(static_cast<u8>(i), chosen->registers.getValue(i));
 		for (usize i = 0; i < vm::FloatingPointRegisterPool::Count; ++i)
-			engine.setFloatRegister(static_cast<u8>(i), chosen->fregisters.getValue(i));
+			engine.setFloatRegisterBits(static_cast<u8>(i), chosen->fregisters.getBits(i));
 
 		engine.setFlags(vm::FlagRegister{ chosen->flags });
 		engine.setProgramCounter(vm::Address(chosen->programCounter));

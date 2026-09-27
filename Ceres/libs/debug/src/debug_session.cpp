@@ -1640,7 +1640,7 @@ namespace ceres::debug
 
 			// A float register is set from the bit pattern, not from a converted integer: the
 			// caller has a 32-bit word and only it knows what the word means.
-			return engine.setFloatRegister(static_cast<u8>(index), std::bit_cast<f32>(value));
+			return engine.setFloatRegisterBits(static_cast<u8>(index), value);
 		}
 
 		return false;

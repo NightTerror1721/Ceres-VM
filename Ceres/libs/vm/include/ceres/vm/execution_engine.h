@@ -201,6 +201,15 @@ namespace ceres::vm
 			return true;
 		}
 
+		// The register's bits exactly, NaN payloads and all: what a snapshot puts back.
+		bool setFloatRegisterBits(u8 index, u32 bits) noexcept
+		{
+			if (index >= FloatingPointRegisterPool::Count)
+				return false;
+			_fregisters.setBits(index, bits);
+			return true;
+		}
+
 		// Set by the loader once it knows where the image ends. A reset deliberately leaves it
 		// alone: the same program is still in memory, so the same ground is still worth guarding.
 		// Told about every load and store the program performs, with the address and the width.
@@ -348,6 +357,10 @@ namespace ceres::vm
 
 		forceinline f32 getFloatReg(u8 index) const noexcept { return _fregisters.getValue(index); }
 		forceinline void setFloatReg(u8 index, f32 value) noexcept { _fregisters.setValue(index, value); }
+		// A float register's bits, for everything that moves a value rather than computing one: fmov, the loads and
+		// stores, push and pop. They never pass through a host float, so a NaN keeps its payload and its signal.
+		forceinline u32 getFloatBits(u8 index) const noexcept { return _fregisters.getBits(index); }
+		forceinline void setFloatBits(u8 index, u32 bits) noexcept { _fregisters.setBits(index, bits); }
 
 		forceinline u32 sp() const noexcept { return _registers.getValue<GeneralPurposeRegisterPool::StackPointerIndex>(); }
 		forceinline void sp(u32 value) noexcept { _registers.setValue<GeneralPurposeRegisterPool::StackPointerIndex>(value); }
@@ -1308,7 +1321,7 @@ namespace ceres::vm
 		forceinline void SARI(const Instruction inst) noexcept { executeSar(inst.rd(), getReg(inst.rs()), inst.imm16()); }
 
 		forceinline void MOV(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs())); advancePC(); }
-		forceinline void FMOV(const Instruction inst) noexcept { setFloatReg(inst.fd(), getFloatReg(inst.fs())); advancePC(); }
+		forceinline void FMOV(const Instruction inst) noexcept { setFloatBits(inst.fd(), getFloatBits(inst.fs())); advancePC(); }
 		forceinline void LI(const Instruction inst) noexcept { setReg(inst.rd(), inst.imm16()); advancePC(); }
 		forceinline void LUI(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(inst.imm16()) << 16u); advancePC(); }
 		// A memory displacement is signed: `[fp - 8]` has to reach eight bytes below the base, not
@@ -1350,7 +1363,7 @@ namespace ceres::vm
 			const Address address = getReg(inst.rs()) + displacement(inst);
 			if (!checkAlignment<f32>(address))
 				return;
-			setFloatReg(inst.fd(), read<f32>(address));
+			setFloatBits(inst.fd(), read<u32>(address));
 			advancePC();
 		}
 		forceinline void STR(const Instruction inst) noexcept
@@ -1382,7 +1395,7 @@ namespace ceres::vm
 			const Address address = getReg(inst.rd()) + displacement(inst);
 			if (!checkAlignment<f32>(address, FaultAccess::Write) || !checkWritable(address, sizeof(f32)))
 				return;
-			write<f32>(address, getFloatReg(inst.fs()));
+			write<u32>(address, getFloatBits(inst.fs()));
 			advancePC();
 		}
 		// Indexed forms. The address is two registers added at run time, so there is no
@@ -1421,7 +1434,7 @@ namespace ceres::vm
 			const Address address = indexed(inst);
 			if (!checkAlignment<f32>(address))
 				return;
-			setFloatReg(inst.fd(), read<f32>(address));
+			setFloatBits(inst.fd(), read<u32>(address));
 			advancePC();
 		}
 		forceinline void STRX(const Instruction inst) noexcept
@@ -1453,7 +1466,7 @@ namespace ceres::vm
 			const Address address = indexedStore(inst);
 			if (!checkAlignment<f32>(address, FaultAccess::Write) || !checkWritable(address, sizeof(f32)))
 				return;
-			write<f32>(address, getFloatReg(inst.fs()));
+			write<u32>(address, getFloatBits(inst.fs()));
 			advancePC();
 		}
 		// The displacement is measured from the instruction itself, like a branch's, so the address
@@ -1494,7 +1507,7 @@ namespace ceres::vm
 			const Address address = pcRelative(inst);
 			if (!checkAlignment<f32>(address))
 				return;
-			setFloatReg(inst.fd(), read<f32>(address));
+			setFloatBits(inst.fd(), read<u32>(address));
 			advancePC();
 		}
 		forceinline void STRP(const Instruction inst) noexcept
@@ -1526,7 +1539,7 @@ namespace ceres::vm
 			const Address address = pcRelative(inst);
 			if (!checkAlignment<f32>(address, FaultAccess::Write) || !checkWritable(address, sizeof(f32)))
 				return;
-			write<f32>(address, getFloatReg(inst.fs()));
+			write<u32>(address, getFloatBits(inst.fs()));
 			advancePC();
 		}
 		forceinline void LEA(const Instruction inst) noexcept { setReg(inst.rd(), getReg(inst.rs()) + displacement(inst)); advancePC(); }
@@ -1990,8 +2003,8 @@ namespace ceres::vm
 				advancePC();
 			}
 		}
-		forceinline void FPUSH(const Instruction inst) noexcept { if (push<f32>(getFloatReg(inst.fs()))) advancePC(); }
-		forceinline void FPOP(const Instruction inst) noexcept { if (const auto v = pop<f32>()) { setFloatReg(inst.fd(), *v); advancePC(); } }
+		forceinline void FPUSH(const Instruction inst) noexcept { if (push<u32>(getFloatBits(inst.fs()))) advancePC(); }
+		forceinline void FPOP(const Instruction inst) noexcept { if (const auto v = pop<u32>()) { setFloatBits(inst.fd(), *v); advancePC(); } }
 		// The float counterpart of PUSHM/POPM, over the float bank. Same all-or-nothing rule: the
 		// room for the whole mask is checked before the first word goes down, and the store order
 		// (highest set bit first) is the mirror of the load order (f0 first), so a matching pair
@@ -2010,7 +2023,7 @@ namespace ceres::vm
 			{
 				if (mask & (1u << i))
 				{
-					if (!push<f32>(getFloatReg(static_cast<u8>(i))))
+					if (!push<u32>(getFloatBits(static_cast<u8>(i))))
 						break;
 				}
 			}
@@ -2030,10 +2043,10 @@ namespace ceres::vm
 			{
 				if (mask & (1u << i))
 				{
-					const auto value = pop<f32>();
+					const auto value = pop<u32>();
 					if (!value.has_value())
 						break;
-					setFloatReg(static_cast<u8>(i), *value);
+					setFloatBits(static_cast<u8>(i), *value);
 				}
 			}
 			advancePC();

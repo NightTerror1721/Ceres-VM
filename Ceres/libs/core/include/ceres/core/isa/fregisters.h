@@ -2,14 +2,20 @@
 
 #include "registers.h"
 #include "address.h"
+#include <bit>
 #include <limits>
 
 namespace ceres::isa
 {
+	// A float register holds its 32 bits as they are (plan/v2 SPEC 6.2), not a host float: a signalling NaN or a NaN's
+	// payload goes through a move, a push and a pop, a load and a store unchanged, whatever the host's floating point
+	// would have made of it, and the two halves of a double pair are just two words. Arithmetic reads and writes the
+	// value through std::bit_cast.
 	class FloatingPointRegister
 	{
 	public:
 		using ValueType = f32;
+		using BitsType = u32;
 
 		static inline constexpr ValueType MaxValue = std::numeric_limits<ValueType>::max();
 		static inline constexpr ValueType MinValue = std::numeric_limits<ValueType>::lowest();
@@ -19,7 +25,7 @@ namespace ceres::isa
 		static inline constexpr usize Size = sizeof(ValueType);
 
 	private:
-		ValueType _value = 0.0f;
+		BitsType _bits = 0;
 
 	public:
 		constexpr FloatingPointRegister() noexcept = default;
@@ -30,70 +36,80 @@ namespace ceres::isa
 		constexpr FloatingPointRegister& operator=(const FloatingPointRegister&) noexcept = default;
 		constexpr FloatingPointRegister& operator=(FloatingPointRegister&&) noexcept = default;
 
+		// The same bits, which is what "the same register contents" means now: -0 is not +0, and a NaN equals itself.
 		constexpr bool operator==(const FloatingPointRegister&) const noexcept = default;
-		constexpr auto operator<=>(const FloatingPointRegister&) const noexcept = default;
 
 	public:
-		forceinline constexpr FloatingPointRegister(ValueType value) noexcept : _value(value) {}
+		forceinline constexpr FloatingPointRegister(ValueType value) noexcept : _bits(std::bit_cast<BitsType>(value)) {}
 
 		template <Integral T> requires (sizeof(T) <= Register::Size)
-		forceinline constexpr FloatingPointRegister(T value) noexcept : _value(static_cast<ValueType>(value)) {}
+		forceinline constexpr FloatingPointRegister(T value) noexcept : FloatingPointRegister(static_cast<ValueType>(value)) {}
 
-		forceinline constexpr FloatingPointRegister(u24 value) noexcept : _value(static_cast<ValueType>(value.unsignedValue())) {}
-		forceinline constexpr FloatingPointRegister(i24 value) noexcept : _value(static_cast<ValueType>(value.signedValue())) {}
-		forceinline constexpr FloatingPointRegister(Register value) noexcept : _value(static_cast<ValueType>(value.value())) {}
-		forceinline constexpr FloatingPointRegister(Address address) noexcept : _value(static_cast<ValueType>(address.value())) {}
+		forceinline constexpr FloatingPointRegister(u24 value) noexcept : FloatingPointRegister(static_cast<ValueType>(value.unsignedValue())) {}
+		forceinline constexpr FloatingPointRegister(i24 value) noexcept : FloatingPointRegister(static_cast<ValueType>(value.signedValue())) {}
+		forceinline constexpr FloatingPointRegister(Register value) noexcept : FloatingPointRegister(static_cast<ValueType>(value.value())) {}
+		forceinline constexpr FloatingPointRegister(Address address) noexcept : FloatingPointRegister(static_cast<ValueType>(address.value())) {}
 
-		forceinline constexpr ValueType value() const noexcept { return _value; }
+		// The register holding exactly these bits.
+		static constexpr FloatingPointRegister fromBits(BitsType bits) noexcept
+		{
+			FloatingPointRegister reg;
+			reg._bits = bits;
+			return reg;
+		}
 
-		forceinline constexpr Register bitsAsRegister() const noexcept { return Register(std::bit_cast<Register::ValueType>(_value)); }
-		forceinline constexpr Register bitsAsSignedRegister() const noexcept { return Register(std::bit_cast<Register::SignedValueType>(_value)); }
+		forceinline constexpr ValueType value() const noexcept { return std::bit_cast<ValueType>(_bits); }
+		forceinline constexpr BitsType bits() const noexcept { return _bits; }
 
-		forceinline constexpr void set(ValueType value) noexcept { _value = value; }
+		forceinline constexpr Register bitsAsRegister() const noexcept { return Register(_bits); }
+		forceinline constexpr Register bitsAsSignedRegister() const noexcept { return Register(_bits); }
+
+		forceinline constexpr void set(ValueType value) noexcept { _bits = std::bit_cast<BitsType>(value); }
+		forceinline constexpr void setBits(BitsType bits) noexcept { _bits = bits; }
 
 		template <Integral T> requires (sizeof(T) <= Register::Size)
-		forceinline constexpr void set(T value) noexcept { _value = static_cast<ValueType>(value); }
+		forceinline constexpr void set(T value) noexcept { set(static_cast<ValueType>(value)); }
 
-		forceinline constexpr void set(u24 value) noexcept { _value = static_cast<ValueType>(value.unsignedValue()); }
-		forceinline constexpr void set(i24 value) noexcept { _value = static_cast<ValueType>(value.signedValue()); }
-		forceinline constexpr void set(Register value) noexcept { _value = static_cast<ValueType>(value.value()); }
-		forceinline constexpr void set(Address address) noexcept { _value = static_cast<ValueType>(address.value()); }
+		forceinline constexpr void set(u24 value) noexcept { set(static_cast<ValueType>(value.unsignedValue())); }
+		forceinline constexpr void set(i24 value) noexcept { set(static_cast<ValueType>(value.signedValue())); }
+		forceinline constexpr void set(Register value) noexcept { set(static_cast<ValueType>(value.value())); }
+		forceinline constexpr void set(Address address) noexcept { set(static_cast<ValueType>(address.value())); }
 
-		forceinline constexpr void setBitsFromRegister(Register reg) noexcept { _value = std::bit_cast<ValueType>(reg.value()); }
-		forceinline constexpr void setBitsFromSignedRegister(Register reg) noexcept { _value = std::bit_cast<ValueType>(reg.value<Register::SignedValueType>()); }
+		forceinline constexpr void setBitsFromRegister(Register reg) noexcept { _bits = reg.value(); }
+		forceinline constexpr void setBitsFromSignedRegister(Register reg) noexcept { _bits = reg.value(); }
 
 	public:
-		constexpr explicit operator bool() const noexcept { return _value != 0.0f; }
-		constexpr bool operator!() const noexcept { return _value == 0.0f; }
+		constexpr explicit operator bool() const noexcept { return value() != 0.0f; }
+		constexpr bool operator!() const noexcept { return value() == 0.0f; }
 
-		constexpr operator ValueType() const noexcept { return _value; }
+		constexpr operator ValueType() const noexcept { return value(); }
 
 		template <Integral T> requires (sizeof(T) <= Register::Size)
-		constexpr explicit operator T() const noexcept { return static_cast<T>(_value); }
+		constexpr explicit operator T() const noexcept { return static_cast<T>(value()); }
 
-		constexpr explicit operator u24() const noexcept { return u24(static_cast<u24::UnsignedValueType>(_value)); }
-		constexpr explicit operator i24() const noexcept { return i24(static_cast<i24::SignedValueType>(_value)); }
-		constexpr explicit operator Register() const noexcept { return Register(static_cast<Register::ValueType>(_value)); }
-		constexpr explicit operator Address() const noexcept { return Address(static_cast<Address::ValueType>(_value)); }
+		constexpr explicit operator u24() const noexcept { return u24(static_cast<u24::UnsignedValueType>(value())); }
+		constexpr explicit operator i24() const noexcept { return i24(static_cast<i24::SignedValueType>(value())); }
+		constexpr explicit operator Register() const noexcept { return Register(static_cast<Register::ValueType>(value())); }
+		constexpr explicit operator Address() const noexcept { return Address(static_cast<Address::ValueType>(value())); }
 
-		constexpr FloatingPointRegister operator+(FloatingPointRegister other) const noexcept { return FloatingPointRegister(_value + other._value); }
-		constexpr FloatingPointRegister operator-(FloatingPointRegister other) const noexcept { return FloatingPointRegister(_value - other._value); }
-		constexpr FloatingPointRegister operator*(FloatingPointRegister other) const noexcept { return FloatingPointRegister(_value * other._value); }
-		constexpr FloatingPointRegister operator/(FloatingPointRegister other) const noexcept { return FloatingPointRegister(_value / other._value); }
+		constexpr FloatingPointRegister operator+(FloatingPointRegister other) const noexcept { return FloatingPointRegister(value() + other.value()); }
+		constexpr FloatingPointRegister operator-(FloatingPointRegister other) const noexcept { return FloatingPointRegister(value() - other.value()); }
+		constexpr FloatingPointRegister operator*(FloatingPointRegister other) const noexcept { return FloatingPointRegister(value() * other.value()); }
+		constexpr FloatingPointRegister operator/(FloatingPointRegister other) const noexcept { return FloatingPointRegister(value() / other.value()); }
 
-		constexpr FloatingPointRegister& operator+=(FloatingPointRegister other) noexcept { _value += other._value; return *this; }
-		constexpr FloatingPointRegister& operator-=(FloatingPointRegister other) noexcept { _value -= other._value; return *this; }
-		constexpr FloatingPointRegister& operator*=(FloatingPointRegister other) noexcept { _value *= other._value; return *this; }
-		constexpr FloatingPointRegister& operator/=(FloatingPointRegister other) noexcept { _value /= other._value; return *this; }
+		constexpr FloatingPointRegister& operator+=(FloatingPointRegister other) noexcept { set(value() + other.value()); return *this; }
+		constexpr FloatingPointRegister& operator-=(FloatingPointRegister other) noexcept { set(value() - other.value()); return *this; }
+		constexpr FloatingPointRegister& operator*=(FloatingPointRegister other) noexcept { set(value() * other.value()); return *this; }
+		constexpr FloatingPointRegister& operator/=(FloatingPointRegister other) noexcept { set(value() / other.value()); return *this; }
 
 		constexpr FloatingPointRegister operator+() const noexcept { return *this; }
-		constexpr FloatingPointRegister operator-() const noexcept { return FloatingPointRegister(-_value); }
+		constexpr FloatingPointRegister operator-() const noexcept { return FloatingPointRegister(-value()); }
 
-		constexpr FloatingPointRegister operator++() noexcept { _value += 1.0f; return *this; }
-		constexpr FloatingPointRegister operator++(int) noexcept { FloatingPointRegister temp(*this); _value += 1.0f; return temp; }
+		constexpr FloatingPointRegister operator++() noexcept { set(value() + 1.0f); return *this; }
+		constexpr FloatingPointRegister operator++(int) noexcept { FloatingPointRegister temp(*this); set(value() + 1.0f); return temp; }
 
-		constexpr FloatingPointRegister operator--() noexcept { _value -= 1.0f; return *this; }
-		constexpr FloatingPointRegister operator--(int) noexcept { FloatingPointRegister temp(*this); _value -= 1.0f; return temp; }
+		constexpr FloatingPointRegister operator--() noexcept { set(value() - 1.0f); return *this; }
+		constexpr FloatingPointRegister operator--(int) noexcept { FloatingPointRegister temp(*this); set(value() - 1.0f); return temp; }
 	};
 
 	enum class FIndex : u8
@@ -156,6 +172,8 @@ namespace ceres::isa
 		forceinline constexpr void set(FloatingPointRegister value) noexcept { _registers[static_cast<usize>(Index)] = value; }
 
 		forceinline constexpr FloatingPointRegister::ValueType getValue(usize index) const noexcept { return _registers[index].value(); }
+		forceinline constexpr FloatingPointRegister::BitsType getBits(usize index) const noexcept { return _registers[index].bits(); }
+		forceinline constexpr void setBits(usize index, FloatingPointRegister::BitsType bits) noexcept { _registers[index].setBits(bits); }
 
 		template <usize Index> requires (Index < Count)
 		forceinline constexpr FloatingPointRegister::ValueType getValue() const noexcept { return _registers[Index].value(); }
