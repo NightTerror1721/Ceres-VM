@@ -1,10 +1,11 @@
-# 30 · The machine's clock
+# 30 · The machine's clock and its profiles
 
 The machine keeps its own time. Nothing it does depends on how fast the host is: the CPU counts **cycles**,
 every clock a program can read is worked out from them, devices act on **events** scheduled in cycles, and
 the host only decides how long a run takes in real time - never what the machine sees. A program reads the
 same instants on every run, which is what makes tests, recordings and the debugger's step back possible.
-(The machine profiles - `micro` … `workstation` - are the second half of this page, written with plan/v2 F4.6.)
+How fast that clock runs, and how much memory the machine has, is its **profile** - the second half of this
+page.
 
 ## Cycles
 
@@ -30,7 +31,7 @@ host - on the host a division costs what an addition does.
 
 ## Time
 
-The **CPU clock** turns cycles into time: 50 MHz by default (`ceres run --cpu-clock`), kept by the
+The **CPU clock** turns cycles into time: the profile's, 50 MHz by default (`ceres run --cpu-clock`), kept by the
 scheduler (`Scheduler::clockHz`) and reported to programs by the timer's `CpuClockHz` register and the
 system control device's. At 50 MHz a cycle is 20 ns. From the cycle count the timer works out:
 
@@ -93,3 +94,47 @@ A replay is the recorded run, whatever the host does now or however fast it is.
   expressions; its snapshots keep the cycle count and the scheduled events ([Debugger](22-Debugger.md)).
 - The determinism check (`ctest -R determinism`) runs a program that waits on the timer at `--speed max`
   and `4x`, and requires the same output and the same final cycle count.
+
+## Profiles
+
+A machine is one of eight profiles (plan/v2 SPEC 4), from a small handheld to a workstation. The profile fixes
+its clocks, its memory and the most it offers in video and sound; the video and audio levels, the resolution and
+the sprites take effect as the GPU and the sound devices arrive (plan/v2 F5 on), and the rest already does.
+
+| Profile | CPU | GPU | RAM | VRAM | Video | Resolution | Audio | Sprites a line |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `micro` | 2 MHz | 2 MHz | 64 KiB | 32 KiB | V2 | 256×192 | A1 | 16 |
+| `pocket` | 8 MHz | 8 MHz | 512 KiB | 96 KiB | V2 | 240×160 | A1 | 32 |
+| `retro` | 16 MHz | 32 MHz | 2 MiB | 512 KiB | V2 | 320×240 | A2 | 32 |
+| `arcade` | 25 MHz | 50 MHz | 8 MiB | 4 MiB | V3 | 640×480 | A3 | 96 |
+| `polygon` | 33 MHz | 66 MHz | 16 MiB | 8 MiB | V5 | 640×480 | A3 | 96 |
+| `standard` (the default) | 50 MHz | 200 MHz | 64 MiB | 32 MiB | V5 | 1280×720 | A4 | 128 |
+| `workstation` | 100 MHz | 400 MHz | 512 MiB | 256 MiB | V6 | 1280×720 | A4 | 256 |
+| `custom` | up to 400 MHz | up to 1 GHz | up to 2 GiB | up to 1 GiB | V6 | up to **1920×1080** | A4 | 256 |
+
+`ceres run --profile <name>` picks one (so do `ceres debug` and `ceres profile`). Any of the other machine
+options starts from that profile and turns it into `custom`:
+
+| Option | Takes |
+| --- | --- |
+| `--cpu-clock`, `--gpu-clock` | cycles per second with an optional `k`, `M` or `G` (of 1000): `8M`, `400000000` |
+| `--ram`, `--vram` | bytes with an optional `K`, `M` or `G` (of 1024), a multiple of 4 KiB: `64K`, `128M` |
+| `--max-video`, `--max-audio` | a level: `V0`–`V6`, `A0`–`A4` (the letter is optional) |
+| `--max-resolution` | `<width>x<height>`: `1920x1080` |
+
+```text
+ceres run game.cres --profile retro                      # 16 MHz, 2 MiB, 320x240
+ceres run game.cres --profile retro --ram 4M             # custom: retro with 4 MiB of RAM
+ceres run demo.cres --max-resolution 1920x1080           # custom: standard at full HD
+```
+
+**1920×1080 is only reachable with `custom`**: no other profile goes past 1280×720. A value past what `custom`
+allows is refused before the machine starts, with the range it has to be in. `custom` on its own is `standard`'s
+clocks and memory with `custom`'s ceilings.
+
+A program reads which machine it is on from the system control device: `ProfileId` (`0xFFFF0028`: 0 `micro` …
+5 `standard`, 6 `workstation`, 7 `custom`), `CpuClockHz` (`0x24`), `MemorySize` (`0x04`) and `VramSize` (`0x38`).
+The table lives in `libs/driver/include/ceres/driver/profiles.h`.
+
+The terminal (plan/v2 F5) will have as many 8×16 cells as the profile's resolution holds: 32×12 on `micro`,
+240×67 on `custom`.

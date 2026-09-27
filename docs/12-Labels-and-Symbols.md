@@ -204,7 +204,7 @@ Linker error: '__heap_start' is defined by the linker, so a program cannot decla
 ```
 
 There is deliberately **no `__stack_top`**. The stack pointer starts at the size of memory, which is
-a property of the machine — `--memory` picks it at run time, long after the link. A program that
+a property of the machine — its profile, or `--ram`, picks it at run time, long after the link. A program that
 wants it reads `sp` on entry, before anything has pushed.
 
 ## Unused private symbols

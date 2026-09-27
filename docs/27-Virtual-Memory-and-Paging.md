@@ -9,14 +9,14 @@ nothing here forces a `.cres` version bump (see [The `.cres` binary format](09-C
 
 ## Why two levels, and why 4 KiB pages
 
-`Memory::MaxSize` is 1 GiB; the address space `Address` describes is 4 GiB. That fourfold margin is
-what makes paging affordable at all, and it is also what settles how many levels the page table
-needs.
+The RAM goes up to 2 GiB and the VRAM up to 1 GiB (see [Memory → The physical map](02-Memory.md#the-physical-map));
+the address space `Address` describes is 4 GiB. That margin is what makes paging affordable at all, and the
+size of the machines that actually run is what settles how many levels the page table needs.
 
 A single flat table over the whole 4 GiB space, at 4 KiB granularity, needs 2²⁰ entries — 4 MiB,
-*fixed*, whether a program uses one page or every one of them. Against the 16 MiB a machine has by
-default, that is a quarter of all memory spent on translation before a single instruction of the
-actual program runs. Two levels split that into a directory (1024 entries × 4 bytes = 4 KiB, always
+*fixed*, whether a program uses one page or every one of them. On a `retro` machine's 2 MiB of RAM that does
+not even fit, and on the default 64 MiB it is a sixteenth of all memory spent on translation before a single
+instruction of the actual program runs. Two levels split that into a directory (1024 entries × 4 bytes = 4 KiB, always
 resident) and page tables allocated only for the ranges a program actually maps — a small program's
 overhead is kilobytes, not megabytes. A third level, the way x86-64 or ARM64 need one, exists to keep
 the *top* level small when the address space itself is 48 bits or wider; Ceres's is exactly 32, the
@@ -24,7 +24,7 @@ case the classic i386 two-level, 10/10/12 scheme was built for.
 
 | Design | Fixed cost | Typical cost (64 KiB program) | Verdict |
 | --- | --- | --- | --- |
-| 1 level | 4 MiB | 4 MiB | Too much of a 16 MiB machine, always |
+| 1 level | 4 MiB | 4 MiB | Too much of a small machine, always |
 | **2 levels (10/10/12)** | 4 KiB | ~8 KiB | What this page describes |
 | 3+ levels | 4 KiB | ~12 KiB | Solves a problem a 32-bit space doesn't have |
 
@@ -55,8 +55,10 @@ are a **4 KiB-aligned** physical address, and the bottom 12 are flags.
 | 3 | Accessed | Set by the MMU the first time a leaf is used, and never by software. |
 | 4 | Dirty | Set by the MMU the first time a leaf is actually written. |
 
-Since `Memory::MaxSize` is 1 GiB, a physical frame number only ever needs 18 bits — the remaining
-space in the top 20 is simply unused, the same way a real PTE has room to spare.
+A frame can be anywhere in the physical map: in the RAM, in the VRAM (`0xA0000000` up), or a device's
+window, and the access goes wherever that physical address goes, faults included - a frame past the end of the
+RAM gives `MemoryFault` with `OutOfRam` on the access, not a page fault. The tables themselves have to be in
+the RAM.
 
 **A table's own address, and every frame a leaf points at, must be 4 KiB-aligned** — the low 12 bits
 of that field are flags, not part of the address, so an unaligned pointer there is silently truncated
@@ -103,7 +105,8 @@ Three regions never go through translation, whether or not paging is on:
   a driver reaches its registers at the same address with paging on or off.
 
 Everything else is the paged region: from `0x00000400` up to the system stack floor, and from the end of
-RAM up to the devices — a program can map a page at `0x80000000` on a machine with 16 MiB. A program that turns
+RAM up to the devices, the VRAM included — a program can map a page at `0x80000000` on a machine with 64 MiB,
+and the VRAM's own addresses are virtual too once paging is on. A program that turns
 paging on has to identity-map (or otherwise map, with Executable set) whatever page it is currently
 running out of — the *very next instruction fetch* after `pgon` is already translated, exactly like
 enabling paging on real hardware.

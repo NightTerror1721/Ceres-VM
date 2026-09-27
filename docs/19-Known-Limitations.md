@@ -92,7 +92,7 @@ reported — it is not an access the program made.
 Running **backwards** works, but only as far as the recording reaches: `interval x snapshots`
 instructions, 1.28 million by default. Older than that and the debugger says so rather than landing
 somewhere else. Recording also costs one copy of the machine's memory, which is why `--no-history`
-exists for a session started with a very large `--memory`.
+exists for a session started with a very large `--ram`.
 
 ## No indexing
 

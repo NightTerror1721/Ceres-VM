@@ -10,17 +10,18 @@ and dispatches a load or store that lands inside one to whichever device claims 
 default response if nothing is attached there. How a device is built, the access rules the bus enforces and how
 to add one: [Devices and the bus](35-Devices-and-Bus.md).
 
-This costs nothing: `Memory::MaxSize` is 1 GiB, and the MMIO window sits at `0xFF000000`, which no
-configuration of RAM can ever reach. A device's registers and a program's own memory can never
+This costs nothing: the RAM ends at `0x80000000` at the most and the VRAM at `0xE0000000`, and the MMIO window
+sits at `0xFF000000`, which neither can ever reach. A device's registers and a program's own memory can never
 collide.
 
 ## The address map
 
 ```
-0x00000000                                                              0xFFFFFFFF
-├─────────────────────── ordinary memory (up to 1 GiB) ──────────────┤├── MMIO ──┤
-                                                                        0xFF000000
+0x00000000            0x80000000   0xA0000000             0xE0000000       0xFF000000  0xFFFFFFFF
+├── RAM (up to 2 GiB) ──┤ empty ├── VRAM (up to 1 GiB) ──┤──── empty ────┤── MMIO ──┤
 ```
+
+The whole physical map, and what an access to each part does, is in [Memory](02-Memory.md#the-physical-map).
 
 The slots go by group (plan/v2 SPEC 5.5): `0x00` system, `0x10` input, `0x20` audio, `0x30` storage, `0x40`
 video, `0xFF` control. Each device has its own interrupt, numbered by group the same way (see
@@ -109,8 +110,10 @@ writing a command to its command register:
 | `0x18` | `ArgumentCountRegister` | Read | `argc`: how many arguments the program was started with, its own path included. |
 | `0x1C` | `ArgumentVectorRegister` | Read | The address of `argv`, the null-terminated array of their addresses. |
 | `0x20` | `EnvironmentRegister` | Read | The address of `envp`, the null-terminated array of `NAME=value` strings. The three are what `main` received in `r0`–`r2` ([Memory → The stack](02-Memory.md#the-stack)), there for a library that has to reach them without `main` passing them on. |
-| `0x24` | `CpuClockHzRegister` | Read | The CPU clock in cycles per second (50 000 000): what turns the timer's cycles into time (plan/v2 SPEC 3.1). |
-| `0x2C` | `FaultReasonRegister` | Read | Why that fault happened: `0` none recorded, `1` a misaligned access to RAM, `5` a device register reached by anything but an aligned 32-bit access, `6` a block instruction that touched a device (the full list: plan/v2 SPEC 5.4). |
+| `0x24` | `CpuClockHzRegister` | Read | The CPU clock in cycles per second (the profile's; 50 000 000 by default): what turns the timer's cycles into time (plan/v2 SPEC 3.1). |
+| `0x28` | `ProfileIdRegister` | Read | Which machine this is: `0` `micro`, `1` `pocket`, `2` `retro`, `3` `arcade`, `4` `polygon`, `5` `standard`, `6` `workstation`, `7` `custom` ([Profiles](30-Machine-Clock-and-Profiles.md#profiles)). |
+| `0x2C` | `FaultReasonRegister` | Read | Why that fault happened: `0` none recorded, `1` a misaligned access to RAM or VRAM, `2` past the end of the RAM, `3` past the end of the VRAM, `4` an empty region of the map, `5` a device register reached by anything but an aligned 32-bit access, `6` a block instruction that touched a device (the full list: [Devices and the bus](35-Devices-and-Bus.md)). |
+| `0x38` | `VramSizeRegister` | Read | How many bytes of VRAM the machine has. |
 
 | Command (low byte) | Effect |
 | --- | --- |
@@ -433,7 +436,7 @@ memory directly, without a program copying it word by word.
 | `0x08` | `LengthRegister` | Write | Bytes to move. |
 | `0x0C` | `CommandRegister` | Write | `1` arms the transfer. |
 | `0x10` | `StatusRegister` | Read | Bit 0 `BUSY`, bit 1 `DONE`. |
-| `0x14` | `TransferredRegister` | Read | How many bytes the last completed transfer actually moved. RAM-to-RAM it is always the length; a future device source that yields fewer bytes would report less here. |
+| `0x14` | `TransferredRegister` | Read | How many bytes the last completed transfer actually moved: the length, or less when the source or the destination runs past the end of the RAM or the VRAM, and 0 when either is in neither. |
 
 The copy does not happen on the instruction that arms it: a transfer takes one cycle for every 8 bytes
 (at least one), and lands on its own event on the machine's scheduler, as the timer's countdown does, so
@@ -453,9 +456,38 @@ li   r1, 1
 str  [r13 + 0], r1          // arm it - the copy lands on the next tick
 ```
 
-Because both endpoints are physical addresses in the same space, a device that later exposes its own
-backing buffer as an MMIO aperture (rather than through block registers) can be a DMA source or
-destination too — RAM↔RAM, RAM↔device, or device↔device all become the same operation.
+Both endpoints are physical addresses in the RAM or the VRAM, in any combination: RAM to RAM, RAM to VRAM (what a
+program does to put a picture where the GPU will read it), VRAM to RAM or VRAM to VRAM. A device's registers are
+not a run of bytes, so the device window is neither. The VRAM pages a transfer writes are marked as written, as a
+store's are.
+
+### `DebugLogDevice` (`0xFF030000`)
+
+The program's messages for whoever runs it - not for its user, so they never go to the terminal (plan/v2 SPEC
+5.7). A line is written a character at a time and sent when it ends; the host puts it in its **log** as
+`[ceres:<level>] <line>`: on stderr, or in the file of `ceres run --log <file>`. The host's own diagnostics about
+the run go to the same log - an exception nobody handled is `[ceres:error] Unhandled …`.
+
+| Offset | Register | Direction | Meaning |
+| --- | --- | --- | --- |
+| `0x00` | `OutputRegister` | Write | The low byte is one character of the line; `\n` sends it. A line of 4096 characters is sent as it stands. |
+| `0x04` | `LevelRegister` | Read/write | The level of the next line: `0` `error`, `1` `warn`, `2` `info` (after a reset), `3` `debug`; a larger value is `3`. |
+| `0x08` | `FlushRegister` | Write | Sends the unfinished line, if there is one. |
+| `0x0C` | `BreakRegister` | Write | Under `ceres debug`, stops the program on the next instruction as a breakpoint would; under `ceres run`, nothing. |
+| `0x10` | `EnabledRegister` | Read | `1` when the host collects the log, so a program can skip building lines that go nowhere. |
+
+Under the debugger the lines appear with the program's error output, in the same form. The standard library's
+`ceres/debug.h` (`log_msg`, `LOGE`…`LOGD`, `dbg_hexdump`, `dbg_break`) writes here.
+
+```casm
+la   r13, 0xFF030000
+li   r0, 1
+str  [r13 + 4], r0      // a warning
+li   r0, 'H'
+str  [r13 + 0], r0
+li   r0, '\n'
+str  [r13 + 0], r0      // [ceres:warn] H
+```
 
 ### `KeyboardDevice` (`0xFF100000`)
 

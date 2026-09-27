@@ -162,7 +162,7 @@ stub unchanged. See [Interrupt vector binding](26-Interrupt-Vector-Binding.md).
 
 The program counter is then set to `header.entryPoint`, and the stack pointer to the top of the
 machine's memory (see [Memory](02-Memory.md#the-stack)) — note this means the *usable* stack size
-depends on how much memory the host allocated (`ceres run --memory <bytes>`), not on anything stored
+depends on how much RAM the machine has (its profile, or `ceres run --ram <bytes>`), not on anything stored
 in the `.cres` file itself.
 
 ## Related pages

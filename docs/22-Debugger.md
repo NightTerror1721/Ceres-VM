@@ -47,7 +47,9 @@ does. `DebugCLI` is one front end over it; the editor integration is another.
 | `bt` | Call stack |
 | `l [line]` | Source around the current line |
 | `dis [count]` | Disassembly around the program counter |
-| `x <loc> [n]` | Hex dump; `x msg` dumps exactly that variable |
+| `x <loc> [n]` | Hex dump; `x msg` dumps exactly that variable. A VRAM address (`x 0xA0000000`) dumps the VRAM |
+| `vram read <off> [n]` | Hex dump of `n` bytes of the VRAM from offset `off` (64 by default) |
+| `vram dump <off> <n> <file>` | Write `n` bytes of the VRAM from offset `off` to a file, as they are |
 | `vars` | Globals and constants, rendered through their declared types |
 | `cov` | How many times each line has run; `never` is code nothing reached |
 | `p <expr>` | Evaluate an expression |
@@ -224,7 +226,8 @@ base image is the real cost, and it is paid once:
 ```
 
 `--no-history` turns recording off, which only matters for a machine started with a very large
-`--memory`.
+`--ram`: each snapshot compares the whole RAM with the copy taken at the start. The VRAM costs only the pages
+the program has written.
 
 ### How far back
 
@@ -290,6 +293,14 @@ By the time the debugger regains control the program counter is already inside t
 the address of the faulting instruction is the one thing that cannot be recovered afterwards.
 `ExecutionEngine` hands it over through an interrupt observer, captured before the dispatch
 redirects anything. Without that, every fault would look like it happened in the BIOS.
+
+## The program's own log and breaks
+
+A line the program writes to the debug log (the device at `0xFF030000`; the standard library's `LOGI`,
+`dbg_hexdump`… - see [I/O devices](07-IO-Devices-and-Ports.md#debuglogdevice-0xff030000)) appears with its error
+output, as `ceres run` would write it: `[ceres:info] …`. A write to the log's `Break` register stops the program
+on the next instruction, as a breakpoint set there would, with "The program asked to stop" (`dbg_break()` in C).
+Neither happens again while the history replays ground already covered.
 
 ## Nothing runs away
 

@@ -231,7 +231,7 @@ reasons.
   reserved for interrupt handlers (`Memory::SystemStackSize`), less the program's arguments, which the
   loader places there (`main` gets `argc`, `argv`, `envp` in `r0`–`r2`; see
   [Memory → The stack](02-Memory.md#the-stack)). There is deliberately no `__stack_top` symbol,
-  because how much memory there is is chosen at run time with `--memory`.
+  because how much memory there is is chosen at run time with `--profile` or `--ram`.
 - It grows **down**, and its floor is the end of the loaded image — the same address as
   `__bss_end` and `__heap_start`. Growing past it raises `StackOverflow` instead of quietly eating
   `.text`; see [Memory → The stack](02-Memory.md#the-stack).

@@ -186,3 +186,10 @@
   `test_sys` comprueba la máquina por defecto. **Coste pendiente**: con 64 MiB, el historial del debugger compara 64 MiB
   por instantánea (cada 20 000 instrucciones por defecto); la suite de debug pasó de 0,7 s a 2 s. Si molesta, la
   salida es que `HostPages` pida al sistema qué páginas se escribieron (`MEM_WRITE_WATCH`/`GetWriteWatch` en Windows).
+- **F4.6**: `02-Memory` (el mapa físico, tamaños por perfil, reserva perezosa, VRAM, fallos fuera de rango en lugar
+  de ceros, ejecución fuera de la RAM), `07-IO-Devices-and-Ports` (el mapa de direcciones, `ProfileId`,
+  `VramSize`, los motivos 2–4, la DMA con VRAM y una sección nueva del registro de depuración), `08` (la tabla de
+  IRQ, ya en F4.3), `27-Virtual-Memory-and-Paging` (marcos de VRAM y tamaños), `30-Machine-Clock-and-Profiles`
+  (sección «Profiles» con la tabla, las opciones sueltas y los registros), y lo que quedaba de `--memory` en 09,
+  12, 16, 19, 22 y 24, además de `35-Devices-and-Bus` (motivos 2–4), `22-Debugger` (`vram read`/`vram dump`, el
+  log y `Break`) y el índice.

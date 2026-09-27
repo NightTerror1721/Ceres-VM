@@ -37,8 +37,11 @@ A memory fault records where it happened and how (the system control device's `F
 | Code | Reason | When |
 | --- | --- | --- |
 | 0 | `None` | No reason recorded (a page fault, a store into `.text`) |
-| 1 | `Alignment` | A misaligned access to RAM |
-| 5 | `MmioWidth` | A device register reached by anything but an aligned 32-bit access |
+| 1 | `Alignment` | A misaligned access to RAM or VRAM |
+| 2 | `OutOfRam` | A load, a store, a fetch or a block past the end of the RAM (below `0x80000000`) |
+| 3 | `OutOfVram` | The same past the end of the VRAM (`0xA0000000`–`0xDFFFFFFF`) |
+| 4 | `Unmapped` | The same in an empty region of the map (see [Memory](02-Memory.md#the-physical-map)) |
+| 5 | `MmioWidth` | A device register reached by anything but an aligned 32-bit access, or an instruction fetched from the device window |
 | 6 | `MmioBlock` | A block instruction that touched a device |
 | 7 | `MmioUndeclared` | An undeclared offset, under `--strict-mmio` |
 | 8 | `RegisterPair` | An `IllegalInstruction`: a 64-bit instruction with an odd pair field, or `x7` |
@@ -46,8 +49,7 @@ A memory fault records where it happened and how (the system control device's `F
 | 10 | `BadSubfield` | An `IllegalInstruction`: a subfield no instruction has (`fcvt` kind 14 or 15…), or `int` past the vector table |
 
 An illegal instruction records its reason the same way, with the word's own address as `FaultAddress` (see
-[64-bit operations](34-64-bit.md)). Codes 2–4 are reserved for the phase that brings their causes (the memory
-map). A device mapped by a page table somewhere else than its window still counts as a device: a
+[64-bit operations](34-64-bit.md)). A device mapped by a page table somewhere else than its window still counts as a device: a
 misaligned access through that page says `MmioWidth`.
 
 ## What a device is
