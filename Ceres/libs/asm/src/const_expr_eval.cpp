@@ -168,7 +168,7 @@ namespace ceres::casm
 
 				const bool floating = lhs->isFloat() || rhs->isFloat();
 				// A 64-bit context, or a 64-bit operand, makes the operation a 64-bit one.
-				if (floating && (wide || lhs->isF64() || rhs->isF64()))
+				if (floating && (wide || lhs->isWide() || rhs->isWide()))
 					return wideFloatBinary(expression.op(), wideFloat(*lhs), wideFloat(*rhs));
 				if (!floating && (wide || lhs->isWide() || rhs->isWide()))
 					return wideIntegerBinary(expression.op(), wideInteger(*lhs), wideInteger(*rhs));

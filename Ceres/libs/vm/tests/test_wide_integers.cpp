@@ -294,6 +294,9 @@ TEST(wide_integers, a_misaligned_ldrd_is_an_alignment_fault)
 	m.step();
 	CHECK_EQ(m.pc(), 0x2000u);
 	CHECK_EQ(m.pair(1), u64{ 5 });
+	CHECK_EQ(m.engine().faultAddress(), 0x00100002u);
+	CHECK_EQ(m.engine().faultAccess(), 1u | (8u << 8));                  // a read of 8 bytes
+	CHECK_EQ(m.engine().faultReason(), static_cast<u32>(FaultReason::Alignment));
 }
 
 TEST(wide_integers, cycles_as_spec_6_4_has_them)

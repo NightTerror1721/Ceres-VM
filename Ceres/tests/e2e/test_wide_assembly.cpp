@@ -135,6 +135,18 @@ TEST(wide_assembly, a_float_outside_a_64_bit_context_is_the_float_it_always_was)
 	CHECK_EQ(g, std::bit_cast<u32>(1.0f / 3.0f));
 }
 
+TEST(wide_assembly, a_float_with_a_64_bit_integer_is_worked_in_double_precision)
+{
+	// The integer is not cut to 32 bits on the way: 1.5 * 2^32 as a float is exactly 6442450944.
+	const AssembleResult r = assembleSource(
+		"@rodata\r\nglobal let f: f32 = 1.5 * 0x100000000\r\n@text\r\nglobal main:\r\n    halt\r\n");
+	CHECK(r.ok());
+	if (!r.ok()) { ::ceres::testing::Registry::instance().recordFailure(r.joinedErrors()); return; }
+	u32 f = 0;
+	std::memcpy(&f, r.program->rodata().data(), 4);
+	CHECK_EQ(f, std::bit_cast<u32>(6442450944.0f));
+}
+
 TEST(wide_assembly, li64_loads_a_pooled_constant_in_one_word_when_it_reaches)
 {
 	const AssembleResult r = assembleSource(

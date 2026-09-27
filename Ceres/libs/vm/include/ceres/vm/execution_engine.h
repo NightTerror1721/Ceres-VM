@@ -2169,9 +2169,19 @@ namespace ceres::vm
 		// A 64-bit load (SPEC 6.4): aligned to 4, low word first. Memory is one access and pays for one; a device is two 32-bit
 		// accesses, low then high, each paying its own - which is what lets ldrd read a latched pair like the timer's
 		// CyclesLow/CyclesHigh. Nothing is written until both words are in, so a fault on the second leaves the pair alone.
+		// A 64-bit access sits on a 4-byte boundary (SPEC 6.4); a fault says it was 8 bytes wide.
+		forceinline bool checkAlignment64(Address address, FaultAccess access) noexcept
+		{
+			if ((address.value() & 3u) == 0)
+				return true;
+			noteFault(address, access, static_cast<u32>(sizeof(u64)), reachesDevice(address) ? FaultReason::MmioWidth : FaultReason::Alignment);
+			triggerInterrupt(InterruptNumber::AlignmentFault);
+			return false;
+		}
+
 		forceinline void load64(u8 dest, Address address) noexcept
 		{
-			if (!checkAlignment<u32>(address))
+			if (!checkAlignment64(address, FaultAccess::Read))
 				return;
 			const u32 low = read<u32>(address);
 			if (_faulted)
@@ -2187,7 +2197,7 @@ namespace ceres::vm
 		// the whole store again, which writes the same first word.
 		forceinline void store64(Address address, u64 value) noexcept
 		{
-			if (!checkAlignment<u32>(address, FaultAccess::Write) || !checkWritable(address, sizeof(u64)))
+			if (!checkAlignment64(address, FaultAccess::Write) || !checkWritable(address, sizeof(u64)))
 				return;
 			write<u32>(address, static_cast<u32>(value));
 			if (_faulted)
