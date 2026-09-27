@@ -56,6 +56,16 @@ namespace ceres::isa::cycles
 			set(6, { MUL64 });
 			set(40, { DIV64, IDIV64, MOD64, IMOD64 });
 			set(1, { SXT64, MOV64, LDRD, STRD, LDRDX, STRDX, LDRDP });
+			// The doubles; fcvt is 3, and one more when it reads or writes a 64-bit integer (the handler adds it).
+			set(4, { FADDD, FSUBD });
+			set(5, { FMULD });
+			set(20, { FDIVD });
+			set(6, { FMAD });
+			set(24, { FSQRTD });
+			set(3, { FCMPD, FMINMAXD, FUNARYD, FCVT });
+			set(30, { FMODD });
+			set(2, { FCOPYSIGND, FCLASSD });
+			set(1, { FMOVD, MTFD, MFFD, FLDRD, FSTRD, FLDRDX, FSTRDX, FLDRDP });
 			// Paid per chunk and at the end; an interrupt's entry and iret set their own totals.
 			set(0, { MCPY, MSET, MCMP, MSCAN, INT, TRAP, IRET });
 			return table;

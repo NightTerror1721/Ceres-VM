@@ -654,7 +654,8 @@ namespace ceres::vm
 		// separating quiet from signaling - the standard library does not portably distinguish them.
 		// Bit 0: -Infinity  Bit 1: -Normal  Bit 2: -Subnormal  Bit 3: -Zero
 		// Bit 4: +Zero      Bit 5: +Subnormal  Bit 6: +Normal  Bit 7: +Infinity  Bit 8: NaN
-		static forceinline u32 classifyFloat(f32 value) noexcept
+		template <FloatingPoint T>
+		static forceinline u32 classifyFloat(T value) noexcept
 		{
 			const bool negative = std::signbit(value);
 			switch (std::fpclassify(value))
@@ -2179,33 +2180,47 @@ namespace ceres::vm
 			return false;
 		}
 
-		forceinline void load64(u8 dest, Address address) noexcept
+		// The 64 bits at `address`, or empty when the access faulted (and the fault has been raised).
+		forceinline std::optional<u64> read64(Address address) noexcept
 		{
 			if (!checkAlignment64(address, FaultAccess::Read))
-				return;
+				return std::nullopt;
 			const u32 low = read<u32>(address);
 			if (_faulted)
-				return;
+				return std::nullopt;
 			const u32 high = read<u32>(Address(address.value() + 4u), false);
 			if (_faulted)
-				return;
-			setPair(dest, static_cast<u64>(low) | (static_cast<u64>(high) << 32));
-			advancePC();
+				return std::nullopt;
+			return static_cast<u64>(low) | (static_cast<u64>(high) << 32);
+		}
+
+		forceinline void load64(u8 dest, Address address) noexcept
+		{
+			if (const auto value = read64(address))
+			{
+				setPair(dest, *value);
+				advancePC();
+			}
 		}
 
 		// A 64-bit store, the same way round. A fault on the second word leaves the first written; the handler's IRET runs
 		// the whole store again, which writes the same first word.
-		forceinline void store64(Address address, u64 value) noexcept
+		// Writes 64 bits at `address`; false when the access faulted (and the fault has been raised).
+		forceinline bool write64(Address address, u64 value) noexcept
 		{
 			if (!checkAlignment64(address, FaultAccess::Write) || !checkWritable(address, sizeof(u64)))
-				return;
+				return false;
 			write<u32>(address, static_cast<u32>(value));
 			if (_faulted)
-				return;
+				return false;
 			write<u32>(Address(address.value() + 4u), static_cast<u32>(value >> 32), false);
-			if (_faulted)
-				return;
-			advancePC();
+			return !_faulted;
+		}
+
+		forceinline void store64(Address address, u64 value) noexcept
+		{
+			if (write64(address, value))
+				advancePC();
 		}
 
 		forceinline void ADD64(const Instruction inst) noexcept { if (decoded(inst)) executeAdd64(inst.rd(), getPair(inst.rs()), getPair(inst.rt())); }
@@ -2319,13 +2334,252 @@ namespace ceres::vm
 		forceinline void STRD(const Instruction inst) noexcept { if (decoded(inst)) store64(Address(getReg(inst.rd()) + displacement(inst)), getPair(inst.rs())); }
 		forceinline void STRDX(const Instruction inst) noexcept { if (decoded(inst)) store64(indexedStore(inst), getPair(inst.rs())); }
 
-		forceinline void INVALID(const Instruction inst) noexcept { illegal(FaultReason::UnknownOpcode); }
-		// A 64-bit instruction the machine decodes but does not execute yet (plan/v2 F3.5 brings the doubles).
-		forceinline void WIDE(const Instruction inst) noexcept
+		// ---- binary64 doubles on float register pairs (plan/v2 SPEC 6) --------------------------------------------------
+		//
+		// dN is f(2N):f(2N+1), low word in the even register. The arithmetic is the host's double, rounded to nearest
+		// even; the flags are those of the 32-bit instruction each one mirrors.
+
+		forceinline u64 getDoubleBits(u8 field) const noexcept
 		{
-			if (decoded(inst))
-				illegal(FaultReason::None);
+			return static_cast<u64>(getFloatBits(field)) | (static_cast<u64>(getFloatBits(static_cast<u8>(field + 1))) << 32);
 		}
+		forceinline void setDoubleBits(u8 field, u64 bits) noexcept
+		{
+			setFloatBits(field, static_cast<u32>(bits));
+			setFloatBits(static_cast<u8>(field + 1), static_cast<u32>(bits >> 32));
+		}
+		forceinline f64 getDouble(u8 field) const noexcept { return std::bit_cast<f64>(getDoubleBits(field)); }
+		forceinline void setDouble(u8 field, f64 value) noexcept { setDoubleBits(field, std::bit_cast<u64>(value)); }
+
+		// fadd's flags: Zero and Sign of the result, Carry clear, Overflow when finite operands gave an infinity.
+		forceinline void executeDoubleArithmetic(u8 dest, f64 result, f64 a, f64 b) noexcept
+		{
+			const auto resultClass = std::fpclassify(result);
+			zero(resultClass == FP_ZERO);
+			sign(std::signbit(result));
+			carry(false);
+			overflow(resultClass == FP_INFINITE && std::fpclassify(a) != FP_INFINITE && std::fpclassify(b) != FP_INFINITE);
+			setDouble(dest, result);
+			advancePC();
+		}
+
+		// A double to an integer (fcvt, SPEC 6.5): truncated toward zero and saturated at the ends of the range; NaN is 0.
+		template <typename Int>
+		static Int saturate(f64 value) noexcept
+		{
+			if (std::isnan(value))
+				return 0;
+			constexpr f64 Low = static_cast<f64>(std::numeric_limits<Int>::min());
+			constexpr f64 High = static_cast<f64>(std::numeric_limits<Int>::max());   // for 64 bits, rounds up to 2^63 / 2^64
+			const f64 truncated = std::trunc(value);
+			if (truncated <= Low)
+				return std::numeric_limits<Int>::min();
+			if (truncated >= High)
+				return std::numeric_limits<Int>::max();
+			return static_cast<Int>(truncated);
+		}
+
+		forceinline void FADDD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const f64 a = getDouble(inst.rs()), b = getDouble(inst.rt());
+			executeDoubleArithmetic(inst.rd(), a + b, a, b);
+		}
+		forceinline void FSUBD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const f64 a = getDouble(inst.rs()), b = getDouble(inst.rt());
+			executeDoubleArithmetic(inst.rd(), a - b, a, b);
+		}
+		forceinline void FMULD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const f64 a = getDouble(inst.rs()), b = getDouble(inst.rt());
+			executeDoubleArithmetic(inst.rd(), a * b, a, b);
+		}
+		// A zero divisor traps as fdiv does, unless FeatureIeeeDivide asks for IEEE's infinity or NaN.
+		forceinline void FDIVD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const f64 a = getDouble(inst.rs()), b = getDouble(inst.rt());
+			if (b == 0.0 && !_ieeeDivide)
+			{
+				divisionByZero();
+				return;
+			}
+			executeDoubleArithmetic(inst.rd(), a / b, a, b);
+		}
+		// One rounding, as SPEC 6.4 says: dd + ds * dt exactly, then rounded.
+		forceinline void FMAD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const f64 accumulator = getDouble(inst.rd()), a = getDouble(inst.rs()), b = getDouble(inst.rt());
+			executeDoubleArithmetic(inst.rd(), std::fma(a, b, accumulator), accumulator, a * b);
+		}
+		forceinline void FSQRTD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			setDouble(inst.rd(), std::sqrt(getDouble(inst.rs())));
+			advancePC();
+		}
+		forceinline void FCMPD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const f64 a = getDouble(inst.rs()), b = getDouble(inst.rt());
+			zero(a == b);
+			sign(std::signbit(a - b));
+			carry(a < b);
+			overflow(false);
+			advancePC();
+		}
+		forceinline void FMINMAXD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const f64 a = getDouble(inst.rs()), b = getDouble(inst.rt());
+			const f64 result = fields::MinMax::get(inst.raw()) == 0 ? std::fmin(a, b) : std::fmax(a, b);
+			zero(std::fpclassify(result) == FP_ZERO);
+			sign(std::signbit(result));
+			carry(false);
+			overflow(false);
+			setDouble(inst.rd(), result);
+			advancePC();
+		}
+		// fmod's rule: a zero divisor traps unless FeatureIeeeDivide, and then the result is NaN.
+		forceinline void FMODD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const f64 a = getDouble(inst.rs()), b = getDouble(inst.rt());
+			if (b == 0.0 && !_ieeeDivide)
+			{
+				divisionByZero();
+				return;
+			}
+			const f64 result = std::fmod(a, b);
+			zero(std::fpclassify(result) == FP_ZERO);
+			sign(std::signbit(result));
+			carry(false);
+			overflow(false);
+			setDouble(inst.rd(), result);
+			advancePC();
+		}
+		// fneg.d sets fneg's flags; the rest, like their 32-bit ones, set none.
+		forceinline void FUNARYD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const f64 value = getDouble(inst.rs());
+			switch (static_cast<wide::UnaryOp>(fields::UnaryOp::get(inst.raw())))
+			{
+				case wide::UnaryOp::Neg:
+				{
+					const f64 result = -value;
+					const auto resultClass = std::fpclassify(result);
+					zero(resultClass == FP_ZERO);
+					sign(std::signbit(result));
+					carry(false);
+					overflow(false);
+					setDouble(inst.rd(), result);
+					break;
+				}
+				case wide::UnaryOp::Abs:   setDouble(inst.rd(), std::fabs(value)); break;
+				case wide::UnaryOp::Round: setDouble(inst.rd(), std::nearbyint(value)); break;
+				case wide::UnaryOp::Floor: setDouble(inst.rd(), std::floor(value)); break;
+				case wide::UnaryOp::Ceil:  setDouble(inst.rd(), std::ceil(value)); break;
+				default:                   setDouble(inst.rd(), std::trunc(value)); break;
+			}
+			advancePC();
+		}
+		forceinline void FCOPYSIGND(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			setDouble(inst.rd(), std::copysign(getDouble(inst.rs()), getDouble(inst.rt())));
+			advancePC();
+		}
+		forceinline void FCLASSD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			setReg(inst.rd(), classifyFloat(getDouble(inst.rs())));
+			advancePC();
+		}
+		// The conversions of SPEC 6.5. To a float: rounded to nearest even. To an integer: saturate(). The ones that read
+		// or write a 64-bit integer cost a cycle more.
+		forceinline void FCVT(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const u8 d = inst.rd();
+			const u8 s = inst.rs();
+			const auto kind = static_cast<wide::FcvtKind>(fields::FcvtKind::get(inst.raw()));
+			switch (kind)
+			{
+				using enum wide::FcvtKind;
+				case DS:  setDouble(d, static_cast<f64>(getFloatReg(s))); break;
+				case SD:  setFloatReg(d, static_cast<f32>(getDouble(s))); break;
+				case DW:  setDouble(d, static_cast<f64>(static_cast<i32>(getReg(s)))); break;
+				case DWU: setDouble(d, static_cast<f64>(getReg(s))); break;
+				case WD:  setReg(d, static_cast<u32>(saturate<i32>(getDouble(s)))); break;
+				case WUD: setReg(d, saturate<u32>(getDouble(s))); break;
+				case DL:  setDouble(d, static_cast<f64>(static_cast<i64>(getPair(s)))); break;
+				case DLU: setDouble(d, static_cast<f64>(getPair(s))); break;
+				case LD:  setPair(d, static_cast<u64>(saturate<i64>(getDouble(s)))); break;
+				case LUD: setPair(d, saturate<u64>(getDouble(s))); break;
+				case SL:  setFloatReg(d, static_cast<f32>(static_cast<i64>(getPair(s)))); break;
+				case SLU: setFloatReg(d, static_cast<f32>(getPair(s))); break;
+				case LS:  setPair(d, static_cast<u64>(saturate<i64>(static_cast<f64>(getFloatReg(s))))); break;
+				default:  setPair(d, saturate<u64>(static_cast<f64>(getFloatReg(s)))); break;   // LUS
+			}
+			if (static_cast<u8>(kind) >= static_cast<u8>(wide::FcvtKind::DL))
+				_cycles += 1;
+			advancePC();
+		}
+		forceinline void FMOVD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			setDoubleBits(inst.rd(), getDoubleBits(inst.rs()));
+			advancePC();
+		}
+		forceinline void loadDouble(u8 dest, Address address) noexcept
+		{
+			if (const auto value = read64(address))
+			{
+				setDoubleBits(dest, *value);
+				advancePC();
+			}
+		}
+		forceinline void FLDRD(const Instruction inst) noexcept { if (decoded(inst)) loadDouble(inst.rd(), Address(getReg(inst.rs()) + displacement(inst))); }
+		forceinline void FLDRDX(const Instruction inst) noexcept { if (decoded(inst)) loadDouble(inst.rd(), indexed(inst)); }
+		forceinline void FLDRDP(const Instruction inst) noexcept { if (decoded(inst)) loadDouble(inst.rd(), pcRelative(inst)); }
+		forceinline void FSTRD(const Instruction inst) noexcept { if (decoded(inst)) store64(Address(getReg(inst.rd()) + displacement(inst)), getDoubleBits(inst.rs())); }
+		forceinline void FSTRDX(const Instruction inst) noexcept { if (decoded(inst)) store64(indexedStore(inst), getDoubleBits(inst.rs())); }
+		// The bits as they are, between the two banks.
+		forceinline void MTFD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			setDoubleBits(inst.rd(), getPair(inst.rs()));
+			advancePC();
+		}
+		forceinline void MFFD(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			setPair(inst.rd(), getDoubleBits(inst.rs()));
+			advancePC();
+		}
+
+		forceinline void INVALID(const Instruction inst) noexcept { illegal(FaultReason::UnknownOpcode); }
 
 	private:
 		using InstructionHandler = void (ExecutionEngine::*)(const Instruction) noexcept;
@@ -2335,11 +2589,6 @@ namespace ceres::vm
 				// slot would stay null and calling one is a crash, not an illegal-instruction trap.
 				std::array<InstructionHandler, 256> handlers{};
 				handlers.fill(&ExecutionEngine::INVALID);
-				for (usize opcode = 0; opcode < handlers.size(); ++opcode)
-				{
-					if (wide::isWide(static_cast<Opcode>(opcode)))
-						handlers[opcode] = &ExecutionEngine::WIDE;
-				}
 
 				// Control
 				handlers[static_cast<u8>(Opcode::NOP)] = &ExecutionEngine::NOP;
@@ -2570,6 +2819,29 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::LDRDX)] = &ExecutionEngine::LDRDX;
 				handlers[static_cast<u8>(Opcode::STRDX)] = &ExecutionEngine::STRDX;
 				handlers[static_cast<u8>(Opcode::LDRDP)] = &ExecutionEngine::LDRDP;
+
+				// binary64 doubles
+				handlers[static_cast<u8>(Opcode::FADDD)] = &ExecutionEngine::FADDD;
+				handlers[static_cast<u8>(Opcode::FSUBD)] = &ExecutionEngine::FSUBD;
+				handlers[static_cast<u8>(Opcode::FMULD)] = &ExecutionEngine::FMULD;
+				handlers[static_cast<u8>(Opcode::FDIVD)] = &ExecutionEngine::FDIVD;
+				handlers[static_cast<u8>(Opcode::FMAD)] = &ExecutionEngine::FMAD;
+				handlers[static_cast<u8>(Opcode::FSQRTD)] = &ExecutionEngine::FSQRTD;
+				handlers[static_cast<u8>(Opcode::FCMPD)] = &ExecutionEngine::FCMPD;
+				handlers[static_cast<u8>(Opcode::FMINMAXD)] = &ExecutionEngine::FMINMAXD;
+				handlers[static_cast<u8>(Opcode::FMODD)] = &ExecutionEngine::FMODD;
+				handlers[static_cast<u8>(Opcode::FUNARYD)] = &ExecutionEngine::FUNARYD;
+				handlers[static_cast<u8>(Opcode::FCOPYSIGND)] = &ExecutionEngine::FCOPYSIGND;
+				handlers[static_cast<u8>(Opcode::FCLASSD)] = &ExecutionEngine::FCLASSD;
+				handlers[static_cast<u8>(Opcode::FCVT)] = &ExecutionEngine::FCVT;
+				handlers[static_cast<u8>(Opcode::FMOVD)] = &ExecutionEngine::FMOVD;
+				handlers[static_cast<u8>(Opcode::FLDRD)] = &ExecutionEngine::FLDRD;
+				handlers[static_cast<u8>(Opcode::FSTRD)] = &ExecutionEngine::FSTRD;
+				handlers[static_cast<u8>(Opcode::FLDRDX)] = &ExecutionEngine::FLDRDX;
+				handlers[static_cast<u8>(Opcode::FSTRDX)] = &ExecutionEngine::FSTRDX;
+				handlers[static_cast<u8>(Opcode::FLDRDP)] = &ExecutionEngine::FLDRDP;
+				handlers[static_cast<u8>(Opcode::MTFD)] = &ExecutionEngine::MTFD;
+				handlers[static_cast<u8>(Opcode::MFFD)] = &ExecutionEngine::MFFD;
 
 				return handlers;
 		}();
