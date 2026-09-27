@@ -66,6 +66,9 @@ namespace ceres::debug
 			TerminalDevice::State terminal;
 			// Page index to contents, for every page that differs from the base image.
 			std::unordered_map<u32, std::vector<u8>> dirtyPages;
+			// Every VRAM page written since the machine started (Vram::written), with its contents. A page not
+			// here was still zero when the snapshot was taken.
+			std::unordered_map<u32, std::vector<u8>> vramPages;
 		};
 
 		Settings _settings;

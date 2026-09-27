@@ -137,12 +137,17 @@ namespace ceres::driver
 			return value * scale;
 		}
 
+		// The sizes Memory accepts (plan/v2 SPEC 2), checked here so a wrong one is a usage error rather than an
+		// exception out of the machine's constructor.
 		std::expected<usize, ParseError> parseMemorySize(std::string_view text)
 		{
 			usize size = 0;
 			const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), size);
 			if (error != std::errc{} || end != text.data() + text.size() || size == 0)
 				return std::unexpected(ParseError{ "--memory needs a positive integer number of bytes" });
+			if (size < vm::Memory::MinSize || size > vm::Memory::MaxSize || size % 4096 != 0)
+				return std::unexpected(ParseError{ "--memory must be a multiple of 4096 bytes from " +
+					std::to_string(vm::Memory::MinSize) + " to " + std::to_string(vm::Memory::MaxSize) });
 			return size;
 		}
 

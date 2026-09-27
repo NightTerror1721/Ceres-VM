@@ -322,6 +322,45 @@ TEST(history, going_back_and_forward_again_restores_the_machine_byte_for_byte)
 	CHECK(after == before);
 }
 
+TEST(history, going_back_restores_the_vram_too)
+{
+	// A counter in one VRAM page on every pass, and a second page written once, at the thousandth. Going back to
+	// before that pass has to find the counter as it was and the second page zero again (plan/v2 F4.2).
+	constexpr std::string_view VramLoop =
+		"@text\r\n"
+		"global main:\r\n"
+		"    la r10, 0xA0000000\r\n"
+		"    li r3, 0\r\n"
+		".loop:\r\n"
+		"    add r3, r3, 1\r\n"
+		"    str [r10 + 4096], r3\r\n"
+		"    cmp r3, 1000\r\n"
+		"    jnz .skip\r\n"
+		"    str [r10 + 20480], r3\r\n"
+		".skip:\r\n"
+		"    cmp r3, 3000\r\n"
+		"    jnz .loop\r\n"
+		"    ret\r\n";
+	TempSource source{ VramLoop, "vram" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+
+	session->start();
+	session->resume(3000);
+	const u64 early = session->currentTick();
+	const std::vector<u8> counterThen = session->readMemory(0xA0001000, 4);
+	CHECK(counterThen.size() == 4 && counterThen[0] != 0);
+
+	session->resume(9000);
+	CHECK(session->readMemory(0xA0005000, 1).at(0) != 0);
+
+	session->runToTick(early);
+	CHECK_EQ(session->currentTick(), early);
+	CHECK(session->readMemory(0xA0001000, 4) == counterThen);
+	CHECK_EQ(session->readMemory(0xA0005000, 4), (std::vector<u8>{ 0, 0, 0, 0 }));
+}
+
 TEST(history, a_hundred_thousand_instructions_rewind_a_thousand_and_come_back_identical)
 {
 	// The same property as above at the scale it was promised at, and with the real snapshot

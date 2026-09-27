@@ -80,6 +80,18 @@ namespace ceres::debug
 				std::vector<u8>(bytes.begin() + offset, bytes.begin() + offset + length));
 		}
 
+		// The VRAM has no base image: it starts zeroed and every write to it marks its page, so the pages marked
+		// are all a snapshot has to keep.
+		const vm::Vram& vram = machine.vram();
+		const u32 vramPages = static_cast<u32>(vram.size() / vm::Vram::PageSize);
+		for (u32 page = 0; page < vramPages; ++page)
+		{
+			if (!vram.written(page))
+				continue;
+			const u8* at = vram.data() + static_cast<usize>(page) * vm::Vram::PageSize;
+			snapshot.vramPages.emplace(page, std::vector<u8>(at, at + vm::Vram::PageSize));
+		}
+
 		_snapshots.push_back(std::move(snapshot));
 
 		while (_snapshots.size() > _settings.maxSnapshots)
@@ -113,6 +125,21 @@ namespace ceres::debug
 		memory.writeBytesUnchecked(vm::Address(0), _base);
 		for (const auto& [page, contents] : chosen->dirtyPages)
 			memory.writeBytesUnchecked(vm::Address(page * PageSize), contents);
+
+		// A VRAM page written by then gets its contents back; one written only since is zeroed again. Its mark
+		// stays: the page has been written, and a later snapshot has to keep looking at it.
+		vm::Vram& vram = machine.vram();
+		const u32 vramPages = static_cast<u32>(vram.size() / vm::Vram::PageSize);
+		for (u32 page = 0; page < vramPages; ++page)
+		{
+			if (!vram.written(page))
+				continue;
+			u8* at = vram.span(page * vm::Vram::PageSize, vm::Vram::PageSize);
+			if (const auto kept = chosen->vramPages.find(page); kept != chosen->vramPages.end())
+				std::memcpy(at, kept->second.data(), vm::Vram::PageSize);
+			else
+				std::memset(at, 0, vm::Vram::PageSize);
+		}
 
 		vm::ExecutionEngine& engine = machine.engine();
 		for (usize i = 0; i < vm::GeneralPurposeRegisterPool::Count; ++i)
@@ -160,6 +187,8 @@ namespace ceres::debug
 		for (const Snapshot& snapshot : _snapshots)
 		{
 			for (const auto& [page, contents] : snapshot.dirtyPages)
+				total += contents.size();
+			for (const auto& [page, contents] : snapshot.vramPages)
 				total += contents.size();
 		}
 		return total;

@@ -38,6 +38,17 @@ TEST(driver_command, invalid_memory_is_a_usage_error)
 	char* argv[] = { program, run, input, memory, value };
 	auto parsed = parseCommandLine(5, argv);
 	CHECK(!parsed.has_value());
+
+	// A size the machine cannot have is refused here, not by an exception out of the machine (plan/v2 SPEC 2).
+	for (const char* size : { "100000", "4096", "2147487744" })
+	{
+		std::string text = size;
+		argv[4] = text.data();
+		CHECK(!parseCommandLine(5, argv).has_value());
+	}
+	std::string whole = "2147483648";
+	argv[4] = whole.data();
+	CHECK(parseCommandLine(5, argv).has_value());
 }
 
 TEST(driver_command, archive_has_an_output_not_a_fake_input)

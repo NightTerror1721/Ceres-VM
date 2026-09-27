@@ -19,8 +19,10 @@ namespace ceres::vm
 	// It lives in the VM rather than with the GPU because the execution engine routes to it on every access past
 	// the RAM: the GPU (F5) is one more reader of it, not its owner.
 	//
-	// Every store the CPU makes marks its 4 KiB page as written. The hardware executor (F12) uploads only those
-	// pages to the host GPU, and clears the marks when it has.
+	// Every store the CPU makes marks its 4 KiB page as written, and so do the block instructions and the DMA. The
+	// hardware executor (F12) uploads only those pages to the host GPU. Until then nothing clears the marks, and the
+	// debugger's history counts on it: a page never marked has never been written, so it is zero. F12 has to keep
+	// that true (a map of its own for what it has uploaded) rather than clear these.
 	class Vram
 	{
 	public:
