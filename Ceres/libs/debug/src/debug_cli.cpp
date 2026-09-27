@@ -273,6 +273,19 @@ namespace ceres::debug
 			std::cout << '\n';
 		}
 
+		// The pairs of the 64-bit instructions (plan/v2 SPEC 6.2), only when one of them holds a 64-bit value: a high word
+		// that is not 0 is what says so.
+		const bool anyWide = std::ranges::any_of(view.pairs, [](u64 value) { return (value >> 32) != 0; });
+		if (anyWide)
+		{
+			for (usize i = 0; i < view.pairs.size(); i += 4)
+			{
+				for (usize j = i; j < i + 4 && j < view.pairs.size(); ++j)
+					std::cout << std::format("  x{} ={:#018x}", j, view.pairs[j]);
+				std::cout << '\n';
+			}
+		}
+
 		std::cout << std::format("  sp  ={:#010x}  fp  ={:#010x}  at  ={:#010x}  pc  ={:#010x}\n",
 			view.general[vm::GeneralPurposeRegisterPool::StackPointerIndex],
 			view.general[vm::GeneralPurposeRegisterPool::FramePointerIndex],
@@ -293,6 +306,13 @@ namespace ceres::debug
 			{
 				for (usize j = i; j < i + 4 && j < view.floating.size(); ++j)
 					std::cout << std::format("  f{:<2} ={:>12}", j, view.floating[j]);
+				std::cout << '\n';
+			}
+			// And the same bank read as doubles, d0-d7.
+			for (usize i = 0; i < view.doubles.size(); i += 4)
+			{
+				for (usize j = i; j < i + 4 && j < view.doubles.size(); ++j)
+					std::cout << std::format("  d{} ={:>22}", j, view.doubles[j]);
 				std::cout << '\n';
 			}
 		}

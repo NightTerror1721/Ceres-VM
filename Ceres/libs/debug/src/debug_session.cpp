@@ -34,6 +34,9 @@ namespace ceres::debug
 				case ScalarType::U32:
 				case ScalarType::I32:
 				case ScalarType::F32: return 4;
+				case ScalarType::U64:
+				case ScalarType::I64:
+				case ScalarType::F64: return 8;
 				default:              return 0;
 			}
 		}
@@ -49,16 +52,20 @@ namespace ceres::debug
 				case ScalarType::I16: return "i16";
 				case ScalarType::I32: return "i32";
 				case ScalarType::F32: return "f32";
+				case ScalarType::U64: return "u64";
+				case ScalarType::I64: return "i64";
+				case ScalarType::F64: return "f64";
 				default:              return "?";
 			}
 		}
 
 		std::string renderScalar(ScalarType type, std::span<const u8> bytes)
 		{
-			u32 value = 0;
+			u64 wide = 0;
 			const usize size = std::min(scalarSize(type), bytes.size());
 			for (usize i = 0; i < size; ++i)
-				value |= static_cast<u32>(bytes[i]) << (8 * i);
+				wide |= static_cast<u64>(bytes[i]) << (8 * i);
+			const u32 value = static_cast<u32>(wide);
 
 			switch (type)
 			{
@@ -69,6 +76,9 @@ namespace ceres::debug
 				case ScalarType::I16: return std::format("{}", static_cast<i16>(value));
 				case ScalarType::I32: return std::format("{}", static_cast<i32>(value));
 				case ScalarType::F32: return std::format("{}", std::bit_cast<f32>(value));
+				case ScalarType::U64: return std::format("{}", wide);
+				case ScalarType::I64: return std::format("{}", static_cast<i64>(wide));
+				case ScalarType::F64: return std::format("{}", std::bit_cast<f64>(wide));
 				default:              return "?";
 			}
 		}
@@ -1401,6 +1411,11 @@ namespace ceres::debug
 			view.general[i] = engine.registers().getValue(i);
 		for (usize i = 0; i < vm::FloatingPointRegisterPool::Count; ++i)
 			view.floating[i] = engine.fregisters().getValue(i);
+		for (usize i = 0; i < view.pairs.size(); ++i)
+			view.pairs[i] = static_cast<u64>(view.general[2 * i]) | (static_cast<u64>(view.general[2 * i + 1]) << 32);
+		for (usize i = 0; i < view.doubles.size(); ++i)
+			view.doubles[i] = std::bit_cast<f64>(static_cast<u64>(engine.fregisters().getBits(2 * i)) |
+				(static_cast<u64>(engine.fregisters().getBits(2 * i + 1)) << 32));
 
 		view.flags = engine.flags().value();
 		view.programCounter = engine.programCounter().value();

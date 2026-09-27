@@ -42,10 +42,21 @@ numeric conversion (i.e., they reinterpret the bits, they don't call `(float)` o
 `ITOF`/`itof`, `IITOF`/`iitof`, `FTOI`/`ftoi`, `FTOII`/`ftoii` for actual numeric conversion — see
 [Instruction set → Conversions](05-Instruction-Set.md#conversions).
 
+The float bank holds each register's 32 bits as they are, not a host `float`: `fmov`, the float loads and
+stores, `fpush`/`fpop` and `fpushm`/`fpopm` move the bits, so a signalling NaN or a NaN's payload comes out as it
+went in (plan/v2 F3.2).
+
+## Register pairs
+
+The 64-bit instructions read two registers as one: `x0`–`x6` are `r0:r1` … `r12:r13` (a 64-bit integer) and
+`d0`–`d7` are `f0:f1` … `f14:f15` (a binary64 double), low word in the even register. `x7` would be `fp:sp` and does
+not exist. A pair is still its two registers - `add64 x1, x2, x3` changes `r2` and `r3`. See
+[64-bit operations](34-64-bit.md).
+
 ## Writing a register
 
 `r0`–`r15` and `f0`–`f15`, and the three that have a role also answer to it: `sp`, `fp` and `at`
-(`r15`, `r14`, `r13`). Names are case-insensitive.
+(`r15`, `r14`, `r13`). The pairs are `x0`–`x6` and `d0`–`d7`. Names are case-insensitive.
 
 ```casm
     ldr r1, [sp + 8]
@@ -59,6 +70,7 @@ A register can be given a name for readability, which is purely lexical and file
 ```casm
 alias cursor = r5
 alias acc    = f2
+alias total  = x3
 ```
 
 By the time anything downstream sees the operand it is an ordinary register, so nothing here changes

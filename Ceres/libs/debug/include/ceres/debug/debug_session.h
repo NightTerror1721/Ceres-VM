@@ -145,6 +145,9 @@ namespace ceres::debug
 	{
 		std::array<u32, vm::GeneralPurposeRegisterPool::Count> general{};
 		std::array<f32, vm::FloatingPointRegisterPool::Count> floating{};
+		// The same registers as the pairs of the 64-bit instructions (plan/v2 SPEC 6.2): x0-x6 and d0-d7.
+		std::array<u64, 7> pairs{};
+		std::array<f64, 8> doubles{};
 		u32 flags = 0;
 		u32 programCounter = 0;
 		u64 executedInstructions = 0;

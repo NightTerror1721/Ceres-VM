@@ -45,6 +45,7 @@ the assembler does internally at each stage of the build.
 28. [Roadmap educativa y retro](28-Roadmap-Educativo-y-Retro.md) — mejoras y ampliaciones para aprender arquitectura, practicar con kernels y crear pequeños juegos retro.
 29. [SDL3 integration plan](29-SDL3-Integration-Plan.md) — historical: how the SDL3 window came in. Superseded by the v2 plan below.
 30. [The machine's clock](30-Machine-Clock-and-Profiles.md) — cycles, the machine's own time, events and the scheduler, `--speed`, recording and replaying input.
+34. [64-bit operations](34-64-bit.md) — the register pairs `x0`–`x6` and `d0`–`d7`: 64-bit integers and binary64 doubles, their flags, cycles and faults, `li64` and the `u64`/`i64`/`f64` types.
 35. [Devices and the bus](35-Devices-and-Bus.md) — 32-bit registers, fault reasons, the register table every device declares, one device per file, and how to add one.
 
 ### The v2 machine (in progress)

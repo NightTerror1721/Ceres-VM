@@ -14,6 +14,7 @@ expands it into a short, fixed sequence of real instructions. From
 | `la rd, imm32` | `lui` + `ori` | 8 bytes |
 | `ldv rd, variable` | `lui` + `ori` + a load chosen by the variable's declared type | 12 bytes |
 | `stv rs, variable` | `lui` + `ori` + a store chosen by the variable's declared type | 12 bytes |
+| `li64 xd, constant` | the constant in the literal pool, and `ldrd` from it | 4 or 12 bytes |
 
 ### Arithmetic and moves
 
@@ -239,6 +240,24 @@ compile to different numbers of words, the assembler reserves the largest and pa
 is the first thing that knows how far away the variable is. That is what relaxation buys, and it
 is the mechanism any future short form would use — a `bl` chosen over a `call` within reach, say,
 or a short branch.
+
+## `li64` and 64-bit variables
+
+A 64-bit constant does not fit in an instruction, so `li64 xd, <constant>` puts it in the literal pool (an `i64`
+in `.rodata`, the way a float literal goes there) and loads it: `lui`/`ori` build the address in the pair's own
+even register and `ldrd` reads the eight bytes, which the linker relaxes to one PC-relative `ldrd` when the pool
+is within reach - as it almost always is. `ldv dd, <constant>` does the same for a double, through `at`.
+
+```casm
+    li64 x1, 0x123456789ABCDEF0
+    li64 x2, -1
+    ldv  d1, 2.5
+```
+
+A 64-bit variable is reached the way any other is: `ldv`/`stv`, or the bracket forms `ldrd xd, [var]`,
+`strd [var], xs`, `fldr.d dd, [var]`, `fstr.d [var], ds`. The loads relax to one word as `ldv` does; a store stays
+three, because there is no PC-relative 64-bit store. The constant of `li64` has to be known when the line is
+read: a macro parameter cannot be one. See [64-bit operations](34-64-bit.md).
 
 ## `neg` — Negate
 

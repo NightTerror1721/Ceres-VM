@@ -105,6 +105,26 @@ The distinction matters most for a displacement: `[fp - 8]` has to reach below t
 bytes above it, which is what a zero-extended field would do. The assembler rejects a displacement
 outside `-32768`–`32767` rather than truncating it.
 
+## Subfields and register pairs
+
+The 64-bit instructions (plan/v2 SPEC 6) keep the same fields. A **pair** goes in a register field as its even
+register's number - `x3` (`r6:r7`) and `d3` (`f6:f7`) are both `6` - and an odd number there, or `14` for an
+integer pair, makes the word an `IllegalInstruction` with `FaultReason` `RegisterPair`. Some take a **subfield** in
+the bits the registers leave, declared with the others in
+[`fields.h`](../Ceres/libs/core/include/ceres/core/isa/fields.h):
+
+| Subfield | Bits | Used by |
+| --- | --- | --- |
+| `ShiftKind` / `ShiftAmount` | 7:6 / 5:0 | `0xE5`: `shl64`/`shr64`/`sar64` by an immediate (kind 3 is invalid) |
+| `BitOp` | 1:0 | `0xE7`: `clz64`/`ctz64`/`popcnt64` (3 is invalid) |
+| `MinMax` | 0 | `0xF6`: `fmin.d`/`fmax.d` |
+| `UnaryOp` | 2:0 | `0xF8`: `fneg.d` … `ftrunc.d` (6 and 7 are invalid) |
+| `FcvtKind` | 3:0 | `0xFB`: the fourteen `fcvt` (14 and 15 are invalid) |
+
+An invalid subfield is `IllegalInstruction` with `FaultReason` `BadSubfield`. Which bank each field names, per
+opcode and per `fcvt` kind, is one table in [`wide.h`](../Ceres/libs/core/include/ceres/core/isa/wide.h), shared by
+the VM, the disassembler and the tests. See [64-bit operations](34-64-bit.md).
+
 ## Related pages
 
 - [Registers and flags](03-Registers-and-Flags.md) — what `rd`/`rs`/`rt` refer to.

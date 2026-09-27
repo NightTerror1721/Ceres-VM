@@ -551,6 +551,13 @@ mscan r2, r3, r4      // r2 = the NUL
 sub   r0, r2, r1
 ```
 
+## 64-bit operations · `0xD7`–`0xFE`, `0x7A`–`0x7E`
+
+Forty-four opcodes work on register pairs: 64-bit integers in `x0`–`x6` (`add64`, `mull`, `div64`, `shl64`,
+`ldrd`/`strd`…) and binary64 doubles in `d0`–`d7` (`fadd.d`, `fma.d`, `fsqrt.d`, the fourteen `fcvt`,
+`fldr.d`/`fstr.d`, `mtf.d`/`mff.d`…). They have a page of their own, with their flags, cycles and faults:
+[64-bit operations](34-64-bit.md).
+
 ## Devices: no opcodes of their own · `0xA4`–`0xB3` free
 
 There used to be a dedicated I/O family here — `in`/`out` and their eight variants, addressing one
@@ -571,8 +578,9 @@ each device uses, and the bulk-transfer registers that replaced `inm`/`outm`.
 Adding the comparison jumps left only eight free slots where sixteen were needed, so the control-flow
 block grew to `0x77` and pushed the families above it up: stack `0x70`→`0x80`, conversions
 `0x80`→`0x90`, I/O `0x90`→`0xA0`. Retiring I/O entirely freed `0xA0`–`0xB3` outright rather than
-moving anything into it; the block-memory instructions took `0xA0`–`0xA3` of it. Free today: `0x0F`, `0x4F`,
-`0x7A`–`0x7F`, `0x8C`–`0x8F`, `0xA4`–`0xB3`, `0xD7`–`0xFF` (the memory-management block, `0x08`–`0x0E`,
+moving anything into it; the block-memory instructions took `0xA0`–`0xA3` of it, and the 64-bit ones
+`0xD7`–`0xFE` and `0x7A`–`0x7E`. Free today: `0x0F`, `0x4F`, `0x7F`, `0x8C`–`0x8F`, `0xA4`–`0xB3`, `0xEE`, `0xFF`;
+executing one is an `IllegalInstruction` with `FaultReason` `UnknownOpcode` (the memory-management block, `0x08`–`0x0E`,
 took the first eight of what a version ago was `0x08`–`0x0F` — see
 [Virtual memory and paging](27-Virtual-Memory-and-Paging.md)).
 

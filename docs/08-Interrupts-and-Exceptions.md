@@ -151,7 +151,7 @@ These are triggered by `ExecutionEngine` itself, not by any explicit `int`/`trap
 | --- | --- |
 | `AlignmentFault` (6) | A 16- or 32-bit memory access (`ldr`/`ldrh`/`ldrsh`/`str`/`strh`/`fldr`/`fstr`) targets an address that isn't a multiple of its own size. Byte-sized accesses never trigger this. See [`checkAlignment<T>()`](../Ceres/libs/vm/include/ceres/vm/execution_engine.h). |
 | `StackOverflow` (5) | A `push`/`call` would write below `0x400` (the protected segment), **or** a `pop`/`ret` would read past the top of memory (an unbalanced stack). See [Memory → The stack](02-Memory.md#the-stack). It's also raised (together with setting the Trap flag) if there isn't even room to push the two words an interrupt dispatch itself needs. |
-| `IllegalInstruction` (2) | The fetched opcode byte doesn't map to any known instruction — the 256-entry dispatch table defaults every unused slot to an internal `INVALID` handler that raises this. |
+| `IllegalInstruction` (2) | The fetched word is not an instruction the machine runs: an opcode no instruction has (`FaultReason` `UnknownOpcode` - the 256-entry dispatch table defaults every unused slot to an internal `INVALID` handler), a 64-bit instruction naming an odd register pair or `x7` (`RegisterPair`), or a subfield no instruction has (`BadSubfield`). See [64-bit operations](34-64-bit.md). |
 | `PageFault` (7) | Paging is on (`pgon`) and a load, store or instruction fetch translates to a directory or table entry that isn't Present, or to one that is but doesn't grant the access (a write without the Writable bit, a fetch without Executable). `mfpf` reads back the address that faulted. See [Virtual memory and paging → Faults](27-Virtual-Memory-and-Paging.md#faults). |
 
 Division and modulo by zero (`div`/`idiv`/`mod`/`imod`, and the float divisions) are, **by default**, a deliberate
@@ -175,7 +175,7 @@ first and leaving the machine to sleep with nothing left to wake it. See
 
 | Instruction | Effect |
 | --- | --- |
-| `int imm8` | Advances the PC, then raises interrupt `imm8`, 0–63. The assembler refuses a larger number, and one that reaches the machine anyway (a hand-built word) raises `IllegalInstruction` with the PC still at the `int` — it would otherwise read the BIOS above the 64-entry table as a handler address. |
+| `int imm8` | Advances the PC, then raises interrupt `imm8`, 0–63. The assembler refuses a larger number, and one that reaches the machine anyway (a hand-built word) raises `IllegalInstruction` (`FaultReason` `BadSubfield`) with the PC still at the `int` — it would otherwise read the BIOS above the 64-entry table as a handler address. |
 | `trap` | Advances the PC, then raises `Trap` (1). Equivalent to `int 1`, spelled out as its own mnemonic for readability. |
 | `reset` | Raises `Reset` (0) *without* first advancing the PC — since it's about to reinitialize the whole machine, the PC being about to change is moot. |
 

@@ -11,21 +11,34 @@ namespace ceres::debug
 	{
 		using Result = std::expected<EvalResult, std::string>;
 
+		// A u64 is kept in the i64 and shown as the unsigned number it is.
 		EvalResult makeInteger(i64 value, std::string_view type = "i64")
 		{
 			EvalResult result;
 			result.integer = value;
 			result.type = type;
-			result.text = std::format("{}", value);
+			result.text = type == "u64" ? std::format("{}", static_cast<u64>(value)) : std::format("{}", value);
 			return result;
 		}
 
-		EvalResult makeFloat(f32 value)
+		// A float in single precision, as the float bank and f32 variables hold it, or in double precision (`wide`), as a
+		// double pair and an f64 variable do.
+		EvalResult makeFloat(f64 value, bool wide = false)
 		{
 			EvalResult result;
-			result.real = value;
-			result.type = "f32";
-			result.text = std::format("{}", value);
+			if (wide)
+			{
+				result.real = value;
+				result.type = "f64";
+				result.text = std::format("{}", value);
+			}
+			else
+			{
+				const f32 narrow = static_cast<f32>(value);
+				result.real = narrow;
+				result.type = "f32";
+				result.text = std::format("{}", narrow);
+			}
 			return result;
 		}
 
@@ -40,6 +53,9 @@ namespace ceres::debug
 				case ScalarType::I16: return "i16";
 				case ScalarType::I32: return "i32";
 				case ScalarType::F32: return "f32";
+				case ScalarType::U64: return "u64";
+				case ScalarType::I64: return "i64";
+				case ScalarType::F64: return "f64";
 				default:              return "?";
 			}
 		}
@@ -52,6 +68,9 @@ namespace ceres::debug
 				case ScalarType::I8:  return 1;
 				case ScalarType::U16:
 				case ScalarType::I16: return 2;
+				case ScalarType::U64:
+				case ScalarType::I64:
+				case ScalarType::F64: return 8;
 				default:              return 4;
 			}
 		}
@@ -65,6 +84,9 @@ namespace ceres::debug
 			if (name == "i16") return ScalarType::I16;
 			if (name == "i32") return ScalarType::I32;
 			if (name == "f32") return ScalarType::F32;
+			if (name == "u64") return ScalarType::U64;
+			if (name == "i64") return ScalarType::I64;
+			if (name == "f64") return ScalarType::F64;
 			return std::nullopt;
 		}
 
@@ -133,11 +155,22 @@ namespace ceres::debug
 				return a.real.has_value() || b.real.has_value();
 			}
 
-			static f32 toFloat(const EvalResult& value)
+			static f64 toFloat(const EvalResult& value)
 			{
 				if (value.real.has_value())
 					return value.real.value();
-				return static_cast<f32>(toInteger(value));
+				return static_cast<f64>(toInteger(value));
+			}
+
+			// A double on either side makes the arithmetic double precision; otherwise it is single, as it always was.
+			static bool eitherIsWide(const EvalResult& a, const EvalResult& b) { return a.type == "f64" || b.type == "f64"; }
+
+			static EvalResult floatArithmetic(const EvalResult& left, const EvalResult& right, char op)
+			{
+				const auto apply = [op](auto a, auto b) { return op == '+' ? a + b : op == '-' ? a - b : op == '*' ? a * b : a / b; };
+				if (eitherIsWide(left, right))
+					return makeFloat(apply(toFloat(left), toFloat(right)), true);
+				return makeFloat(apply(static_cast<f32>(toFloat(left)), static_cast<f32>(toFloat(right))));
 			}
 
 			// --- Grammar, loosest binding first ---
@@ -220,8 +253,8 @@ namespace ceres::debug
 					bool outcome = false;
 					if (eitherIsFloat(left.value(), right.value()))
 					{
-						const f32 a = toFloat(left.value());
-						const f32 b = toFloat(right.value());
+						const f64 a = toFloat(left.value());
+						const f64 b = toFloat(right.value());
 						outcome = which == 1 ? a <= b : which == 2 ? a >= b : which == 3 ? a < b : a > b;
 					}
 					else
@@ -324,9 +357,7 @@ namespace ceres::debug
 
 					if (eitherIsFloat(left.value(), right.value()))
 					{
-						const f32 a = toFloat(left.value());
-						const f32 b = toFloat(right.value());
-						left = makeFloat(plus ? a + b : a - b);
+						left = floatArithmetic(left.value(), right.value(), plus ? '+' : '-');
 					}
 					else
 					{
@@ -355,11 +386,9 @@ namespace ceres::debug
 
 					if (eitherIsFloat(left.value(), right.value()) && !modulo)
 					{
-						const f32 a = toFloat(left.value());
-						const f32 b = toFloat(right.value());
-						if (divide && b == 0.0f)
+						if (divide && toFloat(right.value()) == 0.0)
 							return std::unexpected("Division by zero");
-						left = makeFloat(times ? a * b : a / b);
+						left = floatArithmetic(left.value(), right.value(), times ? '*' : '/');
 					}
 					else
 					{
@@ -384,7 +413,7 @@ namespace ceres::debug
 					if (!value.has_value())
 						return value;
 					if (value->real.has_value())
-						return makeFloat(-value->real.value());
+						return makeFloat(-value->real.value(), value->type == "f64");
 					return makeInteger(-toInteger(value.value()));
 				}
 
@@ -512,7 +541,7 @@ namespace ceres::debug
 				try
 				{
 					if (isFloat)
-						return makeFloat(std::stof(digits));
+						return makeFloat(std::stod(digits));
 
 					usize consumed = 0;
 					const i64 value = static_cast<i64>(std::stoull(digits, &consumed, base));
@@ -561,9 +590,9 @@ namespace ceres::debug
 				if (bytes.size() < size)
 					return std::unexpected(std::format("{:#010x} is outside the machine's memory", address));
 
-				u32 raw = 0;
+				u64 raw = 0;
 				for (u32 i = 0; i < size; ++i)
-					raw |= static_cast<u32>(bytes[i]) << (8 * i);
+					raw |= static_cast<u64>(bytes[i]) << (8 * i);
 
 				EvalResult result;
 				result.address = address;
@@ -574,13 +603,19 @@ namespace ceres::debug
 					case ScalarType::I8:  result.integer = static_cast<i8>(raw); break;
 					case ScalarType::I16: result.integer = static_cast<i16>(raw); break;
 					case ScalarType::I32: result.integer = static_cast<i32>(raw); break;
-					case ScalarType::F32: result.real = std::bit_cast<f32>(raw); break;
+					case ScalarType::F32: result.real = std::bit_cast<f32>(static_cast<u32>(raw)); break;
+					case ScalarType::F64: result.real = std::bit_cast<f64>(raw); break;
 					default:              result.integer = static_cast<i64>(raw); break;
 				}
 
-				result.text = result.real.has_value()
-					? std::format("{}", result.real.value())
-					: std::format("{}", result.integer.value());
+				if (type == ScalarType::F32)
+					result.text = std::format("{}", static_cast<f32>(result.real.value()));
+				else if (type == ScalarType::F64)
+					result.text = std::format("{}", result.real.value());
+				else if (type == ScalarType::U64)
+					result.text = std::format("{}", raw);
+				else
+					result.text = std::format("{}", result.integer.value());
 				return result;
 			}
 
@@ -631,6 +666,20 @@ namespace ceres::debug
 					}
 				}
 
+				// The pairs of the 64-bit instructions: x0-x6 as an unsigned 64-bit integer, d0-d7 as a double.
+				if (name.size() == 2 && (name[0] == 'x' || name[0] == 'd') && name[1] >= '0' && name[1] <= '9')
+				{
+					const u32 index = static_cast<u32>(name[1] - '0');
+					if (name[0] == 'x')
+					{
+						if (index >= registers.pairs.size())
+							return std::unexpected(std::format("'{}' is not a register pair: x0-x6 (x7 would be fp:sp)", name));
+						return makeInteger(static_cast<i64>(registers.pairs[index]), "u64");
+					}
+					if (index < registers.doubles.size())
+						return makeFloat(registers.doubles[index], true);
+				}
+
 				const SymbolEntry* symbol = _session.debugInfo().symbolNamed(name);
 				if (symbol == nullptr)
 					return std::unexpected(std::format("'{}' is not a register, a flag or a known symbol", name));
@@ -641,6 +690,10 @@ namespace ceres::debug
 				{
 					if ((symbol->flags & SymbolFlag::HasValue) == 0)
 						return std::unexpected(std::format("'{}' is a constant whose value was not recorded", name));
+
+					// Only 32 bits of a constant are recorded, so a 64-bit one cannot be shown.
+					if (type == ScalarType::U64 || type == ScalarType::I64 || type == ScalarType::F64)
+						return std::unexpected(std::format("'{}' is a 64-bit constant, whose value is not recorded", name));
 
 					EvalResult result;
 					result.type = scalarName(type);

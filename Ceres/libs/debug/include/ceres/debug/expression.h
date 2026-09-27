@@ -10,6 +10,7 @@
 // arithmetic to combine them:
 //
 //     r3                      a register
+//     x1, d2                  a register pair (plan/v2 SPEC 6.2): a 64-bit integer, a double
 //     sp < 0x1000             a comparison, which is what a breakpoint condition is
 //     zero                    a flag, as 0 or 1
 //     total                   a variable, read through its declared type
@@ -34,7 +35,8 @@ namespace ceres::debug
 		std::string text;
 		// Set when the result is a number rather than a string or an array.
 		std::optional<i64> integer;
-		std::optional<f32> real;
+		// A float's value; a single-precision one (type "f32") holds exactly what the float held.
+		std::optional<f64> real;
 		// Where the value lives, when it came from memory - lets a watch offer the memory viewer.
 		std::optional<u32> address;
 		std::string type;
@@ -46,7 +48,7 @@ namespace ceres::debug
 			if (integer.has_value())
 				return integer.value() != 0;
 			if (real.has_value())
-				return real.value() != 0.0f;
+				return real.value() != 0.0;
 			return !text.empty() && text != "\"\"";
 		}
 	};

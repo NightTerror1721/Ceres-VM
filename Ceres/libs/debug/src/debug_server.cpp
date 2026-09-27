@@ -184,9 +184,20 @@ namespace ceres::debug
 		for (f32 value : view.floating)
 			floating.push_back(json::Value(static_cast<double>(value)));
 
+		// The pairs of the 64-bit instructions. An integer pair goes as its hex text: a JSON number is a double, which
+		// cannot hold every 64-bit integer.
+		json::Array pairs;
+		for (u64 value : view.pairs)
+			pairs.push_back(json::Value(std::format("{:#018x}", value)));
+		json::Array doubles;
+		for (f64 value : view.doubles)
+			doubles.push_back(json::Value(value));
+
 		return json::Object{
 			{ "general", json::Value(std::move(general)) },
 			{ "floating", json::Value(std::move(floating)) },
+			{ "pairs", json::Value(std::move(pairs)) },
+			{ "doubles", json::Value(std::move(doubles)) },
 			{ "pc", json::Value(view.programCounter) },
 			{ "flags", json::Value(view.flags) },
 			{ "ticks", json::Value(view.executedInstructions) },

@@ -112,13 +112,14 @@ for it: constant folding runs at assembly time and cannot even reference an iden
 | | |
 | --- | --- |
 | `r3` `f1` `sp` `fp` `at` `pc` `ticks` `cycles` `nanos` | Registers and machine state: `ticks` counts instructions, `cycles` the CPU clock, `nanos` the machine's time (the cycles at the CPU clock) |
+| `x1` `d2` | A register pair: `x1` (`r2:r3`) as an unsigned 64-bit integer, `d2` (`f4:f5`) as a double |
 | `zero` `sign` `carry` `overflow` `interrupt` `halting` `trap` | Flags, as 0 or 1 |
 | `1024` `0x400` `0b1010` `3.5` | Literals |
 | `LIMIT` | A constant, with the value the assembler recorded |
 | `counter` | A variable, read from live memory through its declared type |
 | `scores[2]` | One element, indexed by the element type rather than by bytes |
 | `[r1 + 4]` | A word loaded from memory |
-| `u8[r2]` `i16[sp + 8]` | A typed load |
+| `u8[r2]` `i16[sp + 8]` `f64[r1]` | A typed load, up to the 64-bit types |
 | `main` | A label, as its address |
 | `+ - * / % << >> & \| ^ ~ ! && \|\| == != < <= > >=` | The arithmetic to combine them |
 
@@ -133,6 +134,15 @@ for it: constant folding runs at assembly time and cannot even reference an iden
 
 Signedness comes from the type: `scores` is `i16[3]`, so `scores[1]` reads as `-20` rather than as
 `65516`. A `u8[]` renders as the string it almost always is.
+
+### Register pairs
+
+`regs` adds `x0`–`x6` as 64-bit numbers when one of their high words is in use, and prints `d0`–`d7` below the
+float bank whenever that is. A double pair keeps double precision through an expression: `d2 * 2` is worked out
+in binary64, while `f1 * 2` stays single precision as it always was. The server's `registers` reply carries
+`pairs` (as hex text, since a JSON number cannot hold every 64-bit integer) and `doubles`. A 64-bit constant's
+value is not recorded in the debug information, so naming one is an error rather than a wrong number. See
+[64-bit operations](34-64-bit.md).
 
 ## Conditional breakpoints, hit counts and logpoints
 

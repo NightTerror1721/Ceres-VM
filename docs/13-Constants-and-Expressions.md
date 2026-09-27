@@ -54,6 +54,10 @@ Integer arithmetic is done through `i32`, matching how the VM would compute the 
 run time. A float on either side makes the whole operation floating point, so `PI * 2` stays a float
 instead of being truncated on the way through.
 
+A 64-bit operand - a literal past 32 bits, or a `u64`/`i64`/`f64` constant - makes the operation a 64-bit one
+(`i64`, or double precision), and so does the initializer of a 64-bit variable: `const BIG: u64 = 1 + 0x100000000`
+is `4294967297`. See [Data types and literals → 64-bit types](11-Data-Types-and-Literals.md#64-bit-types).
+
 ## One constant from another
 
 ```casm

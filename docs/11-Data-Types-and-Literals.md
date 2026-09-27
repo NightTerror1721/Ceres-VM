@@ -15,6 +15,9 @@ From [`data_type.h`](../Ceres/libs/asm/include/ceres/asm/data_type.h):
 | `i16` | 2 bytes | 2 | Signed 16-bit. |
 | `i32` | 4 bytes | 4 | Signed 32-bit. |
 | `f32` | 4 bytes | 4 | IEEE-754 single-precision float. |
+| `u64` | 8 bytes | 4 | Unsigned 64-bit, for an integer pair. |
+| `i64` | 8 bytes | 4 | Signed 64-bit, for an integer pair. |
+| `f64` | 8 bytes | 4 | IEEE-754 double-precision float, for a double pair. |
 
 ## Aliases
 
@@ -230,9 +233,29 @@ reading — which is exactly what lets `-10` be written where an `i16` is expect
 either direction: an integer literal used where `f32` is expected (or vice versa) is a type error,
 not a coercion.
 
+## 64-bit types
+
+`u64`, `i64` and `f64` are what the [register pairs](34-64-bit.md) load and store: eight bytes, low word first,
+aligned to 4 (all `ldrd` and `fldr.d` ask for).
+
+```casm
+let big:   u64 = 0x123456789ABCDEF0     // a literal past 32 bits
+let delta: i64 = -5                     // sign-extended to 64 bits
+let pi:    f64 = 3.141592653589793      // kept to double precision
+let ms:    u64 = 0x80000000 * 4         // worked out in 64 bits
+```
+
+An integer literal that does not fit in 32 bits is a 64-bit one, and a float literal is read in double
+precision. The initializer of a 64-bit type is worked out in 64 bits (integers) or in double precision (floats);
+anywhere else a float is the single-precision one it always was, an integer is worked out in 32 bits unless an
+operand is itself 64 bits wide, and a value that does not fit in 32 bits where 32 bits are all there is - an
+immediate, a size, an `assert` - is an error. `f32` and `f64` convert into each other; an integer and a float
+still do not.
+
 ## Alignment
 
-Every scalar's *natural alignment* equals its size (1/2/4 bytes — see the table above). The
+Every scalar's *natural alignment* equals its size (1/2/4 bytes — see the table above), except the 64-bit ones,
+which align to 4. The
 translation-unit builder pads the current section offset up to a variable's natural alignment before
 recording its address, so the symbol table and the emitted bytes always agree on exactly where a
 variable starts (see

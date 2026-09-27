@@ -41,9 +41,13 @@ A memory fault records where it happened and how (the system control device's `F
 | 5 | `MmioWidth` | A device register reached by anything but an aligned 32-bit access |
 | 6 | `MmioBlock` | A block instruction that touched a device |
 | 7 | `MmioUndeclared` | An undeclared offset, under `--strict-mmio` |
+| 8 | `RegisterPair` | An `IllegalInstruction`: a 64-bit instruction with an odd pair field, or `x7` |
+| 9 | `UnknownOpcode` | An `IllegalInstruction`: an opcode no instruction has |
+| 10 | `BadSubfield` | An `IllegalInstruction`: a subfield no instruction has (`fcvt` kind 14 or 15…), or `int` past the vector table |
 
-Codes 2–4 and 8–10 are reserved for the phases that bring their causes (the memory map and the 64-bit
-instructions). A device mapped by a page table somewhere else than its window still counts as a device: a
+An illegal instruction records its reason the same way, with the word's own address as `FaultAddress` (see
+[64-bit operations](34-64-bit.md)). Codes 2–4 are reserved for the phase that brings their causes (the memory
+map). A device mapped by a page table somewhere else than its window still counts as a device: a
 misaligned access through that page says `MmioWidth`.
 
 ## What a device is

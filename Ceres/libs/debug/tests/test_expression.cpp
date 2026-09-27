@@ -217,6 +217,53 @@ TEST(expression, memory_can_be_read_directly_and_by_type)
 	CHECK(!session->evaluate("u8").has_value());
 }
 
+TEST(expression, register_pairs_and_64_bit_variables_read_whole)
+{
+	//  1 @data
+	//  2     let big: i64 = -5
+	//  3     let ratio: f64 = 0.1
+	//  4 @text
+	//  5 global main:
+	//  6     li64 x1, 0x123456789ABCDEF0
+	//  7     ldv d2, 2.5
+	//  8     halt
+	TempSource source{
+		"@data\r\n"
+		"    let big: i64 = -5\r\n"
+		"    let ratio: f64 = 0.1\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li64 x1, 0x123456789ABCDEF0\r\n"
+		"    ldv d2, 2.5\r\n"
+		"    halt\r\n", "pairs" };
+	auto session = launchOrNull(source);
+	CHECK(session != nullptr);
+	if (!session) return;
+	session->start();
+	session->addLineBreakpoint(source.string(), 8, {});
+	session->resume();
+
+	// x1 is r2:r3 as one unsigned number, d2 is f4:f5 as a double; the halves are still r2, r3, f4, f5.
+	CHECK_EQ(valueOf(*session, "x1"), std::string("1311768467463790320"));
+	CHECK_EQ(valueOf(*session, "r2"), std::format("{}", 0x9ABCDEF0u));
+	CHECK_EQ(valueOf(*session, "x1 == 0x123456789ABCDEF0"), std::string("1"));
+	CHECK_EQ(valueOf(*session, "d2"), std::string("2.5"));
+	CHECK_EQ(valueOf(*session, "d2 * 2"), std::string("5"));
+	CHECK(!session->evaluate("x7").has_value());
+
+	const auto registers = session->registers();
+	CHECK_EQ(registers.pairs[1], u64{ 0x123456789ABCDEF0 });
+	CHECK_EQ(registers.doubles[2], 2.5);
+
+	// The 64-bit variables, through their types; and memory read as one.
+	CHECK_EQ(valueOf(*session, "big"), std::string("-5"));
+	CHECK_EQ(valueOf(*session, "ratio"), std::string("0.1"));
+	const auto ratio = session->debugInfo().symbolNamed("ratio");
+	CHECK(ratio != nullptr);
+	if (ratio != nullptr)
+		CHECK_EQ(valueOf(*session, std::format("f64[{}]", ratio->address)), std::string("0.1"));
+}
+
 TEST(expression, a_message_has_its_expressions_interpolated)
 {
 	TempSource source{ LoopSource, "interpolate" };
