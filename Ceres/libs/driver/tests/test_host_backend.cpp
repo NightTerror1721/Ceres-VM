@@ -207,6 +207,15 @@ TEST(driver_command, run_takes_the_window_options_and_the_other_commands_do_not)
 	char seventy[] = "70";
 	char* bad[] = { program, run, input, refresh, seventy };
 	CHECK(!parseCommandLine(5, bad).has_value());
+	char gpu[] = "--gpu";
+	char software[] = "software";
+	char* withGpu[] = { program, run, input, gpu, software };
+	parsed = parseCommandLine(5, withGpu);
+	command = parsed ? std::get_if<RunCommand>(&*parsed) : nullptr;
+	CHECK(command != nullptr && command->gpu == GpuExecutor::Software);
+	char magic[] = "magic";
+	char* badGpu[] = { program, run, input, gpu, magic };
+	CHECK(!parseCommandLine(5, badGpu).has_value());
 	char disasm[] = "disasm";
 	char* wrong[] = { program, disasm, input, fullscreen };
 	CHECK(!parseCommandLine(4, wrong).has_value());

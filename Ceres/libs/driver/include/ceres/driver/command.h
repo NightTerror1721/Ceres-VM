@@ -47,6 +47,10 @@ namespace ceres::driver
 		bool cartridge = false;   // read only, and has to exist
 	};
 
+	// --gpu: which executor composes the GPU's frames (plan/v2 SPEC 10). There is only the software one until F12,
+	// so the three run the same; without a window it is always the software one.
+	enum class GpuExecutor { Auto, Software, Hardware };
+
 	struct RunCommand
 	{
 		std::filesystem::path input;
@@ -74,6 +78,7 @@ namespace ceres::driver
 		std::filesystem::path screenLog;        // --screen-log: the text plane as text at every Present and at the end
 		std::filesystem::path typeFile;         // --type: text typed on the terminal as the machine starts
 		std::filesystem::path keysFile;         // --keys: keyboard events at instants of the machine's time
+		GpuExecutor gpu = GpuExecutor::Auto;    // --gpu auto|software|hardware
 	};
 
 	struct ProfileCommand

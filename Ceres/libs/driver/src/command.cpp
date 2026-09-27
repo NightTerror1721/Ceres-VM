@@ -18,6 +18,7 @@ namespace ceres::driver
 			"  ceres run <file.casm|file.cres> [<machine>] [--disk <image>] [--window | --headless] [--strict-mmio]\n"
 			"                                  [--fullscreen] [--exit-on-halt] [--frames <dir>] [--refresh 50|60]\n"
 			"                                  [--transcript <file>] [--screen-log <file>] [--type <file>] [--keys <file>]\n"
+			"                                  [--gpu auto|software|hardware]\n"
 			"                                  [--rtc <YYYY-MM-DDThh:mm:ss>] [--speed realtime|max|<f>x]\n"
 			"                                  [--record <file> | --replay <file>] [--log <file>]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
@@ -37,7 +38,8 @@ namespace ceres::driver
 			"blank (--refresh: 50 or 60 a second, 60 by default), and keeps it open with the last frame when the program\n"
 			"ends, until a key is pressed or it is closed; --exit-on-halt closes it at once. --fullscreen (or F11) fills\n"
 			"the screen. --window makes a window that cannot be opened an error; --headless (or CERES_HEADLESS in the\n"
-			"environment) opens none. --frames writes a PNG of the screen into <dir> for every Present.\n"
+			"environment) opens none. --frames writes a PNG of the screen into <dir> for every Present. --gpu picks the\n"
+			"GPU's executor; there is only the software one so far, and a run without a window always uses it.\n"
 			"\n"
 			"The program's input and output are its terminal's, in the window: nothing it writes reaches this terminal,\n"
 			"and nothing typed here reaches it. --transcript writes everything it wrote to its terminal to a file (the\n"
@@ -92,6 +94,7 @@ namespace ceres::driver
 			std::filesystem::path screenLog;
 			std::filesystem::path typeFile;
 			std::filesystem::path keysFile;
+			GpuExecutor gpu = GpuExecutor::Auto;
 			u32 refresh = 60;
 			bool usedScreen = false;
 			// The machine: a profile, and the options that change it into `custom`.
@@ -380,6 +383,16 @@ namespace ceres::driver
 				raw.framesDir = *value;
 				raw.usedScreen = true;
 			}
+			else if (argument == "--gpu")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				if (*value == "auto") raw.gpu = GpuExecutor::Auto;
+				else if (*value == "software") raw.gpu = GpuExecutor::Software;
+				else if (*value == "hardware") raw.gpu = GpuExecutor::Hardware;
+				else return std::unexpected(ParseError{ "'--gpu' takes auto, software or hardware, not '" + std::string(*value) + "'" });
+				raw.usedScreen = true;
+			}
 			else if (argument == "--refresh")
 			{
 				auto value = nextValue(argument);
@@ -522,7 +535,7 @@ namespace ceres::driver
 				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory), raw.strictMmio,
 				raw.rtc, raw.speed, std::move(raw.record), std::move(raw.replay), std::move(raw.log), raw.refresh, raw.fullscreen,
 				raw.exitOnHalt, std::move(raw.framesDir), std::move(raw.transcript), std::move(raw.screenLog), std::move(raw.typeFile),
-				std::move(raw.keysFile) };
+				std::move(raw.keysFile), raw.gpu };
 		}
 		if (command == "profile")
 		{
