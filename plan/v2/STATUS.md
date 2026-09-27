@@ -61,7 +61,7 @@ Archivo: [phases/F03-isa-64.md](phases/F03-isa-64.md)
 
 | ID | Tarea | Depende de | Estado | Commits |
 | --- | --- | --- | --- | --- |
-| F3.1 | Opcodes, subcampos y fallos de decodificación | F1.10 | TODO |  |
+| F3.1 | Opcodes, subcampos y fallos de decodificación | F1.10 | DONE |  |
 | F3.2 | Banco float con bits en crudo | F3.1 | TODO |  |
 | F3.3 | Ensamblador: pares, mnemónicos y datos de 64 bits | F3.1 | TODO |  |
 | F3.4 | VM: enteros de 64 bits | F3.2, F3.3, F2.1 (ciclos) | TODO |  |

@@ -30,5 +30,14 @@ namespace ceres::isa
 		using Imm16 = Field<0, 16>;
 		using Imm20 = Field<0, 20>;     // BL's displacement, once Rd has taken 23:20
 		using Imm24 = Field<0, 24>;
+
+		// The subfields of the 64-bit instructions (plan/v2 SPEC 6.4), in the bits the registers leave: 11:0 after three,
+		// 7:0 after two.
+		using ShiftKind = Field<6, 2>;  // SHI64: 0 shl64, 1 shr64, 2 sar64 (3 is not an instruction)
+		using ShiftAmount = Field<0, 6>; // SHI64: 0-63
+		using BitOp = Field<0, 2>;      // BITS64: 0 clz64, 1 ctz64, 2 popcnt64 (3 is not an instruction)
+		using MinMax = Field<0, 1>;     // FMINMAXD: 0 fmin.d, 1 fmax.d
+		using UnaryOp = Field<0, 3>;    // FUNARYD: 0 fneg.d … 5 ftrunc.d (6 and 7 are not instructions)
+		using FcvtKind = Field<0, 4>;   // FCVT: SPEC 6.5 (14 and 15 are not instructions)
 	}
 }

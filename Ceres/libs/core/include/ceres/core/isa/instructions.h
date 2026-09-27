@@ -352,6 +352,84 @@ namespace ceres::isa
 		static constexpr Instruction MTF(u8 fd, u8 rs) noexcept { return make(Opcode::MTF, fd, rs); }
 		static constexpr Instruction MFF(u8 rd, u8 fs) noexcept { return make(Opcode::MFF, rd, fs); }
 
+		// 64-bit instructions (plan/v2 SPEC 6; the table is in wide.h). A pair is given by its number - x3, d3 as 3 -
+		// and stored as its even register's, 6; the other operands are register numbers as everywhere else.
+		static constexpr u8 pairField(u8 pair) noexcept { return static_cast<u8>(pair * 2u); }
+		static constexpr Instruction withLow(Instruction instruction, u32 low) noexcept { return Instruction(instruction.raw() | low); }
+
+		static constexpr Instruction ADD64(u8 xd, u8 xs, u8 xt) noexcept { return make(Opcode::ADD64, pairField(xd), pairField(xs), pairField(xt)); }
+		static constexpr Instruction SUB64(u8 xd, u8 xs, u8 xt) noexcept { return make(Opcode::SUB64, pairField(xd), pairField(xs), pairField(xt)); }
+		static constexpr Instruction NEG64(u8 xd, u8 xs) noexcept { return make(Opcode::NEG64, pairField(xd), pairField(xs)); }
+		static constexpr Instruction CMP64(u8 xs, u8 xt) noexcept { return make(Opcode::CMP64, u8{ 0 }, pairField(xs), pairField(xt)); }
+		static constexpr Instruction MULL(u8 xd, u8 rs, u8 rt) noexcept { return make(Opcode::MULL, pairField(xd), rs, rt); }
+		static constexpr Instruction IMULL(u8 xd, u8 rs, u8 rt) noexcept { return make(Opcode::IMULL, pairField(xd), rs, rt); }
+		static constexpr Instruction MUL64(u8 xd, u8 xs, u8 xt) noexcept { return make(Opcode::MUL64, pairField(xd), pairField(xs), pairField(xt)); }
+		static constexpr Instruction DIV64(u8 xd, u8 xs, u8 xt) noexcept { return make(Opcode::DIV64, pairField(xd), pairField(xs), pairField(xt)); }
+		static constexpr Instruction IDIV64(u8 xd, u8 xs, u8 xt) noexcept { return make(Opcode::IDIV64, pairField(xd), pairField(xs), pairField(xt)); }
+		static constexpr Instruction MOD64(u8 xd, u8 xs, u8 xt) noexcept { return make(Opcode::MOD64, pairField(xd), pairField(xs), pairField(xt)); }
+		static constexpr Instruction IMOD64(u8 xd, u8 xs, u8 xt) noexcept { return make(Opcode::IMOD64, pairField(xd), pairField(xs), pairField(xt)); }
+		static constexpr Instruction SHL64(u8 xd, u8 xs, u8 rt) noexcept { return make(Opcode::SHL64, pairField(xd), pairField(xs), rt); }
+		static constexpr Instruction SHR64(u8 xd, u8 xs, u8 rt) noexcept { return make(Opcode::SHR64, pairField(xd), pairField(xs), rt); }
+		static constexpr Instruction SAR64(u8 xd, u8 xs, u8 rt) noexcept { return make(Opcode::SAR64, pairField(xd), pairField(xs), rt); }
+		// By an immediate: the kind (fields::ShiftKind) and the amount (fields::ShiftAmount) in the low byte.
+		static constexpr Instruction SHI64(u8 kind, u8 xd, u8 xs, u8 amount) noexcept
+		{
+			return withLow(make(Opcode::SHI64, pairField(xd), pairField(xs)), fields::ShiftKind::set(fields::ShiftAmount::set(0, amount), kind));
+		}
+		static constexpr Instruction SHL64I(u8 xd, u8 xs, u8 amount) noexcept { return SHI64(0, xd, xs, amount); }
+		static constexpr Instruction SHR64I(u8 xd, u8 xs, u8 amount) noexcept { return SHI64(1, xd, xs, amount); }
+		static constexpr Instruction SAR64I(u8 xd, u8 xs, u8 amount) noexcept { return SHI64(2, xd, xs, amount); }
+		static constexpr Instruction SXT64(u8 xd, u8 rs) noexcept { return make(Opcode::SXT64, pairField(xd), rs); }
+		static constexpr Instruction BITS64(u8 op, u8 rd, u8 xs) noexcept { return withLow(make(Opcode::BITS64, rd, pairField(xs)), fields::BitOp::set(0, op)); }
+		static constexpr Instruction CLZ64(u8 rd, u8 xs) noexcept { return BITS64(0, rd, xs); }
+		static constexpr Instruction CTZ64(u8 rd, u8 xs) noexcept { return BITS64(1, rd, xs); }
+		static constexpr Instruction POPCNT64(u8 rd, u8 xs) noexcept { return BITS64(2, rd, xs); }
+		static constexpr Instruction MOV64(u8 xd, u8 xs) noexcept { return make(Opcode::MOV64, pairField(xd), pairField(xs)); }
+		static constexpr Instruction LDRD(u8 xd, u8 rs, u16 imm16) noexcept { return make(Opcode::LDRD, pairField(xd), rs, imm16); }
+		static constexpr Instruction STRD(u8 rdBase, u8 xs, u16 imm16) noexcept { return make(Opcode::STRD, rdBase, pairField(xs), imm16); }
+		static constexpr Instruction LDRDX(u8 xd, u8 rs, u8 rt) noexcept { return make(Opcode::LDRDX, pairField(xd), rs, rt); }
+		static constexpr Instruction STRDX(u8 rdBase, u8 xs, u8 rtIndex) noexcept { return make(Opcode::STRDX, rdBase, pairField(xs), rtIndex); }
+		static constexpr Instruction LDRDP(u8 xd, i16 disp) noexcept { return make(Opcode::LDRDP, pairField(xd), u8{ 0 }, static_cast<u16>(disp)); }
+
+		static constexpr Instruction FADDD(u8 dd, u8 ds, u8 dt) noexcept { return make(Opcode::FADDD, pairField(dd), pairField(ds), pairField(dt)); }
+		static constexpr Instruction FSUBD(u8 dd, u8 ds, u8 dt) noexcept { return make(Opcode::FSUBD, pairField(dd), pairField(ds), pairField(dt)); }
+		static constexpr Instruction FMULD(u8 dd, u8 ds, u8 dt) noexcept { return make(Opcode::FMULD, pairField(dd), pairField(ds), pairField(dt)); }
+		static constexpr Instruction FDIVD(u8 dd, u8 ds, u8 dt) noexcept { return make(Opcode::FDIVD, pairField(dd), pairField(ds), pairField(dt)); }
+		static constexpr Instruction FMAD(u8 dd, u8 ds, u8 dt) noexcept { return make(Opcode::FMAD, pairField(dd), pairField(ds), pairField(dt)); }
+		static constexpr Instruction FSQRTD(u8 dd, u8 ds) noexcept { return make(Opcode::FSQRTD, pairField(dd), pairField(ds)); }
+		static constexpr Instruction FCMPD(u8 ds, u8 dt) noexcept { return make(Opcode::FCMPD, u8{ 0 }, pairField(ds), pairField(dt)); }
+		static constexpr Instruction FMIND(u8 dd, u8 ds, u8 dt) noexcept { return make(Opcode::FMINMAXD, pairField(dd), pairField(ds), pairField(dt), u8{ 0 }); }
+		static constexpr Instruction FMAXD(u8 dd, u8 ds, u8 dt) noexcept { return make(Opcode::FMINMAXD, pairField(dd), pairField(ds), pairField(dt), u8{ 1 }); }
+		static constexpr Instruction FMODD(u8 dd, u8 ds, u8 dt) noexcept { return make(Opcode::FMODD, pairField(dd), pairField(ds), pairField(dt)); }
+		// The unary ones by fields::UnaryOp: 0 fneg.d, 1 fabs.d, 2 fround.d, 3 ffloor.d, 4 fceil.d, 5 ftrunc.d.
+		static constexpr Instruction FUNARYD(u8 op, u8 dd, u8 ds) noexcept { return withLow(make(Opcode::FUNARYD, pairField(dd), pairField(ds)), fields::UnaryOp::set(0, op)); }
+		static constexpr Instruction FNEGD(u8 dd, u8 ds) noexcept { return FUNARYD(0, dd, ds); }
+		static constexpr Instruction FABSD(u8 dd, u8 ds) noexcept { return FUNARYD(1, dd, ds); }
+		static constexpr Instruction FROUNDD(u8 dd, u8 ds) noexcept { return FUNARYD(2, dd, ds); }
+		static constexpr Instruction FFLOORD(u8 dd, u8 ds) noexcept { return FUNARYD(3, dd, ds); }
+		static constexpr Instruction FCEILD(u8 dd, u8 ds) noexcept { return FUNARYD(4, dd, ds); }
+		static constexpr Instruction FTRUNCD(u8 dd, u8 ds) noexcept { return FUNARYD(5, dd, ds); }
+		static constexpr Instruction FCOPYSIGND(u8 dd, u8 ds, u8 dt) noexcept { return make(Opcode::FCOPYSIGND, pairField(dd), pairField(ds), pairField(dt)); }
+		static constexpr Instruction FCLASSD(u8 rd, u8 ds) noexcept { return make(Opcode::FCLASSD, rd, pairField(ds)); }
+		// fcvt by its kind (SPEC 6.5, wide::FcvtKind). `to` and `from` are pair numbers where the kind names a pair
+		// (l, lu, d) and register numbers where it names one register (w, wu, s).
+		static constexpr Instruction FCVT(u8 kind, u8 to, u8 from) noexcept
+		{
+			constexpr u32 ToIsPair = 0b0011'0011'1100'1101u;   // kinds 0, 2, 3, 6, 7, 8, 9, 12, 13
+			constexpr u32 FromIsPair = 0b0000'1111'1111'0010u; // kinds 1, 4, 5, 6, 7, 8, 9, 10, 11
+			const u8 rd = (ToIsPair >> kind) & 1u ? pairField(to) : to;
+			const u8 rs = (FromIsPair >> kind) & 1u ? pairField(from) : from;
+			return withLow(make(Opcode::FCVT, rd, rs), fields::FcvtKind::set(0, kind));
+		}
+		static constexpr Instruction FMOVD(u8 dd, u8 ds) noexcept { return make(Opcode::FMOVD, pairField(dd), pairField(ds)); }
+		static constexpr Instruction FLDRD(u8 dd, u8 rs, u16 imm16) noexcept { return make(Opcode::FLDRD, pairField(dd), rs, imm16); }
+		static constexpr Instruction FSTRD(u8 rdBase, u8 ds, u16 imm16) noexcept { return make(Opcode::FSTRD, rdBase, pairField(ds), imm16); }
+		static constexpr Instruction FLDRDX(u8 dd, u8 rs, u8 rt) noexcept { return make(Opcode::FLDRDX, pairField(dd), rs, rt); }
+		static constexpr Instruction FSTRDX(u8 rdBase, u8 ds, u8 rtIndex) noexcept { return make(Opcode::FSTRDX, rdBase, pairField(ds), rtIndex); }
+		static constexpr Instruction FLDRDP(u8 dd, i16 disp) noexcept { return make(Opcode::FLDRDP, pairField(dd), u8{ 0 }, static_cast<u16>(disp)); }
+		static constexpr Instruction MTFD(u8 dd, u8 xs) noexcept { return make(Opcode::MTFD, pairField(dd), pairField(xs)); }
+		static constexpr Instruction MFFD(u8 xd, u8 ds) noexcept { return make(Opcode::MFFD, pairField(xd), pairField(ds)); }
+
 		// I/O used to live here - see opcodes.h. Devices are reached through ordinary loads and
 		// stores now (LDR/STR and friends, above), at addresses in MmioBus's reserved window.
 

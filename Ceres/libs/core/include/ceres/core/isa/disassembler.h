@@ -1,6 +1,7 @@
 #pragma once
 
 #include "instructions.h"
+#include "wide.h"
 #include "opcodes.h"
 #include "address.h"
 #include <string>
@@ -265,12 +266,70 @@ namespace ceres::isa
 			}
 		}
 
+		static std::string upper(std::string_view text)
+		{
+			std::string out(text);
+			for (char& c : out)
+				c = (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
+			return out;
+		}
+
+		// A register field as the bank it names: r2, f2, x1 (r2:r3), d1 (f2:f3).
+		static std::string registerName(wide::Bank bank, u8 field)
+		{
+			switch (bank)
+			{
+				case wide::Bank::Float:      return std::format("f{}", field);
+				case wide::Bank::IntPair:    return std::format("x{}", field / 2);
+				case wide::Bank::DoublePair: return std::format("d{}", field / 2);
+				default:                     return std::format("r{}", field);
+			}
+		}
+
+		static std::string signedOffset(i16 value) { return std::format("{} {}", value < 0 ? '-' : '+', std::abs(static_cast<int>(value))); }
+
+		// The 64-bit instructions, from their table (wide.h): `ADD64 x1, x2, x3`, `FCVT.D.L d4, x2`. A word the machine
+		// would refuse says why, the way an unknown opcode does.
+		static std::string disassembleWide(Instruction instruction)
+		{
+			switch (wide::check(instruction))
+			{
+				case wide::Decode::BadSubfield:
+					return std::format("<opcode {:#04x} with an invalid subfield>", static_cast<u8>(instruction.opcode()));
+				case wide::Decode::RegisterPair:
+					return std::format("<{} with an invalid register pair>", upper(wide::describe(instruction).name));
+				default:
+					break;
+			}
+
+			const wide::Entry entry = wide::describe(instruction);
+			const std::string name = upper(entry.name);
+			const std::string d = registerName(entry.rd, instruction.rd());
+			const std::string s = registerName(entry.rs, instruction.rs());
+			const std::string t = registerName(entry.rt, instruction.rt());
+			switch (entry.form)
+			{
+				case wide::Form::Three:        return std::format("{} {}, {}, {}", name, d, s, t);
+				case wide::Form::Two:          return std::format("{} {}, {}", name, d, s);
+				case wide::Form::Compare:      return std::format("{} {}, {}", name, s, t);
+				case wide::Form::ShiftImm:     return std::format("{} {}, {}, {}", name, d, s, fields::ShiftAmount::get(instruction.raw()));
+				case wide::Form::Load:         return std::format("{} {}, [r{} {}]", name, d, instruction.rs(), signedOffset(instruction.simm16()));
+				case wide::Form::Store:        return std::format("{} [r{} {}], {}", name, instruction.rd(), signedOffset(instruction.simm16()), s);
+				case wide::Form::LoadIndexed:  return std::format("{} {}, [r{} + r{}]", name, d, instruction.rs(), instruction.rt());
+				case wide::Form::StoreIndexed: return std::format("{} [r{} + r{}], {}", name, instruction.rd(), instruction.rt(), s);
+				case wide::Form::LoadPc:       return std::format("{} {}, [pc {}]", name, d, signedOffset(instruction.simm16()));
+			}
+			return {};
+		}
+
 	public:
 		// One instruction as text. Unknown opcodes come back as their raw byte so a decoding
 		// mistake is visible instead of silently rendering as something plausible.
 		static std::string disassemble(Instruction instruction)
 		{
 			const Opcode opcode = instruction.opcode();
+			if (wide::isWide(opcode))
+				return disassembleWide(instruction);
 			const Entry entry = describe(opcode);
 
 			const u8 rd = instruction.rd();

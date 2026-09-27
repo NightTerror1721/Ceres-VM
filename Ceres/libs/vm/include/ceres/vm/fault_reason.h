@@ -7,8 +7,8 @@
 namespace ceres::vm
 {
 	// Why the last memory fault happened, beyond which interrupt it raised: what SystemControl's FaultReason
-	// register reports (plan/v2 SPEC 5.4). The machine raises the reasons it has a cause for; the others are
-	// reserved for the phases that bring theirs (the memory map in F4, the 64-bit instructions in F3).
+	// register reports (plan/v2 SPEC 5.4), for a memory fault and for an illegal instruction. The machine raises the
+	// reasons it has a cause for; OutOfRam, OutOfVram and Unmapped wait for the memory map of plan/v2 F4.
 	enum class FaultReason : u32
 	{
 		None = 0,

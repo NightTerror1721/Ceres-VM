@@ -264,7 +264,59 @@ namespace ceres::isa
 		FRSQRTE = 0xD5, // [fd, fs] - fd = 1 / sqrt(fs); traps on fs == 0
 		CTZ = 0xD6, // [rd, rs] - rd = trailing zero bits in rs; 32 when rs is zero
 
-		// Free: 0x0F, 0x4F, 0x7A-0x7F, 0x8C-0x8F, 0xA4-0xB3, 0xD7-0xFF.
+		// 64-bit integers, on register pairs (plan/v2 SPEC 6). xN is r(2N):r(2N+1), low word in the even register, and
+		// a pair field holds the even register's number: an odd one, or x7 (r14:r15, fp:sp), is an IllegalInstruction
+		// with FaultReason RegisterPair. The subfields of the shift, bit and float forms are in fields.h.
+		ADD64 = 0xD7, // [xd, xs, xt] - xd = xs + xt
+		SUB64 = 0xD8, // [xd, xs, xt] - xd = xs - xt
+		NEG64 = 0xD9, // [xd, xs] - xd = -xs
+		CMP64 = 0xDA, // [xs, xt] - the flags of xs - xt
+		MULL = 0xDB, // [xd, rs, rt] - xd = (u64)rs * (u64)rt
+		IMULL = 0xDC, // [xd, rs, rt] - xd = (i64)rs * (i64)rt
+		MUL64 = 0xDD, // [xd, xs, xt] - xd = the low 64 bits of xs * xt
+		DIV64 = 0xDE, // [xd, xs, xt] - xd = xs / xt (unsigned)
+		IDIV64 = 0xDF, // [xd, xs, xt] - xd = xs / xt (signed)
+		MOD64 = 0xE0, // [xd, xs, xt] - xd = xs % xt (unsigned)
+		IMOD64 = 0xE1, // [xd, xs, xt] - xd = xs % xt (signed)
+		SHL64 = 0xE2, // [xd, xs, rt] - xd = xs << (rt & 63)
+		SHR64 = 0xE3, // [xd, xs, rt] - xd = xs >> (rt & 63) (logical)
+		SAR64 = 0xE4, // [xd, xs, rt] - xd = xs >> (rt & 63) (arithmetic)
+		SHI64 = 0xE5, // [xd, xs, kind:imm6] - shl64/shr64/sar64 by an immediate: kind in bits 7:6, amount in 5:0
+		SXT64 = 0xE6, // [xd, rs] - xd = (i64)(i32)rs
+		BITS64 = 0xE7, // [rd, xs, op] - rd = clz64/ctz64/popcnt64 of xs, by bits 1:0
+		MOV64 = 0xE8, // [xd, xs] - xd = xs
+		LDRD = 0xE9, // [xd, rs, simm16] - xd = *(u64*)(rs + simm16), aligned to 4
+		STRD = 0xEA, // [rd, xs, simm16] - *(u64*)(rd + simm16) = xs. Base in Rd and pair in Rs, as STR.
+		LDRDX = 0xEB, // [xd, rs, rt] - xd = *(u64*)(rs + rt)
+		STRDX = 0xEC, // [rd, xs, rt] - *(u64*)(rd + rt) = xs
+		LDRDP = 0xED, // [xd, simm16] - xd = *(u64*)(pc + simm16)
+		// 0xEE is free.
+
+		// binary64 doubles, on float register pairs: dN is f(2N):f(2N+1), N = 0..7, and an odd pair field is an
+		// IllegalInstruction with FaultReason RegisterPair.
+		FADDD = 0xEF, // [dd, ds, dt] - dd = ds + dt
+		FSUBD = 0xF0, // [dd, ds, dt] - dd = ds - dt
+		FMULD = 0xF1, // [dd, ds, dt] - dd = ds * dt
+		FDIVD = 0xF2, // [dd, ds, dt] - dd = ds / dt; traps on dt == 0 like FDIV, unless FeatureIeeeDivide
+		FMAD = 0xF3, // [dd, ds, dt] - dd = dd + ds * dt, rounded once
+		FSQRTD = 0xF4, // [dd, ds] - dd = sqrt(ds)
+		FCMPD = 0xF5, // [ds, dt] - the flags FCMP sets, for ds and dt
+		FMINMAXD = 0xF6, // [dd, ds, dt, op] - fmin.d (bit 0 clear) or fmax.d (bit 0 set)
+		FMODD = 0xF7, // [dd, ds, dt] - dd = IEEE remainder of ds / dt; traps on dt == 0 like FMOD
+		FUNARYD = 0xF8, // [dd, ds, op] - fneg.d, fabs.d, fround.d, ffloor.d, fceil.d, ftrunc.d by bits 2:0
+		FCOPYSIGND = 0xF9, // [dd, ds, dt] - dd = |ds| with the sign of dt
+		FCLASSD = 0xFA, // [rd, ds] - rd = the FCLASS mask of ds
+		FCVT = 0xFB, // [d, s, kind] - fcvt.<to>.<from> by bits 3:0 (SPEC 6.5); which bank each field is depends on the kind
+		FMOVD = 0xFC, // [dd, ds] - dd = ds
+		FLDRD = 0xFD, // [dd, rs, simm16] - dd = *(f64*)(rs + simm16)
+		FSTRD = 0xFE, // [rd, ds, simm16] - *(f64*)(rd + simm16) = ds
+		FLDRDX = 0x7A, // [dd, rs, rt] - dd = *(f64*)(rs + rt)
+		FSTRDX = 0x7B, // [rd, ds, rt] - *(f64*)(rd + rt) = ds
+		FLDRDP = 0x7C, // [dd, simm16] - dd = *(f64*)(pc + simm16)
+		MTFD = 0x7D, // [dd, xs] - the bits of an integer pair to a double pair
+		MFFD = 0x7E, // [xd, ds] - the bits of a double pair to an integer pair
+
+		// Free: 0x0F, 0x4F, 0x7F, 0x8C-0x8F, 0xA4-0xB3, 0xEE, 0xFF.
 		// Miscellaneous - Reserved //
 	};
 }

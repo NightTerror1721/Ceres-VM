@@ -9,6 +9,7 @@
 #include <ceres/core/isa/address.h>
 #include <ceres/core/isa/fregisters.h>
 #include <ceres/core/isa/instructions.h>
+#include <ceres/core/isa/wide.h>
 #include <ceres/core/isa/interrupts.h>
 #include <algorithm>
 #include <bit>
@@ -1123,7 +1124,7 @@ namespace ceres::vm
 		{
 			if (inst.imm8() >= isa::InterruptNumberCount) [[unlikely]]
 			{
-				triggerInterrupt(InterruptNumber::IllegalInstruction);
+				illegal(FaultReason::BadSubfield);
 				return;
 			}
 			advancePC();
@@ -2045,7 +2046,34 @@ namespace ceres::vm
 		forceinline void MTF(const Instruction inst) noexcept { _fregisters[inst.fd()].setBitsFromRegister(_registers[inst.rs()]); advancePC(); }
 		forceinline void MFF(const Instruction inst) noexcept { _registers.set(inst.rd(), _fregisters[inst.fs()].bitsAsRegister()); advancePC(); }
 
-		forceinline void INVALID(const Instruction inst) noexcept { triggerInterrupt(InterruptNumber::IllegalInstruction); }
+		// An instruction the machine does not run (plan/v2 SPEC 5.4): IllegalInstruction at the word itself, and why in
+		// SystemControl's FaultReason.
+		forceinline void illegal(FaultReason reason) noexcept
+		{
+			noteFault(_pc, FaultAccess::Execute, static_cast<u32>(Instruction::Size), reason);
+			triggerInterrupt(InterruptNumber::IllegalInstruction);
+		}
+
+		// Whether a 64-bit instruction's pair fields and subfield are ones the machine runs (wide.h); raises the fault
+		// and returns false when they are not. Asked by the 64-bit handlers alone, so no other instruction pays for it.
+		forceinline bool decoded(const Instruction inst) noexcept
+		{
+			switch (wide::check(inst))
+			{
+				case wide::Decode::Ok: return true;
+				case wide::Decode::RegisterPair: illegal(FaultReason::RegisterPair); return false;
+				case wide::Decode::BadSubfield: illegal(FaultReason::BadSubfield); return false;
+			}
+			return false;
+		}
+
+		forceinline void INVALID(const Instruction inst) noexcept { illegal(FaultReason::UnknownOpcode); }
+		// A 64-bit instruction the machine decodes but does not execute yet (plan/v2 F3.4 and F3.5 bring them).
+		forceinline void WIDE(const Instruction inst) noexcept
+		{
+			if (decoded(inst))
+				illegal(FaultReason::None);
+		}
 
 	private:
 		using InstructionHandler = void (ExecutionEngine::*)(const Instruction) noexcept;
@@ -2055,6 +2083,11 @@ namespace ceres::vm
 				// slot would stay null and calling one is a crash, not an illegal-instruction trap.
 				std::array<InstructionHandler, 256> handlers{};
 				handlers.fill(&ExecutionEngine::INVALID);
+				for (usize opcode = 0; opcode < handlers.size(); ++opcode)
+				{
+					if (wide::isWide(static_cast<Opcode>(opcode)))
+						handlers[opcode] = &ExecutionEngine::WIDE;
+				}
 
 				// Control
 				handlers[static_cast<u8>(Opcode::NOP)] = &ExecutionEngine::NOP;
