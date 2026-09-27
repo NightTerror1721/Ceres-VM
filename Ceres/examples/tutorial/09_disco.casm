@@ -28,6 +28,7 @@ const TERM_OUT        = 0x04       // offset within it
 const TERM_BLOCK_ADDR  = 0xF0
 const TERM_BLOCK_LEN     = 0xF4
 const TERM_BLOCK_CMD      = 0xF8
+const TERM_WRITE          = 1      // the terminal's block write (its block read is 2)
 
 const DISK          = 0xFF300000   // Disk's MMIO base
 const DISK_STATUS    = 0x00        // offsets within it
@@ -142,7 +143,7 @@ print:
     la r13, TERM
     str [r13 + TERM_BLOCK_ADDR], r3
     str [r13 + TERM_BLOCK_LEN], r2
-    li r0, BLOCK_WRITE
+    li r0, TERM_WRITE
     str [r13 + TERM_BLOCK_CMD], r0
     ret
 

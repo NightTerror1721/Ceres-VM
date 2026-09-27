@@ -74,20 +74,21 @@ TEST(input_journal, a_line_that_is_not_an_event_is_refused)
 	CHECK(read.has_value() && read->size() == 1);
 }
 
-TEST(input_journal, terminal_bytes_go_in_as_far_as_the_ring_has_room)
+TEST(input_journal, terminal_bytes_go_in_as_far_as_the_terminal_has_room)
 {
 	Devices d;
 	InputHub hub;
 	std::ostringstream recording;
 	hub.record(recording);
-	const std::string text(100, 'x');
+	constexpr usize Capacity = devices::TerminalDevice::InputBufferCapacity;
+	const std::string text(Capacity + 37, 'x');
 	hub.post(InputEvent{ .kind = InputEvent::Kind::TerminalBytes, .data = text });
 	hub.post(InputEvent{ .kind = InputEvent::Kind::TerminalClose });
 
 	CHECK(hub.inject(10, d.targets));
-	CHECK_EQ(d.terminal.availableBytes(), devices::TerminalDevice::InputBufferCapacity - 1);
+	CHECK_EQ(d.terminal.availableBytes(), Capacity);
 	CHECK(!d.terminal.isInputClosed());         // the close waits behind the bytes still to go
-	CHECK_EQ(readAll(d.terminal), std::string(63, 'x'));
+	CHECK_EQ(readAll(d.terminal), std::string(Capacity, 'x'));
 
 	CHECK(hub.inject(20, d.targets));
 	CHECK_EQ(readAll(d.terminal), std::string(37, 'x'));
@@ -100,7 +101,7 @@ TEST(input_journal, terminal_bytes_go_in_as_far_as_the_ring_has_room)
 	if (events && events->size() == 3)
 	{
 		CHECK_EQ((*events)[0].cycle, u64{ 10 });
-		CHECK_EQ((*events)[0].data.size(), usize{ 63 });
+		CHECK_EQ((*events)[0].data.size(), Capacity);
 		CHECK_EQ((*events)[1].cycle, u64{ 20 });
 		CHECK((*events)[2].kind == InputEvent::Kind::TerminalClose);
 	}

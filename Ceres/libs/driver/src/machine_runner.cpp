@@ -78,10 +78,6 @@ namespace ceres::driver
 			vm.setProgramArguments(vm::ProgramArguments{ config.arguments, config.environment });
 			control.attachTo(vm.io());
 			terminal.attachTo(vm.io());
-			terminal.setModeHandler([](u32 requested)
-			{
-				return (requested & TerminalDevice::ModeRaw) ? (TerminalDevice::ModeRaw | TerminalDevice::ModeKeystrokes) : 0u;
-			});
 			timer.attachTo(vm.io());
 			dma.attachTo(vm.io());
 			disk.attachTo(vm.io());
@@ -405,12 +401,20 @@ namespace ceres::driver
 		gpu.configure(GpuDevice::Config{ .gpuClockHz = machine.gpuClockHz, .maxLevel = machine.maxVideo,
 			.maxWidth = machine.maxWidth, .maxHeight = machine.maxHeight, .refresh = options.refresh });
 		gpu.attachTo(vm.io());
+		// The terminal draws in the GPU's text plane (plan/v2 SPEC 8). It may outlive this function (a reader thread
+		// holds it), so it lets go of the GPU before the GPU goes.
+		terminal->setScreen(&gpu);
 		struct DetachGpu
 		{
 			GpuDevice& device;
+			TerminalDevice& terminal;
 			CeresVM& machine;
-			~DetachGpu() { device.detachFrom(machine.io()); }
-		} detachGpu{ gpu, vm };
+			~DetachGpu()
+			{
+				terminal.setScreen(nullptr);
+				device.detachFrom(machine.io());
+			}
+		} detachGpu{ gpu, *terminal, vm };
 		if (options.rtc)
 			timer.setRtcStart(*options.rtc);
 		timer.attachTo(vm.io());
@@ -545,25 +549,10 @@ namespace ceres::driver
 			std::shared_ptr<ConsoleInput> console;
 			~RestoreConsole() { if (console) console->restore(); }
 		} restoreConsole{console};
-		terminal->setModeHandler([console, windowed = host.windowed()](u32 requested) -> u32
-		{
-			const bool raw = (requested & TerminalDevice::ModeRaw) != 0;
-			const u32 granted = raw ? (TerminalDevice::ModeRaw | TerminalDevice::ModeKeystrokes) : 0u;
-			if (windowed)
-				return granted;   // the window's keyboard is already the source; the console stays as it is
-			if (!console)
-				return 0;         // input from a pipe or a file: nothing to switch
-			console->setRaw(raw);
-			return granted;
-		});
-		// A window's keystrokes also go to the terminal as bytes - unless the program asked for raw keys, in
-		// which case it reads them from the keyboard and the bytes would only pile up unread.
+		// What is typed in the window goes to the terminal as well as the keyboard: through its line discipline, or at
+		// once in raw mode (plan/v2 SPEC 8.3).
 		if (host.windowed())
-			keyboard->setKeystrokeSink([terminal](u32 keystroke)
-			{
-				if (!terminal->rawRequested())
-					terminal->pushInput(keystrokeToTerminalBytes(keystroke));
-			});
+			keyboard->setKeystrokeSink([terminal](u32 keystroke) { terminal->typeKeystroke(keystroke); });
 
 		if (input->replaying())
 		{
@@ -749,8 +738,12 @@ namespace ceres::driver
 			}
 		}
 
+		// An exception nobody handled: the report goes to the host's log and is painted over the screen (plan/v2 F5.6).
 		if (const auto unhandled = describeUnhandledException(vm))
+		{
 			log.error(*unhandled);
+			terminal->showFault(*unhandled);
+		}
 		if (profileInfo)
 			printProfile(vm, *profileInfo, *services.diagnostics);
 
@@ -759,6 +752,8 @@ namespace ceres::driver
 		if (host.video && host.video->windowOpen() && !hostQuit && !options.exitOnHalt)
 		{
 			gpu.setVblankObserver({});
+			gpu.compose(frame);   // the screen as the program left it, with a fault's report if it had one
+			host.video->present(frame);
 			HostStatus ended = runningStatus;
 			ended.exitCode = control.exitCode();
 			host.video->setStatus(ended);

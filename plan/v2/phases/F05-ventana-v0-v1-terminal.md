@@ -195,3 +195,20 @@
   F5.8. Se deja de capturar el ratón (se hacía al ver píxeles del display). **Medida**: con `--speed realtime`, 30
   VBlanks a 60 Hz tardan medio segundo y llegan a la ventana 29–30 presentaciones (test
   `driver_screen/a_window_shows_one_frame_a_vertical_blank_in_real_time`): presentaciones por segundo = refresco.
+- **F5.6**: el terminal dibuja en el plano de texto de la GPU (`setScreen`); sin pantalla (tests, el `Machine` del
+  driver) sigue funcionando sólo como flujos. Salida y error tienen cada uno su parser y su «pluma», así que una
+  secuencia partida en uno no la termina el otro, y `SGR 0` en el error vuelve al color de error (tinta 9). Con
+  celdas de 16 bits, `38;5;n`/`48;5;n` usan el más cercano de los 16 primeros; con las de 32 bits, el índice tal cual.
+  El salto de línea al final de la fila espera al carácter siguiente (como xterm). `\a` no suena hasta que exista el
+  tono A0 (F9). Las filas que suben por la pantalla completa van al scrollback; las de una región de scroll, no.
+  Entrada: la cola del programa es de 8 KiB (antes, anillo de 64 bytes); lo tecleado (`typeKeystroke`, `type`) pasa
+  por la disciplina de línea, y `pushInput` entra directo, como una tubería (el debugger, los datos de stdin hasta
+  F5.7). Ctrl+D con la línea vacía marca el fin de entrada hasta que llegue más texto; `closeInput` es definitivo y
+  entrega la línea a medias. El teclado sigue ahora Ctrl y Shift: Ctrl+letra da el carácter de control (Ctrl+C = 3,
+  que SDL no manda como texto) y RePág/AvPág con Shift llevan `KeyShift` (bit 30), que el terminal usa para el
+  scrollback. La pantalla de fallo pinta en blanco sobre rojo el mismo informe que va a `HostLog` (excepción, PC,
+  acceso, dirección, motivo); **la pila no se pinta**: recorrerla sin tabla de símbolos ni marcos fiables daría
+  basura, y la STDLIB ya tiene `ceres/backtrace.h` para el programa. El comando de bloque cambia de número (1
+  escribir, 2 leer, 3 error): se actualizaron los ejemplos y los tests e2e. La sesión del debugger tiene ahora GPU
+  (el terminal dibuja en ella); su estado interno no está en las instantáneas del historial (su VRAM sí). Prueba
+  manual: `01_hola` en la ventana muestra el texto, el cursor y el título `[terminado: código 0]`.

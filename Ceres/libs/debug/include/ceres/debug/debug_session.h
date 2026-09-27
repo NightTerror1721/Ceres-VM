@@ -186,6 +186,7 @@ namespace ceres::debug
 		usize vramSize = vm::Vram::DefaultSize;
 		u64 cpuClockHz = vm::DefaultCpuClockHz;
 		u32 profileId = 5;                    // what SystemControl's ProfileId reads: 5 is `standard`
+		devices::GpuDevice::Config gpu{};     // the profile's GPU: its clock, its highest level and resolution
 		bool stopOnEntry = true;
 		// Recording costs one copy of the machine's memory plus the pages each snapshot dirties,
 		// and buys stepping backwards. Worth it by default; a very large --ram is the case
@@ -242,6 +243,9 @@ namespace ceres::debug
 		std::unique_ptr<HostFsDevice> _hostFs;
 		std::unique_ptr<BlitterDevice> _blitter;
 		std::unique_ptr<DebugLogDevice> _debugLog;
+		// The GPU, which the terminal draws in. Its registers and planes are not in the history's snapshots (its
+		// VRAM is): stepping back leaves them as they are now.
+		std::unique_ptr<GpuDevice> _gpu;
 		// The program wrote the debug log's Break register during the last instruction: stepOnce stops there.
 		bool _breakRequested = false;
 

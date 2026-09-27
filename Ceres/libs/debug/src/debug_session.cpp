@@ -270,6 +270,11 @@ namespace ceres::debug
 		_terminal = std::make_unique<TerminalDevice>();
 		_terminal->attachTo(_vm->io());
 
+		_gpu = std::make_unique<GpuDevice>();
+		_gpu->configure(_config.gpu);
+		_gpu->attachTo(_vm->io());
+		_terminal->setScreen(_gpu.get());
+
 		_timer = std::make_unique<TimerDevice>();
 		_timer->attachTo(_vm->io());
 

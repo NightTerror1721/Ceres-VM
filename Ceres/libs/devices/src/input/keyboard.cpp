@@ -19,8 +19,22 @@ namespace ceres::devices
 
 	void KeyboardDevice::pushKey(u32 code, bool pressed)
 	{
-		if (pressed && scancode::isNamedKey(code & EventCodeMask))
-			pushKeystroke(KeyNamed | (code & EventCodeMask));
+		const u32 key = code & EventCodeMask;
+		switch (key)
+		{
+			case scancode::LeftCtrl: _leftCtrl = pressed; break;
+			case scancode::RightCtrl: _rightCtrl = pressed; break;
+			case scancode::LeftShift: _leftShift = pressed; break;
+			case scancode::RightShift: _rightShift = pressed; break;
+			default: break;
+		}
+		if (pressed && scancode::isNamedKey(key))
+		{
+			const bool shifted = (_leftShift || _rightShift) && (key == scancode::PageUp || key == scancode::PageDown);
+			pushKeystroke(KeyNamed | (shifted ? KeyShift : 0u) | key);
+		}
+		else if (pressed && (_leftCtrl || _rightCtrl) && key >= scancode::A && key <= scancode::Z)
+			pushKeystroke(key - scancode::A + 1);   // Ctrl+A is 1 ... Ctrl+Z is 26: no text comes for them
 		const u32 event = (code & EventCodeMask) | (pressed ? EventPressed : 0u);
 		{
 			const std::lock_guard lock{_mutex};

@@ -294,42 +294,30 @@ TEST(driver_window, what_is_typed_in_the_window_reaches_a_program_reading_the_te
 	CHECK_EQ(output, std::string{ "h\n" });
 }
 
-TEST(driver_window, a_program_that_asked_for_raw_keys_reads_them_and_the_terminal_stays_empty)
+TEST(driver_window, a_program_in_raw_mode_reads_each_key_from_the_terminal_as_it_is_pressed)
 {
-	// It writes the terminal's mode register (0x18) with the raw bit, reads the keyboard's key register
-	// (0x0C) until a keystroke is there, prints it, and then says whether the terminal got a byte too.
-	// It must not: the keys were given once, on the keyboard.
+	// It sets the terminal's Mode register (0x10) to raw, reads the first byte of input, prints it and stops: in
+	// raw mode the "h" comes at once, and the Enter typed after it is a byte of its own (plan/v2 SPEC 8.3).
 	const std::string output = runTyped("ceres_window_raw_keys.casm",
 		"@text\n"
 		"global main:\n"
 		"    la   r13, 0xFF000000\n"
-		"    la   r12, 0xFF100000\n"
-		"    li   r0, 1\n"
-		"    str  [r13 + 0x18], r0\n"
-		"    ldr  r5, [r13 + 0x18]\n"       // what the host granted: raw (1) and keystrokes (2)
-		"    add  r5, r5, 48\n"
-		"    str  [r13 + 4], r5\n"
+		"    li   r0, 9\n"                     // raw, and interrupt 19 on input
+		"    str  [r13 + 0x10], r0\n"
 		".wait:\n"
-		"    ldr  r1, [r12 + 0]\n"
-		"    and  r2, r1, 4\n"
-		"    cmp  r2, 0\n"
-		"    jz   .wait\n"
-		"    ldr  r3, [r12 + 0x0C]\n"
-		"    str  [r13 + 4], r3\n"
 		"    ldr  r1, [r13 + 0]\n"
 		"    and  r2, r1, 1\n"
 		"    cmp  r2, 0\n"
-		"    jz   .none\n"
-		"    li   r3, 84\n"                  // 'T': the terminal got a byte as well
-		"    jp   .say\n"
-		".none:\n"
-		"    li   r3, 78\n"                  // 'N'
-		".say:\n"
+		"    jz   .wait\n"
+		"    ldr  r3, [r13 + 8]\n"
+		"    str  [r13 + 4], r3\n"
+		"    ldr  r3, [r13 + 0x0C]\n"          // what is still waiting: the Enter
+		"    add  r3, r3, 48\n"
 		"    str  [r13 + 4], r3\n"
 		"    la   r7, 0xFFFF0000\n"
 		"    li   r0, 1\n"
 		"    str  [r7 + 0], r0\n");
-	CHECK_EQ(output, std::string{ "3hN" });
+	CHECK_EQ(output, std::string{ "h1" });
 }
 
 // --- The screen in the window (plan/v2 F5.5) ------------------------------------------------------------
@@ -357,7 +345,8 @@ TEST(driver_screen, a_window_shows_one_frame_a_vertical_blank_in_real_time)
 	const Run run = runProgram(frameProgram(30), command);
 	const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 	CHECK_EQ(run.result, 0);
-	CHECK(run.stats.frames >= 29 && run.stats.frames <= 30);
+	// One a vertical blank, and the last once more when the program ends and the window stays with it.
+	CHECK(run.stats.frames >= 30 && run.stats.frames <= 31);
 	CHECK(took >= 450);
 }
 

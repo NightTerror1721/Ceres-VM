@@ -131,7 +131,7 @@ TEST(pipeline, a_program_prints_a_string_and_shuts_down)
 		"    la r13, 0xFF000000\r\n" // Terminal's MMIO base
 		"    str [r13 + 0xF0], r1\r\n" // BlockAddressRegister
 		"    str [r13 + 0xF4], r2\r\n" // BlockLengthRegister
-		"    li r12, 2\r\n"            // BlockCommandWrite
+		"    li r12, 1\r\n"            // BlockCommandWrite
 		"    str [r13 + 0xF8], r12\r\n"
 		"{}", shutdown));
 
@@ -341,7 +341,7 @@ TEST(pipeline, the_shipped_example_still_assembles_and_runs)
 		"    la r13, TERM_BLOCK_LEN\r\n"
 		"    str [r13 + 0], r2\r\n"
 		"    la r13, TERM_BLOCK_CMD\r\n"
-		"    li r12, 2\r\n"
+		"    li r12, 1\r\n"
 		"    str [r13 + 0], r12\r\n"
 		"    ret\r\n"
 		"\r\n"

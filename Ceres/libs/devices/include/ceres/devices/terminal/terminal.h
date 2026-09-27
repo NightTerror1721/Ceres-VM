@@ -1,98 +1,137 @@
 #pragma once
 
-// The terminal: the program's standard input, output and error streams.
+// The virtual terminal (plan/v2 SPEC 8): the program's standard input, output and error. What the program writes is
+// drawn in the GPU's text plane - UTF-8, the controls and the ANSI subset of SPEC 8.2 (ansi_parser.h) - and what is
+// typed in the window reaches it through the line discipline of SPEC 8.3 (line_discipline.h). The host's terminal is
+// never involved: a host that wants the bytes (a transcript, a debugger's console) installs a sink and gets a copy.
+//
+// Without a screen (setScreen), the terminal is only its streams: the bytes still go to the sinks and the input
+// still works, but nothing is drawn.
 
+#include <ceres/devices/terminal/ansi_parser.h>
+#include <ceres/devices/terminal/line_discipline.h>
 #include <ceres/vm/mmio_bus.h>
-#include <array>
-#include <atomic>
-#include <cstdio>
+
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace ceres::devices
 {
 	using namespace vm;
 
-	class TerminalDevice : public IODevice
+	class GpuDevice;
+
+	class TerminalDevice final : public IODevice
 	{
 	public:
-		static inline constexpr Address StatusRegister = Address(0x00); // Read-only: bit 0 input available, bit 1 ready for output, bit 2 end of input.
-		static inline constexpr Address OutputRegister = Address(0x04); // Write-only: writing a byte to this register outputs it to the terminal.
-		static inline constexpr Address InputRegister = Address(0x08);  // Read-only: reading from this register returns the next byte of input, or 0 if none is available.
-		static inline constexpr Address BytesAvailableRegister = Address(0x0C); // Read-only: bytes currently sitting unread in the input ring.
-		static inline constexpr Address BlockReadCountRegister = Address(0x10); // Read-only: bytes the most recent block-read actually moved into RAM.
-		static inline constexpr Address DroppedInputRegister = Address(0x14); // Read-only: input bytes discarded by a full ring (truncated to 32 bits).
-		static inline constexpr Address ModeRegister = Address(0x18); // Read/write: write ModeRaw to ask the host for keys as they are pressed (no line editing, no echo); read what the host granted.
-		static inline constexpr Address ErrorOutputRegister = Address(0x1C); // Write-only: a byte for the error stream - the host's stderr under `ceres run`, kept apart from the output.
+		static inline constexpr Address StatusRegister = Address(0x00);        // R: b0 input, b1 ready for output, b2 end of input, b3 Ctrl+C pending
+		static inline constexpr Address OutputRegister = Address(0x04);        // W: the low byte to the output (UTF-8 and ANSI)
+		static inline constexpr Address InputRegister = Address(0x08);         // R: the next input byte (0 if none)
+		static inline constexpr Address AvailableRegister = Address(0x0C);     // R: input bytes waiting
+		static inline constexpr Address ModeRegister = Address(0x10);          // RW: b0 raw, b1 echo, b2 history, b3 interrupt 19 on input
+		static inline constexpr Address ErrorOutputRegister = Address(0x14);   // W: the low byte to the output, in the error colour
+		static inline constexpr Address ControlRegister = Address(0x18);       // RW: b0 on, b1 cursor visible, b2 scrollback, b3 autoscroll
+		static inline constexpr Address ColsRegister = Address(0x1C);          // R
+		static inline constexpr Address RowsRegister = Address(0x20);          // R
+		static inline constexpr Address CursorXRegister = Address(0x24);       // RW
+		static inline constexpr Address CursorYRegister = Address(0x28);       // RW
+		static inline constexpr Address InterruptAckRegister = Address(0x2C);  // W: 1 clears the pending Ctrl+C
+		static inline constexpr Address BlockAddressRegister = Address(0xF0);  // W
+		static inline constexpr Address BlockLengthRegister = Address(0xF4);   // W
+		static inline constexpr Address BlockCommandRegister = Address(0xF8);  // W: 1 write the block, 2 read input into it, 3 write it as error
+		static inline constexpr Address BlockCountRegister = Address(0xFC);    // R: bytes the last block moved
 
-		// A bulk transfer: write the RAM address and length, then a command (1 = read from the
-		// terminal's input ring into RAM, 2 = write RAM out to the terminal) - the direct
-		// replacement for what `inm`/`outm` used to do in one instruction.
-		static inline constexpr Address BlockAddressRegister = Address(0xF0);
-		static inline constexpr Address BlockLengthRegister = Address(0xF4);
-		static inline constexpr Address BlockCommandRegister = Address(0xF8);
-		static inline constexpr u32 BlockCommandRead = 1;
-		static inline constexpr u32 BlockCommandWrite = 2;
-		static inline constexpr u32 BlockCommandWriteError = 3;   // RAM out to the error stream
+		static inline constexpr u32 StatusInputAvailable = 1u << 0;
+		static inline constexpr u32 StatusOutputReady = 1u << 1;
+		static inline constexpr u32 StatusEndOfInput = 1u << 2;
+		static inline constexpr u32 StatusInterrupt = 1u << 3;
 
-		// Which interrupt pushInput() requests once new bytes are actually sitting in the buffer.
-		// 19 (plan/v2 SPEC 5.6), after the timer's two and the DMA's. A user interrupt, so a program that never
-		// expects terminal input keeps working exactly as before: STI is still required, and nothing raises this
-		// unless pushInput() is called at all.
+		static inline constexpr u32 ModeRaw = 1u << 0;
+		static inline constexpr u32 ModeEcho = 1u << 1;
+		static inline constexpr u32 ModeHistory = 1u << 2;
+		static inline constexpr u32 ModeInterrupt = 1u << 3;
+		static inline constexpr u32 DefaultMode = ModeEcho | ModeHistory | ModeInterrupt;
+
+		static inline constexpr u32 ControlOn = 1u << 0;
+		static inline constexpr u32 ControlCursor = 1u << 1;
+		static inline constexpr u32 ControlScrollback = 1u << 2;
+		static inline constexpr u32 ControlAutoscroll = 1u << 3;
+		static inline constexpr u32 DefaultControl = ControlOn | ControlCursor | ControlScrollback | ControlAutoscroll;
+
+		static inline constexpr u32 BlockCommandWrite = 1;
+		static inline constexpr u32 BlockCommandRead = 2;
+		static inline constexpr u32 BlockCommandWriteError = 3;
+
+		// 19 (plan/v2 SPEC 5.6): input came (with Mode bit 3), or Ctrl+C was pressed.
 		static inline constexpr InterruptNumber Interrupt = InterruptNumber::UserInterrupt3;
 
-	public:
-		// Kept small to model a simple UART. Hosts can detect loss through droppedInputBytes().
-		static inline constexpr usize InputBufferCapacity = 64;
+		// The input waiting for the program; what does not fit is dropped (droppedInputBytes).
+		static inline constexpr usize InputBufferCapacity = 8192;
 
-	private:
-		static inline constexpr u8 RxReadyMask = 0x01; // Bit 0 indicates if input is available.
-		static inline constexpr u8 TxReadyMask = 0x02; // Bit 1 indicates if the terminal is ready to accept output (always ready in this simple implementation).
-		static inline constexpr u8 EofMask = 0x04;     // Bit 2: the host closed the input and every byte it sent has been read - nothing more will ever arrive.
+		// The colours of the default cell and of the error stream (the palette's first 16).
+		static inline constexpr u32 DefaultInk = 7;
+		static inline constexpr u32 DefaultBackground = 0;
+		static inline constexpr u32 ErrorInk = 9;
 
-	public:
-		// The bits of StatusRegister, for the code that reads them.
-		static inline constexpr u32 StatusInputAvailable = RxReadyMask;
-		static inline constexpr u32 StatusOutputReady = TxReadyMask;
-		static inline constexpr u32 StatusEndOfInput = EofMask;
-
-		// The bits of ModeRegister. A write is a request; a read is the answer. A host that cannot give
-		// raw keys (input from a pipe, a file) answers 0, and the program keeps reading the terminal.
-		static inline constexpr u32 ModeRaw = 1u << 0;        // Keys arrive as they are pressed: no line buffering, no echo.
-		static inline constexpr u32 ModeKeystrokes = 1u << 1; // Read-only: they arrive on the keyboard device's KeyRegister.
-
-		// Decides what a write to ModeRegister gets: it is handed the requested bits and returns the granted
-		// ones. The host switches its console in there. Empty means nothing is ever granted.
-		using ModeHandler = std::function<u32(u32)>;
-
-	private:
-
-	public:
-		// Where a byte written to the output register ends up. `ceres run` leaves it empty and the
-		// bytes go to stdout, which is what a plain terminal program wants; a debugger installs
-		// one so the program's output can be forwarded to the editor instead of racing with a
-		// protocol sharing that same stream.
+		// A copy of a stream, byte by byte, as the program wrote it.
 		using OutputSink = std::function<void(u8)>;
 
+		// The input as a debugger's snapshot keeps it.
+		struct State
+		{
+			std::vector<u8> input;
+			bool closed = false;
+			bool endOfInput = false;
+			bool interrupt = false;
+		};
+
 	private:
-		std::array<u8, InputBufferCapacity> _buffer{};
-		std::atomic<usize> _head{0};
-		std::atomic<usize> _tail{0};
-		std::atomic<u64> _droppedInputBytes{0};
-		std::atomic<bool> _inputClosed{false};
-		// Protects the byte array while a debugger snapshots it. Head/tail remain atomic so the
-		// single-producer/single-consumer fast path still has a minimal synchronization surface.
+		// What a stream draws with: its colours and SGR state. Output and error have one each, and one parser each,
+		// so a sequence cut in two on one stream is not finished by the other.
+		struct Pen
+		{
+			u32 ink = DefaultInk;
+			u32 background = DefaultBackground;
+			bool bold = false;
+			bool reverse = false;
+			u32 baseInk = DefaultInk;   // what SGR 0 and 39 go back to
+		};
+		class Drawer;
+
+		// The screen.
+		GpuDevice* _gpu = nullptr;
+		u32 _x = 0, _y = 0;
+		bool _pendingWrap = false;
+		u32 _savedX = 0, _savedY = 0;
+		u32 _regionTop = 0;
+		u32 _regionBottom = ~0u;   // ~0: the last row
+		Pen _outPen;
+		Pen _errPen{ ErrorInk, DefaultBackground, false, false, ErrorInk };
+		term::AnsiParser _outParser;
+		term::AnsiParser _errParser;
+		term::AnsiParser _echoParser;
+		u32 _control = DefaultControl;
+
+		// The input.
 		mutable std::mutex _inputMutex;
+		std::deque<u8> _input;
+		u64 _dropped = 0;
+		bool _closed = false;        // the host has nothing more to send, ever
+		bool _endOfInput = false;    // Ctrl+D: the program is told once its input is drained
+		bool _interrupt = false;     // Ctrl+C pending
+		u32 _mode = DefaultMode;
+		term::LineDiscipline _discipline;
+
 		OutputSink _outputSink;
 		OutputSink _errorSink;
 		u32 _blockAddress = 0;
 		u32 _blockLength = 0;
-		u32 _blockReadCount = 0;
-		ModeHandler _modeHandler;
-		std::atomic<u32> _modeRequested{0};
-		std::atomic<u32> _modeGranted{0};
+		u32 _blockCount = 0;
 
 	public:
 		TerminalDevice() = default;
@@ -104,92 +143,57 @@ namespace ceres::devices
 		TerminalDevice& operator=(TerminalDevice&&) = delete;
 
 	public:
-		void attachTo(MmioBus& bus)
-		{
-			bus.attach(default_mmio::Terminal, *this);
-		}
+		void attachTo(MmioBus& bus) { bus.attach(default_mmio::Terminal, *this); }
+		void detachFrom(MmioBus& bus) { bus.detach(default_mmio::Terminal); }
 
-		void detachFrom(MmioBus& bus)
-		{
-			bus.detach(default_mmio::Terminal);
-		}
+		// Where the terminal draws: the GPU's text plane. Null, and nothing is drawn.
+		void setScreen(GpuDevice* gpu) noexcept;
 
-		void pushInput(std::span<const u8> input);
-
-		void pushInput(std::string_view input)
-		{
-			pushInput(std::span<const u8>(reinterpret_cast<const u8*>(input.data()), input.size()));
-		}
-
-		void pushInput(const char* input)
-		{
-			pushInput(std::string_view(input));
-		}
-
-		void pushInput(char input)
-		{
-			pushInput(std::string_view(&input, 1));
-		}
-
-		// The host has nothing more to send: stdin was closed, or the pipe ran dry. The status
-		// register reports end of input once the program has also read what is still buffered, so a
-		// reader can tell "no data yet" from "no data ever". The interrupt is raised so a program
-		// halted waiting for input wakes up to notice.
-		void closeInput();
-
-		bool isInputClosed() const noexcept { return _inputClosed.load(std::memory_order_acquire); }
-
-		u64 droppedInputBytes() const noexcept { return _droppedInputBytes.load(std::memory_order_relaxed); }
-
-		// How many bytes are currently buffered and unread. The one number a program needs to
-		// decide whether to block-read, and how large a block to ask for, without polling the
-		// status bit and guessing.
-		usize availableBytes() const noexcept;
-
-		void setModeHandler(ModeHandler handler) { _modeHandler = std::move(handler); }
-
-		// Whether the program asked for raw keys, so a host can tell whether to also type into the terminal.
-		bool rawRequested() const noexcept { return (_modeRequested.load(std::memory_order_acquire) & ModeRaw) != 0; }
-
+		// A copy of every byte the program writes to its output, or to its error stream.
 		void setOutputSink(OutputSink sink) { _outputSink = std::move(sink); }
-		// Where a byte of the error stream goes; empty means the host's stderr.
 		void setErrorSink(OutputSink sink) { _errorSink = std::move(sink); }
 		void clearOutputSink() { _outputSink = nullptr; }
 
-		// The input ring, so a debugger restoring a snapshot can put back exactly the bytes the
-		// program had not yet read. Copied rather than shared: the live buffer is written from
-		// another thread.
-		struct State
-		{
-			std::array<u8, InputBufferCapacity> buffer{};
-			usize head = 0;
-			usize tail = 0;
-			bool closed = false;
-		};
+		// A keystroke typed in the window (keyboard.h's): Shift+PageUp and Shift+PageDown move through the scrollback;
+		// everything else goes through the line discipline.
+		void typeKeystroke(u32 keystroke);
+		// Text typed, a character at a time, as if at the keyboard: '\n' is Enter, 0x03 Ctrl+C, 0x04 Ctrl+D (--type).
+		void type(std::string_view utf8);
+		// Bytes straight into the program's input, past the line discipline, as from a pipe (a debugger's console).
+		void pushInput(std::span<const u8> input);
+		void pushInput(std::string_view input) { pushInput(std::span<const u8>(reinterpret_cast<const u8*>(input.data()), input.size())); }
+		void pushInput(char input) { pushInput(std::string_view(&input, 1)); }
+		// The input is over for good: what is being edited is handed over, and once the program has read everything
+		// it is told the input ended. The interrupt is raised so a program halted waiting for input wakes to see it.
+		void closeInput();
 
-		State captureState() const noexcept;
+		bool isInputClosed() const noexcept;
+		usize availableBytes() const noexcept;
+		// How many more bytes of typing the input can take now: the host feeds scripted input no faster.
+		usize inputRoom() const noexcept;
+		u64 droppedInputBytes() const noexcept;
 
-		void restoreState(const State& state) noexcept;
+		// Paints the report of an exception nobody handled over the screen, in the error colour (plan/v2 F5.6). It is
+		// the host's, not the program's: it goes to no sink.
+		void showFault(std::string_view text);
 
-	private:
-		// The single place output leaves the device. Bytes are handed over one at a time and
-		// deliberately not decoded here: a multi-byte UTF-8 sequence is written by the program as
-		// several separate register writes, so only the consumer knows where a character ends.
-		void emitByte(u8 value);
+		State captureState() const;
+		void restoreState(const State& state);
 
-		void emitErrorByte(u8 value);
+		// A reset: the input, the modes and the pens go back to the start; the screen is the GPU's, which resets too.
+		void reset() override;
 
-		void blockRead(Address ramAddress, u32 size);
-
-		void blockWrite(Address ramAddress, u32 size, bool error = false);
-
-	public:
 		u32 read(Address offset) override;
 		void write(Address offset, u32 value) override;
 		const RegisterMap& registers() const override;
 
 	private:
-		// The status word and the next input byte: the two registers whose reads are more than a field.
-		u32 readStatusOrInput(Address offset);
+		friend class Drawer;
+		void writeByte(u8 byte, bool error);
+		void blockRead(Address ramAddress, u32 size);
+		void blockWrite(Address ramAddress, u32 size, bool error);
+		void deliver(std::string_view bytes);
+		void applyMode() noexcept;
+		void syncCursor() noexcept;
 	};
 }

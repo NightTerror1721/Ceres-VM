@@ -194,7 +194,10 @@ namespace ceres::driver
 		{
 			if (!inputsExist(command.inputs, err)) return 1;
 			auto session = DebugSession::launch({.sources = command.inputs, .memorySize = command.machine.ramBytes, .vramSize = command.machine.vramBytes,
-				.cpuClockHz = command.machine.cpuClockHz, .profileId = static_cast<u32>(command.machine.id), .stopOnEntry = command.stopOnEntry,
+				.cpuClockHz = command.machine.cpuClockHz, .profileId = static_cast<u32>(command.machine.id),
+				.gpu = { .gpuClockHz = command.machine.gpuClockHz, .maxLevel = command.machine.maxVideo, .maxWidth = command.machine.maxWidth,
+					.maxHeight = command.machine.maxHeight, .refresh = 60 },
+				.stopOnEntry = command.stopOnEntry,
 				.recordHistory = command.recordHistory});
 			if (!session) { err << session.error() << '\n'; return 1; }
 			if (command.server) { DebugServer server{**session}; return server.run(); }

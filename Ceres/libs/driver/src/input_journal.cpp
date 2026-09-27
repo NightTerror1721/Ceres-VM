@@ -268,10 +268,8 @@ namespace ceres::driver
 			_queue.pop_front();
 			if (event.kind == InputEvent::Kind::TerminalBytes)
 			{
-				// The ring keeps one slot free; what does not fit waits, in order, for the next injection point.
-				const usize available = targets.terminal.availableBytes();
-				const usize room = available + 1 < devices::TerminalDevice::InputBufferCapacity
-					? devices::TerminalDevice::InputBufferCapacity - 1 - available : 0;
+				// What does not fit in the terminal's input waits, in order, for the next injection point.
+				const usize room = targets.terminal.inputRoom();
 				if (room == 0)
 				{
 					_queue.push_front(std::move(event));
@@ -288,9 +286,9 @@ namespace ceres::driver
 			apply(event, targets);
 			write(event);
 			lock.lock();
-			// A partial write of the terminal leaves the rest at the front: stop here, the ring is full.
+			// A partial write of the terminal leaves the rest at the front: stop here, its input is full.
 			if (event.kind == InputEvent::Kind::TerminalBytes && !_queue.empty() && _queue.front().kind == InputEvent::Kind::TerminalBytes
-				&& targets.terminal.availableBytes() + 1 >= devices::TerminalDevice::InputBufferCapacity)
+				&& targets.terminal.inputRoom() == 0)
 				break;
 		}
 		return true;

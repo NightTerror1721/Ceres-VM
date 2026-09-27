@@ -1375,7 +1375,7 @@ TEST(pipeline_like, an_anonymous_string_prints)
 		"    la r13, 0xFF0000F4\r\n" // BlockLengthRegister
 		"    str [r13 + 0], r2\r\n"
 		"    la r13, 0xFF0000F8\r\n" // BlockCommandRegister
-		"    li r3, 2\r\n"
+		"    li r3, 1\r\n"
 		"    str [r13 + 0], r3\r\n"
 		"    ret\r\n");
 	CHECK(r.ok());

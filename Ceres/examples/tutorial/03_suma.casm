@@ -23,7 +23,7 @@ const TERM_IN       = 0x08
 const TERM_BLOCK_ADDR = 0xF0
 const TERM_BLOCK_LEN   = 0xF4
 const TERM_BLOCK_CMD    = 0xF8
-const BLOCK_WRITE = 2
+const BLOCK_WRITE = 1
 const SYS_CTRL     = 0xFFFF0000
 const NEWLINE      = 10
 

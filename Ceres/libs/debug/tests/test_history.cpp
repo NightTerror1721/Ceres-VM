@@ -104,9 +104,10 @@ namespace
 
 		bool operator==(const Fingerprint& other) const
 		{
+			// A device by its name: two sessions have devices of their own (the GPU's vertical blank is in both).
 			const auto sameEvents = std::ranges::equal(events, other.events, [](const auto& a, const auto& b)
 			{
-				return a.device == b.device && a.cycle == b.cycle && a.tag == b.tag;
+				return a.device->registers().device() == b.device->registers().device() && a.cycle == b.cycle && a.tag == b.tag;
 			});
 			return memory == other.memory && registers == other.registers && flags == other.flags &&
 				programCounter == other.programCounter && ticks == other.ticks && cycles == other.cycles &&
@@ -706,11 +707,12 @@ TEST(history, going_back_puts_the_devices_events_back_as_they_were)
 	session->resume(1500);                      // before the transfer starts
 	const u64 moment = session->currentTick();
 	const Fingerprint before = fingerprint(*session);
-	CHECK(before.events.empty());
+	const auto dmaEvent = [](const vm::Scheduler::Event& event) { return event.device->registers().device() == "dma"; };
+	CHECK(std::ranges::none_of(before.events, dmaEvent));
 	CHECK(before.cycles > 0);
 
 	session->resume(2000);                      // the transfer is in flight: its event is scheduled
-	CHECK(!session->machine().io().scheduler().empty());
+	CHECK(std::ranges::any_of(session->machine().io().scheduler().captureEvents(), dmaEvent));
 
 	// Back before it: the event of a transfer that has not started yet must not be waiting to land.
 	session->runToTick(moment);

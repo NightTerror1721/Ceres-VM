@@ -24,6 +24,8 @@ namespace ceres::devices
 		inline constexpr u32 Insert = 73, Home = 74, PageUp = 75, Delete = 76, End = 77, PageDown = 78;
 		inline constexpr u32 Right = 79, Left = 80, Down = 81, Up = 82;
 		inline constexpr u32 KeypadEnter = 88;
+		inline constexpr u32 A = 4, Z = 29;
+		inline constexpr u32 LeftCtrl = 224, LeftShift = 225, RightCtrl = 228, RightShift = 229;
 
 		// True for a key that types no character: it reaches a program as a named keystroke.
 		constexpr bool isNamedKey(u32 code) noexcept
@@ -58,6 +60,7 @@ namespace ceres::devices
 		static inline constexpr u32 StatusTextReady = 1u << 1;    // A typed character is waiting in the text queue.
 		static inline constexpr u32 StatusKeyReady = 1u << 2;     // A keystroke is waiting in the ordered keystroke queue.
 		static inline constexpr u32 KeyNamed = 1u << 31;          // In a keystroke: the low bits are the scancode of a key with no character.
+		static inline constexpr u32 KeyShift = 1u << 30;          // In a named keystroke: Shift was held (only on PageUp and PageDown, the terminal's scrollback keys).
 		static inline constexpr u32 EventPressed = 1u << 31;      // Set when the key was pressed, clear when released.
 		static inline constexpr u32 EventCodeMask = 0x7FFFFFFFu;  // The key code lives in the low 31 bits.
 
@@ -84,6 +87,9 @@ namespace ceres::devices
 		usize _keyHead = 0;
 		usize _keyTail = 0;
 		std::function<void(u32)> _keystrokeSink;
+		// The modifiers held, as the key events said: Ctrl with a letter is a control character (Ctrl+C is 3), and
+		// Shift marks the page keys.
+		bool _leftCtrl = false, _rightCtrl = false, _leftShift = false, _rightShift = false;
 		mutable std::mutex _mutex;
 		u32 _blockAddress = 0;
 		u32 _blockLength = 0;
