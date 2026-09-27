@@ -177,7 +177,15 @@ namespace ceres::debug
 		std::unique_ptr<DebugSession> session{
 			new DebugSession(std::move(program.value()), std::move(debugInfo), config) };
 
-		session->_vm = std::make_unique<vm::CeresVM>(config.memorySize, config.vramSize);
+		try
+		{
+			session->_vm = std::make_unique<vm::CeresVM>(config.memorySize, config.vramSize);
+		}
+		catch (const std::bad_alloc&)
+		{
+			return std::unexpected(std::format("The host cannot reserve {} bytes of RAM and {} of VRAM for the machine",
+				config.memorySize, config.vramSize));
+		}
 		session->attachDevices();
 
 		if (auto loaded = session->_vm->loadProgram(session->_program); !loaded)

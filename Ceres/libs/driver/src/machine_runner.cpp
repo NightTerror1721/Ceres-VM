@@ -347,7 +347,19 @@ namespace ceres::driver
 			return 1;
 		}
 
-		CeresVM vm{machine.ramBytes, machine.vramBytes};
+		// The host may refuse to reserve a large machine (a 2 GiB RAM and a 1 GiB VRAM are three committed
+		// gigabytes): that is the run's error to report, not an exception out of it.
+		std::unique_ptr<CeresVM> machineHolder;
+		try
+		{
+			machineHolder = std::make_unique<CeresVM>(machine.ramBytes, machine.vramBytes);
+		}
+		catch (const std::bad_alloc&)
+		{
+			log.error(std::format("The host cannot reserve {} bytes of RAM and {} of VRAM for the machine", machine.ramBytes, machine.vramBytes));
+			return 1;
+		}
+		CeresVM& vm = *machineHolder;
 		vm.engine().setStrictMmio(options.strictMmio);
 		vm.io().scheduler().setClockHz(machine.cpuClockHz);
 		vm.setProgramArguments(std::move(arguments));

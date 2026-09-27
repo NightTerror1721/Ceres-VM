@@ -186,7 +186,11 @@ namespace ceres::debug
 				break;
 
 			case StopReason::Breakpoint:
-				std::cout << "Breakpoint " << event.breakpoint << ", " << event.message << '\n';
+				// Breakpoint 0 is none the user set: the program asked to stop (the debug log's Break).
+				if (event.breakpoint == 0)
+					std::cout << event.message << '\n';
+				else
+					std::cout << "Breakpoint " << event.breakpoint << ", " << event.message << '\n';
 				break;
 
 			case StopReason::DataBreakpoint:
