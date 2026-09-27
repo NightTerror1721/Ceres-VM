@@ -442,8 +442,8 @@ El scanout compone por línea, no consume ciclos de GPU y aplica los límites po
 | `0x11C` | BackgroundColor | RW | XRGB8888 |
 | `0x120` | Present | W | 1: aplicar las bases pendientes en el próximo VBlank |
 | `0x200–0x23F` | Plano de texto | RW | Enable `0x200`, Cols `0x204` (R), Rows `0x208` (R), CellsBase `0x20C`, CellFormat `0x210` (0: 16 bits, 1: 32 bits), FontBase `0x214`, GlyphCount `0x218`, PaletteBase `0x21C`, CursorX `0x220`, CursorY `0x224`, CursorShape `0x228` (1:0 nada, subrayado, bloque, barra; b8 parpadeo), ScrollbackBase `0x22C`, ScrollbackLines `0x230`, ScrollY `0x234`, ScrollbackHead `0x238`, ScrollbackCount `0x23C`. Las bases (celdas, fuente, paleta) se aplican con `Present` |
-| `0x240–0x27F` | Plano bitmap | RW | Enable, Base, BackBase, Pitch, Format, Width, Height, ScrollX, ScrollY, Buffers, PaletteBase |
-| `0x280–0x2BF` | Motor de copia | RW | Src, Dst, Length, FillValue, Command (1 copy, 2 fill), Status |
+| `0x240–0x27F` | Plano bitmap | RW | Enable `0x240`, Base `0x244`, BackBase `0x248`, Pitch `0x24C`, Format `0x250` (0 I1, 1 I2, 2 I4, 3 I8, 4 RGB565, 5 ARGB1555, 6 XRGB8888, 7 ARGB8888), Width `0x254`, Height `0x258`, ScrollX `0x25C`, ScrollY `0x260`, Buffers `0x264`, PaletteBase `0x268`, SpareBase `0x26C` (el tercer búfer). Base y PaletteBase se aplican con `Present`; con 2 búferes, Base y BackBase se intercambian en el VBlank; con 3, `Present` pone BackBase en cola y SpareBase pasa a ser BackBase |
+| `0x280–0x2BF` | Motor de copia | RW | Src `0x280`, Dst `0x284`, Length `0x288`, FillValue `0x28C`, Command `0x290` (1 copy, 2 fill), Status `0x294` (b0 ocupado, b1 fallo). Coste: 16 ciclos de GPU + 1 por cada 4 bytes (copia) u 8 (relleno); IRQ 34 al terminar; una dirección fuera de RAM y VRAM es `FaultCode` 1 (IRQ 35) |
 | `0x300–0x3FF` | V2–V3 | RW | Capas, capa afín, sprites, tabla de líneas (se fija en F8 y F10) |
 
 Slots `0x41` (procesador de comandos: RingBase, RingSize, RingHead, RingTail, FenceCompleted, CmdStatus), `0x42`

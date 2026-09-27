@@ -8,6 +8,8 @@
 // the display are at 0x000-0x120 of slot 0x40 (SPEC 7.3). The slots 0x41-0x43 are the command processor's and the
 // 2D and 3D engines' and are not attached until the phases that fill them (F10, F13, F14).
 
+#include <ceres/devices/video/bitmap_plane.h>
+#include <ceres/devices/video/copy_engine.h>
 #include <ceres/devices/video/display_controller.h>
 #include <ceres/devices/video/gpu_executor.h>
 #include <ceres/devices/video/software_executor.h>
@@ -80,6 +82,9 @@ namespace ceres::devices
 		static inline constexpr u32 LineEvent = 1;
 		static inline constexpr u32 CopyEvent = 2;
 
+		// FaultCode: an engine was given an address outside the RAM and the VRAM (FaultAddress says which).
+		static inline constexpr u32 FaultBadAddress = 1;
+
 		// The resolution the GPU starts in: 640x480 (80x30 cells of text), or the profile's largest when that is smaller.
 		static inline constexpr u32 BootWidth = 640;
 		static inline constexpr u32 BootHeight = 480;
@@ -103,6 +108,8 @@ namespace ceres::devices
 		video::DisplayController _display;
 		std::unique_ptr<video::GpuExecutor> _executor = std::make_unique<video::SoftwareExecutor>();
 		video::TextPlane _text;
+		video::BitmapPlane _bitmap;
+		video::CopyEngine _copy;
 
 		u32 _mode = 0;
 		u32 _control = ControlDisplayOn;
@@ -147,6 +154,7 @@ namespace ceres::devices
 		const video::DisplayController& display() const noexcept { return _display; }
 		video::TextPlane& textPlane() noexcept { return _text; }
 		const video::TextPlane& textPlane() const noexcept { return _text; }
+		const video::BitmapPlane& bitmapPlane() const noexcept { return _bitmap; }
 		// The text plane's screen as text, a line a row (what --screen-log writes).
 		std::string screenText() const { return _text.toText(vram()); }
 
@@ -165,5 +173,6 @@ namespace ceres::devices
 		void scheduleVblank();
 		void scheduleLine();
 		void vblank();
+		void fault(u32 code, u32 address);
 	};
 }

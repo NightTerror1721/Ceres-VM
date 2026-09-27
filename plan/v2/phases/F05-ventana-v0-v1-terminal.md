@@ -174,3 +174,8 @@
   `ScrollbackHead` (`0x238`) y `ScrollbackCount` (`0x23C`) para el anillo del scrollback, que el terminal (F5.6)
   llena. Un fondo 0 es transparente. `CursorShape` bit 8 parpadea cada 16 fotogramas. SPEC §7.1 y §7.3 recogen la
   celda de 32 bits, la fuente, la paleta y los offsets.
+- **F5.4**: se añade `SpareBase` (`0x26C`), la dirección del tercer búfer. Los formatos de menos de 8 bits guardan el
+  píxel de la izquierda en los bits altos del byte; los que tienen alfa se mezclan sobre lo de debajo con redondeo
+  entero. Al arrancar, el plano está apagado, en XRGB8888 al tamaño de la pantalla, con tres búferes preparados tras
+  el scrollback si caben en la VRAM y la paleta del texto. El motor de copia mueve los bytes al terminar (no a
+  medias) y un relleno alinea su patrón a la dirección, como lo haría un `str`.

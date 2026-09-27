@@ -1,4 +1,5 @@
 #include <ceres/devices/video/gpu.h>
+#include <ceres/devices/video/cost_model.h>
 #include <ceres/devices/video/formats.h>
 
 #include <algorithm>
@@ -47,6 +48,24 @@ namespace ceres::devices
 			{ 0x234, "ScrollY",         RegisterAccess::ReadWrite,       0x0, false, "Rows of the ring shown at the top; 0 shows the live screen." },
 			{ 0x238, "ScrollbackHead",  RegisterAccess::ReadWrite,       0x0, false, "The row of the ring the next scrolled-off line goes in." },
 			{ 0x23C, "ScrollbackCount", RegisterAccess::ReadWrite,       0x0, false, "The rows the ring holds now." },
+			{ 0x240, "BitmapEnable",    RegisterAccess::ReadWrite,       0x0, false, "1 shows the bitmap plane (in Mode 1 and above)." },
+			{ 0x244, "Base",            RegisterAccess::ReadWrite,       0x0, false, "The picture shown (a Present applies a write)." },
+			{ 0x248, "BackBase",        RegisterAccess::ReadWrite,       0x0, false, "The picture to draw into." },
+			{ 0x24C, "Pitch",           RegisterAccess::ReadWrite,       0x0, false, "Bytes from a row to the next." },
+			{ 0x250, "Format",          RegisterAccess::ReadWrite,       0x6, false, "0 I1, 1 I2, 2 I4, 3 I8, 4 RGB565, 5 ARGB1555, 6 XRGB8888, 7 ARGB8888." },
+			{ 0x254, "BitmapWidth",     RegisterAccess::ReadWrite,       0x0, false, "The picture's width in pixels." },
+			{ 0x258, "BitmapHeight",    RegisterAccess::ReadWrite,       0x0, false, "The picture's height in pixels." },
+			{ 0x25C, "ScrollX",         RegisterAccess::ReadWrite,       0x0, false, "The picture's column at the left edge (it wraps round)." },
+			{ 0x260, "BitmapScrollY",   RegisterAccess::ReadWrite,       0x0, false, "The picture's row at the top (it wraps round)." },
+			{ 0x264, "Buffers",         RegisterAccess::ReadWrite,       0x1, false, "1-3 pictures that take turns; a Present flips them." },
+			{ 0x268, "PaletteBase",     RegisterAccess::ReadWrite,       0x0, false, "256 entries of 0x00RRGGBB for I1-I8 (a Present applies a write)." },
+			{ 0x26C, "SpareBase",       RegisterAccess::ReadWrite,       0x0, false, "The third picture, with Buffers 3." },
+			{ 0x280, "CopySrc",         RegisterAccess::ReadWrite,       0x0, false, "Where a copy reads, in RAM or VRAM." },
+			{ 0x284, "CopyDst",         RegisterAccess::ReadWrite,       0x0, false, "Where a copy or a fill writes." },
+			{ 0x288, "CopyLength",      RegisterAccess::ReadWrite,       0x0, false, "Bytes." },
+			{ 0x28C, "FillValue",       RegisterAccess::ReadWrite,       0x0, false, "The 32-bit pattern a fill repeats, aligned to the address." },
+			{ 0x290, "CopyCommand",     RegisterAccess::Write,           0x0, false, "1 copy, 2 fill; done after its GPU cycles (interrupt 34)." },
+			{ 0x294, "CopyStatus",      RegisterAccess::Read,            0x0, false, "Bit 0 busy, bit 1 the last command faulted." },
 		};
 
 		constexpr RegisterMap Map{ "gpu", Registers };
@@ -107,7 +126,12 @@ namespace ceres::devices
 			_text.reset(video::TextPlane::bootLayout(_config.maxWidth / video::TextPlane::CellWidth, _config.maxHeight / video::TextPlane::CellHeight, vram().size()),
 				_width / video::TextPlane::CellWidth, _height / video::TextPlane::CellHeight);
 			_text.writeBootData(vram());
+			const video::TextPlane::Layout& layout = _text.layout();
+			_bitmap.reset(_width, _height, (layout.scrollbackBase + layout.scrollbackBytes + 255) & ~255u, layout.paletteBase, vram().size());
 		}
+		_copy.reset();
+		if (Scheduler* events = scheduler())
+			events->cancel(*this, CopyEvent);
 		scheduleVblank();
 		scheduleLine();
 	}
@@ -146,7 +170,10 @@ namespace ceres::devices
 		const bool presented = _presentPending;
 		_presentPending = false;
 		if (presented)
+		{
 			_text.applyPending();
+			_bitmap.applyPending();
+		}
 		_irqStatus |= IrqVblank;
 		if ((_irqEnable & IrqVblank) != 0)
 			raiseInterrupt(VblankInterrupt);
@@ -155,12 +182,27 @@ namespace ceres::devices
 			_vblankObserver(presented);
 	}
 
+	void GpuDevice::fault(u32 code, u32 address)
+	{
+		_faultCode = code;
+		_faultAddress = address;
+		_irqStatus |= IrqFault;
+		if ((_irqEnable & IrqFault) != 0)
+			raiseInterrupt(FaultInterrupt);
+	}
+
 	void GpuDevice::onEvent(u32 tag, u64 cycle)
 	{
 		switch (tag)
 		{
 			case VblankEvent:
 				vblank();
+				break;
+			case CopyEvent:
+				_copy.finish(memory(), vram());
+				_irqStatus |= IrqCopy;
+				if ((_irqEnable & IrqCopy) != 0)
+					raiseInterrupt(CopyInterrupt);
 				break;
 			case LineEvent:
 				_irqStatus |= IrqLine;
@@ -184,6 +226,7 @@ namespace ceres::devices
 		state.background = _background;
 		state.frameCounter = _frameCounter;
 		state.text = &_text;
+		state.bitmap = &_bitmap;
 		_executor->compose(state, vram(), frame);
 	}
 
@@ -191,6 +234,10 @@ namespace ceres::devices
 	{
 		if (video::TextPlane::handles(offset.value()))
 			return _text.read(offset.value());
+		if (video::BitmapPlane::handles(offset.value()))
+			return _bitmap.read(offset.value());
+		if (video::CopyEngine::handles(offset.value()))
+			return _copy.read(offset.value());
 		switch (offset.value())
 		{
 			case IdRegister.value(): return IdValue;
@@ -210,7 +257,7 @@ namespace ceres::devices
 			case MaxLevelRegister.value(): return _config.maxLevel;
 			case ControlRegister.value(): return _control;
 			case StatusRegister.value():
-				return (_faultCode != 0 ? StatusFault : 0u) | (_display.inVblank(now()) ? StatusVblank : 0u) | (_presentPending ? StatusFlipPending : 0u);
+				return (_copy.busy() ? StatusBusy : 0u) | (_faultCode != 0 ? StatusFault : 0u) | (_display.inVblank(now()) ? StatusVblank : 0u) | (_presentPending ? StatusFlipPending : 0u);
 			case IrqEnableRegister.value(): return _irqEnable;
 			case IrqStatusRegister.value(): return _irqStatus;
 			case FaultCodeRegister.value(): return _faultCode;
@@ -232,6 +279,21 @@ namespace ceres::devices
 		if (video::TextPlane::handles(offset.value()))
 		{
 			_text.write(offset.value(), value);
+			return;
+		}
+		if (video::BitmapPlane::handles(offset.value()))
+		{
+			_bitmap.write(offset.value(), value);
+			return;
+		}
+		if (video::CopyEngine::handles(offset.value()))
+		{
+			const video::CopyEngine::Start start = _copy.write(offset.value(), value, memory(), vram());
+			if (start.fault)
+				fault(FaultBadAddress, start.faultAddress);
+			else if (start.started)
+				if (Scheduler* events = scheduler())
+					events->schedule(*this, now() + video::CostModel::toCpuCycles(start.gpuCycles, events->clockHz(), _config.gpuClockHz), CopyEvent);
 			return;
 		}
 		switch (offset.value())
@@ -275,7 +337,10 @@ namespace ceres::devices
 				break;
 			case PresentRegister.value():
 				if ((value & 1u) != 0)
+				{
 					_presentPending = true;
+					_bitmap.present();
+				}
 				break;
 			default:
 				break;
