@@ -23,6 +23,11 @@ namespace ceres::driver
 		std::filesystem::path record;     // --record: the host's input, stamped with its cycles, written here
 		std::filesystem::path replay;     // --replay: a recording fed back instead of the host's input
 		std::filesystem::path logFile;    // --log: the host's log goes here instead of the diagnostics stream
+		u32 refresh = 60;                 // --refresh: the display's frames a second, 50 or 60
+		bool fullscreen = false;          // --fullscreen
+		bool exitOnHalt = false;          // --exit-on-halt: the window closes when the program ends
+		bool requireWindow = false;       // --window: a window that cannot be opened is an error
+		std::filesystem::path framesDir;  // --frames: a PNG of the screen for every Present
 	};
 
 	// The parts of a host the machine runs on; each may be missing (no window: all three are).

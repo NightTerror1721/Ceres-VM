@@ -16,6 +16,7 @@ namespace ceres::driver
 			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab] [--gc-sections]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
 			"  ceres run <file.casm|file.cres> [<machine>] [--disk <image>] [--window | --terminal] [--strict-mmio]\n"
+			"                                  [--fullscreen] [--exit-on-halt] [--frames <dir>] [--refresh 50|60]\n"
 			"                                  [--rtc <YYYY-MM-DDThh:mm:ss>] [--speed realtime|max|<f>x]\n"
 			"                                  [--record <file> | --replay <file>] [--log <file>]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
@@ -31,9 +32,11 @@ namespace ceres::driver
 			"\n"
 			"A bare path is shorthand for 'run'.\n"
 			"\n"
-			"With a window (an SDL build), 'run' opens it when the program first shows a frame - of the text\n"
-			"framebuffer or of the pixel display - so a program that never does opens none. --window opens it at\n"
-			"once; --terminal (or CERES_HEADLESS in the environment) never does, and text frames go to the terminal.\n"
+			"With a window (an SDL build), 'run' shows the machine's screen in it from the start, one frame a vertical\n"
+			"blank (--refresh: 50 or 60 a second, 60 by default), and keeps it open with the last frame when the program\n"
+			"ends, until a key is pressed or it is closed; --exit-on-halt closes it at once. --fullscreen (or F11) fills\n"
+			"the screen. --window makes a window that cannot be opened an error; --terminal (or CERES_HEADLESS in the\n"
+			"environment) opens none. --frames writes a PNG of the screen into <dir> for every Present.\n"
 			"\n"
 			"Everything after -- goes to the program: main(argc, argv) gets the input's path as argv[0], then those.\n"
 			"--env gives it an environment variable (getenv); nothing of the host's environment is passed on.\n"
@@ -74,6 +77,12 @@ namespace ceres::driver
 			bool usedServer = false;
 			bool recordHistory = true;
 			bool usedHistory = false;
+			// The window's: --fullscreen, --exit-on-halt, --frames, --refresh (run only).
+			bool fullscreen = false;
+			bool exitOnHalt = false;
+			std::filesystem::path framesDir;
+			u32 refresh = 60;
+			bool usedScreen = false;
 			// The machine: a profile, and the options that change it into `custom`.
 			std::optional<ProfileId> profile;
 			std::optional<u64> cpuClockHz;
@@ -343,6 +352,24 @@ namespace ceres::driver
 			else if (argument == "--window") { raw.window = true; raw.usedWindow = true; }
 			else if (argument == "--terminal") { raw.terminal = true; raw.usedTerminal = true; }
 			else if (argument == "--strict-mmio") raw.strictMmio = true;
+			else if (argument == "--fullscreen") { raw.fullscreen = true; raw.usedScreen = true; }
+			else if (argument == "--exit-on-halt") { raw.exitOnHalt = true; raw.usedScreen = true; }
+			else if (argument == "--frames")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				raw.framesDir = *value;
+				raw.usedScreen = true;
+			}
+			else if (argument == "--refresh")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				if (*value != "50" && *value != "60")
+					return std::unexpected(ParseError{ "'--refresh' takes 50 or 60, not '" + std::string(*value) + "'" });
+				raw.refresh = *value == "50" ? 50u : 60u;
+				raw.usedScreen = true;
+			}
 			else if (argument == "--speed")
 			{
 				auto value = nextValue(argument);
@@ -428,8 +455,8 @@ namespace ceres::driver
 		if (raw.usedGcSections && command != "link")
 			return std::unexpected(invalidOption("--gc-sections", command));
 		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio || raw.rtc || raw.speed ||
-			!raw.record.empty() || !raw.replay.empty() || !raw.log.empty()) && command != "run")
-			return std::unexpected(invalidOption(raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : raw.strictMmio ? "--strict-mmio" :
+			!raw.record.empty() || !raw.replay.empty() || !raw.log.empty() || raw.usedScreen) && command != "run")
+			return std::unexpected(invalidOption(raw.usedScreen ? "a window option" : raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : raw.strictMmio ? "--strict-mmio" :
 				raw.rtc ? "--rtc" : raw.speed ? "--speed" : !raw.record.empty() ? "--record" :
 				!raw.replay.empty() ? "--replay" : !raw.log.empty() ? "--log" : "--", command));
 		// The machine's options belong to the commands that run one.
@@ -474,7 +501,8 @@ namespace ceres::driver
 				return std::unexpected(ParseError{ "'--record' and '--replay' are opposites: pick one" });
 			return RunCommand{ std::move(inputs.front()), *machine, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.terminal,
 				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory), raw.strictMmio,
-				raw.rtc, raw.speed, std::move(raw.record), std::move(raw.replay), std::move(raw.log) };
+				raw.rtc, raw.speed, std::move(raw.record), std::move(raw.replay), std::move(raw.log), raw.refresh, raw.fullscreen,
+				raw.exitOnHalt, std::move(raw.framesDir) };
 		}
 		if (command == "profile")
 		{

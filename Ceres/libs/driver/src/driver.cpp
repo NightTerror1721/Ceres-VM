@@ -244,16 +244,11 @@ namespace ceres::driver
 					*services.diagnostics << "Failed to open a window: " << error.what() << '\n';
 					return 1;
 				}
-				if (host.video && !host.video->openWindow())
-				{
-					*services.diagnostics << "Failed to open a window.\n";
-					return 1;
-				}
 			}
 			else if (windowHost && !terminalRequested(command))
 			{
-				// A machine with a screen: the window opens when the program first shows a frame, so a program
-				// that never does opens none. If there turns out to be no display, its text goes to the terminal.
+				// A machine with a screen: its window opens when it starts. If there turns out to be no display, it
+				// runs without one.
 				try
 				{
 					host = windowHost();
@@ -267,7 +262,10 @@ namespace ceres::driver
 			vm::ProgramArguments arguments{ { command.input.string() }, command.environment };
 			arguments.arguments.insert(arguments.arguments.end(), command.arguments.begin(), command.arguments.end());
 			return runMachine(loaded->program, command.machine, nullptr, command.diskImage, command.ports, std::move(arguments),
-				command.hostDirectory, services, HostIo{ host.input.get(), host.video.get(), host.audio.get() }, MachineOptions{ command.strictMmio, command.rtc, command.speed, command.record, command.replay, command.logFile });
+				command.hostDirectory, services, HostIo{ host.input.get(), host.video.get(), host.audio.get() },
+				MachineOptions{ .strictMmio = command.strictMmio, .rtc = command.rtc, .speed = command.speed, .record = command.record,
+					.replay = command.replay, .logFile = command.logFile, .refresh = command.refresh, .fullscreen = command.fullscreen,
+					.exitOnHalt = command.exitOnHalt, .requireWindow = command.window, .framesDir = command.framesDir });
 		}
 
 		int executeProfile(const ProfileCommand& command, HostServices services)

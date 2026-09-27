@@ -1,5 +1,6 @@
 #include "machine_runner.h"
 #include "console_input.h"
+#include "png_writer.h"
 
 #include <ceres/driver/driver.h>
 #include <ceres/driver/host_log.h>
@@ -16,6 +17,7 @@
 #include <ceres/devices/storage/peripherals.h>
 #include <ceres/devices/storage/host_fs.h>
 #include <ceres/devices/video/blitter.h>
+#include <ceres/devices/video/gpu.h>
 #include <ceres/vm/ceresvm.h>
 
 #include <algorithm>
@@ -396,7 +398,19 @@ namespace ceres::driver
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		debugLog.attachTo(vm.io());
-		framebuffer.setWindowHost(host.video != nullptr && host.video->showsText());
+		// The v1 text framebuffer and pixel display stay until F5.8, but only the GPU is shown in the window: the
+		// framebuffer's frames go to the terminal, as without a window.
+		framebuffer.setWindowHost(false);
+		GpuDevice gpu;
+		gpu.configure(GpuDevice::Config{ .gpuClockHz = machine.gpuClockHz, .maxLevel = machine.maxVideo,
+			.maxWidth = machine.maxWidth, .maxHeight = machine.maxHeight, .refresh = options.refresh });
+		gpu.attachTo(vm.io());
+		struct DetachGpu
+		{
+			GpuDevice& device;
+			CeresVM& machine;
+			~DetachGpu() { device.detachFrom(machine.io()); }
+		} detachGpu{ gpu, vm };
 		if (options.rtc)
 			timer.setRtcStart(*options.rtc);
 		timer.attachTo(vm.io());
@@ -619,12 +633,85 @@ namespace ceres::driver
 		}
 
 		using HostClock = std::chrono::steady_clock;
-		constexpr auto PresentEvery = std::chrono::milliseconds(16);   // the window's own redraw, about 60 a second
 		Pacer pacer{ options.speed.value_or(Speed::unlimited()), vm.io().scheduler().clockHz() };
 		const u64 sliceCycles = std::max<u64>(1, vm.io().scheduler().clockHz() / 1000);   // a millisecond of machine time
-		HostClock::time_point lastPresent{};
-		u64 displayPresents = display.presentCount();
 		InputTargets targets{ *terminal, *keyboard, mouse, gamepad, plugIn };
+
+		// The screen. A machine with a window shows it from the start, at the GPU's resolution; one that cannot open
+		// it runs without, unless the window was asked for by name.
+		if (host.video)
+		{
+			host.video->setFullscreen(options.fullscreen);
+			if (!host.video->openWindow(gpu.width(), gpu.height()))
+			{
+				if (options.requireWindow)
+				{
+					log.error("Failed to open a window.");
+					return 1;
+				}
+				host.video = nullptr;
+			}
+		}
+		if (!options.framesDir.empty())
+		{
+			std::error_code error;
+			std::filesystem::create_directories(options.framesDir, error);
+			if (error)
+			{
+				log.error("--frames: cannot make the directory " + options.framesDir.string());
+				return 1;
+			}
+		}
+
+		// Every vertical blank (plan/v2 F5.5): the window gets the frame the scanout composes - no more than one every
+		// few milliseconds of the host's, so a machine running flat out does not spend its time drawing - and a
+		// Present also goes to --frames as a PNG, composed at the blank itself so it is the same on every run.
+		const HostStatus runningStatus{ std::string(profileName(machine.id)), 0.0, std::nullopt };
+		constexpr auto MinPresentGap = std::chrono::milliseconds(8);
+		constexpr auto StatusEvery = std::chrono::milliseconds(250);
+		video::VideoFrame frame;
+		u64 framesWritten = 0;
+		bool framesFailed = false;
+		HostClock::time_point lastShown{};
+		HostClock::time_point lastStatus{};
+		gpu.setVblankObserver([&](bool presented)
+		{
+			bool composed = false;
+			if (presented && !options.framesDir.empty() && !framesFailed)
+			{
+				gpu.compose(frame);
+				composed = true;
+				const auto path = options.framesDir / std::format("frame_{:06}.png", framesWritten++);
+				if (!writePng(path, frame))
+				{
+					framesFailed = true;
+					log.error("--frames: cannot write " + path.string());
+				}
+			}
+			if (!host.video)
+				return;
+			const HostClock::time_point now = HostClock::now();
+			if (now - lastShown >= MinPresentGap)
+			{
+				if (!composed)
+					gpu.compose(frame);
+				host.video->present(frame);
+				lastShown = now;
+			}
+			if (now - lastStatus >= StatusEvery)
+			{
+				HostStatus status = runningStatus;
+				status.speed = pacer.effectiveSpeed();
+				host.video->setStatus(status);
+				lastStatus = now;
+			}
+		});
+		struct ForgetObserver
+		{
+			GpuDevice& device;
+			~ForgetObserver() { device.setVblankObserver({}); }
+		} forgetObserver{ gpu };
+		bool hostQuit = false;
 
 		for (;;)
 		{
@@ -637,6 +724,7 @@ namespace ceres::driver
 			if (host.input && !host.input->pump(*input))
 			{
 				input->quit(vm.engine().cycles());
+				hostQuit = true;
 				break;
 			}
 			if (!input->inject(vm.engine().cycles(), targets))
@@ -648,41 +736,47 @@ namespace ceres::driver
 
 			// Ahead of the host: wait a little and look again, rather than run on. Otherwise a slice, up to the next
 			// millisecond of machine time. A halted machine with nothing scheduled waits for the host inside its
-			// step, and the host's input only goes in between slices, so a halt ends the slice; so does a frame of
-			// text presented for the window, so each one is shown.
+			// step, and the host's input only goes in between slices, so a halt ends the slice.
 			if (!pacer.pace(vm.engine().cycles()))
 			{
 				const u64 end = vm.engine().cycles() + sliceCycles;
 				while (vm.isPoweredOn())
 				{
 					vm.engine().step();
-					if (vm.engine().cycles() >= end || vm.engine().isHalted() || framebuffer.hasWindowFrame())
+					if (vm.engine().cycles() >= end || vm.engine().isHalted())
 						break;
 				}
 			}
-
-			if (!host.video)
-				continue;
-			const HostClock::time_point now = HostClock::now();
-			if (display.presentCount() != displayPresents || now - lastPresent >= PresentEvery)
-			{
-				displayPresents = display.presentCount();
-				lastPresent = now;
-				host.video->present(display);
-				host.video->reportSpeed(pacer.effectiveSpeed());
-			}
-
-			// A frame of the text framebuffer that the program presented for the window. Taken here, between
-			// slices, rather than drawn from inside the instruction that presented it.
-			FramebufferDevice::Frame frame;
-			if (framebuffer.takeWindowFrame(frame) && !host.video->presentText(frame))
-				framebuffer.fallBackToTerminal();
 		}
 
 		if (const auto unhandled = describeUnhandledException(vm))
 			log.error(*unhandled);
 		if (profileInfo)
 			printProfile(vm, *profileInfo, *services.diagnostics);
+
+		// The program is done, but the window stays with its last frame and says how it ended, until it is closed or
+		// a key is pressed (plan/v2 D22) - unless --exit-on-halt, or the host is the one that ended the run.
+		if (host.video && host.video->windowOpen() && !hostQuit && !options.exitOnHalt)
+		{
+			gpu.setVblankObserver({});
+			HostStatus ended = runningStatus;
+			ended.exitCode = control.exitCode();
+			host.video->setStatus(ended);
+			struct AnyKey final : InputSink
+			{
+				bool pressed = false;
+				void key(u32, bool down) override { pressed = pressed || down; }
+				void text(std::string_view) override {}
+				void mouse(i32, i32, u8, i8) override {}
+				void gamepad(u16, i16, i16, i16, i16, u16, u16) override {}
+			} anyKey;
+			while (host.input == nullptr || host.input->pump(anyKey))
+			{
+				if (anyKey.pressed || host.input == nullptr)
+					break;
+				std::this_thread::sleep_for(std::chrono::milliseconds(16));
+			}
+		}
 		terminal->detachFrom(vm.io());
 		return control.exitCode();
 	}

@@ -41,7 +41,8 @@ namespace
 	{
 	public:
 		bool pump(InputSink&) override { return true; }
-		void present(const devices::DisplayDevice&) override {}
+		bool openWindow(u32, u32) override { return true; }
+		void present(const devices::video::VideoFrame&) override {}
 	};
 
 	// The first run marks the word just above the image (which a reset does not reload), prints '1' and

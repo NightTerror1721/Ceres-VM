@@ -183,3 +183,15 @@
   hallazgo real, corregido: al partir el backend nadie llamaba ya a `SDL_Quit` al cerrar el último subsistema. Queda
   apuntado para F5.6: el historial del debugger no guarda el estado interno de la GPU (fotograma, planos), sólo sus
   eventos; y con `custom` una VRAM mínima no cabe el terminal de 1920×1080, así que el texto no se ve.
+- **F5.5**: `VideoOutput` pasa a `openWindow(w, h)`, `present(VideoFrame)`, `setFullscreen` y `setStatus` (la barra
+  de estado es el título de la ventana: perfil, velocidad y `[terminado: código N]`). La GPU entra en el runner con
+  la configuración del perfil y `--refresh`; en cada VBlank compone y la ventana recibe el fotograma, como mucho uno
+  cada 8 ms del host (a `--speed max` no se dibuja cada VBlank). `--frames` compone en el propio VBlank del
+  `Present`, así que los PNG son los mismos en cada ejecución (PNG RGB sin compresión, escrito sin bibliotecas).
+  La ventana se abre al arrancar a la resolución de la GPU; sin pantalla, la máquina sigue sin ventana salvo con
+  `--window`. Al terminar se queda abierta hasta una tecla o cerrarla (`--exit-on-halt` la cierra). F11 alterna
+  pantalla completa y no llega al programa. Mientras duren (hasta F5.8), el framebuffer de texto de la v1 va
+  siempre al terminal y el display de píxeles ya no se ve en la ventana: `pong.casm` no se ve hasta migrarlo en
+  F5.8. Se deja de capturar el ratón (se hacía al ver píxeles del display). **Medida**: con `--speed realtime`, 30
+  VBlanks a 60 Hz tardan medio segundo y llegan a la ventana 29–30 presentaciones (test
+  `driver_screen/a_window_shows_one_frame_a_vertical_blank_in_real_time`): presentaciones por segundo = refresco.

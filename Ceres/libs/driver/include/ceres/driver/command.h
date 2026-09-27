@@ -66,6 +66,10 @@ namespace ceres::driver
 		std::filesystem::path record;           // --record: write the host's input, stamped with its cycles, here
 		std::filesystem::path replay;           // --replay: feed a recording back instead of the host's input
 		std::filesystem::path logFile;          // --log: the host's log (the debug log and the diagnostics) goes here
+		u32 refresh = 60;                       // --refresh 50|60: the display's frames a second
+		bool fullscreen = false;                // --fullscreen: the window takes the whole screen (F11 toggles it)
+		bool exitOnHalt = false;                // --exit-on-halt: the window closes when the program ends
+		std::filesystem::path framesDir;        // --frames: a PNG of the screen for every Present, into this directory
 	};
 
 	struct ProfileCommand

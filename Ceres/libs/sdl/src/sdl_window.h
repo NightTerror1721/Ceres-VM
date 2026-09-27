@@ -10,6 +10,7 @@
 
 #include <array>
 #include <functional>
+#include <string>
 
 namespace ceres::sdl
 {
@@ -21,13 +22,12 @@ namespace ceres::sdl
 		static inline constexpr int MaxWindowHeight = 720;
 
 	private:
-		// Nothing of SDL is started until it is needed: a machine with a screen opens its window when the
-		// program first shows a frame, and a program that never does opens none (see open()).
+		// Nothing of SDL is started until the machine opens its window (open()), when it starts.
 		bool _videoStarted = false;
 		bool _videoFailed = false;
 		SDL_Window* _window = nullptr;
 		SDL_Renderer* _renderer = nullptr;
-		bool _mouseCaptured = false;
+		bool _fullscreen = false;
 		u8 _buttons = 0;                  // wheel events carry no button mask, so the last known one is kept
 		std::array<i32, 7> _padState{};   // the gamepad as last handed over: only a change goes to the machine
 		bool _padSent = false;
@@ -56,8 +56,10 @@ namespace ceres::sdl
 		// Sizes the window to show width x height at the largest whole scale that fits the starting size.
 		void fit(u32 width, u32 height);
 
-		// A game wants unbounded mouse deltas, not a cursor that stops at the window edge.
-		void captureMouse();
+		// Full screen or a window; F11 in the window toggles it too.
+		void setFullscreen(bool fullscreen);
+		// The status bar.
+		void setTitle(const std::string& title);
 
 		// Called from pump() when what the window shows is gone or the wrong size, so it is drawn again.
 		void setExposedHandler(std::function<void()> handler) { _exposed = std::move(handler); }

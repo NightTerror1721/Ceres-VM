@@ -191,7 +191,8 @@ namespace
 				handler(dropped);
 			return true;
 		}
-		void present(const devices::DisplayDevice&) override {}
+		bool openWindow(u32, u32) override { return true; }
+		void present(const devices::video::VideoFrame&) override {}
 		void setFileDropHandler(std::function<void(const std::filesystem::path&)> h) override { handler = std::move(h); }
 	};
 

@@ -89,10 +89,19 @@ namespace ceres::sdl
 					// the program's: a menu cancels with it, so it must not end the run.
 					if (event.key.scancode == SDL_SCANCODE_Q && (event.key.mod & SDL_KMOD_CTRL) != 0)
 						return false;
+					// F11 is the window's, not the program's: full screen and back.
+					if (event.key.scancode == SDL_SCANCODE_F11)
+					{
+						if (!event.key.repeat)
+							setFullscreen(!_fullscreen);
+						break;
+					}
 					input.key(static_cast<u32>(event.key.scancode), true);
 					break;
 
 				case SDL_EVENT_KEY_UP:
+					if (event.key.scancode == SDL_SCANCODE_F11)
+						break;
 					input.key(static_cast<u32>(event.key.scancode), false);
 					break;
 
@@ -171,7 +180,7 @@ namespace ceres::sdl
 
 		auto fail = [this](const char* what)
 		{
-			std::fprintf(stderr, "ceres: no window (%s: %s); showing text on the terminal instead\n", what, SDL_GetError());
+			std::fprintf(stderr, "ceres: no window (%s: %s)\n", what, SDL_GetError());
 			_videoFailed = true;
 			if (_renderer) { SDL_DestroyRenderer(_renderer); _renderer = nullptr; }
 			if (_window) { SDL_DestroyWindow(_window); _window = nullptr; }
@@ -183,7 +192,7 @@ namespace ceres::sdl
 		_videoStarted = true;
 
 		const int scale = std::max(1, std::min(MaxWindowWidth / std::max(width, 1), MaxWindowHeight / std::max(height, 1)));
-		_window = SDL_CreateWindow("Ceres", width * scale, height * scale, SDL_WINDOW_RESIZABLE);
+		_window = SDL_CreateWindow("Ceres", width * scale, height * scale, SDL_WINDOW_RESIZABLE | (_fullscreen ? SDL_WINDOW_FULLSCREEN : 0));
 		if (!_window)
 			return fail("SDL_CreateWindow");
 		_renderer = SDL_CreateRenderer(_window, nullptr);
@@ -203,12 +212,16 @@ namespace ceres::sdl
 		SDL_SetWindowSize(_window, static_cast<int>(width) * scale, static_cast<int>(height) * scale);
 	}
 
-	void SdlWindow::captureMouse()
+	void SdlWindow::setFullscreen(bool fullscreen)
 	{
-		if (_window && !_mouseCaptured)
-		{
-			SDL_SetWindowRelativeMouseMode(_window, true);
-			_mouseCaptured = true;
-		}
+		_fullscreen = fullscreen;
+		if (_window)
+			SDL_SetWindowFullscreen(_window, fullscreen);
+	}
+
+	void SdlWindow::setTitle(const std::string& title)
+	{
+		if (_window)
+			SDL_SetWindowTitle(_window, title.c_str());
 	}
 }

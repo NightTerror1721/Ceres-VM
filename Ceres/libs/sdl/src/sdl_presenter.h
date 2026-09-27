@@ -1,13 +1,13 @@
 #pragma once
 
-// What the window shows: the machine's frames, drawn with the window's renderer (sdl_window.h).
+// What the window shows: the GPU's frames, drawn with the window's renderer (sdl_window.h) at the largest whole scale
+// that fits, black bars round what is left (plan/v2 F5.5).
 
 #include "sdl_window.h"
 
 #include <ceres/driver/video_output.h>
 
 #include <memory>
-#include <vector>
 
 namespace ceres::sdl
 {
@@ -15,24 +15,13 @@ namespace ceres::sdl
 	{
 	private:
 		std::shared_ptr<SdlWindow> _window;
-		SDL_Texture* _texture = nullptr;      // the pixel display
+		SDL_Texture* _texture = nullptr;   // streaming, the frame's size
 		u32 _textureWidth = 0;
 		u32 _textureHeight = 0;
-		SDL_Texture* _textTexture = nullptr;  // the text framebuffer, drawn by devices::TextRenderer
-		u32 _textWidth = 0;
-		u32 _textHeight = 0;
-		std::vector<u32> _textPixels;
+		bool _hasFrame = false;
 
-		// Which of the two the window shows: the one the program presented most recently. The pixel display
-		// is shown live (every slice, from its buffer) once it is in use: from its first presented frame, or
-		// from the start when the window was asked for by name, as it always has been.
-		enum class Shown { Nothing, Text, Pixels };
-		Shown _shown = Shown::Nothing;
-		bool _displayLive = false;
-		u64 _displayPresents = 0;
-
-		// Draws the text texture as it is, letterboxed at whatever size the window has.
-		void drawText();
+		// Draws the texture as it is, at the largest whole scale that fits the window.
+		void draw();
 
 	public:
 		explicit SdlPresenter(std::shared_ptr<SdlWindow> window);
@@ -40,10 +29,10 @@ namespace ceres::sdl
 		SdlPresenter& operator=(const SdlPresenter&) = delete;
 		~SdlPresenter() override;
 
-		void present(const devices::DisplayDevice& display) override;
-		bool showsText() const noexcept override { return true; }
-		bool presentText(const devices::FramebufferDevice::Frame& frame) override;
-		bool openWindow() override;
+		bool openWindow(u32 width, u32 height) override;
+		void present(const devices::video::VideoFrame& frame) override;
 		bool windowOpen() const noexcept override { return _window->isOpen(); }
+		void setFullscreen(bool fullscreen) override { _window->setFullscreen(fullscreen); }
+		void setStatus(const driver::HostStatus& status) override;
 	};
 }

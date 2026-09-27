@@ -40,7 +40,8 @@ namespace
 			}
 			return true;
 		}
-		void present(const devices::DisplayDevice&) override {}
+		bool openWindow(u32, u32) override { return true; }
+		void present(const devices::video::VideoFrame&) override {}
 	};
 
 	std::string runTyped(const char* name, const char* program)
@@ -59,72 +60,69 @@ namespace
 		return (result == 0 ? std::string{} : "exit " + std::to_string(result) + ": ") + output.str() + diagnostics.str();
 	}
 
-	// What a host that shows text in a window was asked to do. It lives in the test, because the backend is gone
-	// when the run is over.
+	// What a windowed host was asked to do. It lives in the test, because the host is gone when the run is over.
 	struct WindowStats
 	{
 		int windowsCreated = 0;
 		int windowsOpened = 0;
-		std::vector<std::string> frames;   // the first row of each frame it was given
+		u32 openedWidth = 0, openedHeight = 0;
+		int frames = 0;
+		u32 firstPixel = 0;                   // of the last frame
+		std::vector<HostStatus> statuses;
+		bool fullscreen = false;
 	};
 
-	class TextWindowBackend final : public HostInput, public VideoOutput
+	// A window that opens (or not, when told so), counts the frames it is given and the statuses, and says it is open,
+	// so the machine keeps it after the program ends - until the key it presses on the first pump after that.
+	class FrameWindow final : public HostInput, public VideoOutput
 	{
-	public:
-		TextWindowBackend(WindowStats& stats, bool canDraw, bool canOpen) : _stats(stats), _canDraw(canDraw), _canOpen(canOpen) {}
-
-		bool pump(InputSink&) override { return true; }
-		void present(const devices::DisplayDevice&) override {}
-		bool showsText() const noexcept override { return true; }
-		bool openWindow() override { ++_stats.windowsOpened; return _canOpen; }
-		bool presentText(const devices::FramebufferDevice::Frame& frame) override
-		{
-			if (!_canDraw)
-				return false;
-			_stats.frames.emplace_back(frame.cells.begin(), frame.cells.begin() + frame.width);
-			return true;
-		}
-
 	private:
 		WindowStats& _stats;
-		bool _canDraw;
 		bool _canOpen;
-	};
+		bool _open = false;
 
-	// The program: put a letter in the top left cell and present, once per letter, with a wait after each long
-	// enough for the host to have had its turn (it looks between slices of 4096 instructions).
-	std::string presentProgram(std::string_view letters)
-	{
-		std::string text = "@text\nglobal main:\n    la   r13, 0xFF440000\n";
-		int label = 0;
-		for (char letter : letters)
+	public:
+		FrameWindow(WindowStats& stats, bool canOpen) : _stats(stats), _canOpen(canOpen) {}
+
+		bool pump(InputSink& input) override
 		{
-			text += "    li   r0, " + std::to_string(static_cast<int>(letter)) + "\n";
-			text += "    str  [r13 + 0x0C], r0\n";      // one cell, at the cursor
-			text += "    li   r0, 2\n";
-			text += "    str  [r13 + 0], r0\n";         // present
-			text += "    li   r5, 3000\n.wait" + std::to_string(label) + ":\n    sub  r5, r5, 1\n    cmp  r5, 0\n    jnz  .wait" + std::to_string(label) + "\n";
-			++label;
+			if (!_stats.statuses.empty() && _stats.statuses.back().exitCode)
+				input.key(devices::scancode::Space, true);
+			return true;
 		}
-		text += "    la   r7, 0xFFFF0000\n    li   r0, 1\n    str  [r7 + 0], r0\n";
-		return text;
-	}
+		bool openWindow(u32 width, u32 height) override
+		{
+			++_stats.windowsOpened;
+			_stats.openedWidth = width;
+			_stats.openedHeight = height;
+			_open = _canOpen;
+			return _canOpen;
+		}
+		void present(const devices::video::VideoFrame& frame) override
+		{
+			++_stats.frames;
+			_stats.firstPixel = frame.pixels.empty() ? 0 : frame.pixels[0];
+		}
+		bool windowOpen() const noexcept override { return _open; }
+		void setFullscreen(bool fullscreen) override { _stats.fullscreen = fullscreen; }
+		void setStatus(const HostStatus& status) override { _stats.statuses.push_back(status); }
+	};
 
 	struct Run { int result; std::string output; std::string diagnostics; WindowStats stats; };
 
-	Run runProgram(const std::string& program, RunCommand command, bool haveFactory = true, bool canDraw = true, bool canOpen = true)
+	Run runProgram(const std::string& program, RunCommand command, bool haveFactory = true, bool canOpen = true)
 	{
-		const auto source = std::filesystem::temp_directory_path() / "ceres_text_window_test.casm";
+		const auto source = std::filesystem::temp_directory_path() / "ceres_window_test.casm";
 		{
 			std::ofstream file{source};
 			file << program;
 		}
 		command.input = source;
 		WindowStats stats;
-		const WindowHostFactory factory = [&stats, canDraw, canOpen]
+		const WindowHostFactory factory = [&stats, canOpen]
 		{
 			++stats.windowsCreated;
-			return windowOf(std::make_shared<TextWindowBackend>(stats, canDraw, canOpen));
+			return windowOf(std::make_shared<FrameWindow>(stats, canOpen));
 		};
 		std::istringstream input;
 		std::ostringstream output;
@@ -143,13 +141,34 @@ namespace
 #endif
 	}
 
-	std::string quietProgram()
+	// Shuts the machine down with `code`.
+	std::string shutdown(int code = 0)
 	{
-		return "@text\nglobal main:\n    la   r7, 0xFFFF0000\n    li   r0, 1\n    str  [r7 + 0], r0\n";
+		return "    la   r7, 0xFFFF0000\n    la   r0, " + std::to_string(1 | (code << 8)) + "\n    str  [r7 + 0], r0\n";
 	}
 
-	// A backend that records how often the loop calls it, without any window. It is what proves the
-	// cooperative loop (pump -> slice -> present) runs, without needing SDL in the test.
+	// Waits until the GPU has counted `frames` vertical blanks, after `before` (code that runs first).
+	std::string frameProgram(int frames, const std::string& before = {}, int code = 0)
+	{
+		return "@text\nglobal main:\n    la   r13, 0xFF400000\n" + before +
+			".wait:\n    ldr  r1, [r13 + 0x118]\n    cmp  r1, " + std::to_string(frames) + "\n    jnz  .wait\n" + shutdown(code);
+	}
+
+	// A background colour, a Present, and two more frames so the Present is applied and shown.
+	std::string presentProgram()
+	{
+		return frameProgram(2, "    la   r0, 0x123456\n    str  [r13 + 0x11C], r0\n    li   r0, 1\n    str  [r13 + 0x120], r0\n");
+	}
+
+	// A text framebuffer frame with an X in its corner, presented: it goes to the terminal.
+	std::string textFrameProgram()
+	{
+		return "@text\nglobal main:\n    la   r13, 0xFF440000\n    li   r0, 88\n    str  [r13 + 0x0C], r0\n"
+			"    li   r0, 2\n    str  [r13 + 0], r0\n" + shutdown();
+	}
+
+	// A backend that records how often the loop calls it. It is what proves the cooperative loop (pump -> slice ->
+	// present) runs, without needing SDL in the test.
 	class RecordingBackend final : public HostInput, public VideoOutput
 	{
 	public:
@@ -161,7 +180,8 @@ namespace
 			++pumps;
 			return true;
 		}
-		void present(const devices::DisplayDevice&) override { ++presents; }
+		bool openWindow(u32, u32) override { return true; }
+		void present(const devices::video::VideoFrame&) override { ++presents; }
 	};
 }
 
@@ -177,6 +197,31 @@ TEST(driver_command, run_accepts_the_window_flag)
 	const auto* command = std::get_if<RunCommand>(&*parsed);
 	CHECK(command != nullptr);
 	CHECK(command->window);
+}
+
+TEST(driver_command, run_takes_the_window_options_and_the_other_commands_do_not)
+{
+	char program[] = "ceres";
+	char run[] = "run";
+	char input[] = "demo.casm";
+	char fullscreen[] = "--fullscreen";
+	char exitOnHalt[] = "--exit-on-halt";
+	char frames[] = "--frames";
+	char dir[] = "shots";
+	char refresh[] = "--refresh";
+	char fifty[] = "50";
+	char* argv[] = { program, run, input, fullscreen, exitOnHalt, frames, dir, refresh, fifty };
+	auto parsed = parseCommandLine(9, argv);
+	CHECK(parsed.has_value());
+	const auto* command = parsed ? std::get_if<RunCommand>(&*parsed) : nullptr;
+	CHECK(command != nullptr && command->fullscreen && command->exitOnHalt && command->framesDir == "shots" && command->refresh == 50u);
+
+	char seventy[] = "70";
+	char* bad[] = { program, run, input, refresh, seventy };
+	CHECK(!parseCommandLine(5, bad).has_value());
+	char disasm[] = "disasm";
+	char* wrong[] = { program, disasm, input, fullscreen };
+	CHECK(!parseCommandLine(4, wrong).has_value());
 }
 
 TEST(driver_window, window_without_a_backend_is_a_clean_error)
@@ -196,14 +241,7 @@ TEST(driver_window, a_windowed_run_drives_the_cooperative_loop)
 	const auto source = std::filesystem::temp_directory_path() / "ceres_driver_window_test.casm";
 	{
 		std::ofstream file{source};
-		file << "@text\n"
-			"global main:\n"
-			"    la r13, 0xFF000004\n"
-			"    li r0, 65\n"
-			"    str  [r13 + 0], r0\n"
-			"    la r13, 0xFFFF0000\n"
-			"    li r0, 1\n"
-			"    str  [r13 + 0], r0\n";
+		file << frameProgram(3, "    la   r12, 0xFF000004\n    li   r0, 65\n    str  [r12 + 0], r0\n");
 	}
 
 	RecordingBackend* captured = nullptr;
@@ -225,7 +263,7 @@ TEST(driver_window, a_windowed_run_drives_the_cooperative_loop)
 	CHECK(captured != nullptr);
 	if (!captured) return;
 
-	// The program printed its byte and shut down; the loop ran at least one pump/present cycle.
+	// The program printed its byte, waited three frames and shut down; the loop pumped and presented.
 	CHECK_EQ(output.str(), std::string{ "A" });
 	CHECK(captured->pumps >= 1);
 	CHECK(captured->presents >= 1);
@@ -294,134 +332,152 @@ TEST(driver_window, a_program_that_asked_for_raw_keys_reads_them_and_the_termina
 	CHECK_EQ(output, std::string{ "3hN" });
 }
 
-// --- The text framebuffer in the window, and out of it -----------------------------------------------
+// --- The screen in the window (plan/v2 F5.5) ------------------------------------------------------------
 
-TEST(driver_text_window, a_machine_with_a_screen_shows_a_presented_frame_in_the_window_and_not_on_the_terminal)
+TEST(driver_screen, the_window_opens_at_the_start_at_the_gpus_resolution_and_shows_its_frames)
 {
 	setHeadless("");
-	// No --window: the host is asked for anyway, and would open its window when the frame arrives.
-	const Run run = runProgram(presentProgram("X"), RunCommand{});
+	const Run run = runProgram(presentProgram(), RunCommand{});
 	CHECK_EQ(run.result, 0);
 	CHECK_EQ(run.stats.windowsCreated, 1);
-	CHECK_EQ(run.stats.windowsOpened, 0);            // the window is the host's to open, when the first frame comes
-	CHECK(run.output.empty());                       // nothing on stdout
-	CHECK_EQ(run.stats.frames.size(), usize{ 1 });
-	CHECK(run.stats.frames[0].starts_with("X"));
+	CHECK_EQ(run.stats.windowsOpened, 1);
+	CHECK_EQ(run.stats.openedWidth, 640u);
+	CHECK_EQ(run.stats.openedHeight, 480u);
+	CHECK(run.stats.frames >= 1);
+	CHECK_EQ(run.stats.firstPixel, 0x123456u);   // the last frame shown has the background the program set
 }
 
-TEST(driver_text_window, each_frame_the_program_presents_in_its_own_slice_reaches_the_window)
+TEST(driver_screen, a_window_shows_one_frame_a_vertical_blank_in_real_time)
 {
 	setHeadless("");
-	const Run run = runProgram(presentProgram("XYZ"), RunCommand{});
+	// 30 frames at 60 Hz in real time: half a second, and every one of them reaches the window.
+	RunCommand command;
+	command.speed = Speed::realtime();
+	const auto start = std::chrono::steady_clock::now();
+	const Run run = runProgram(frameProgram(30), command);
+	const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 	CHECK_EQ(run.result, 0);
-	CHECK_EQ(run.stats.frames.size(), usize{ 3 });
-	if (run.stats.frames.size() == 3)
+	CHECK(run.stats.frames >= 29 && run.stats.frames <= 30);
+	CHECK(took >= 450);
+}
+
+TEST(driver_screen, the_window_stays_after_the_program_and_says_how_it_ended)
+{
+	setHeadless("");
+	const Run run = runProgram(frameProgram(1, {}, 3), RunCommand{});
+	CHECK_EQ(run.result, 3);
+	CHECK(!run.stats.statuses.empty());
+	if (!run.stats.statuses.empty())
 	{
-		CHECK(run.stats.frames[0].starts_with("X"));
-		CHECK(run.stats.frames[1].starts_with("Y"));
-		CHECK(run.stats.frames[2].starts_with("Z"));
+		CHECK_EQ(run.stats.statuses.back().profile, std::string("standard"));
+		CHECK(run.stats.statuses.back().exitCode == 3);
 	}
 }
 
-TEST(driver_text_window, a_program_that_shows_nothing_is_never_given_a_frame_to_draw)
+TEST(driver_screen, exit_on_halt_closes_it_at_once)
 {
 	setHeadless("");
-	const Run run = runProgram(quietProgram(), RunCommand{});
+	RunCommand command;
+	command.exitOnHalt = true;
+	command.fullscreen = true;
+	const Run run = runProgram(frameProgram(1), command);
 	CHECK_EQ(run.result, 0);
-	CHECK_EQ(run.stats.windowsOpened, 0);
-	CHECK(run.stats.frames.empty());
-	CHECK(run.output.empty());
+	CHECK(run.stats.fullscreen);
+	CHECK(std::none_of(run.stats.statuses.begin(), run.stats.statuses.end(), [](const HostStatus& s) { return s.exitCode.has_value(); }));
 }
 
-TEST(driver_text_window, terminal_keeps_the_window_out_of_it_and_the_frame_goes_to_stdout)
-{
-	setHeadless("");
-	const Run run = runProgram(presentProgram("X"), RunCommand{.terminal = true});
-	CHECK_EQ(run.result, 0);
-	CHECK_EQ(run.stats.windowsCreated, 0);           // the host was not even asked for
-	CHECK(run.output.starts_with("X"));
-	CHECK_EQ(std::count(run.output.begin(), run.output.end(), '\n'), 20);   // the whole 40 x 20 grid
-}
-
-TEST(driver_text_window, the_environment_can_say_the_same_as_terminal)
+TEST(driver_screen, frames_writes_a_png_for_every_present)
 {
 	setHeadless("1");
-	const Run run = runProgram(presentProgram("X"), RunCommand{});
+	const auto dir = std::filesystem::temp_directory_path() / "ceres_frames_test";
+	std::filesystem::remove_all(dir);
+	RunCommand command;
+	command.framesDir = dir;
+	// Two Presents, each on a frame of its own.
+	const std::string present = "    li   r0, 1\n    str  [r13 + 0x120], r0\n";
+	const Run run = runProgram("@text\nglobal main:\n    la   r13, 0xFF400000\n" + present +
+		".a:\n    ldr  r1, [r13 + 0x118]\n    cmp  r1, 1\n    jnz  .a\n" + present +
+		".b:\n    ldr  r1, [r13 + 0x118]\n    cmp  r1, 3\n    jnz  .b\n" + shutdown(), command);
+	setHeadless("");
+	CHECK_EQ(run.result, 0);
+	CHECK(std::filesystem::exists(dir / "frame_000000.png"));
+	CHECK(std::filesystem::exists(dir / "frame_000001.png"));
+	CHECK(!std::filesystem::exists(dir / "frame_000002.png"));
+	std::ifstream png(dir / "frame_000000.png", std::ios::binary);
+	std::string head(24, '\0');
+	png.read(head.data(), 24);
+	CHECK(head.starts_with("\x89PNG\r\n\x1A\n"));
+	// IHDR's width and height, big-endian: 640 x 480.
+	CHECK_EQ(static_cast<u8>(head[18]), u8{ 0x02 });
+	CHECK_EQ(static_cast<u8>(head[19]), u8{ 0x80 });
+	CHECK_EQ(static_cast<u8>(head[23]), u8{ 0xE0 });
+	png.close();
+	std::filesystem::remove_all(dir);
+}
+
+TEST(driver_screen, terminal_keeps_the_window_out_of_it)
+{
+	setHeadless("");
+	const Run run = runProgram(frameProgram(1), RunCommand{.terminal = true});
+	CHECK_EQ(run.result, 0);
+	CHECK_EQ(run.stats.windowsCreated, 0);           // the host was not even asked for
+}
+
+TEST(driver_screen, the_environment_can_say_the_same_as_terminal)
+{
+	setHeadless("1");
+	const Run run = runProgram(frameProgram(1), RunCommand{});
 	setHeadless("");
 	CHECK_EQ(run.result, 0);
 	CHECK_EQ(run.stats.windowsCreated, 0);
-	CHECK(run.output.starts_with("X"));
 }
 
-TEST(driver_text_window, zero_or_false_in_the_environment_does_not_mean_headless)
+TEST(driver_screen, zero_or_false_in_the_environment_does_not_mean_headless)
 {
 	for (const char* value : { "0", "false" })
 	{
 		setHeadless(value);
-		const Run run = runProgram(presentProgram("X"), RunCommand{});
+		const Run run = runProgram(frameProgram(1), RunCommand{});
 		CHECK_EQ(run.stats.windowsCreated, 1);
 	}
 	setHeadless("");
 }
 
-TEST(driver_text_window, window_opens_it_at_once_and_wins_over_the_environment)
+TEST(driver_screen, window_wins_over_the_environment)
 {
 	setHeadless("1");
-	const Run run = runProgram(quietProgram(), RunCommand{.window = true});
+	const Run run = runProgram(frameProgram(1), RunCommand{.window = true});
 	setHeadless("");
 	CHECK_EQ(run.result, 0);
 	CHECK_EQ(run.stats.windowsCreated, 1);
-	CHECK_EQ(run.stats.windowsOpened, 1);            // at once: the program showed nothing at all
+	CHECK_EQ(run.stats.windowsOpened, 1);
 }
 
-TEST(driver_text_window, a_window_that_cannot_be_opened_when_asked_for_by_name_is_an_error)
+TEST(driver_screen, a_window_that_cannot_be_opened_when_asked_for_by_name_is_an_error)
 {
 	setHeadless("");
-	const Run run = runProgram(quietProgram(), RunCommand{.window = true}, true, true, false);
+	const Run run = runProgram(frameProgram(1), RunCommand{.window = true}, true, false);
 	CHECK_EQ(run.result, 1);
 	CHECK(run.diagnostics.find("open a window") != std::string::npos);
 }
 
-TEST(driver_text_window, a_build_without_a_windowed_host_prints_the_frame_as_it_always_did)
+TEST(driver_screen, without_a_display_the_machine_runs_without_a_window)
 {
 	setHeadless("");
-	const Run run = runProgram(presentProgram("X"), RunCommand{}, false);
+	const Run run = runProgram(frameProgram(1), RunCommand{}, true, false);
+	CHECK_EQ(run.result, 0);
+	CHECK_EQ(run.stats.frames, 0);
+}
+
+TEST(driver_screen, the_v1_text_framebuffer_goes_to_the_terminal_until_it_is_retired)
+{
+	setHeadless("");
+	const Run run = runProgram(textFrameProgram(), RunCommand{});
 	CHECK_EQ(run.result, 0);
 	CHECK(run.output.starts_with("X"));
 }
 
-TEST(driver_text_window, a_host_without_text_support_leaves_the_frame_to_the_terminal)
-{
-	setHeadless("");
-	// RecordingBackend, a pixel-only host, does not say it shows text.
-	const auto source = std::filesystem::temp_directory_path() / "ceres_text_window_pixels.casm";
-	{
-		std::ofstream file{source};
-		file << presentProgram("X");
-	}
-	const WindowHostFactory factory = [] { return windowOf(std::make_shared<RecordingBackend>()); };
-	std::istringstream input;
-	std::ostringstream output;
-	std::ostringstream diagnostics;
-	const int result = execute(RunCommand{.input = source}, {&input, &output, &diagnostics}, factory);
-	std::filesystem::remove(source);
-	CHECK_EQ(result, 0);
-	CHECK(output.str().starts_with("X"));
-}
-
-TEST(driver_text_window, a_host_that_cannot_draw_gives_the_frame_and_every_later_one_to_the_terminal)
-{
-	setHeadless("");
-	const Run run = runProgram(presentProgram("XY"), RunCommand{}, true, false);
-	CHECK_EQ(run.result, 0);
-	CHECK(run.stats.frames.empty());
-	// The first frame could not be drawn, so it went to the terminal; the machine then stopped offering the
-	// window, so the second went there without being tried.
-	const usize frames = static_cast<usize>(std::count(run.output.begin(), run.output.end(), '\n')) / 20;
-	CHECK_EQ(frames, usize{ 2 });
-}
-
-TEST(driver_text_window, terminal_and_window_together_are_refused_and_neither_belongs_to_the_other_commands)
+TEST(driver_command, terminal_and_window_together_are_refused_and_neither_belongs_to_the_other_commands)
 {
 	char program[] = "ceres";
 	char run[] = "run";

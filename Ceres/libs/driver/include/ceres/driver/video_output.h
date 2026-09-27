@@ -1,39 +1,45 @@
 #pragma once
 
-// The host's screen: where the machine's frames are shown. A host without one (the default) is no VideoOutput at
-// all; a windowed host (libs/sdl) implements it. See host_input.h for the input side.
+// The host's screen: where the GPU's frames are shown. A host without one (headless) is no VideoOutput at all; a
+// windowed host (libs/sdl) implements it. See host_input.h for the input side.
+//
+// The machine hands it a frame at every vertical blank (plan/v2 F5.5), composed by the GPU's executor, and tells it
+// what to show in its status bar: the profile, how fast the machine is running and, once the program is done, how it
+// ended. The window stays open after the program ends until the user closes it or presses a key (plan/v2 D22).
 
-#include <ceres/devices/video/display.h>
-#include <ceres/devices/video/text_framebuffer.h>
+#include <ceres/devices/video/gpu_executor.h>
+
+#include <optional>
+#include <string>
 
 namespace ceres::driver
 {
+	// What the window's status bar says.
+	struct HostStatus
+	{
+		std::string profile;              // the machine's profile, by name
+		double speed = 0.0;               // the machine's seconds per host second, as the pacer measures it
+		std::optional<int> exitCode;      // set once the program has ended
+	};
+
 	class VideoOutput
 	{
 	public:
 		virtual ~VideoOutput() = default;
 
-		// Show the display's current pixels.
-		virtual void present(const devices::DisplayDevice& display) = 0;
+		// Opens the window, sized for a screen of width x height. False if it cannot be opened (no display).
+		virtual bool openWindow(u32 width, u32 height) = 0;
 
-		// Does this host show the text framebuffer in a window? A host that says no (the default) leaves every
-		// frame to the terminal. One that says yes is given the frames the program presents while its output is
-		// the window, and opens its window when it gets the first.
-		virtual bool showsText() const noexcept { return false; }
+		// Show a frame. The window follows its size.
+		virtual void present(const devices::video::VideoFrame& frame) = 0;
 
-		// Show one frame of the text framebuffer. Returns false if it cannot - no display to open a window on -
-		// and the machine then sends that frame and all later ones to the terminal instead.
-		virtual bool presentText(const devices::FramebufferDevice::Frame&) { return false; }
-
-		// Open the window now, rather than when the first frame comes. False if it cannot be opened.
-		virtual bool openWindow() { return true; }
-
-		// Whether the host's window is open now. Without --speed, a machine paces itself in real time while it is,
-		// and runs flat out while it is not (plan/v2 SPEC 3.3).
+		// Whether the window is open now. A machine paces itself in real time while it is (plan/v2 SPEC 3.3).
 		virtual bool windowOpen() const noexcept { return false; }
 
-		// How fast the machine is running: its seconds per host second, measured by the pacer. A host with a
-		// status bar shows it; the default ignores it.
-		virtual void reportSpeed(double) {}
+		// Full screen or a window (--fullscreen; F11 toggles it from the window itself).
+		virtual void setFullscreen(bool) {}
+
+		// What the status bar shows.
+		virtual void setStatus(const HostStatus&) {}
 	};
 }
