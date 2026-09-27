@@ -38,10 +38,12 @@ namespace
 		std::string text() const { return gpu.screenText(); }
 		u16 cell(u32 x, u32 y) { return vm.vram().read<u16>(gpu.textPlane().cellAddress(x, y) - Vram::BaseValue); }
 		u32 reg(Address offset) { return terminal.read(offset); }
+		// What the program reads, as it would: the status, then a byte while there is one. Reading is what takes
+		// in what a script typed.
 		std::string readInput()
 		{
 			std::string in;
-			while (terminal.availableBytes() > 0)
+			while (terminal.read(TerminalDevice::StatusRegister) & TerminalDevice::StatusInputAvailable)
 				in.push_back(static_cast<char>(terminal.read(TerminalDevice::InputRegister)));
 			return in;
 		}
@@ -309,13 +311,36 @@ TEST(terminal, unknown_sequences_are_consumed_without_effect)
 TEST(terminal, a_typed_line_is_echoed_and_handed_over_on_enter)
 {
 	Screen s;
-	s.terminal.type("hx\bi");
+	s.terminal.typeKeystroke('h');
+	s.terminal.typeKeystroke('x');
+	s.terminal.typeKeystroke(0x08);
+	s.terminal.typeKeystroke('i');
 	CHECK_EQ(s.terminal.availableBytes(), usize{ 0 });
-	CHECK_EQ(s.text().substr(0, 3), std::string("hi\n"));
-	s.terminal.type("\n");
+	CHECK_EQ(s.text().substr(0, 3), std::string("hi\n"));   // edited on the screen as it is typed
+	s.terminal.typeKeystroke('\n');
 	CHECK_EQ(s.readInput(), std::string("hi\n"));
 	CHECK(s.out.empty());   // the echo is the terminal's, not the program's output
 	CHECK_EQ(s.reg(TerminalDevice::CursorYRegister), 1u);
+}
+
+TEST(terminal, a_script_types_as_the_program_reads_under_the_mode_it_has_then)
+{
+	Screen s;
+	s.terminal.type("ab\n\x1b[Aq");
+	CHECK_EQ(s.text(), std::string("\n\n\n\n"));        // nothing yet: the program has not looked
+	std::string line;                                      // a line, edited and echoed as it is read - and no more
+	while (line.empty() || line.back() != '\n')
+		if (s.reg(TerminalDevice::StatusRegister) & TerminalDevice::StatusInputAvailable)
+			line.push_back(static_cast<char>(s.reg(TerminalDevice::InputRegister)));
+	CHECK_EQ(line, std::string("ab\n"));
+	CHECK_EQ(s.text().substr(0, 3), std::string("ab\n"));
+	// The program goes raw: the arrow the script typed next reaches it as its bytes, not the history.
+	s.terminal.write(TerminalDevice::ModeRegister, TerminalDevice::ModeRaw);
+	CHECK_EQ(s.readInput(), std::string("\x1b[Aq"));
+	// A keystroke from the window waits behind a script's.
+	s.terminal.type("1");
+	s.terminal.typeKeystroke('2');
+	CHECK_EQ(s.readInput(), std::string("12"));
 }
 
 TEST(terminal, raw_mode_hands_every_key_over_at_once_without_echo)

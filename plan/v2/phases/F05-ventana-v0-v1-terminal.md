@@ -235,3 +235,8 @@
   el propio `ceres` dijo, como hacía `2>&1`: así los `.expected` no cambian. Las suites `e2e` y `examples` corren con
   `CERES_HEADLESS=1` para que un `ceresc --run` bajo test no abra ventana. `ctest` de Ceres-C: 11/11 contra el
   `ceres` de dd96b1a.
+- **Antes de F5.10**: al portar la STDLIB se vio que `--type` tecleaba todo al arrancar, con el terminal aún en modo
+  cocinado, y un programa que pasa a raw después (un menú) encontraba sus flechas ya comidas por la edición de
+  línea. Ahora el texto guionizado se teclea a medida que el programa lee (al mirar `Status`, `Input`, `Available` o
+  con una lectura de bloque), una tecla cada vez, bajo el modo que tenga entonces; una tecla de la ventana espera
+  detrás, y el cierre de la entrada llega cuando se ha leído todo.

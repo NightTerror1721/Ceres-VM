@@ -391,6 +391,16 @@ namespace ceres::devices
 			}
 			return;
 		}
+		if (!_typeahead.empty())
+		{
+			_typeahead.push_back(keystroke);   // behind what a script typed, in order
+			return;
+		}
+		processKeystroke(keystroke);
+	}
+
+	void TerminalDevice::processKeystroke(u32 keystroke)
+	{
 		if (_gpu != nullptr && _gpu->textPlane().scrollY() != 0)
 			_gpu->textPlane().setScrollY(0);   // typing brings the view back to the live screen
 
@@ -434,7 +444,27 @@ namespace ceres::devices
 			for (u32 k = 1; k < length; ++k)
 				cp = (cp << 6) | (static_cast<u8>(utf8[i + k]) & 0x3Fu);
 			i += length;
-			typeKeystroke(cp == '\r' ? u32{ '\n' } : cp);
+			_typeahead.push_back(cp == '\r' ? u32{ '\n' } : cp);
+		}
+	}
+
+	void TerminalDevice::refill()
+	{
+		while (!_typeahead.empty())
+		{
+			{
+				const std::lock_guard lock{ _inputMutex };
+				if (!_input.empty())
+					return;
+			}
+			const u32 keystroke = _typeahead.front();
+			_typeahead.pop_front();
+			processKeystroke(keystroke);
+		}
+		if (_closeAfterTypeahead)
+		{
+			_closeAfterTypeahead = false;
+			finishClose();
 		}
 	}
 
@@ -444,6 +474,16 @@ namespace ceres::devices
 	}
 
 	void TerminalDevice::closeInput()
+	{
+		if (!_typeahead.empty())
+		{
+			_closeAfterTypeahead = true;   // once the program has read what the script typed
+			return;
+		}
+		finishClose();
+	}
+
+	void TerminalDevice::finishClose()
 	{
 		DisciplineOutput out;
 		out.echoTo = [](std::string_view) {};
@@ -473,7 +513,7 @@ namespace ceres::devices
 	usize TerminalDevice::inputRoom() const noexcept
 	{
 		const std::lock_guard lock{ _inputMutex };
-		const usize used = _input.size() + _discipline.pendingBytes();
+		const usize used = _input.size() + _discipline.pendingBytes() + _typeahead.size();
 		return used < InputBufferCapacity ? InputBufferCapacity - used : 0;
 	}
 
@@ -531,6 +571,7 @@ namespace ceres::devices
 
 	void TerminalDevice::blockRead(Address ramAddress, u32 size)
 	{
+		refill();
 		_blockCount = 0;
 		if (size == 0)
 			return;
@@ -564,6 +605,8 @@ namespace ceres::devices
 
 	u32 TerminalDevice::read(Address offset)
 	{
+		if (offset == StatusRegister || offset == InputRegister || offset == AvailableRegister)
+			refill();
 		switch (offset.value())
 		{
 			case StatusRegister.value():

@@ -126,6 +126,12 @@ namespace ceres::devices
 		bool _interrupt = false;     // Ctrl+C pending
 		u32 _mode = DefaultMode;
 		term::LineDiscipline _discipline;
+		// Text typed by a script (type()): it goes through the line discipline as the program reads, a key at a
+		// time, under whatever mode the program has set by then - so a menu that switches to raw after it starts
+		// still gets its arrows, and a line is edited only when it is read. A keystroke from the window waits
+		// behind it, in order. The input closes after it when it was asked to close meanwhile.
+		std::deque<u32> _typeahead;
+		bool _closeAfterTypeahead = false;
 
 		OutputSink _outputSink;
 		OutputSink _errorSink;
@@ -158,6 +164,7 @@ namespace ceres::devices
 		// everything else goes through the line discipline.
 		void typeKeystroke(u32 keystroke);
 		// Text typed, a character at a time, as if at the keyboard: '\n' is Enter, 0x03 Ctrl+C, 0x04 Ctrl+D (--type).
+		// It is taken as the program reads (see _typeahead).
 		void type(std::string_view utf8);
 		// Bytes straight into the program's input, past the line discipline, as from a pipe (a debugger's console).
 		void pushInput(std::span<const u8> input);
@@ -193,6 +200,11 @@ namespace ceres::devices
 		void blockRead(Address ramAddress, u32 size);
 		void blockWrite(Address ramAddress, u32 size, bool error);
 		void deliver(std::string_view bytes);
+		// A keystroke through the line discipline, now.
+		void processKeystroke(u32 keystroke);
+		// The program looks at its input: typed text goes in until there is something to read, or none is left.
+		void refill();
+		void finishClose();
 		void applyMode() noexcept;
 		void syncCursor() noexcept;
 	};
