@@ -12,7 +12,7 @@
 #endif
 
 #ifdef CERES_HAS_SDL
-#include <ceres/sdl/sdl_backend.h>
+#include <ceres/sdl/sdl_host.h>
 #endif
 
 #ifdef _WIN32
@@ -36,9 +36,9 @@ int main(int argc, char** argv)
 #ifdef _WIN32
 	const Utf8Console console;
 #endif
-	ceres::driver::HostBackendFactory window;
+	ceres::driver::WindowHostFactory window;
 #ifdef CERES_HAS_SDL
-	window = &ceres::sdl::createSdlBackend;
+	window = &ceres::sdl::createSdlHost;
 #endif
 	return ceres::driver::runCommandLine(argc, argv, { &std::cin, &std::cout, &std::cerr }, std::move(window));
 }

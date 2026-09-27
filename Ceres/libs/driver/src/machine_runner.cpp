@@ -337,7 +337,7 @@ namespace ceres::driver
 
 	int runMachine(const Program& program, const MachineProfile& machine, const DebugInfo* profileInfo,
 		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, vm::ProgramArguments arguments,
-		const std::filesystem::path& hostDirectory, HostServices services, HostBackend* backend, const MachineOptions& options)
+		const std::filesystem::path& hostDirectory, HostServices services, HostIo host, const MachineOptions& options)
 	{
 		// What the host says about the run, and the program's debug log: to the diagnostics stream, or to --log.
 		HostLog log{ *services.diagnostics };
@@ -396,7 +396,7 @@ namespace ceres::driver
 		control.attachTo(vm.io());
 		terminal->attachTo(vm.io());
 		debugLog.attachTo(vm.io());
-		framebuffer.setWindowHost(backend != nullptr && backend->showsText());
+		framebuffer.setWindowHost(host.video != nullptr && host.video->showsText());
 		if (options.rtc)
 			timer.setRtcStart(*options.rtc);
 		timer.attachTo(vm.io());
@@ -493,19 +493,19 @@ namespace ceres::driver
 		// again before the device goes away, since the sound is made on another thread.
 		struct AudioHost
 		{
-			HostBackend* backend;
-			~AudioHost() { if (backend) backend->detachAudio(); }
-		} audioHost{backend};
-		if (backend)
-			backend->attachAudio(audio);
+			AudioOutput* output;
+			~AudioHost() { if (output) output->detachAudio(); }
+		} audioHost{host.audio};
+		if (host.audio)
+			host.audio->attachAudio(audio);
 
 		// A file dropped on the window is plugged into the first free port: a cartridge when it is called *.cart,
 		// a storage stick otherwise. Removed again before the device goes away.
 		struct DropHandler
 		{
-			HostBackend* backend;
-			~DropHandler() { if (backend) backend->setFileDropHandler({}); }
-		} dropHandler{backend};
+			HostInput* input;
+			~DropHandler() { if (input) input->setFileDropHandler({}); }
+		} dropHandler{host.input};
 		const auto plugIn = [&peripherals, &log](const std::filesystem::path& path)
 		{
 			const bool cartridge = path.extension() == ".cart";
@@ -514,8 +514,8 @@ namespace ceres::driver
 			if (port < 0)
 				log.error("Could not plug in " + path.string() + ": " + error);
 		};
-		if (backend)
-			backend->setFileDropHandler([input](const std::filesystem::path& path)
+		if (host.input)
+			host.input->setFileDropHandler([input](const std::filesystem::path& path)
 			{
 				const std::u8string utf8 = path.u8string();
 				input->post(InputEvent{ .kind = InputEvent::Kind::FileDrop, .data = std::string(utf8.begin(), utf8.end()) });
@@ -531,7 +531,7 @@ namespace ceres::driver
 			std::shared_ptr<ConsoleInput> console;
 			~RestoreConsole() { if (console) console->restore(); }
 		} restoreConsole{console};
-		terminal->setModeHandler([console, windowed = backend != nullptr](u32 requested) -> u32
+		terminal->setModeHandler([console, windowed = host.windowed()](u32 requested) -> u32
 		{
 			const bool raw = (requested & TerminalDevice::ModeRaw) != 0;
 			const u32 granted = raw ? (TerminalDevice::ModeRaw | TerminalDevice::ModeKeystrokes) : 0u;
@@ -544,7 +544,7 @@ namespace ceres::driver
 		});
 		// A window's keystrokes also go to the terminal as bytes - unless the program asked for raw keys, in
 		// which case it reads them from the keyboard and the bytes would only pile up unread.
-		if (backend)
+		if (host.windowed())
 			keyboard->setKeystrokeSink([terminal](u32 keystroke)
 			{
 				if (!terminal->rawRequested())
@@ -634,7 +634,7 @@ namespace ceres::driver
 					break;
 				input->restarted();
 			}
-			if (backend && !backend->pump(*input))
+			if (host.input && !host.input->pump(*input))
 			{
 				input->quit(vm.engine().cycles());
 				break;
@@ -644,7 +644,7 @@ namespace ceres::driver
 
 			// Without --speed a machine keeps real time while its window is open, and runs flat out without one.
 			if (!options.speed)
-				pacer.setSpeed(backend && backend->windowOpen() ? Speed::realtime() : Speed::unlimited());
+				pacer.setSpeed(host.video && host.video->windowOpen() ? Speed::realtime() : Speed::unlimited());
 
 			// Ahead of the host: wait a little and look again, rather than run on. Otherwise a slice, up to the next
 			// millisecond of machine time. A halted machine with nothing scheduled waits for the host inside its
@@ -661,21 +661,21 @@ namespace ceres::driver
 				}
 			}
 
-			if (!backend)
+			if (!host.video)
 				continue;
 			const HostClock::time_point now = HostClock::now();
 			if (display.presentCount() != displayPresents || now - lastPresent >= PresentEvery)
 			{
 				displayPresents = display.presentCount();
 				lastPresent = now;
-				backend->present(display);
-				backend->reportSpeed(pacer.effectiveSpeed());
+				host.video->present(display);
+				host.video->reportSpeed(pacer.effectiveSpeed());
 			}
 
 			// A frame of the text framebuffer that the program presented for the window. Taken here, between
 			// slices, rather than drawn from inside the instruction that presented it.
 			FramebufferDevice::Frame frame;
-			if (framebuffer.takeWindowFrame(frame) && !backend->presentText(frame))
+			if (framebuffer.takeWindowFrame(frame) && !host.video->presentText(frame))
 				framebuffer.fallBackToTerminal();
 		}
 

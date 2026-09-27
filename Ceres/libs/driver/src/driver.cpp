@@ -216,11 +216,11 @@ namespace ceres::driver
 			return !text.empty() && text != "0" && text != "false";
 		}
 
-		int executeRun(const RunCommand& command, HostServices services, const HostBackendFactory& windowBackend)
+		int executeRun(const RunCommand& command, HostServices services, const WindowHostFactory& windowHost)
 		{
 			// A window asked for without a windowed host to provide one is reported before any
 			// work is done: assembling the program would only waste time on the way to the same error.
-			if (command.window && !windowBackend)
+			if (command.window && !windowHost)
 			{
 				*services.diagnostics << "This build has no windowed host: rebuild with CERES_ENABLE_SDL to use 'run --window'.\n";
 				return 1;
@@ -231,43 +231,43 @@ namespace ceres::driver
 			if (!loaded) return 1;
 			if (command.listing) printListing(loaded->program, command.input, loaded->debugInfo, *services.output);
 
-			std::unique_ptr<HostBackend> backend;
+			WindowHost host;
 			if (command.window)
 			{
 				// Asked for by name: open it now, and say so if that cannot be done.
 				try
 				{
-					backend = windowBackend();
+					host = windowHost();
 				}
 				catch (const std::exception& error)
 				{
 					*services.diagnostics << "Failed to open a window: " << error.what() << '\n';
 					return 1;
 				}
-				if (!backend->openWindow())
+				if (host.video && !host.video->openWindow())
 				{
 					*services.diagnostics << "Failed to open a window.\n";
 					return 1;
 				}
 			}
-			else if (windowBackend && !terminalRequested(command))
+			else if (windowHost && !terminalRequested(command))
 			{
 				// A machine with a screen: the window opens when the program first shows a frame, so a program
 				// that never does opens none. If there turns out to be no display, its text goes to the terminal.
 				try
 				{
-					backend = windowBackend();
+					host = windowHost();
 				}
 				catch (const std::exception&)
 				{
-					backend.reset();
+					host = {};
 				}
 			}
 
 			vm::ProgramArguments arguments{ { command.input.string() }, command.environment };
 			arguments.arguments.insert(arguments.arguments.end(), command.arguments.begin(), command.arguments.end());
 			return runMachine(loaded->program, command.machine, nullptr, command.diskImage, command.ports, std::move(arguments),
-				command.hostDirectory, services, backend.get(), MachineOptions{ command.strictMmio, command.rtc, command.speed, command.record, command.replay, command.logFile });
+				command.hostDirectory, services, HostIo{ host.input.get(), host.video.get(), host.audio.get() }, MachineOptions{ command.strictMmio, command.rtc, command.speed, command.record, command.replay, command.logFile });
 		}
 
 		int executeProfile(const ProfileCommand& command, HostServices services)
@@ -296,7 +296,7 @@ namespace ceres::driver
 		}
 	}
 
-	int execute(const Command& command, HostServices services, HostBackendFactory windowBackend)
+	int execute(const Command& command, HostServices services, WindowHostFactory windowHost)
 	{
 		auto& out = *services.output;
 		auto& err = *services.diagnostics;
@@ -304,12 +304,12 @@ namespace ceres::driver
 		if (const auto* value = std::get_if<LinkCommand>(&command)) return executeLink(*value, out, err);
 		if (const auto* value = std::get_if<ArchiveCommand>(&command)) return executeArchive(*value, err);
 		if (const auto* value = std::get_if<DebugCommand>(&command)) return executeDebug(*value, err);
-		if (const auto* value = std::get_if<RunCommand>(&command)) return executeRun(*value, services, windowBackend);
+		if (const auto* value = std::get_if<RunCommand>(&command)) return executeRun(*value, services, windowHost);
 		if (const auto* value = std::get_if<ProfileCommand>(&command)) return executeProfile(*value, services);
 		return executeDisassemble(std::get<DisassembleCommand>(command), services);
 	}
 
-	int runCommandLine(int argc, char* const argv[], HostServices services, HostBackendFactory windowBackend)
+	int runCommandLine(int argc, char* const argv[], HostServices services, WindowHostFactory windowHost)
 	{
 		auto command = parseCommandLine(argc, argv);
 		if (!command)
@@ -318,6 +318,6 @@ namespace ceres::driver
 			*services.diagnostics << usageText();
 			return 2;
 		}
-		return execute(*command, services, std::move(windowBackend));
+		return execute(*command, services, std::move(windowHost));
 	}
 }

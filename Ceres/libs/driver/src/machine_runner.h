@@ -2,7 +2,9 @@
 
 #include <ceres/driver/command.h>
 #include <ceres/driver/machine.h>
-#include <ceres/driver/host_backend.h>
+#include <ceres/driver/audio_output.h>
+#include <ceres/driver/host_input.h>
+#include <ceres/driver/video_output.h>
 #include <ceres/driver/pacer.h>
 #include <ceres/core/format/debug_info.h>
 #include <ceres/vm/ceresvm.h>
@@ -23,8 +25,18 @@ namespace ceres::driver
 		std::filesystem::path logFile;    // --log: the host's log goes here instead of the diagnostics stream
 	};
 
+	// The parts of a host the machine runs on; each may be missing (no window: all three are).
+	struct HostIo
+	{
+		HostInput* input = nullptr;
+		VideoOutput* video = nullptr;
+		AudioOutput* audio = nullptr;
+
+		bool windowed() const noexcept { return input != nullptr || video != nullptr; }
+	};
+
 	int runMachine(const fmt::Program& program, const MachineProfile& machine, const fmt::DebugInfo* profileInfo,
 		const std::filesystem::path& diskImage, const std::vector<PortAttachment>& ports, vm::ProgramArguments arguments,
-		const std::filesystem::path& hostDirectory, HostServices services, HostBackend* backend = nullptr,
+		const std::filesystem::path& hostDirectory, HostServices services, HostIo host = {},
 		const MachineOptions& options = {});
 }

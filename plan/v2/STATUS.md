@@ -87,7 +87,7 @@ Archivo: [phases/F05-ventana-v0-v1-terminal.md](phases/F05-ventana-v0-v1-termina
 
 | ID | Tarea | Depende de | Estado | Commits |
 | --- | --- | --- | --- | --- |
-| F5.1 | Interfaces del host y división del backend SDL (sin cambiar comportamiento) | fase: F4, decisiones P03, P07, P08, P09 | TODO |  |
+| F5.1 | Interfaces del host y división del backend SDL (sin cambiar comportamiento) | fase: F4, decisiones P03, P07, P08, P09 | DONE |  |
 | F5.2 | Núcleo de la GPU, pantalla y VBlank | F5.1 | TODO |  |
 | F5.3 | Plano de texto (V0) | F5.2 | TODO |  |
 | F5.4 | Plano bitmap y motor de copia (V1) | F5.3 | TODO |  |

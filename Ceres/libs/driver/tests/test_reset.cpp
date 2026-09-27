@@ -4,7 +4,6 @@
 #include "framework.h"
 #include <ceres/driver/command.h>
 #include <ceres/driver/driver.h>
-#include <ceres/driver/host_backend.h>
 #include <ceres/devices/devices.h>
 #include <ceres/vm/ceresvm.h>
 
@@ -38,7 +37,7 @@ namespace
 	}
 
 	// A host with a window that nothing happens in: what the windowed loop does between frames.
-	class QuietWindow final : public HostBackend
+	class QuietWindow final : public HostInput, public VideoOutput
 	{
 	public:
 		bool pump(InputSink&) override { return true; }
@@ -113,7 +112,11 @@ TEST(driver_reset, a_windowed_host_restarts_the_program_between_frames_too)
 		std::ofstream file(path, std::ios::binary | std::ios::trunc);
 		file << withStatusZero();
 	}
-	const HostBackendFactory factory = []() -> std::unique_ptr<HostBackend> { return std::make_unique<QuietWindow>(); };
+	const WindowHostFactory factory = []
+	{
+		auto host = std::make_shared<QuietWindow>();
+		return WindowHost{ host, host, nullptr };
+	};
 	std::istringstream input;
 	std::ostringstream output;
 	std::ostringstream diagnostics;

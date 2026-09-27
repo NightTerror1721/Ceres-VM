@@ -1,7 +1,9 @@
 #pragma once
 
 #include "command.h"
-#include "host_backend.h"
+#include "audio_output.h"
+#include "host_input.h"
+#include "video_output.h"
 #include <functional>
 #include <iosfwd>
 #include <memory>
@@ -20,11 +22,24 @@ namespace ceres::driver
 		std::ostream* diagnostics = nullptr;
 	};
 
+	// A windowed host, in its three parts: its input, its screen and its speakers. Any of them may be missing (a
+	// host without a sound card has no audio). Shared, because one object may play more than one part - the SDL
+	// window is both the input and what the presenter draws on - and each part keeps alive what it needs.
+	struct WindowHost
+	{
+		std::shared_ptr<HostInput> input;
+		std::shared_ptr<VideoOutput> video;
+		std::shared_ptr<AudioOutput> audio;
+
+		bool empty() const noexcept { return !input && !video && !audio; }
+	};
+
 	// The driver never links SDL itself. A windowed host (the CLI) registers a factory that the
 	// driver calls when `run --window` is asked for; empty (the default) means "built without a
-	// windowed host", and `--window` then reports an error instead of doing nothing.
-	using HostBackendFactory = std::function<std::unique_ptr<HostBackend>()>;
+	// windowed host", and `--window` then reports an error instead of doing nothing. The factory throws
+	// std::runtime_error when it cannot make one.
+	using WindowHostFactory = std::function<WindowHost()>;
 
-	int execute(const Command& command, HostServices services, HostBackendFactory windowBackend = {});
-	int runCommandLine(int argc, char* const argv[], HostServices services, HostBackendFactory windowBackend = {});
+	int execute(const Command& command, HostServices services, WindowHostFactory windowHost = {});
+	int runCommandLine(int argc, char* const argv[], HostServices services, WindowHostFactory windowHost = {});
 }

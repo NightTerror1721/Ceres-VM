@@ -4,7 +4,6 @@
 #include "framework.h"
 #include <ceres/driver/command.h>
 #include <ceres/driver/driver.h>
-#include <ceres/driver/host_backend.h>
 #include <ceres/driver/machine.h>
 
 #include <filesystem>
@@ -179,7 +178,7 @@ TEST(driver_ports, a_machine_can_have_media_plugged_in_and_pulled_out_while_it_e
 namespace
 {
 	// A host with a window that a file gets dropped on, on its second visit
-	class DropBackend final : public HostBackend
+	class DropBackend final : public HostInput, public VideoOutput
 	{
 	public:
 		std::filesystem::path dropped;
@@ -225,10 +224,9 @@ TEST(driver_ports, a_file_dropped_on_the_window_is_plugged_into_the_first_free_p
 {
 	const auto stick = write("ceres_ports_dropped.img", std::string(2 * 512, 'z'));
 	const auto program = write("ceres_ports_drop.casm", WaitForAMedium);
-	auto* raw = new DropBackend;
-	raw->dropped = stick;
-	std::unique_ptr<HostBackend> owned(raw);
-	const HostBackendFactory factory = [&]() -> std::unique_ptr<HostBackend> { return std::move(owned); };
+	auto host = std::make_shared<DropBackend>();
+	host->dropped = stick;
+	const WindowHostFactory factory = [&] { return WindowHost{ host, host, nullptr }; };
 
 	std::istringstream input;
 	std::ostringstream output;

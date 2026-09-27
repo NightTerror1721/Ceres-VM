@@ -1,7 +1,10 @@
 #pragma once
 
 #include <ceres/core/base/types.h>
-#include <ceres/driver/host_backend.h>
+#include <ceres/driver/host_input.h>
+#include <ceres/devices/input/gamepad.h>
+#include <ceres/devices/input/keyboard.h>
+#include <ceres/devices/input/mouse.h>
 #include <ceres/devices/terminal/terminal.h>
 #include <ceres/vm/interrupt_controller.h>
 #include <array>

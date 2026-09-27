@@ -1,6 +1,6 @@
 #include "framework.h"
 #include <ceres/driver/driver.h>
-#include <ceres/driver/host_backend.h>
+#include <ceres/devices/input/keyboard.h>
 
 #include <algorithm>
 #include <chrono>
@@ -17,9 +17,16 @@ using namespace ceres::testing;
 
 namespace
 {
+	// A test host that is both the window's input and its screen, as the SDL window is.
+	template <class Host>
+	WindowHost windowOf(std::shared_ptr<Host> host)
+	{
+		return WindowHost{ host, host, nullptr };
+	}
+
 	// A host with a keyboard: on its second visit it types "h" and Enter. The second, not the first, so a
 	// program has had a slice of instructions to ask for raw keys before anything is typed.
-	class TypingBackend final : public HostBackend
+	class TypingBackend final : public HostInput, public VideoOutput
 	{
 	public:
 		int pumps = 0;
@@ -43,7 +50,7 @@ namespace
 			std::ofstream file{source};
 			file << program;
 		}
-		const HostBackendFactory factory = []() -> std::unique_ptr<HostBackend> { return std::make_unique<TypingBackend>(); };
+		const WindowHostFactory factory = [] { return windowOf(std::make_shared<TypingBackend>()); };
 		std::istringstream input;
 		std::ostringstream output;
 		std::ostringstream diagnostics;
@@ -61,7 +68,7 @@ namespace
 		std::vector<std::string> frames;   // the first row of each frame it was given
 	};
 
-	class TextWindowBackend final : public HostBackend
+	class TextWindowBackend final : public HostInput, public VideoOutput
 	{
 	public:
 		TextWindowBackend(WindowStats& stats, bool canDraw, bool canOpen) : _stats(stats), _canDraw(canDraw), _canOpen(canOpen) {}
@@ -114,15 +121,15 @@ namespace
 		}
 		command.input = source;
 		WindowStats stats;
-		const HostBackendFactory factory = [&stats, canDraw, canOpen]() -> std::unique_ptr<HostBackend>
+		const WindowHostFactory factory = [&stats, canDraw, canOpen]
 		{
 			++stats.windowsCreated;
-			return std::make_unique<TextWindowBackend>(stats, canDraw, canOpen);
+			return windowOf(std::make_shared<TextWindowBackend>(stats, canDraw, canOpen));
 		};
 		std::istringstream input;
 		std::ostringstream output;
 		std::ostringstream diagnostics;
-		const int result = execute(command, {&input, &output, &diagnostics}, haveFactory ? factory : HostBackendFactory{});
+		const int result = execute(command, {&input, &output, &diagnostics}, haveFactory ? factory : WindowHostFactory{});
 		std::filesystem::remove(source);
 		return { result, output.str(), diagnostics.str(), stats };
 	}
@@ -143,7 +150,7 @@ namespace
 
 	// A backend that records how often the loop calls it, without any window. It is what proves the
 	// cooperative loop (pump -> slice -> present) runs, without needing SDL in the test.
-	class RecordingBackend final : public HostBackend
+	class RecordingBackend final : public HostInput, public VideoOutput
 	{
 	public:
 		int pumps = 0;
@@ -200,11 +207,11 @@ TEST(driver_window, a_windowed_run_drives_the_cooperative_loop)
 	}
 
 	RecordingBackend* captured = nullptr;
-	const HostBackendFactory factory = [&captured]() -> std::unique_ptr<HostBackend>
+	const WindowHostFactory factory = [&captured]
 	{
-		auto backend = std::make_unique<RecordingBackend>();
+		auto backend = std::make_shared<RecordingBackend>();
 		captured = backend.get();
-		return backend;
+		return windowOf(backend);
 	};
 
 	std::istringstream input;
@@ -392,7 +399,7 @@ TEST(driver_text_window, a_host_without_text_support_leaves_the_frame_to_the_ter
 		std::ofstream file{source};
 		file << presentProgram("X");
 	}
-	const HostBackendFactory factory = []() -> std::unique_ptr<HostBackend> { return std::make_unique<RecordingBackend>(); };
+	const WindowHostFactory factory = [] { return windowOf(std::make_shared<RecordingBackend>()); };
 	std::istringstream input;
 	std::ostringstream output;
 	std::ostringstream diagnostics;
