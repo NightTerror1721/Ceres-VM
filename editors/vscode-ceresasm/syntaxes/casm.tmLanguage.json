@@ -84,17 +84,17 @@
     },
     "types": {
       "name": "storage.type.casm",
-      "match": "\\b(u8|u16|u32|i8|i16|i32|f32|char|bool|string|ptr|port|irq|byte|half|word|reg|freg|imm|mem|label|any|void)\\b"
+      "match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|char|bool|string|ptr|port|irq|byte|half|word|reg|freg|imm|mem|label|any|void)\\b"
     },
     "mnemonics": {
-      "comment": "Case-insensitive: the real lexer resolves mnemonics via stringToMnemonic(str, /*caseSensitive=*/false).",
+      "comment": "Case-insensitive: the real lexer resolves mnemonics via stringToMnemonic(str, /*caseSensitive=*/false). The dotted binary64 mnemonics (fadd.d, fcvt.l.d...) are tried first and matched whole, so fadd.d is one mnemonic rather than fadd plus a .d member reference - the lexer reads them whole too when written without spaces.",
       "name": "keyword.other.mnemonic.casm",
-      "match": "(?i:\\b(nop|halt|trap|reset|int|iret|cli|sti|add|adc|sub|sbc|imulh|mulh|imul|mul|div|idiv|fmod|mod|imod|neg|imin|min|imax|max|abs|sqrt|fround|ffloor|fceil|ftrunc|fcopysign|mcpy|mset|mcmp|mscan|fma|fclass|frecipe|frsqrte|fmin|fmax|and|or|xor|not|shl|shr|sar|rol|ror|clz|ctz|popcnt|bswap|sxtb|sxth|mov|li|lui|ldrsb|ldrsh|ldrb|ldrh|ldr|strb|strh|str|lea|ifeq|ifne|ifgr|ifge|ifls|ifle|ifab|ifae|ifbl|ifbe|jnz|jnc|jns|jno|jeq|jne|jgr|jge|jls|jle|jab|jae|jbl|jbe|jmp|jp|jz|jc|js|jo|call|ret|cmp|tst|enter|leave|swap|inc|dec|clr|lc|pushf|pushm|push|popf|popm|pop|fpushm|fpopm|iitof|itof|ftoii|ftoi|mtf|mff|mtp|mfp|pgon|pgoff|invlpg|flpg|mfpf|bl|la|ldvp|stvp|ldv|stv)\\b)"
+      "match": "(?i:(fcvt\\.(?:d\\.(?:s|wu|w|lu|l)|s\\.(?:d|lu|l)|(?:wu|w)\\.d|(?:lu|l)\\.(?:d|s))|(?:fadd|fsub|fmul|fdiv|fma|fsqrt|fcmp|fmin|fmax|fmod|fneg|fabs|fround|ffloor|fceil|ftrunc|fcopysign|fclass|fmov|fldr|fstr|mtf|mff)\\.d)(?![\\w.])|\\b(add64|sub64|neg64|cmp64|imull|mull|mul64|idiv64|div64|imod64|mod64|shl64|shr64|sar64|sxt64|clz64|ctz64|popcnt64|mov64|ldrd|strd|li64|nop|halt|trap|reset|int|iret|cli|sti|add|adc|sub|sbc|imulh|mulh|imul|mul|div|idiv|fmod|mod|imod|neg|imin|min|imax|max|abs|sqrt|fround|ffloor|fceil|ftrunc|fcopysign|mcpy|mset|mcmp|mscan|fma|fclass|frecipe|frsqrte|fmin|fmax|and|or|xor|not|shl|shr|sar|rol|ror|clz|ctz|popcnt|bswap|sxtb|sxth|mov|li|lui|ldrsb|ldrsh|ldrb|ldrh|ldr|strb|strh|str|lea|ifeq|ifne|ifgr|ifge|ifls|ifle|ifab|ifae|ifbl|ifbe|jnz|jnc|jns|jno|jeq|jne|jgr|jge|jls|jle|jab|jae|jbl|jbe|jmp|jp|jz|jc|js|jo|call|ret|cmp|tst|enter|leave|swap|inc|dec|clr|lc|pushf|pushm|push|popf|popm|pop|fpushm|fpopm|iitof|itof|ftoii|ftoi|mtf|mff|mtp|mfp|pgon|pgoff|invlpg|flpg|mfpf|bl|la|ldvp|stvp|ldv|stv)\\b)"
     },
     "registers": {
-      "comment": "Case-insensitive: RegisterInfo::get() accepts 'R'/'r' and 'F'/'f', and the three registers with a role also answer to it - sp, fp and at, plus lr as the deprecated spelling of at. pc is not a register operand and is deliberately absent.",
+      "comment": "Case-insensitive: RegisterInfo::get() accepts 'R'/'r' and 'F'/'f', and the three registers with a role also answer to it - sp, fp and at, plus lr as the deprecated spelling of at. pc is not a register operand and is deliberately absent. The pairs are x0-x6 and d0-d7; x7 would be r14:r15 and the assembler refuses it, so it is left out.",
       "name": "variable.language.register.casm",
-      "match": "(?i:\\b(r1[0-5]|r[0-9]|f1[0-5]|f[0-9]|sp|fp|at|lr)\\b)"
+      "match": "(?i:\\b(r1[0-5]|r[0-9]|f1[0-5]|f[0-9]|x[0-6]|d[0-7]|sp|fp|at|lr)\\b)"
     },
     "macro-parameter": {
       "name": "variable.parameter.casm",
