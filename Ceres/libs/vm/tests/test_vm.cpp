@@ -1319,3 +1319,21 @@ TEST(vm, call_and_ret_are_unchanged_by_bl)
 	m.step();
 	CHECK_EQ(m.reg(15), spBefore);
 }
+
+TEST(vm, a_load_that_faults_leaves_its_destination_alone)
+{
+	// ldrb r1, [r1 + 0] on a device register faults (a device takes 32-bit accesses only). The handler, and the retry
+	// after its iret, must find r1 as the instruction did: a destination zeroed by the failed load would send the retry
+	// to address 0 - which is what a page fault on `ldr r1, [r1]` used to do.
+	for (const Instruction load : { Instruction::LDRB(1, 1, 0), Instruction::LDRH(1, 1, 0), Instruction::LDRBX(1, 1, 2),
+		Instruction::LDRSHX(1, 1, 3) })
+	{
+		Machine m{ load };
+		m.memory().writeUnchecked<u32>(Address(static_cast<u32>(InterruptNumber::MemoryFault) * Address::Size), 0x2000u);
+		m.engine().setRegister(1, 0xFF000000u);
+		m.engine().setRegister(2, 2);
+		m.step();
+		CHECK_EQ(m.pc().value(), 0x2000u);
+		CHECK_EQ(m.reg(1), 0xFF000000u);
+	}
+}

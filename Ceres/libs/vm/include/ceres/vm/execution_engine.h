@@ -1342,34 +1342,30 @@ namespace ceres::vm
 			const Address address = getReg(inst.rs()) + displacement(inst);
 			if (!checkAlignment<u32>(address))
 				return;
-			setReg(inst.rd(), read<u32>(address));
-			advancePC();
+			loaded(inst.rd(), read<u32>(address));
 		}
-		forceinline void LDRB(const Instruction inst) noexcept { setReg(inst.rd(), read<u8>(getReg(inst.rs()) + displacement(inst))); advancePC(); }
+		forceinline void LDRB(const Instruction inst) noexcept { loaded(inst.rd(), read<u8>(getReg(inst.rs()) + displacement(inst))); }
 		forceinline void LDRH(const Instruction inst) noexcept
 		{
 			const Address address = getReg(inst.rs()) + displacement(inst);
 			if (!checkAlignment<u16>(address))
 				return;
-			setReg(inst.rd(), read<u16>(address));
-			advancePC();
+			loaded(inst.rd(), read<u16>(address));
 		}
-		forceinline void LDRSB(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(getReg(inst.rs()) + displacement(inst)))); advancePC(); }
+		forceinline void LDRSB(const Instruction inst) noexcept { loaded(inst.rd(), static_cast<u32>(read<i8>(getReg(inst.rs()) + displacement(inst)))); }
 		forceinline void LDRSH(const Instruction inst) noexcept
 		{
 			const Address address = getReg(inst.rs()) + displacement(inst);
 			if (!checkAlignment<i16>(address))
 				return;
-			setReg(inst.rd(), static_cast<u32>(read<i16>(address)));
-			advancePC();
+			loaded(inst.rd(), static_cast<u32>(read<i16>(address)));
 		}
 		forceinline void FLDR(const Instruction inst) noexcept
 		{
 			const Address address = getReg(inst.rs()) + displacement(inst);
 			if (!checkAlignment<f32>(address))
 				return;
-			setFloatBits(inst.fd(), read<u32>(address));
-			advancePC();
+			loadedFloat(inst.fd(), read<u32>(address));
 		}
 		forceinline void STR(const Instruction inst) noexcept
 		{
@@ -1405,6 +1401,23 @@ namespace ceres::vm
 		}
 		// Indexed forms. The address is two registers added at run time, so there is no
 		// displacement to range-check and no ADD to write before every access.
+		// A loaded value into its register - unless the load faulted into a handler: the handler, and the retry after
+		// its iret, must find the registers as the instruction did, or `ldr r1, [r1]` would retry from address 0.
+		forceinline void loaded(u8 dest, u32 value) noexcept
+		{
+			if (_faulted)
+				return;
+			setReg(dest, value);
+			advancePC();
+		}
+		forceinline void loadedFloat(u8 dest, u32 bits) noexcept
+		{
+			if (_faulted)
+				return;
+			setFloatBits(dest, bits);
+			advancePC();
+		}
+
 		forceinline Address indexed(const Instruction inst) const noexcept { return Address(getReg(inst.rs()) + getReg(inst.rt())); }
 		forceinline Address indexedStore(const Instruction inst) const noexcept { return Address(getReg(inst.rd()) + getReg(inst.rt())); }
 
@@ -1413,34 +1426,30 @@ namespace ceres::vm
 			const Address address = indexed(inst);
 			if (!checkAlignment<u32>(address))
 				return;
-			setReg(inst.rd(), read<u32>(address));
-			advancePC();
+			loaded(inst.rd(), read<u32>(address));
 		}
-		forceinline void LDRBX(const Instruction inst) noexcept { setReg(inst.rd(), read<u8>(indexed(inst))); advancePC(); }
+		forceinline void LDRBX(const Instruction inst) noexcept { loaded(inst.rd(), read<u8>(indexed(inst))); }
 		forceinline void LDRHX(const Instruction inst) noexcept
 		{
 			const Address address = indexed(inst);
 			if (!checkAlignment<u16>(address))
 				return;
-			setReg(inst.rd(), read<u16>(address));
-			advancePC();
+			loaded(inst.rd(), read<u16>(address));
 		}
-		forceinline void LDRSBX(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(indexed(inst)))); advancePC(); }
+		forceinline void LDRSBX(const Instruction inst) noexcept { loaded(inst.rd(), static_cast<u32>(read<i8>(indexed(inst)))); }
 		forceinline void LDRSHX(const Instruction inst) noexcept
 		{
 			const Address address = indexed(inst);
 			if (!checkAlignment<i16>(address))
 				return;
-			setReg(inst.rd(), static_cast<u32>(read<i16>(address)));
-			advancePC();
+			loaded(inst.rd(), static_cast<u32>(read<i16>(address)));
 		}
 		forceinline void FLDRX(const Instruction inst) noexcept
 		{
 			const Address address = indexed(inst);
 			if (!checkAlignment<f32>(address))
 				return;
-			setFloatBits(inst.fd(), read<u32>(address));
-			advancePC();
+			loadedFloat(inst.fd(), read<u32>(address));
 		}
 		forceinline void STRX(const Instruction inst) noexcept
 		{
@@ -1486,34 +1495,30 @@ namespace ceres::vm
 			const Address address = pcRelative(inst);
 			if (!checkAlignment<u32>(address))
 				return;
-			setReg(inst.rd(), read<u32>(address));
-			advancePC();
+			loaded(inst.rd(), read<u32>(address));
 		}
-		forceinline void LDRBP(const Instruction inst) noexcept { setReg(inst.rd(), read<u8>(pcRelative(inst))); advancePC(); }
+		forceinline void LDRBP(const Instruction inst) noexcept { loaded(inst.rd(), read<u8>(pcRelative(inst))); }
 		forceinline void LDRHP(const Instruction inst) noexcept
 		{
 			const Address address = pcRelative(inst);
 			if (!checkAlignment<u16>(address))
 				return;
-			setReg(inst.rd(), read<u16>(address));
-			advancePC();
+			loaded(inst.rd(), read<u16>(address));
 		}
-		forceinline void LDRSBP(const Instruction inst) noexcept { setReg(inst.rd(), static_cast<u32>(read<i8>(pcRelative(inst)))); advancePC(); }
+		forceinline void LDRSBP(const Instruction inst) noexcept { loaded(inst.rd(), static_cast<u32>(read<i8>(pcRelative(inst)))); }
 		forceinline void LDRSHP(const Instruction inst) noexcept
 		{
 			const Address address = pcRelative(inst);
 			if (!checkAlignment<i16>(address))
 				return;
-			setReg(inst.rd(), static_cast<u32>(read<i16>(address)));
-			advancePC();
+			loaded(inst.rd(), static_cast<u32>(read<i16>(address)));
 		}
 		forceinline void FLDRP(const Instruction inst) noexcept
 		{
 			const Address address = pcRelative(inst);
 			if (!checkAlignment<f32>(address))
 				return;
-			setFloatBits(inst.fd(), read<u32>(address));
-			advancePC();
+			loadedFloat(inst.fd(), read<u32>(address));
 		}
 		forceinline void STRP(const Instruction inst) noexcept
 		{

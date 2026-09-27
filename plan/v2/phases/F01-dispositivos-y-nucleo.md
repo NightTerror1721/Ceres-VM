@@ -180,7 +180,7 @@
 
 ## Cierre de la fase
 
-- [ ] Suites en verde en los tres repos. [ ] `benchmark_vm` dentro del 1 % de `BASELINE.md`. [ ] Revisión `ocr`.
+- [x] Suites en verde en los tres repos. [x] `benchmark_vm` dentro del 1 % de `BASELINE.md`. [x] Revisión `ocr`.
 
 ## Notas
 
@@ -230,3 +230,11 @@
   little-endian. Encaja en F4 (formato del ejecutable y cargador).
 - **F1.11**: `tests/cli/check_device_layout.cmake`, registrado como `device_layout` en ctest (se registra aunque no
   haya binario `ceres`). Comprobado a mano: falla con una segunda clase `IODevice` en `mouse.h` y sin `test_dma.cpp`.
+- **Cierre (2026-09-27)**: las suites de los tres repos pasan con todo lo de F1 dentro (verificado al cerrar F2 y otra
+  vez al cerrar F3, CeresASM e927d43) y `benchmark_vm` quedó por encima de `BASELINE.md` (138 frente a 134,3 al cerrar
+  F2). Revisión `ocr` de cierre sobre `0c47dc3..a1489dc` en modo delegado (el proveedor del LLM no responde), hecha
+  tras F3: un hallazgo real, anterior a F1 pero que F1 extendió a los accesos estrechos a MMIO. Los 18 manejadores de
+  carga escribían el destino aunque la lectura hubiera fallado, así que tras un fallo de página en `ldr r1, [r1]` el
+  reintento del `iret` leía de la dirección 0. Se corrige en el commit «Fix the OCR findings on the F1 bus and
+  devices», con un test y −0,4 % en `mixed`. Revisados sin hallazgos: el bus y su máscara de registros declarados,
+  `Mmu::probe` (lee con `readRaw`, que comprueba los límites), `disk.cpp` y la posición compartida de `host_fs`.
