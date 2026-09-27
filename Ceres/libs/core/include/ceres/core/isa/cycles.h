@@ -49,6 +49,13 @@ namespace ceres::isa::cycles
 				FCOPYSIGN, FCLASS });
 			set(12, { FDIV, FSQRT, FMOD, FRECIPE, FRSQRTE });
 			set(4, { FMA });
+			// The 64-bit integers (plan/v2 SPEC 6.4). A 64-bit load or store is 1 + its access: 3 in RAM, where the two words
+			// are one access, and 1 + 4 + 4 on a device, where they are two.
+			set(2, { ADD64, SUB64, NEG64, CMP64, SHL64, SHR64, SAR64, SHI64, BITS64 });
+			set(4, { MULL, IMULL });
+			set(6, { MUL64 });
+			set(40, { DIV64, IDIV64, MOD64, IMOD64 });
+			set(1, { SXT64, MOV64, LDRD, STRD, LDRDX, STRDX, LDRDP });
 			// Paid per chunk and at the end; an interrupt's entry and iret set their own totals.
 			set(0, { MCPY, MSET, MCMP, MSCAN, INT, TRAP, IRET });
 			return table;

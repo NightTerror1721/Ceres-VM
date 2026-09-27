@@ -410,8 +410,10 @@ namespace ceres::vm
 			}
 		}
 
+		// `chargeMemory` false is the second word of a 64-bit access (load64): memory takes the two words as one access
+		// and has charged it once, while a device is two accesses and charges both.
 		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
-		forceinline T read(Address address) noexcept
+		forceinline T read(Address address, bool chargeMemory = true) noexcept
 		{
 			if (_accessObserver) [[unlikely]]
 				_accessObserver(AccessKind::Read, address.value(), static_cast<u32>(sizeof(T)));
@@ -447,7 +449,8 @@ namespace ceres::vm
 					return static_cast<T>(_mmioBus.read(*physical));
 			}
 
-			_cycles += isa::cycles::RamAccess;
+			if (chargeMemory)
+				_cycles += isa::cycles::RamAccess;
 			if constexpr (FloatingPoint<T>)
 				return _memory.readFloat(*physical);
 			else
@@ -472,7 +475,7 @@ namespace ceres::vm
 		}
 
 		template <typename T> requires (Integral<T> || FloatingPoint<T>) && (sizeof(T) <= sizeof(u32))
-		forceinline void write(Address address, T value) noexcept
+		forceinline void write(Address address, T value, bool chargeMemory = true) noexcept
 		{
 			if (_accessObserver) [[unlikely]]
 				_accessObserver(AccessKind::Write, address.value(), static_cast<u32>(sizeof(T)));
@@ -503,7 +506,8 @@ namespace ceres::vm
 				return;
 			}
 
-			_cycles += isa::cycles::RamAccess;
+			if (chargeMemory)
+				_cycles += isa::cycles::RamAccess;
 			if constexpr (FloatingPoint<T>)
 				_memory.writeFloat(*physical, value);
 			else
@@ -2080,8 +2084,233 @@ namespace ceres::vm
 			return false;
 		}
 
+		// ---- 64-bit integers on register pairs (plan/v2 SPEC 6) ---------------------------------------------------------
+		//
+		// A pair field holds its even register, which decoded() has checked: the low word is there and the high word in
+		// the next one, as in memory. The flags are SPEC 6.3's.
+
+		forceinline u64 getPair(u8 field) const noexcept
+		{
+			return static_cast<u64>(getReg(field)) | (static_cast<u64>(getReg(static_cast<u8>(field + 1))) << 32);
+		}
+		forceinline void setPair(u8 field, u64 value) noexcept
+		{
+			setReg(field, static_cast<u32>(value));
+			setReg(static_cast<u8>(field + 1), static_cast<u32>(value >> 32));
+		}
+
+		// Zero and Sign of a 64-bit result, Carry and Overflow as given.
+		forceinline void flags64(u64 result, bool carried, bool overflowed) noexcept
+		{
+			zero(result == 0);
+			sign((result >> 63) != 0);
+			carry(carried);
+			overflow(overflowed);
+		}
+
+		forceinline void executeResult64(u8 dest, u64 result) noexcept
+		{
+			flags64(result, false, false);
+			setPair(dest, result);
+			advancePC();
+		}
+
+		forceinline void executeAdd64(u8 dest, u64 a, u64 b) noexcept
+		{
+			const u64 result = a + b;
+			flags64(result, result < a, ((~(a ^ b) & (a ^ result)) >> 63) != 0);
+			setPair(dest, result);
+			advancePC();
+		}
+
+		// sub64, neg64 (0 - xs) and cmp64, which keeps only the flags.
+		forceinline void executeSub64(u8 dest, u64 a, u64 b, bool keep = true) noexcept
+		{
+			const u64 result = a - b;
+			flags64(result, a < b, (((a ^ b) & (a ^ result)) >> 63) != 0);
+			if (keep)
+				setPair(dest, result);
+			advancePC();
+		}
+
+		// A shift by the low six bits of `amount`. By 0 it changes nothing, flags included, as the 32-bit shifts do; otherwise
+		// Carry is the last bit shifted out.
+		forceinline void executeShift64(u8 dest, u64 value, u32 amount, wide::ShiftKind kind) noexcept
+		{
+			amount &= 63u;
+			if (amount == 0)
+			{
+				setPair(dest, value);
+				advancePC();
+				return;
+			}
+			u64 result = 0;
+			bool out = false;
+			switch (kind)
+			{
+				case wide::ShiftKind::Shl:
+					result = value << amount;
+					out = ((value >> (64u - amount)) & 1u) != 0;
+					break;
+				case wide::ShiftKind::Shr:
+					result = value >> amount;
+					out = ((value >> (amount - 1u)) & 1u) != 0;
+					break;
+				default:
+					result = static_cast<u64>(static_cast<i64>(value) >> amount);
+					out = ((static_cast<i64>(value) >> (amount - 1u)) & 1) != 0;
+					break;
+			}
+			flags64(result, out, false);
+			setPair(dest, result);
+			advancePC();
+		}
+
+		// A 64-bit load (SPEC 6.4): aligned to 4, low word first. Memory is one access and pays for one; a device is two 32-bit
+		// accesses, low then high, each paying its own - which is what lets ldrd read a latched pair like the timer's
+		// CyclesLow/CyclesHigh. Nothing is written until both words are in, so a fault on the second leaves the pair alone.
+		forceinline void load64(u8 dest, Address address) noexcept
+		{
+			if (!checkAlignment<u32>(address))
+				return;
+			const u32 low = read<u32>(address);
+			if (_faulted)
+				return;
+			const u32 high = read<u32>(Address(address.value() + 4u), false);
+			if (_faulted)
+				return;
+			setPair(dest, static_cast<u64>(low) | (static_cast<u64>(high) << 32));
+			advancePC();
+		}
+
+		// A 64-bit store, the same way round. A fault on the second word leaves the first written; the handler's IRET runs
+		// the whole store again, which writes the same first word.
+		forceinline void store64(Address address, u64 value) noexcept
+		{
+			if (!checkAlignment<u32>(address, FaultAccess::Write) || !checkWritable(address, sizeof(u64)))
+				return;
+			write<u32>(address, static_cast<u32>(value));
+			if (_faulted)
+				return;
+			write<u32>(Address(address.value() + 4u), static_cast<u32>(value >> 32), false);
+			if (_faulted)
+				return;
+			advancePC();
+		}
+
+		forceinline void ADD64(const Instruction inst) noexcept { if (decoded(inst)) executeAdd64(inst.rd(), getPair(inst.rs()), getPair(inst.rt())); }
+		forceinline void SUB64(const Instruction inst) noexcept { if (decoded(inst)) executeSub64(inst.rd(), getPair(inst.rs()), getPair(inst.rt())); }
+		forceinline void NEG64(const Instruction inst) noexcept { if (decoded(inst)) executeSub64(inst.rd(), 0, getPair(inst.rs())); }
+		forceinline void CMP64(const Instruction inst) noexcept { if (decoded(inst)) executeSub64(0, getPair(inst.rs()), getPair(inst.rt()), false); }
+		// The products: Zero and Sign of the 64-bit result, Carry and Overflow clear (SPEC 6.3).
+		forceinline void MULL(const Instruction inst) noexcept
+		{
+			if (decoded(inst))
+				executeResult64(inst.rd(), static_cast<u64>(getReg(inst.rs())) * static_cast<u64>(getReg(inst.rt())));
+		}
+		forceinline void IMULL(const Instruction inst) noexcept
+		{
+			if (decoded(inst))
+				executeResult64(inst.rd(), static_cast<u64>(static_cast<i64>(static_cast<i32>(getReg(inst.rs()))) * static_cast<i64>(static_cast<i32>(getReg(inst.rt())))));
+		}
+		forceinline void MUL64(const Instruction inst) noexcept { if (decoded(inst)) executeResult64(inst.rd(), getPair(inst.rs()) * getPair(inst.rt())); }
+		// The divisions trap on a zero divisor the way div does, and leave the destination alone. INT64_MIN / -1 does not
+		// fit: it gives INT64_MIN and sets Overflow, and its remainder is 0.
+		forceinline void DIV64(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const u64 divisor = getPair(inst.rt());
+			if (divisor == 0)
+			{
+				divisionByZero();
+				return;
+			}
+			executeResult64(inst.rd(), getPair(inst.rs()) / divisor);
+		}
+		forceinline void MOD64(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const u64 divisor = getPair(inst.rt());
+			if (divisor == 0)
+			{
+				divisionByZero();
+				return;
+			}
+			executeResult64(inst.rd(), getPair(inst.rs()) % divisor);
+		}
+		forceinline void IDIV64(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const i64 dividend = static_cast<i64>(getPair(inst.rs()));
+			const i64 divisor = static_cast<i64>(getPair(inst.rt()));
+			if (divisor == 0)
+			{
+				divisionByZero();
+				return;
+			}
+			const bool overflowed = dividend == std::numeric_limits<i64>::min() && divisor == -1;
+			const u64 result = overflowed ? static_cast<u64>(dividend) : static_cast<u64>(dividend / divisor);
+			flags64(result, false, overflowed);
+			setPair(inst.rd(), result);
+			advancePC();
+		}
+		forceinline void IMOD64(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const i64 dividend = static_cast<i64>(getPair(inst.rs()));
+			const i64 divisor = static_cast<i64>(getPair(inst.rt()));
+			if (divisor == 0)
+			{
+				divisionByZero();
+				return;
+			}
+			executeResult64(inst.rd(), divisor == -1 ? 0 : static_cast<u64>(dividend % divisor));
+		}
+		forceinline void SHL64(const Instruction inst) noexcept { if (decoded(inst)) executeShift64(inst.rd(), getPair(inst.rs()), getReg(inst.rt()), wide::ShiftKind::Shl); }
+		forceinline void SHR64(const Instruction inst) noexcept { if (decoded(inst)) executeShift64(inst.rd(), getPair(inst.rs()), getReg(inst.rt()), wide::ShiftKind::Shr); }
+		forceinline void SAR64(const Instruction inst) noexcept { if (decoded(inst)) executeShift64(inst.rd(), getPair(inst.rs()), getReg(inst.rt()), wide::ShiftKind::Sar); }
+		forceinline void SHI64(const Instruction inst) noexcept
+		{
+			if (decoded(inst))
+				executeShift64(inst.rd(), getPair(inst.rs()), fields::ShiftAmount::get(inst.raw()), static_cast<wide::ShiftKind>(fields::ShiftKind::get(inst.raw())));
+		}
+		forceinline void SXT64(const Instruction inst) noexcept
+		{
+			if (decoded(inst))
+				executeResult64(inst.rd(), static_cast<u64>(static_cast<i64>(static_cast<i32>(getReg(inst.rs())))));
+		}
+		// clz64/ctz64/popcnt64 into a 32-bit register, with the flags the 32-bit ones set.
+		forceinline void BITS64(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			const u64 value = getPair(inst.rs());
+			switch (static_cast<wide::BitOp>(fields::BitOp::get(inst.raw())))
+			{
+				case wide::BitOp::Clz: executeResult(inst.rd(), static_cast<u32>(std::countl_zero(value))); break;
+				case wide::BitOp::Ctz: executeResult(inst.rd(), static_cast<u32>(std::countr_zero(value))); break;
+				default:               executeResult(inst.rd(), static_cast<u32>(std::popcount(value))); break;
+			}
+		}
+		forceinline void MOV64(const Instruction inst) noexcept
+		{
+			if (!decoded(inst))
+				return;
+			setPair(inst.rd(), getPair(inst.rs()));
+			advancePC();
+		}
+		forceinline void LDRD(const Instruction inst) noexcept { if (decoded(inst)) load64(inst.rd(), Address(getReg(inst.rs()) + displacement(inst))); }
+		forceinline void LDRDX(const Instruction inst) noexcept { if (decoded(inst)) load64(inst.rd(), indexed(inst)); }
+		forceinline void LDRDP(const Instruction inst) noexcept { if (decoded(inst)) load64(inst.rd(), pcRelative(inst)); }
+		forceinline void STRD(const Instruction inst) noexcept { if (decoded(inst)) store64(Address(getReg(inst.rd()) + displacement(inst)), getPair(inst.rs())); }
+		forceinline void STRDX(const Instruction inst) noexcept { if (decoded(inst)) store64(indexedStore(inst), getPair(inst.rs())); }
+
 		forceinline void INVALID(const Instruction inst) noexcept { illegal(FaultReason::UnknownOpcode); }
-		// A 64-bit instruction the machine decodes but does not execute yet (plan/v2 F3.4 and F3.5 bring them).
+		// A 64-bit instruction the machine decodes but does not execute yet (plan/v2 F3.5 brings the doubles).
 		forceinline void WIDE(const Instruction inst) noexcept
 		{
 			if (decoded(inst))
@@ -2306,6 +2535,31 @@ namespace ceres::vm
 				handlers[static_cast<u8>(Opcode::FTOII)] = &ExecutionEngine::FTOII;
 				handlers[static_cast<u8>(Opcode::MTF)] = &ExecutionEngine::MTF;
 				handlers[static_cast<u8>(Opcode::MFF)] = &ExecutionEngine::MFF;
+
+				// 64-bit integers
+				handlers[static_cast<u8>(Opcode::ADD64)] = &ExecutionEngine::ADD64;
+				handlers[static_cast<u8>(Opcode::SUB64)] = &ExecutionEngine::SUB64;
+				handlers[static_cast<u8>(Opcode::NEG64)] = &ExecutionEngine::NEG64;
+				handlers[static_cast<u8>(Opcode::CMP64)] = &ExecutionEngine::CMP64;
+				handlers[static_cast<u8>(Opcode::MULL)] = &ExecutionEngine::MULL;
+				handlers[static_cast<u8>(Opcode::IMULL)] = &ExecutionEngine::IMULL;
+				handlers[static_cast<u8>(Opcode::MUL64)] = &ExecutionEngine::MUL64;
+				handlers[static_cast<u8>(Opcode::DIV64)] = &ExecutionEngine::DIV64;
+				handlers[static_cast<u8>(Opcode::IDIV64)] = &ExecutionEngine::IDIV64;
+				handlers[static_cast<u8>(Opcode::MOD64)] = &ExecutionEngine::MOD64;
+				handlers[static_cast<u8>(Opcode::IMOD64)] = &ExecutionEngine::IMOD64;
+				handlers[static_cast<u8>(Opcode::SHL64)] = &ExecutionEngine::SHL64;
+				handlers[static_cast<u8>(Opcode::SHR64)] = &ExecutionEngine::SHR64;
+				handlers[static_cast<u8>(Opcode::SAR64)] = &ExecutionEngine::SAR64;
+				handlers[static_cast<u8>(Opcode::SHI64)] = &ExecutionEngine::SHI64;
+				handlers[static_cast<u8>(Opcode::SXT64)] = &ExecutionEngine::SXT64;
+				handlers[static_cast<u8>(Opcode::BITS64)] = &ExecutionEngine::BITS64;
+				handlers[static_cast<u8>(Opcode::MOV64)] = &ExecutionEngine::MOV64;
+				handlers[static_cast<u8>(Opcode::LDRD)] = &ExecutionEngine::LDRD;
+				handlers[static_cast<u8>(Opcode::STRD)] = &ExecutionEngine::STRD;
+				handlers[static_cast<u8>(Opcode::LDRDX)] = &ExecutionEngine::LDRDX;
+				handlers[static_cast<u8>(Opcode::STRDX)] = &ExecutionEngine::STRDX;
+				handlers[static_cast<u8>(Opcode::LDRDP)] = &ExecutionEngine::LDRDP;
 
 				return handlers;
 		}();
