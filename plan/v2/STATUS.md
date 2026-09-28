@@ -120,8 +120,8 @@ Archivo: [phases/F07-shell.md](phases/F07-shell.md)
 | ID | Tarea | Depende de | Estado | Commits |
 | --- | --- | --- | --- | --- |
 | F7.1 | Cargar y ejecutar desde el programa | fase: F5 | DONE | asm@7cdf0f5 |
-| F7.2 | El shell | F7.1 | DONE |  |
-| F7.3 | Documentación | F7.2 | TODO |  |
+| F7.2 | El shell | F7.1 | DONE | asm@4e8eeab, lib@37753c7 |
+| F7.3 | Documentación | F7.2 | DONE |  |
 
 ## F8 · V2: Retro 2D
 

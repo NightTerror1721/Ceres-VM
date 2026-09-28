@@ -111,12 +111,15 @@ writing a command to its command register:
 | `0x24` | `CpuClockHzRegister` | Read | The CPU clock in cycles per second (the profile's; 50 000 000 by default): what turns the timer's cycles into time (plan/v2 SPEC 3.1). |
 | `0x28` | `ProfileIdRegister` | Read | Which machine this is: `0` `micro`, `1` `pocket`, `2` `retro`, `3` `arcade`, `4` `polygon`, `5` `standard`, `6` `workstation`, `7` `custom` ([Profiles](30-Machine-Clock-and-Profiles.md#profiles)). |
 | `0x2C` | `FaultReasonRegister` | Read | Why that fault happened: `0` none recorded, `1` a misaligned access to RAM or VRAM, `2` past the end of the RAM, `3` past the end of the VRAM, `4` an empty region of the map, `5` a device register reached by anything but an aligned 32-bit access, `6` a block instruction that touched a device (the full list: [Devices and the bus](35-Devices-and-Bus.md)). |
+| `0x30` | `LoadPathRegister` | Write | The address of the host-directory path of the `.cres` command 3 runs. |
+| `0x34` | `LoadArgsRegister` | Write | The address of `argc`, `argv` and `envp` for command 3 (three words), or `0`. |
 | `0x38` | `VramSizeRegister` | Read | How many bytes of VRAM the machine has. |
 
 | Command (low byte) | Effect |
 | --- | --- |
 | `0x01` | Shuts the machine down (invokes the shutdown callback the host registered — `ceres run` uses this to stop its run loop). |
 | `0x02` | Resets the machine: the program starts again from its entry point (see below). |
+| `0x03` | Loads the `.cres` at `LoadPath` and runs it in place of this program, with `LoadArgs`; when it cannot, the program goes on after its store. See [The shell and loading programs](36-Shell-and-Program-Loading.md). |
 | anything else | Ignored. |
 
 **Reset.** The store that asks for it finishes, the instruction after it never runs, and between the two

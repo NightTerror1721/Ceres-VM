@@ -31,7 +31,7 @@ build detects by asking the linker rather than guessing from the platform.
 | Command | What it does |
 | --- | --- |
 | `ceres asm <source.casm> [-o <out.cres>] [--listing] [--debug]` | Assemble. Without `-o` the source is only checked. `--debug` records the line and symbol tables and, with `-o`, appends them to the `.cres`. |
-| `ceres run <file.casm\|file.cres>` | Run, assembling first if given source. `--memory <bytes>` sets the machine size. |
+| `ceres run [<file.casm\|file.cres>]` | Run, assembling first if given source. `--profile` and `--ram` pick the machine. Without a program it starts the Ceres shell (`--sysroot <dir>`: where the STDLIB installed it), and `--shell` goes back to it after the program: see [docs/36](docs/36-Shell-and-Program-Loading.md). |
 | `ceres disasm <file.casm\|file.cres> [--debug]` | Print the text section as address, encoded word and instruction. With `--debug`, annotated with the source line each word came from. |
 | `ceres profile <file.casm\|file.cres>` | Run, then report executed instructions per source line. Time is counted in instructions, so a profile is the same on every run. |
 | `ceres debug <file.casm\|file.cres>` | Run under an interactive debugger: breakpoints, stepping by source line, registers, memory, call stack. |

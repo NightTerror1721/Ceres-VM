@@ -64,3 +64,8 @@
   `tests/shell/files` a `build/shell/host`, compilan ahí `tests/shell/*.c` (en `games/`) y teclean cada sesión con
   `--rtc` fijo; `.gitattributes` deja esos ficheros sin conversión de fin de línea, porque `ls` enseña tamaños.
   De paso: `tools/install.ps1 -Prefix` con una ruta absoluta fallaba (`Join-Path` de dos rutas absolutas).
+- **F7.3**: CeresASM `docs/36-Shell-and-Program-Loading.md` (nueva: el comando 3, `--shell`, `--sysroot`, qué
+  sobrevive al cambio de programa y los comandos del shell), `07` (registros `LoadPath`/`LoadArgs` y comando 3),
+  `16` (`run` sin programa, `--shell`, `--sysroot`), el índice y el README raíz (que aún citaba `--memory`). STDLIB:
+  README (sección «The shell», `make install` con `bin/shell.cres`, las sesiones de `tests/shell`) y la ayuda del
+  Makefile.

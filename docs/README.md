@@ -49,6 +49,7 @@ the assembler does internally at each stage of the build.
 33. [The virtual terminal and the debug log](33-Terminal-and-Debug-Log.md) — the program's terminal, drawn in the window: output and escape sequences, the line discipline, raw keys, scripted input, headless runs; and the debug log.
 34. [64-bit operations](34-64-bit.md) — the register pairs `x0`–`x6` and `d0`–`d7`: 64-bit integers and binary64 doubles, their flags, cycles and faults, `li64` and the `u64`/`i64`/`f64` types.
 35. [Devices and the bus](35-Devices-and-Bus.md) — 32-bit registers, fault reasons, the register table every device declares, one device per file, and how to add one.
+36. [The shell and loading programs](36-Shell-and-Program-Loading.md) — a program running another (command 3), `ceres run` without a program, `--shell`, and the shell's commands.
 
 ### The v2 machine (in progress)
 
