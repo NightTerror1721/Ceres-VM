@@ -42,7 +42,7 @@
   de argumentos variádicos (`float` → `double`); conversiones con `fcvt`; constantes con `.double` y
   `fldr.d [pc + …]`; `-fshort-double` hace `double` = `float`; elimina `-fsoft-double` y el aviso de «double es
   float»; formato de `printf` (W3005) con `%f` = `double`.
-- **Aceptación**: [ ] Tests de aritmética, conversiones y variádicos. [ ] Docs 02 y 06 de Ceres-C actualizados.
+- **Aceptación**: [x] Tests de aritmética, conversiones y variádicos. [x] Docs 02 y 06 de Ceres-C actualizados.
 - **Commit**: `Make double a real binary64 (F6.3)`
 
 ### F6.4 · STDLIB en doble
@@ -52,7 +52,7 @@
   (`sinf`…) como rápidas; `time_t` y relojes con instrucciones de 64 bits; elimina `f64.h`, `ns64.h`,
   `src/fconv64.c` si queda sin uso, `SOFT_DOUBLE`, `CERES_SOFT_DOUBLE`, presets `-sd` y `lib/soft-double`;
   `tests/f64_vectors.inc` pasa a probar `double` nativo.
-- **Aceptación**: [ ] `runtests.ps1` en verde; `.expected` revisados a mano.
+- **Aceptación**: [x] `runtests.ps1` en verde; `.expected` revisados a mano.
 - **Commit**: `Use native double and 64-bit integers in the library (F6.4)`
 
 ### F6.5 · Pares en el asignador de registros
@@ -60,7 +60,7 @@
 - **Repos**: Ceres-C · **Depende de**: F6.4
 - **Pasos**: los valores de 64 bits viven en pares de registros (restricción de registro par) en lugar de en
   memoria; permitir inlining y llamadas de cola con valores de 64 bits.
-- **Aceptación**: [ ] Suites en verde. [ ] Menos instrucciones en los ejemplos de 64 bits (apúntalo).
+- **Aceptación**: [x] Suites en verde. [x] Menos instrucciones en los ejemplos de 64 bits (apúntalo).
 - **Commit**: `Allocate 64-bit values to register pairs (F6.5)`
 
 ### F6.6 · Documentación
@@ -70,7 +70,7 @@
 
 ## Cierre de la fase
 
-- [ ] Suites en verde. [ ] Revisión `ocr` en Ceres-C y STDLIB. [ ] Hito 2 anunciado.
+- [x] Suites en verde. [x] Revisión `ocr` en Ceres-C y STDLIB. [x] Hito 2 anunciado.
 
 ## Notas
 
@@ -109,3 +109,26 @@
   `test_math64` lo comprueba contra `Math.*` de node y contra referencias de 100 dígitos. Arreglo de paso en
   Ceres-C (cc@992e20f): el nombre C `AT` salía como el registro `at`; los alias de registro se comparan ahora
   sin distinguir mayúsculas. `timer_wait_until_ns64` conserva su nombre.
+- **F6.5**: `value_placement.cpp` da a cada valor de 64 bits (temporal de par o local de 8 bytes que no escapa) un
+  par alineado, los dos registros a la vez de las mismas reservas: un parámetro se queda en el par por el que
+  llegó; un local o un intermedio toma `x0`/`x1` (`d0`/`d1`) libres, y si no queda ninguno, o el valor cruza una
+  llamada, cae a `x4`/`x5` o `d4`-`d7` con `pushm`/`fpushm` (sólo los de 64 bits: una palabra sigue
+  derramándose). El resultado de una instrucción de pares puede tomar el par de un operando que muere en ella (la
+  VM lee antes de escribir). `x2`/`x3` siguen de trabajo. Además: el inliner acepta funciones de 64 bits (el
+  empalme guarda un parámetro par con un Wide Store y copia el resultado con un Wide Copy), las llamadas de cola
+  con valores de 64 bits, y una constante de palabra ensanchada a par se pliega (`li`+`sxt64` si cabe en 32 bits,
+  sin literal). Instrucciones en el `.casm`, antes → después: `35_int64.c` -O1 1142 → 929, -O2 1136 → 974 (-O0
+  1903 → 1922, por `li`+`sxt64` en vez de `li64`); `11_floats.c` -O2 467 → 426. En la STDLIB, `math64.c` pasa de
+  106 llamadas a 36 (inlining) y de 1577/1978 `strd`/`ldrd` a 1011/1449, aunque ocupa más (7072 → 8595).
+- **F6.6**: Ceres-C README y docs 02, 03 (fila `Wide`), 06, 11 (E5002 queda sólo para un builtin sin forma de 64
+  bits), 12 (sección 9, pares) y 14; README de la STDLIB sin nada de soft double.
+- **Cierre de F6**: `ctest` de CeresASM 11/11, Ceres-C 11/11 y la STDLIB 314 comprobaciones (104 tests × 3
+  niveles, cabeceras y ejemplos) con los dos runners. Revisión (delegada) de F6 en Ceres-C (630db42..2ab8d53) y la
+  STDLIB (a8cbfb2..7bbbeef): un hallazgo real. Un programa con `-fshort-double` no podía usar la biblioteca, que
+  se compila sin la opción: su `float` pasaba por `...` como una palabra y `printf` lee un binary64, `scanf`
+  escribía 8 bytes en un `float` con `%lf`, y `strtod`/`atof`/`difftime` devolvían en `d0`. Ahora la cola variádica
+  lleva siempre un binary64 y `va_arg` de un `double` (float) lo lee y lo redondea (cc@dcb128d); bajo
+  `__CERES_SHORT_DOUBLE__` las cabeceras mandan `strtod`/`atof`/`difftime`/`scanf` a variantes en `float`
+  (lib@2daf707), con `test_short_double` (nuevo `.cflags`: opciones sólo para el programa, enlazado con el archivo).
+  Descartados: el `default` a `Sqrt` de los builtins de doble en `ir_builder.cpp` es inalcanzable (sema tipa
+  `double` exactamente los diez de la lista); `sqrt` negativo sin `errno` viene de la familia `float`.
