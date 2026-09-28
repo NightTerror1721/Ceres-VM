@@ -89,3 +89,23 @@
   sigue rechazando funciones con valores de 64 bits (F6.5). En la STDLIB, `timerdemo` imprimía un `tick 6` de
   más: un `printf` cuesta ~2300 ciclos frente a un periodo de 3000 y la fase de los sondeos cambió; sus plazos
   se multiplicaron por 10 (lib@3319b90).
+- **F6.3**: `double` y `long double` son `Type::Double` de 8 bytes; un literal sin sufijo es `double`, y un
+  `float` sube a `double` en `...` (`va_arg(ap, float)` se rechaza, como en C). Las conversiones son `fcvt`; las
+  constantes, `li64` con los bits. `>`/`>=` de dobles se preguntan como `<`/`<=` con los operandos cambiados:
+  un NaN deja Carry y Zero a 0, y `jab`/`jae` lo leerían como cierto. Un parámetro `double` ocupa un campo del
+  banco de coma flotante. Las funciones matemáticas integradas (`__builtin_sqrt`…) son polimórficas: la
+  instrucción `.d` para un `double`. `-fshort-double` (define `__CERES_SHORT_DOUBLE__`) sustituye a
+  `-fsoft-double`, y W2001 se retira. Docs 02, 05, 06, 09 y 11 de Ceres-C al día.
+- **F6.4**: `<math.h>` tiene las dos familias: los nombres estándar en `double` (`src/math64*.c`, nuevos, y las
+  de una instrucción en `asm/math_ops.casm`) y la familia `float` con sufijo `f` (el código de antes,
+  renombrado). Con `-fshort-double` los nombres estándar son macros de los `f`: una biblioteca sola sirve a los
+  dos modos. `printf`/`scanf`/`strtod`/`difftime` en `double`; fuera `f64.h`, `ns64.h`, `SOFT_DOUBLE`,
+  `CERES_SOFT_DOUBLE`, los presets `-sd` y `lib/soft-double` (`fconv64.c` se queda: es el `printf` de `double`).
+  `test_f64` pasa los 4000 vectores por el `double` nativo. Precisión medida en el host contra referencias de
+  80 bits y de 400 dígitos: `exp`, `exp2`, `log*`, `pow`, `cbrt`, `hypot`, `sin`/`cos` (reducción exacta para
+  todo `double`), `atan`, `asin`, `acos`, `expm1`, `log1p` y `erf` dentro de ~1 ulp (`exp`/`pow` acaban en
+  doble-doble: el más cercano salvo casi-empates); `tan`, `atan2`, hiperbólicas y `erfc` 2-4; `tgamma` ≤ 5;
+  `lgamma` con x < 0 pierde precisión relativa junto a sus ceros (el error absoluto sigue en ~1e-16).
+  `test_math64` lo comprueba contra `Math.*` de node y contra referencias de 100 dígitos. Arreglo de paso en
+  Ceres-C (cc@992e20f): el nombre C `AT` salía como el registro `at`; los alias de registro se comparan ahora
+  sin distinguir mayúsculas. `timer_wait_until_ns64` conserva su nombre.
