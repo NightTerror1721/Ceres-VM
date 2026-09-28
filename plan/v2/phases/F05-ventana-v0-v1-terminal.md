@@ -29,7 +29,7 @@
   `sdl_audio.{h,cpp}`; borrar `host_backend.h` y `sdl_backend.{h,cpp}` al final.
 - **Pasos**: reparte las responsabilidades de `HostBackend` entre las interfaces y adapta `machine_runner.cpp`.
   El comportamiento visible no cambia.
-- **Aceptación**: [ ] Suites en verde. [ ] La ventana, el audio y el gamepad funcionan igual (prueba manual con dos ejemplos).
+- **Aceptación**: [x] Suites en verde. [ ] La ventana, el audio y el gamepad funcionan igual (prueba manual con dos ejemplos): la ventana, comprobada con `01_hola` y `pong`; el audio y el gamepad quedan para una prueba manual del usuario.
 - **Commit**: `Split the host backend into input, video, audio and log (F5.1)`
 
 ### F5.2 · Núcleo de la GPU, pantalla y VBlank
@@ -43,7 +43,7 @@
   2. Temporización de vídeo en el planificador: VBlank (IRQ 32), `VCount`, `LineCompare` (IRQ 33), `FrameCounter`.
   3. `Present` aplica las bases pendientes en el siguiente VBlank.
   4. `GpuExecutor` con una sola implementación, `SoftwareExecutor`, que compone el fotograma.
-- **Aceptación**: [ ] Test: VBlank a la frecuencia exacta en ciclos (con el resto acumulado). [ ] Test de `LineCompare`.
+- **Aceptación**: [x] Test: VBlank a la frecuencia exacta en ciclos (con el resto acumulado). [x] Test de `LineCompare`.
 - **Commit**: `Add the GPU core, the display controller and VBlank (F5.2)`
 
 ### F5.3 · Plano de texto (V0)
@@ -53,7 +53,7 @@
   256 glifos); tests.
 - **Pasos**: celdas de 16 y 32 bits; fuente y paleta leídas de la VRAM; cursor; disposición de VRAM al arrancar
   (SPEC §7.4) publicada en los registros; composición en el `SoftwareExecutor`.
-- **Aceptación**: [ ] Test que escribe celdas y compara el hash del fotograma compuesto.
+- **Aceptación**: [x] Test que escribe celdas y compara el hash del fotograma compuesto.
 - **Commit**: `Add the text plane (F5.3)`
 
 ### F5.4 · Plano bitmap y motor de copia (V1)
@@ -62,7 +62,7 @@
 - **Archivos**: `video/bitmap_plane.{h,cpp}`, `video/copy_engine.{h,cpp}`; tests.
 - **Pasos**: formatos I1–ARGB8888 con paleta en VRAM; pitch; scroll; 1–3 búferes con flip en VBlank; motor de
   copia (copy y fill) con coste en ciclos de GPU e IRQ 34.
-- **Aceptación**: [ ] Tests de cada formato (hash). [ ] Test de coste: una copia termina en el ciclo esperado.
+- **Aceptación**: [x] Tests de cada formato (hash). [x] Test de coste: una copia termina en el ciclo esperado.
 - **Commit**: `Add the bitmap plane and the copy engine (F5.4)`
 
 ### F5.5 · Presentación por VBlank y ventana
@@ -74,7 +74,7 @@
   3. Barra de estado (título de la ventana o franja): perfil, velocidad efectiva, `[terminado: código N]`.
   4. La ventana se queda abierta al terminar; `--exit-on-halt` la cierra.
   5. Sin ventana: `--frames <dir>` escribe un PNG por `Present`.
-- **Aceptación**: [ ] Medida en «Notas»: presentaciones por segundo = refresco. [ ] Prueba manual de la ventana.
+- **Aceptación**: [x] Medida en «Notas»: presentaciones por segundo = refresco. [x] Prueba manual de la ventana.
 - **Commit**: `Present one frame per VBlank and keep the window after the program ends (F5.5)`
 
 ### F5.6 · Terminal virtual y pantalla de fallo
@@ -90,7 +90,7 @@
   4. Scrollback con Shift+RePág/AvPág.
   5. Pantalla de fallo: la BIOS y el motor, ante una excepción sin manejador, pintan en el plano de texto el
      nombre de la excepción, PC, dirección, acceso, motivo y (si hay tabla de símbolos) la pila; lo mismo va a `HostLog`.
-- **Aceptación**: [ ] Test por secuencia ANSI. [ ] Test de la disciplina de línea con entrada guionizada. [ ] Test de la pantalla de fallo (hash del texto).
+- **Aceptación**: [x] Test por secuencia ANSI. [x] Test de la disciplina de línea con entrada guionizada. [x] Test de la pantalla de fallo (hash del texto).
 - **Commit**: `Replace the host terminal with a virtual terminal in the window (F5.6)`
 
 ### F5.7 · Salidas sin ventana y entrada guionizada
@@ -101,7 +101,7 @@
 - **Pasos**: `--headless`, `--transcript` (salida con los bytes de error entre `\x1b[E` y `\x1b[e`),
   `--screen-log`, `--type`, `--keys`; elimina `--terminal` y todo camino que escriba la salida del programa en el
   stdout del host o lea su stdin.
-- **Aceptación**: [ ] Test: un programa que hace `printf` no escribe nada en el stdout del proceso `ceres`, y el
+- **Aceptación**: [x] Test: un programa que hace `printf` no escribe nada en el stdout del proceso `ceres`, y el
   transcript tiene su salida.
 - **Commit**: `Send headless output to files and script the keyboard (F5.7)`
 
@@ -119,7 +119,7 @@
   describen la ejecución.
 - **Pasos**: ejecutar los programas con `--headless --speed max --transcript <tmp>` y leer el transcript en lugar
   del stdout; la entrada, con `--type`.
-- **Aceptación**: [ ] `ctest` de Ceres-C en verde.
+- **Aceptación**: [x] `ctest` de Ceres-C en verde.
 - **Commit**: `Read program output from the transcript (F5.9)`
 
 ### F5.10 · STDLIB: cabeceras de vídeo y terminal
@@ -128,7 +128,7 @@
 - **Archivos**: crear `include/ceres/video.h`, `include/ceres/text.h`, `include/ceres/fb.h` y sus fuentes; adaptar
   `terminal.h`, `tui.h`, `gfx.h` (dibuja en el back buffer de VRAM), `game.h` (ritmo por VBlank), `stdio` si
   hace falta; borrar `textfb.h` y `display.h`; regenerar `docs/reference`.
-- **Aceptación**: [ ] Ningún archivo usa `textfb.h` ni `display.h`. [ ] La librería compila en todos los niveles.
+- **Aceptación**: [x] Ningún archivo usa `textfb.h` ni `display.h`. [x] La librería compila en todos los niveles.
 - **Commit**: `Add video, text and framebuffer headers on the new GPU (F5.10)`
 
 ### F5.11 · STDLIB: tests y ejemplos sin ventana
@@ -142,7 +142,7 @@
      compara con la parte de error del transcript; tests de `text.h`/`tui.h` con `--screen-log`.
   2. `-Update` y revisión a mano de cada `.expected` que cambie.
   3. Migrar los ejemplos (pong, snake, life, mandelbrot, rps_tui, calc, guess…).
-- **Aceptación**: [ ] `runtests.ps1` en verde. [ ] Ningún test escribe en el stdout del host.
+- **Aceptación**: [x] `runtests.ps1` en verde. [x] Ningún test escribe en el stdout del host.
 - **Commit**: `Run the library tests headless through the transcript (F5.11)`
 
 ### F5.12 · Puerta «host limpio» y documentación
@@ -154,7 +154,7 @@
 
 ## Cierre de la fase
 
-- [ ] Suites en verde en los tres repos. [ ] Puerta «host limpio». [ ] Revisión `ocr`. [ ] Hito 1 anunciado al usuario.
+- [x] Suites en verde en los tres repos. [x] Puerta «host limpio». [x] Revisión `ocr`. [x] Hito 1 anunciado al usuario.
 
 ## Notas
 
@@ -240,10 +240,8 @@
   línea. Ahora el texto guionizado se teclea a medida que el programa lee (al mirar `Status`, `Input`, `Available` o
   con una lectura de bloque), una tecla cada vez, bajo el modo que tenga entonces; una tecla de la ventana espera
   detrás, y el cierre de la entrada llega cuando se ha leído todo.
-  Después, al pasar los tests de la STDLIB: un `
-` tecleado es un solo Enter (y `` ya no se convierte en
-  `
-`: en raw llega tal cual), y un byte que no es UTF-8 se teclea como ese byte (en raw llega igual; en una línea,
+  Después, al pasar los tests de la STDLIB: un `\r\n` tecleado es un solo Enter (y `\r` ya no se convierte en
+  `\n`: en raw llega tal cual), y un byte que no es UTF-8 se teclea como ese byte (en raw llega igual; en una línea,
   U+FFFD). Se añade `--gpu auto|software|hardware` (SPEC §10), que por ahora no cambia nada: sólo hay ejecutor
   software.
 - **F5.10**: `ceres/video.h` (nivel, resolución, VBlank, `Present`, motor de copia), `ceres/text.h` (sustituye a
@@ -266,3 +264,16 @@
   pasan a «la lectura tiene efecto» (el `dev` del debugger no los lee); un programa que espera su entrada sólo por
   la IRQ 19 recibe un aviso cuando hay texto por teclear; en la STDLIB se quita el camino muerto de `key.c` que leía
   del registro del teclado.
+- **F5.12**: `tests/cli/host_clean.cmake` (test `host_clean`) ejecuta los 13 ejemplos de CeresASM con
+  `--headless --speed max`, 3 s como mucho cada uno (los juegos y los que esperan entrada se cortan), y falla si
+  alguno deja algo en el stdout del proceso. Los dos runners de la STDLIB fallan una ejecución cuyo stdout tenga
+  algo más que las líneas `Wrote` de ceresc; Ceres-C ya lo cubría, porque `runProgram` añade lo que dijo `ceres` a
+  la salida comparada. Docs nuevos: `31-Video.md` y `33-Terminal-and-Debug-Log.md`; `07` pierde el framebuffer de
+  texto y el display y resume el terminal y la GPU; `16` gana «Running a program» y las opciones nuevas; `08`,
+  `18`, `20`, `22`, `26`, `30` y el índice quedan al día. README de la STDLIB: la GPU, los `.screen` y las
+  ejecuciones sin ventana.
+- **Cierre de F5**: `ctest` de CeresASM 11/11 (Release, con `host_clean`), Ceres-C 11/11 y la STDLIB 311
+  comprobaciones con los dos runners, todo contra el `ceres` de `build/gcc-sdl-ipo`. Revisión final (delegada) de
+  F5.12: el runner de PowerShell comparaba el stdout con `-ne`, que ignora los NUL; ahora usa `Same`
+  (lib@a8cbfb2). Aparte, en Debug falla `f64_vectors / sqrt_matches_bit_for_bit` de la VM (en Release pasa); no
+  viene de F5 y queda anotado para mirarlo aparte.
