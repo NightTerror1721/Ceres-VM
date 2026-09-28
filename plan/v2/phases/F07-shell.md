@@ -69,3 +69,14 @@
   `16` (`run` sin programa, `--shell`, `--sysroot`), el índice y el README raíz (que aún citaba `--memory`). STDLIB:
   README (sección «The shell», `make install` con `bin/shell.cres`, las sesiones de `tests/shell`) y la ayuda del
   Makefile.
+- **Cierre de F7 (hito 3)**: `ctest` de CeresASM 11/11, Ceres-C 11/11 y la STDLIB 315 comprobaciones (104 tests ×
+  3 niveles, cabeceras, ejemplos y las 3 sesiones del shell) con los dos runners. Revisión (delegada) de CeresASM
+  e1f6f42..4294245 y la STDLIB 2daf707..197a0b9. Hallazgos reales: con el comando 3 es el programa quien elige
+  el fichero, y el cargador dimensiona sus búferes por la cabecera, así que un `.cres` corrupto podía tumbar el
+  host con `bad_alloc` desde el `str` del programa; ahora se rechaza antes de leerlo un fichero mayor que la RAM
+  o más corto de lo que dice su cabecera, y cualquier excepción del cargador es una carga fallida
+  (asm@171b63c, con test). En el shell, un `PWD` demasiado largo dejaba el directorio a medio escribir, y un
+  Ctrl+C pulsado durante un comando daba un prompt doble (lib@2af4879; la sesión `errors` teclea uno).
+  Descartados: que un programa lanzado desde el shell pueda leer lo tecleado por adelantado para el shell es lo
+  que hace un terminal real; tras `reset` el shell conserva el entorno con que se cargó (y un `CERES_STATUS`
+  viejo), pero con la pantalla limpia saluda en vez de repetir el estado.
