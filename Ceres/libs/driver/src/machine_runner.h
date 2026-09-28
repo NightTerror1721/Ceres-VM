@@ -9,10 +9,20 @@
 #include <ceres/core/format/debug_info.h>
 #include <ceres/vm/ceresvm.h>
 #include <iosfwd>
+#include <memory>
+#include <string>
 
 namespace ceres::driver
 {
 	struct HostServices;
+
+	// `ceres run --shell` (plan/v2 F7): the program the machine goes back to whenever the one it runs ends, with
+	// the path it was read from - its argv[0].
+	struct ShellProgram
+	{
+		fmt::Program program;
+		std::string path;
+	};
 
 	// How the machine itself is set up, apart from what is plugged into it.
 	struct MachineOptions
@@ -32,6 +42,10 @@ namespace ceres::driver
 		std::filesystem::path screenLog;  // --screen-log: the text plane as text at every Present and at the end
 		std::filesystem::path typeFile;   // --type: text typed on the terminal when the machine starts
 		std::filesystem::path keysFile;   // --keys: keyboard events at instants of the machine's time
+		// --shell: when the program ends - unless it is the shell itself - the shell starts again in its place, with
+		// the program's environment and CERES_STATUS=<its exit status>. `startsInShell`: the program run first is it.
+		std::shared_ptr<const ShellProgram> shell;
+		bool startsInShell = false;
 	};
 
 	// The parts of a host the machine runs on; each may be missing (no window: all three are).

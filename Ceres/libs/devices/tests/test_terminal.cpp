@@ -400,3 +400,39 @@ TEST(terminal, the_fault_screen_is_painted_over_the_text_in_white_on_red)
 	CHECK_EQ(s.cell(0, 1) >> 8, 0x1Fu);   // bright white (15) on red (1)
 	CHECK_EQ(s.out, std::string("working..."));   // the report is the host's, not the program's output
 }
+
+// --- From one program to the next (plan/v2 F7.1) ----------------------------------------------------
+
+TEST(terminal, a_session_carries_the_screen_the_cursor_and_the_history_over_a_reset)
+{
+	Screen s(80, 30);   // the boot geometry, which a reset goes back to
+	s.terminal.type("ls\n");
+	CHECK_EQ(s.readInput(), std::string("ls\n"));
+	s.write("ceres> ");
+	const TerminalDevice::Session session = s.terminal.captureSession();
+
+	s.vm.io().resetDevices();
+	CHECK_EQ(s.text().substr(0, 3), std::string("\n\n\n"));   // the reset cleared the screen
+	s.terminal.restoreSession(session);
+	CHECK_EQ(s.text().substr(0, 10), std::string("ls\nceres>\n"));   // a row's trailing blanks are not text
+	CHECK_EQ(s.reg(TerminalDevice::CursorXRegister), 7u);
+	CHECK_EQ(s.reg(TerminalDevice::CursorYRegister), 1u);
+	// Up brings back the line typed before the reset.
+	s.terminal.typeKeystroke(KeyboardDevice::KeyNamed | scancode::Up);
+	s.terminal.typeKeystroke('\n');
+	CHECK_EQ(s.readInput(), std::string("ls\n"));
+}
+
+TEST(terminal, a_session_keeps_only_the_history_when_the_screen_changed_shape)
+{
+	Screen s(10, 4);
+	s.terminal.type("pwd\n");
+	CHECK_EQ(s.readInput(), std::string("pwd\n"));
+	const TerminalDevice::Session session = s.terminal.captureSession();
+	s.vm.io().resetDevices();                 // back to 80x30: the 10x4 screen does not fit it
+	s.terminal.restoreSession(session);
+	CHECK_EQ(s.text().substr(0, 3), std::string("\n\n\n"));
+	s.terminal.typeKeystroke(KeyboardDevice::KeyNamed | scancode::Up);
+	s.terminal.typeKeystroke('\n');
+	CHECK_EQ(s.readInput(), std::string("pwd\n"));
+}

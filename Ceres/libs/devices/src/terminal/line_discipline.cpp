@@ -59,6 +59,15 @@ namespace ceres::devices::term
 		_draft.clear();
 	}
 
+	void LineDiscipline::setHistoryLines(History lines)
+	{
+		while (lines.size() > HistoryLines)
+			lines.pop_front();
+		_lines = std::move(lines);
+		_recall = 0;
+		_draft.clear();
+	}
+
 	usize LineDiscipline::pendingBytes() const noexcept
 	{
 		usize bytes = 0;

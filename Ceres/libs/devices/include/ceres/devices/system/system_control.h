@@ -1,10 +1,15 @@
 #pragma once
 
-// The system control device: shutdown, reset, the exit status and what the machine knows about itself.
+// The system control device: shutdown, reset, loading another program, the exit status and what the machine knows
+// about itself.
 
 #include <ceres/vm/mmio_bus.h>
 #include <atomic>
+#include <expected>
 #include <functional>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace ceres::devices
 {
@@ -26,6 +31,19 @@ namespace ceres::devices
 		using FaultInfoGetter = std::function<u32()>;
 		// Where the loader put the program's arguments (CeresVM::argumentBlock): 0 argc, 1 argv, 2 envp.
 		using ArgumentInfoGetter = std::function<u32(u32)>;
+
+		// What command 3 asks for, read from the program's RAM when it is written: the HostFs path of a .cres, the
+		// arguments to start it with (argv[0] first), and its environment - none to keep the running program's.
+		struct LoadRequest
+		{
+			std::string path;
+			std::vector<std::string> arguments;
+			std::optional<std::vector<std::string>> environment;
+		};
+		// Told of every command 3, at once, from the store that wrote it: the request, or why LoadPath and
+		// LoadArgs do not make one (a string past the limits or out of RAM). The host loads the program and
+		// restarts the machine with it; when it cannot, the program just goes on after its store.
+		using LoadCallback = std::function<void(std::expected<LoadRequest, std::string>)>;
 
 		// Write-only: writing specific commands to this register triggers system control actions.
 		// The low byte is the command; the next byte is the exit status a shutdown reports.
@@ -59,6 +77,13 @@ namespace ceres::devices
 		// Read-only: which machine this is, a profile of plan/v2 SPEC 4 (0 micro ... 5 standard, 6 workstation,
 		// 7 custom).
 		static inline constexpr Address ProfileIdRegister = Address(0x28);
+		// Write-only: the RAM address of a NUL-terminated HostFs path (`ceres run --host-dir`), the .cres that
+		// command 3 loads.
+		static inline constexpr Address LoadPathRegister = Address(0x30);
+		// Write-only: the RAM address of what command 3 starts the program with, three words - argc, the address
+		// of argv (argc string addresses) and the address of a NULL-terminated envp (0 keeps the running program's environment) -
+		// or 0 for argv = { the path } and the same environment.
+		static inline constexpr Address LoadArgsRegister = Address(0x34);
 		// Read-only: how many bytes of VRAM the machine has.
 		static inline constexpr Address VramSizeRegister = Address(0x38);
 
@@ -67,6 +92,15 @@ namespace ceres::devices
 
 		static inline constexpr u32 CommandShutdown = 0x01;
 		static inline constexpr u32 CommandReset = 0x02;
+		// Loads the .cres at LoadPath and starts it in place of the running program, with LoadArgs: the machine
+		// restarts as on a reset, with another image. The program's store is its last instruction - unless the
+		// load fails (no such file, not a program, too big for the RAM), when it goes on after it.
+		static inline constexpr u32 CommandLoad = 0x03;
+
+		// What command 3 reads at most: strings of up to MaxLoadString bytes, MaxLoadStrings of them in argv and
+		// as many in envp.
+		static inline constexpr u32 MaxLoadString = 4095;
+		static inline constexpr u32 MaxLoadStrings = 256;
 
 		// Division by zero raises the DivisionByZero interrupt (number 4) instead of only setting
 		// the Trap flag. The handler returns to the instruction after the division, whose
@@ -86,6 +120,9 @@ namespace ceres::devices
 		FaultInfoGetter _faultAccessGetter;
 		FaultInfoGetter _faultReasonGetter;
 		ArgumentInfoGetter _argumentGetter;
+		LoadCallback _loadCallback;
+		u32 _loadPath = 0;
+		u32 _loadArgs = 0;
 		u32 _features = 0;
 		u32 _profileId = DefaultProfileId;
 		std::atomic<u8> _exitCode{ 0 };
@@ -141,6 +178,12 @@ namespace ceres::devices
 			_argumentGetter = std::move(getter);
 		}
 
+		// Without one, command 3 does nothing and the program goes on.
+		void setLoadCallback(LoadCallback callback)
+		{
+			_loadCallback = std::move(callback);
+		}
+
 		// The machine's profile, for ProfileIdRegister (a driver::ProfileId).
 		void setProfileId(u32 id) noexcept { _profileId = id; }
 		u32 profileId() const noexcept { return _profileId; }
@@ -155,6 +198,9 @@ namespace ceres::devices
 		// A byte write carries only the command; a halfword or a word carries the exit status
 		// above it.
 		void command(u32 value);
+
+		// LoadPath and LoadArgs as a request, from the program's RAM.
+		std::expected<LoadRequest, std::string> readLoadRequest() const;
 
 		bool readable(Address offset, u32& value) const;
 

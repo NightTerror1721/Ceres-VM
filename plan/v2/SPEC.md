@@ -230,7 +230,7 @@ Los demás slots están reservados. Un dispositivo de varios slots se adjunta co
 | `0x28` | ProfileId | R | Sección 4 |
 | `0x2C` | FaultReason | R | Sección 5.4 |
 | `0x30` | LoadPath | W | Dirección de una cadena con la ruta HostFs del `.cres` para el comando 3 |
-| `0x34` | LoadArgs | W | Dirección de un bloque de argumentos (argc, argv) para el comando 3 |
+| `0x34` | LoadArgs | W | Dirección de un bloque de argumentos para el comando 3: tres palabras, argc, argv y envp (0: el entorno del programa actual); 0 en vez del bloque: argv = { la ruta } |
 | `0x38` | VramSize | R | `VramSize` (copia del de la GPU, para quien no tenga GPU) |
 
 **Timer (`0xFF010000`)** — sustituye al actual:
@@ -538,9 +538,11 @@ direcciones se publican en los registros del plano de texto; los programas las l
 | `--strict-mmio` | Sección 5.1 |
 | `--fullscreen` | Ventana a pantalla completa (también F11) |
 | `--exit-on-halt` | Cerrar la ventana al terminar el programa |
-| `--shell` | Volver al shell al terminar el programa |
+| `--shell` | Volver al shell al terminar el programa (con su entorno y `CERES_STATUS=<código>`) |
+| `--sysroot <dir>` | Dónde está el shell: `<dir>/bin/shell.cres` (si no, `CERES_SYSROOT`) |
 
-Se eliminan `--terminal` y la entrada de consola del host. `ceres run` sin programa arranca el shell.
+Se eliminan `--terminal` y la entrada de consola del host. `ceres run` sin programa arranca el shell; con el shell,
+el directorio del host es el actual si no se da `--host-dir`.
 
 ## 11. STDLIB por niveles (NORMATIVA en nombres; contenido en cada fase)
 

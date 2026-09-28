@@ -218,6 +218,36 @@ namespace ceres::driver
 			return !text.empty() && text != "0" && text != "false";
 		}
 
+		// The shell of `ceres run` without a program, or with --shell: <sysroot>/bin/shell.cres, the sysroot from
+		// --sysroot or CERES_SYSROOT. Null, with the reason told, when there is none.
+		std::shared_ptr<const ShellProgram> findShell(const RunCommand& command, std::ostream& err)
+		{
+			std::filesystem::path sysroot = command.sysroot;
+			if (sysroot.empty())
+				if (const char* value = std::getenv("CERES_SYSROOT"); value != nullptr)
+					sysroot = value;
+			const std::string_view why = command.input.empty() ? "No program was given" : "--shell";
+			if (sysroot.empty())
+			{
+				err << why << ", and the shell is in <sysroot>/bin/shell.cres: pass --sysroot <dir> or set CERES_SYSROOT "
+					"(the STDLIB installs it: make install PREFIX=<dir>).\n";
+				return nullptr;
+			}
+			const std::filesystem::path path = sysroot / "bin" / "shell.cres";
+			if (!std::filesystem::is_regular_file(path))
+			{
+				err << why << ", and there is no shell at " << path.string() << " (the STDLIB installs it: make install PREFIX=<dir>).\n";
+				return nullptr;
+			}
+			auto program = Program::loadFromFile(path);
+			if (!program)
+			{
+				err << "Failed to load the shell " << path.string() << ": " << program.error() << '\n';
+				return nullptr;
+			}
+			return std::make_shared<const ShellProgram>(ShellProgram{ std::move(*program), path.string() });
+		}
+
 		int executeRun(const RunCommand& command, HostServices services, const WindowHostFactory& windowHost)
 		{
 			// A window asked for without a windowed host to provide one is reported before any
@@ -228,10 +258,31 @@ namespace ceres::driver
 				return 1;
 			}
 
-			if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
-			auto loaded = loadProgram(command.input, command.debugInfo, *services.diagnostics);
-			if (!loaded) return 1;
-			if (command.listing) printListing(loaded->program, command.input, loaded->debugInfo, *services.output);
+			// The shell (plan/v2 F7): the program when none is given, and where --shell goes back to.
+			std::shared_ptr<const ShellProgram> shell;
+			if (command.input.empty() || command.shell)
+			{
+				shell = findShell(command, *services.diagnostics);
+				if (!shell) return 1;
+			}
+			std::optional<LoadedProgram> loaded;
+			if (!command.input.empty())
+			{
+				if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
+				loaded = loadProgram(command.input, command.debugInfo, *services.diagnostics);
+				if (!loaded) return 1;
+				if (command.listing) printListing(loaded->program, command.input, loaded->debugInfo, *services.output);
+			}
+			const Program& first = loaded ? loaded->program : shell->program;
+			const std::string firstPath = loaded ? command.input.string() : shell->path;
+			// With the shell, the host directory is the current one unless --host-dir says otherwise: its commands
+			// look at files, and run programs from there.
+			std::filesystem::path hostDirectory = command.hostDirectory;
+			if (shell && hostDirectory.empty())
+			{
+				std::error_code error;
+				hostDirectory = std::filesystem::current_path(error);
+			}
 
 			WindowHost host;
 			if (command.window)
@@ -261,14 +312,15 @@ namespace ceres::driver
 				}
 			}
 
-			vm::ProgramArguments arguments{ { command.input.string() }, command.environment };
+			vm::ProgramArguments arguments{ { firstPath }, command.environment };
 			arguments.arguments.insert(arguments.arguments.end(), command.arguments.begin(), command.arguments.end());
-			return runMachine(loaded->program, command.machine, nullptr, command.diskImage, command.ports, std::move(arguments),
-				command.hostDirectory, services, HostIo{ host.input.get(), host.video.get(), host.audio.get() },
+			return runMachine(first, command.machine, nullptr, command.diskImage, command.ports, std::move(arguments),
+				hostDirectory, services, HostIo{ host.input.get(), host.video.get(), host.audio.get() },
 				MachineOptions{ .strictMmio = command.strictMmio, .rtc = command.rtc, .speed = command.speed, .record = command.record,
 					.replay = command.replay, .logFile = command.logFile, .refresh = command.refresh, .fullscreen = command.fullscreen,
 					.exitOnHalt = command.exitOnHalt, .requireWindow = command.window, .framesDir = command.framesDir,
-					.transcript = command.transcript, .screenLog = command.screenLog, .typeFile = command.typeFile, .keysFile = command.keysFile });
+					.transcript = command.transcript, .screenLog = command.screenLog, .typeFile = command.typeFile, .keysFile = command.keysFile,
+					.shell = shell, .startsInShell = !loaded });
 		}
 
 		int executeProfile(const ProfileCommand& command, HostServices services)

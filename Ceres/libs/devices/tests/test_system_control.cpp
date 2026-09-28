@@ -161,3 +161,95 @@ TEST(system_control, the_control_device_reads_the_last_fault_back)
 	CHECK_EQ(control.read(SystemControlDevice::FaultAccessRegister), 2u | (4u << 8));
 	CHECK_EQ(control.read(SystemControlDevice::FaultReasonRegister), 1u);
 }
+
+// --- Load and run (command 3, plan/v2 F7.1) ------------------------------------------------------
+
+namespace
+{
+	// A machine's RAM with the control device on it, and a place to write strings and words.
+	struct LoadRam
+	{
+		CeresVM vm;
+		SystemControlDevice control;
+		std::optional<std::expected<SystemControlDevice::LoadRequest, std::string>> seen;
+
+		LoadRam()
+		{
+			control.attachTo(vm.io());
+			control.setLoadCallback([this](std::expected<SystemControlDevice::LoadRequest, std::string> request) { seen = std::move(request); });
+		}
+		~LoadRam() { control.detachFrom(vm.io()); }
+
+		void text(u32 address, std::string_view value)
+		{
+			vm.memory().writeBytesUnchecked(Address(address), std::span<const u8>(reinterpret_cast<const u8*>(value.data()), value.size()));
+			vm.memory().writeUnchecked<u8>(Address(address + static_cast<u32>(value.size())), 0);
+		}
+		void word(u32 address, u32 value) { vm.memory().writeUnchecked<u32>(Address(address), value); }
+		void load(u32 path, u32 arguments)
+		{
+			control.write(SystemControlDevice::LoadPathRegister, path);
+			control.write(SystemControlDevice::LoadArgsRegister, arguments);
+			control.write(SystemControlDevice::CommandRegister, SystemControlDevice::CommandLoad);
+		}
+	};
+}
+
+TEST(system_control, command_3_reads_the_path_the_arguments_and_the_environment_from_ram)
+{
+	LoadRam ram;
+	ram.text(0x10000, "games/snake.cres");
+	ram.text(0x10020, "snake");
+	ram.text(0x10028, "-fast");
+	ram.text(0x10030, "PWD=games");
+	ram.word(0x10100, 0x10020);   // argv
+	ram.word(0x10104, 0x10028);
+	ram.word(0x10110, 0x10030);   // envp
+	ram.word(0x10114, 0);
+	ram.word(0x10200, 2);         // the block: argc, argv, envp
+	ram.word(0x10204, 0x10100);
+	ram.word(0x10208, 0x10110);
+	ram.load(0x10000, 0x10200);
+
+	CHECK(ram.seen.has_value() && ram.seen->has_value());
+	if (!ram.seen || !*ram.seen)
+		return;
+	const SystemControlDevice::LoadRequest& request = **ram.seen;
+	CHECK_EQ(request.path, std::string("games/snake.cres"));
+	CHECK(request.arguments == std::vector<std::string>({ "snake", "-fast" }));
+	CHECK(request.environment == std::optional<std::vector<std::string>>(std::vector<std::string>{ "PWD=games" }));
+
+	// No envp keeps the running program's environment; no block at all makes argv the path alone.
+	ram.word(0x10208, 0);
+	ram.load(0x10000, 0x10200);
+	CHECK(ram.seen->has_value() && !(*ram.seen)->environment.has_value());
+	ram.load(0x10000, 0);
+	CHECK(ram.seen->has_value() && (*ram.seen)->arguments == std::vector<std::string>({ "games/snake.cres" }));
+}
+
+TEST(system_control, command_3_says_why_its_registers_make_no_request)
+{
+	LoadRam ram;
+	ram.text(0x10000, "prog.cres");
+	ram.load(0x100, 0);                  // the null page is not the program's RAM
+	CHECK(ram.seen.has_value() && !ram.seen->has_value());
+	ram.word(0x10200, 1);
+	ram.word(0x10204, 0x10301);          // argv is not aligned
+	ram.word(0x10208, 0);
+	ram.load(0x10000, 0x10200);
+	CHECK(!ram.seen->has_value());
+	ram.word(0x10200, SystemControlDevice::MaxLoadStrings + 1);
+	ram.load(0x10000, 0x10200);
+	CHECK(!ram.seen->has_value() && ram.seen->error().find("more than") != std::string::npos);
+
+	// A reset forgets both registers: the next command 3 has no path.
+	ram.control.write(SystemControlDevice::LoadPathRegister, 0x10000);
+	ram.control.reset();
+	ram.control.write(SystemControlDevice::CommandRegister, SystemControlDevice::CommandLoad);
+	CHECK(!ram.seen->has_value());
+
+	// Without a callback, command 3 does nothing at all.
+	SystemControlDevice alone{};
+	alone.write(SystemControlDevice::CommandRegister, SystemControlDevice::CommandLoad);
+	CHECK_EQ(alone.exitCode(), u8{ 0 });
+}

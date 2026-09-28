@@ -3,15 +3,48 @@
 
 namespace ceres::vm
 {
-	usize CeresVM::argumentBlockSize() const noexcept
+	usize CeresVM::argumentBlockSize(const ProgramArguments& arguments) noexcept
 	{
 		usize strings = 0;
-		for (const std::string& text : _arguments.arguments)
+		for (const std::string& text : arguments.arguments)
 			strings += text.size() + 1;
-		for (const std::string& text : _arguments.environment)
+		for (const std::string& text : arguments.environment)
 			strings += text.size() + 1;
-		const usize pointers = (_arguments.arguments.size() + 1 + _arguments.environment.size() + 1) * sizeof(u32);
+		const usize pointers = (arguments.arguments.size() + 1 + arguments.environment.size() + 1) * sizeof(u32);
 		return ((strings + 3) & ~usize{ 3 }) + pointers + 8;   // the strings word-aligned, and sp 8-aligned below
+	}
+
+	std::expected<void, std::string> CeresVM::check(const Program& program, const ProgramArguments& arguments) const noexcept
+	{
+		const ProgramHeader& header = program.header();
+
+		// The image, the program's own stack, and the system stack at the top that interrupt handlers run
+		// on: the image must end below systemStackFloor() with minimumStack to spare.
+		const usize requiredMemory = Memory::UnrestrictedSegmentStartValue +
+			header.textSize +
+			header.rodataSize +
+			header.dataSize +
+			header.bssSize +
+			header.minimumStack +
+			Memory::SystemStackSize +
+			argumentBlockSize(arguments);
+
+		if (requiredMemory > _memory.size())
+		{
+			return std::unexpected("Program requires at least " + std::to_string(requiredMemory) +
+				" bytes of memory, but only " + std::to_string(_memory.size()) + " bytes are available.");
+		}
+
+		std::array<bool, isa::InterruptNumberCount> patchedVectors{};
+		for (const auto& patch : program.interruptVectors())
+		{
+			if (patch.interruptNumber == 0 || patch.interruptNumber >= isa::InterruptNumberCount)
+				return std::unexpected("Invalid .cres: interrupt vector patch targets out-of-range interrupt " + std::to_string(patch.interruptNumber) + ".");
+			if (patchedVectors[patch.interruptNumber])
+				return std::unexpected("Invalid .cres: interrupt vector " + std::to_string(patch.interruptNumber) + " is patched more than once.");
+			patchedVectors[patch.interruptNumber] = true;
+		}
+		return {};
 	}
 
 	void CeresVM::placeArguments() noexcept
@@ -59,34 +92,10 @@ namespace ceres::vm
 
 		const ProgramHeader& header = program.header();
 
-		// The image, the program's own stack, and the system stack at the top that interrupt handlers run
-		// on: the image must end below systemStackFloor() with minimumStack to spare.
-		const usize requiredMemory = Memory::UnrestrictedSegmentStartValue +
-			header.textSize +
-			header.rodataSize +
-			header.dataSize +
-			header.bssSize +
-			header.minimumStack +
-			Memory::SystemStackSize +
-			argumentBlockSize();
-
-		if (requiredMemory > _memory.size())
-		{
-			return std::unexpected("Program requires at least " + std::to_string(requiredMemory) +
-				" bytes of memory, but only " + std::to_string(_memory.size()) + " bytes are available.");
-		}
-
-		// Validate metadata before changing VM memory, so a rejected program cannot leave a
-		// partially replaced image behind.
-		std::array<bool, isa::InterruptNumberCount> patchedVectors{};
-		for (const auto& patch : program.interruptVectors())
-		{
-			if (patch.interruptNumber == 0 || patch.interruptNumber >= isa::InterruptNumberCount)
-				return std::unexpected("Invalid .cres: interrupt vector patch targets out-of-range interrupt " + std::to_string(patch.interruptNumber) + ".");
-			if (patchedVectors[patch.interruptNumber])
-				return std::unexpected("Invalid .cres: interrupt vector " + std::to_string(patch.interruptNumber) + " is patched more than once.");
-			patchedVectors[patch.interruptNumber] = true;
-		}
+		// Validate before changing VM memory, so a rejected program cannot leave a partially replaced
+		// image behind.
+		if (auto fits = check(program, _arguments); !fits)
+			return fits;
 
 		Address offset = Memory::UnrestrictedSegmentStart;
 
@@ -150,7 +159,18 @@ namespace ceres::vm
 		// requestReset() may run on another thread: this pairs with its release store of the power-off
 		// the step loop saw, so the request stored before it is seen here too.
 		std::atomic_thread_fence(std::memory_order_acquire);
-		if (!_resetRequested.exchange(false, std::memory_order_acq_rel) || !_program.has_value())
+		if (!_resetRequested.exchange(false, std::memory_order_acq_rel))
+			return false;
+		if (_pendingProgram.has_value())
+		{
+			// requestLoad(): the new program and its arguments become the machine's, for this start and every
+			// reset after it.
+			_program = std::move(_pendingProgram);
+			_pendingProgram.reset();
+			_arguments = std::move(_pendingArguments);
+			_pendingArguments = {};
+		}
+		if (!_program.has_value())
 			return false;
 
 		// Powered off by requestReset(), so loadProgram() accepts it. It already validated this image once.
@@ -160,6 +180,16 @@ namespace ceres::vm
 		_mmioBus.resetDevices();
 		_isPoweredOn.store(true, std::memory_order_release);
 		return true;
+	}
+
+	std::expected<void, std::string> CeresVM::requestLoad(Program program, ProgramArguments arguments) noexcept
+	{
+		if (auto fits = check(program, arguments); !fits)
+			return fits;
+		_pendingProgram = std::move(program);
+		_pendingArguments = std::move(arguments);
+		requestReset();
+		return {};
 	}
 
 	std::expected<void, std::string> CeresVM::powerOn() noexcept

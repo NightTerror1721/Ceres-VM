@@ -119,7 +119,7 @@ Archivo: [phases/F07-shell.md](phases/F07-shell.md)
 
 | ID | Tarea | Depende de | Estado | Commits |
 | --- | --- | --- | --- | --- |
-| F7.1 | Cargar y ejecutar desde el programa | fase: F5 | TODO |  |
+| F7.1 | Cargar y ejecutar desde el programa | fase: F5 | DONE |  |
 | F7.2 | El shell | F7.1 | TODO |  |
 | F7.3 | Documentación | F7.2 | TODO |  |
 

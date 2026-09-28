@@ -90,6 +90,21 @@ namespace ceres::devices
 			bool interrupt = false;
 		};
 
+		// What a program leaves to the next one the machine starts in its place (SystemControl command 3, and
+		// `ceres run --shell` going back to the shell): the screen as it is - its cells, the scrollback and the
+		// cursor - and the line discipline's history. So a program run from the shell writes below its prompt, and
+		// the shell comes back to its own lines, and to the history it had.
+		struct Session
+		{
+			u32 cols = 0, rows = 0, cellFormat = 0;
+			std::vector<u8> cells;
+			u32 scrollbackLines = 0, scrollbackHead = 0, scrollbackCount = 0;
+			std::vector<u8> scrollback;
+			u32 x = 0, y = 0;
+			bool pendingWrap = false;
+			term::LineDiscipline::History history;
+		};
+
 	private:
 		// What a stream draws with: its colours and SGR state. Output and error have one each, and one parser each,
 		// so a sequence cut in two on one stream is not finished by the other.
@@ -192,6 +207,11 @@ namespace ceres::devices
 
 		// A reset: the input, the modes and the pens go back to the start; the screen is the GPU's, which resets too.
 		void reset() override;
+
+		Session captureSession() const;
+		// After the reset that starts the next program: the history comes back, and so does the screen when the
+		// text plane has the geometry and the cell format it had (a program that changed them leaves a clear one).
+		void restoreSession(const Session& session);
 
 		u32 read(Address offset) override;
 		void write(Address offset, u32 value) override;

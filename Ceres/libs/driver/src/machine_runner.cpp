@@ -233,6 +233,26 @@ namespace ceres::driver
 			return message;
 		}
 
+		// Why a HostFs name cannot be loaded (HostFsDevice::resolve's errno).
+		std::string_view unresolvedReason(i32 error)
+		{
+			switch (error)
+			{
+				case HostFsDevice::ErrNoDevice:     return "the machine has no host directory (--host-dir)";
+				case HostFsDevice::ErrNameTooLong:  return "the path is too long";
+				case HostFsDevice::ErrAccess:       return "it leads out of the host directory";
+				default:                            return "not a relative path of plain names";
+			}
+		}
+
+		// The environment with NAME=value in it, in place of any NAME there was.
+		std::vector<std::string> withVariable(std::vector<std::string> environment, std::string_view name, std::string_view value)
+		{
+			std::erase_if(environment, [&](const std::string& entry) { return entry.size() > name.size() && entry.starts_with(name) && entry[name.size()] == '='; });
+			environment.push_back(std::string(name) + "=" + std::string(value));
+			return environment;
+		}
+
 		// What the run cost, in instructions and in CPU cycles (plan/v2 SPEC 3.2): by function first - a function
 		// being the code from one global text label to the next - and then by source line. Shares are of the cycles,
 		// which is what the machine's time is made of.
@@ -424,6 +444,44 @@ namespace ceres::driver
 		}
 		hostFs.attachTo(vm.io());
 		blitter.attachTo(vm.io());
+
+		// Command 3 (plan/v2 SPEC 5.7): a .cres of the host directory takes the running program's place - read and
+		// checked now, started once the store that asked for it is done. When it cannot be, the program goes on,
+		// and the log says why.
+		bool runningShell = options.startsInShell;
+		control.setLoadCallback([&](std::expected<SystemControlDevice::LoadRequest, std::string> request)
+		{
+			if (!request)
+			{
+				log.write(HostLog::Warning, "Load and run: " + request.error());
+				return;
+			}
+			const auto path = hostFs.resolve(request->path);
+			if (!path)
+			{
+				log.write(HostLog::Warning, std::format("Cannot load '{}': {}", request->path, unresolvedReason(path.error())));
+				return;
+			}
+			auto program = Program::loadFromFile(*path);
+			if (!program)
+			{
+				log.write(HostLog::Warning, std::format("Cannot load '{}': {}", request->path, program.error()));
+				return;
+			}
+			vm::ProgramArguments arguments{ std::move(request->arguments),
+				request->environment ? std::move(*request->environment) : vm.programArguments().environment };
+			if (auto accepted = vm.requestLoad(std::move(*program), std::move(arguments)); !accepted)
+			{
+				log.write(HostLog::Warning, std::format("Cannot load '{}': {}", request->path, accepted.error()));
+				return;
+			}
+			runningShell = false;
+		});
+		struct ForgetLoad
+		{
+			SystemControlDevice& device;
+			~ForgetLoad() { device.setLoadCallback({}); }
+		} forgetLoad{ control };
 		for (const PortAttachment& port : ports)
 		{
 			std::string error;
@@ -643,12 +701,44 @@ namespace ceres::driver
 		} forgetObserver{ gpu };
 		bool hostQuit = false;
 
+		// An exception nobody handled: the report goes to the host's log and is painted over the screen (plan/v2 F5.6).
+		const auto reportUnhandled = [&]
+		{
+			if (const auto unhandled = describeUnhandledException(vm))
+			{
+				log.error(*unhandled);
+				terminal->showFault(*unhandled);
+			}
+		};
+
 		for (;;)
 		{
 			if (!vm.isPoweredOn())
 			{
+				// Another program in place of this one keeps the terminal's screen and history (TerminalDevice::Session).
+				std::optional<TerminalDevice::Session> session;
+				if (vm.isLoadPending())
+					session = terminal->captureSession();
 				if (!vm.restartIfRequested())
-					break;
+				{
+					// The program ended. Under --shell the shell starts again, told how it ended - unless it was the shell.
+					if (!options.shell || runningShell)
+						break;
+					reportUnhandled();
+					const std::string status = std::to_string(control.exitCode());
+					auto back = vm.requestLoad(options.shell->program, vm::ProgramArguments{ { options.shell->path },
+						withVariable(vm.programArguments().environment, "CERES_STATUS", status) });
+					if (!back)
+					{
+						log.error("Cannot start the shell again: " + back.error());
+						break;
+					}
+					runningShell = true;
+					session = terminal->captureSession();
+					vm.restartIfRequested();
+				}
+				if (session)
+					terminal->restoreSession(*session);
 				input->restarted();
 			}
 			if (host.input && !host.input->pump(*input))
@@ -679,12 +769,7 @@ namespace ceres::driver
 			}
 		}
 
-		// An exception nobody handled: the report goes to the host's log and is painted over the screen (plan/v2 F5.6).
-		if (const auto unhandled = describeUnhandledException(vm))
-		{
-			log.error(*unhandled);
-			terminal->showFault(*unhandled);
-		}
+		reportUnhandled();
 		if (profileInfo)
 			printProfile(vm, *profileInfo, *services.diagnostics);
 		headless.screen(gpu.screenText(), true);

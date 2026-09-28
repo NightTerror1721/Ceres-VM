@@ -15,7 +15,8 @@ namespace ceres::driver
 			"                          [--debug] [--emit-debug-json] [-c]\n"
 			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab] [--gc-sections]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
-			"  ceres run <file.casm|file.cres> [<machine>] [--disk <image>] [--window | --headless] [--strict-mmio]\n"
+			"  ceres run [<file.casm|file.cres>] [<machine>] [--shell] [--sysroot <dir>] [--disk <image>]\n"
+			"                                  [--window | --headless] [--strict-mmio]\n"
 			"                                  [--fullscreen] [--exit-on-halt] [--frames <dir>] [--refresh 50|60]\n"
 			"                                  [--transcript <file>] [--screen-log <file>] [--type <file>] [--keys <file>]\n"
 			"                                  [--gpu auto|software|hardware]\n"
@@ -50,6 +51,9 @@ namespace ceres::driver
 			"Everything after -- goes to the program: main(argc, argv) gets the input's path as argv[0], then those.\n"
 			"--env gives it an environment variable (getenv); nothing of the host's environment is passed on.\n"
 			"--host-dir lets it open, write and list the host's files under <dir>, and nowhere else.\n"
+			"Without a program, 'run' starts the Ceres shell, <sysroot>/bin/shell.cres (--sysroot, or CERES_SYSROOT in the\n"
+			"environment: where the STDLIB is installed); --shell goes back to it whenever the program ends. With the\n"
+			"shell, the host directory is the current one unless --host-dir names another.\n"
 			"--rtc starts the machine's real-time clock at that moment (UTC) instead of the host's.\n"
 			"--speed paces the machine's time against the host's: realtime (the default while a window is open), max\n"
 			"(the default without one: no waiting at all) or a factor such as 0.5x or 2x.\n"
@@ -125,6 +129,9 @@ namespace ceres::driver
 			bool usedWindow = false;
 			bool headless = false;
 			bool usedHeadless = false;
+			bool shell = false;               // --shell and --sysroot belong to run alone
+			std::filesystem::path sysroot;
+			bool usedShell = false;
 		};
 
 		// YYYY-MM-DDThh:mm:ss, UTC, from 1970 on: the machine's real-time clock counts seconds since then.
@@ -363,6 +370,14 @@ namespace ceres::driver
 				raw.ports.push_back(PortAttachment{ port, std::string(text.substr(equals + 1)), argument == "--cart" });
 				raw.usedDisk = true;
 			}
+			else if (argument == "--shell") { raw.shell = true; raw.usedShell = true; }
+			else if (argument == "--sysroot")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				raw.sysroot = *value;
+				raw.usedShell = true;
+			}
 			else if (argument == "--window") { raw.window = true; raw.usedWindow = true; }
 			else if (argument == "--headless") { raw.headless = true; raw.usedHeadless = true; }
 			else if (argument == "--transcript" || argument == "--screen-log" || argument == "--type" || argument == "--keys")
@@ -478,7 +493,8 @@ namespace ceres::driver
 			command = raw.positional.front().string();
 			firstInput = 1;
 		}
-		if (raw.positional.size() <= firstInput)
+		// `ceres run` alone starts the shell; every other command needs its input.
+		if (raw.positional.size() <= firstInput && !(command == "run" && firstInput == 1))
 			return std::unexpected(ParseError{ "Missing input file for '" + std::string(command) + "'" });
 
 		std::vector<std::filesystem::path> inputs(raw.positional.begin() + static_cast<std::ptrdiff_t>(firstInput), raw.positional.end());
@@ -486,6 +502,8 @@ namespace ceres::driver
 			return std::unexpected(invalidOption("--symtab", command));
 		if (raw.usedGcSections && command != "link")
 			return std::unexpected(invalidOption("--gc-sections", command));
+		if (raw.usedShell && command != "run")
+			return std::unexpected(invalidOption(raw.shell ? "--shell" : "--sysroot", command));
 		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio || raw.rtc || raw.speed ||
 			!raw.record.empty() || !raw.replay.empty() || !raw.log.empty() || raw.usedScreen) && command != "run")
 			return std::unexpected(invalidOption(raw.usedScreen ? "a window or output option" : raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : raw.strictMmio ? "--strict-mmio" :
@@ -521,7 +539,7 @@ namespace ceres::driver
 			archive.inputs.assign(std::make_move_iterator(inputs.begin() + 1), std::make_move_iterator(inputs.end()));
 			return archive;
 		}
-		if (inputs.size() != 1 && command != "debug")
+		if (inputs.size() != 1 && command != "debug" && !(command == "run" && inputs.empty()))
 			return std::unexpected(ParseError{ "'" + std::string(command) + "' takes a single input file" });
 		if (command == "run")
 		{
@@ -531,11 +549,13 @@ namespace ceres::driver
 				return std::unexpected(ParseError{ "'--window' and '--headless' are opposites: pick one" });
 			if (!raw.record.empty() && !raw.replay.empty())
 				return std::unexpected(ParseError{ "'--record' and '--replay' are opposites: pick one" });
-			return RunCommand{ std::move(inputs.front()), *machine, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.headless,
+			if (raw.shell && inputs.empty())
+				return std::unexpected(ParseError{ "'--shell' goes back to the shell after a program: name one, or leave both out for the shell alone" });
+			return RunCommand{ inputs.empty() ? std::filesystem::path{} : std::move(inputs.front()), *machine, std::move(raw.disk), raw.listing, raw.debugInfo, raw.window, raw.headless,
 				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory), raw.strictMmio,
 				raw.rtc, raw.speed, std::move(raw.record), std::move(raw.replay), std::move(raw.log), raw.refresh, raw.fullscreen,
 				raw.exitOnHalt, std::move(raw.framesDir), std::move(raw.transcript), std::move(raw.screenLog), std::move(raw.typeFile),
-				std::move(raw.keysFile), raw.gpu };
+				std::move(raw.keysFile), raw.gpu, raw.shell, std::move(raw.sysroot) };
 		}
 		if (command == "profile")
 		{

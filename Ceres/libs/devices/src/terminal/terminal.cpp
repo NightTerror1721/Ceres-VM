@@ -590,6 +590,63 @@ namespace ceres::devices
 		syncCursor();
 	}
 
+	TerminalDevice::Session TerminalDevice::captureSession() const
+	{
+		Session session;
+		session.x = _x;
+		session.y = _y;
+		session.pendingWrap = _pendingWrap;
+		session.history = _discipline.historyLines();
+		if (_gpu == nullptr)
+			return session;
+		const video::TextPlane& plane = _gpu->textPlane();
+		const Vram& memory = vram();
+		const auto copy = [&](u32 address, u32 bytes, std::vector<u8>& into)
+		{
+			if (bytes != 0 && memory.backs(address, bytes))
+			{
+				const u8* from = memory.data() + (address - Vram::BaseValue);
+				into.assign(from, from + bytes);
+			}
+		};
+		session.cols = plane.cols();
+		session.rows = plane.rows();
+		session.cellFormat = plane.cellFormat();
+		copy(plane.cellAddress(0, 0), plane.cols() * plane.rows() * plane.cellBytes(), session.cells);
+		session.scrollbackLines = plane.scrollbackLines();
+		session.scrollbackHead = plane.scrollbackHead();
+		session.scrollbackCount = plane.scrollbackCount();
+		copy(plane.scrollbackBase(), plane.scrollbackLines() * plane.cols() * plane.cellBytes(), session.scrollback);
+		return session;
+	}
+
+	void TerminalDevice::restoreSession(const Session& session)
+	{
+		_discipline.setHistoryLines(session.history);
+		if (_gpu == nullptr)
+			return;
+		video::TextPlane& plane = _gpu->textPlane();
+		if (plane.cols() != session.cols || plane.rows() != session.rows || plane.cellFormat() != session.cellFormat)
+			return;
+		Vram& memory = vram();
+		const auto put = [&](u32 address, const std::vector<u8>& bytes)
+		{
+			const u32 size = static_cast<u32>(bytes.size());
+			if (size == 0 || !memory.backs(address, size))
+				return false;
+			std::copy(bytes.begin(), bytes.end(), memory.span(address - Vram::BaseValue, size));
+			return true;
+		};
+		if (!put(plane.cellAddress(0, 0), session.cells))
+			return;
+		if (plane.scrollbackLines() == session.scrollbackLines && put(plane.scrollbackBase(), session.scrollback))
+			plane.setScrollback(session.scrollbackHead, session.scrollbackCount);
+		_x = session.x;
+		_y = session.y;
+		_pendingWrap = session.pendingWrap;
+		syncCursor();
+	}
+
 	void TerminalDevice::blockRead(Address ramAddress, u32 size)
 	{
 		refill();

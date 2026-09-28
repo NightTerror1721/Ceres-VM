@@ -57,8 +57,15 @@ namespace ceres::vm
 		ProgramArguments _arguments;
 		ArgumentBlock _argumentBlock;
 
-		// The bytes the argument block takes at the top of the program's stack.
-		usize argumentBlockSize() const noexcept;
+		// A program to start in place of this one at the next restart (requestLoad), with its arguments.
+		std::optional<Program> _pendingProgram;
+		ProgramArguments _pendingArguments;
+
+		// The bytes an argument block takes at the top of the program's stack.
+		static usize argumentBlockSize(const ProgramArguments& arguments) noexcept;
+		// Whether `program`, started with `arguments`, fits this machine and its metadata holds together: what
+		// loadProgram() checks before it changes anything.
+		std::expected<void, std::string> check(const Program& program, const ProgramArguments& arguments) const noexcept;
 		// Writes the strings and the two arrays below the system stack, points sp under them, and sets
 		// r0 = argc, r1 = argv, r2 = envp: main(int argc, char** argv, char** envp) receives them.
 		void placeArguments() noexcept;
@@ -114,10 +121,20 @@ namespace ceres::vm
 
 		bool isResetRequested() const noexcept { return _resetRequested.load(std::memory_order_relaxed); }
 
+		// Another program to run in place of this one, with its own arguments (the system control device's
+		// command 3, and `ceres run --shell` going back to the shell): checked now - it must fit the machine -
+		// and started like a reset, between two instructions, by run() or by a host that drives step() itself.
+		// Nothing changes when it does not fit; the error says why.
+		std::expected<void, std::string> requestLoad(Program program, ProgramArguments arguments) noexcept;
+
+		// A requestLoad() waits for the step loop to stop.
+		bool isLoadPending() const noexcept { return _pendingProgram.has_value(); }
+
 		// Carries out a requested reset: the loaded image is put back (.data as it was loaded, .bss
-		// cleared, the vectors bound again), the CPU starts from the reset vector, pending interrupts
-		// are dropped, every device's reset() runs, and the machine is powered on again. True when it
-		// restarted; false when no reset was asked for (or there is no program to restart).
+		// cleared, the vectors bound again) - or the program requestLoad() gave takes its place -, the CPU
+		// starts from the reset vector, pending interrupts are dropped, every device's reset() runs, and the
+		// machine is powered on again. True when it restarted; false when no reset was asked for (or there is
+		// no program to restart).
 		bool restartIfRequested() noexcept;
 
 		MmioBus& io() noexcept { return _mmioBus; }

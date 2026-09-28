@@ -103,6 +103,42 @@ TEST(vm, an_invalid_program_leaves_the_current_image_intact)
 	CHECK_EQ(vm.memory().readUnchecked<u32>(preserved), 0xDEADBEEFu);
 }
 
+TEST(vm, a_requested_load_starts_the_new_program_with_its_arguments_at_the_next_restart)
+{
+	CeresVM vm{};
+	const auto header = fmt::ProgramHeader{
+		.magic = fmt::ProgramHeader::MagicNumber,
+		.version = fmt::ProgramHeader::CurrentVersion,
+		.entryPoint = Memory::UnrestrictedSegmentStart.value(),
+		.bssSize = 16,
+	};
+	const fmt::Program first = fmt::Program::make(header, {}, {}, {});
+	CHECK(vm.loadProgram(first).has_value());
+	CHECK(vm.powerOn().has_value());
+
+	// Too big for the machine: refused at once, and nothing waits.
+	auto huge = header;
+	huge.bssSize = static_cast<u32>(vm.memory().size());
+	CHECK(!vm.requestLoad(fmt::Program::make(huge, {}, {}, {}), {}).has_value());
+	CHECK(!vm.isLoadPending());
+	CHECK(vm.isPoweredOn());
+
+	auto second = header;
+	second.bssSize = 32;
+	CHECK(vm.requestLoad(fmt::Program::make(second, {}, {}, {}), ProgramArguments{ { "two", "x" }, { "K=V" } }).has_value());
+	CHECK(vm.isLoadPending());
+	CHECK(!vm.isPoweredOn());   // it stops the machine like a reset
+	CHECK(vm.restartIfRequested());
+	CHECK(!vm.isLoadPending());
+	CHECK_EQ(vm.argumentInfo(0), 2u);
+	CHECK_EQ(vm.programArguments().environment.size(), usize{ 1 });
+
+	// A plain reset afterwards starts the new program again, not the first.
+	vm.requestReset();
+	CHECK(vm.restartIfRequested());
+	CHECK_EQ(vm.argumentInfo(0), 2u);
+}
+
 TEST(vm, add_sets_zero_flag_when_the_result_is_zero)
 {
 	Machine m{

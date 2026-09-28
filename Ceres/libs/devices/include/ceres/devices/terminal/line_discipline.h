@@ -71,6 +71,11 @@ namespace ceres::devices::term
 		usize pendingBytes() const noexcept;
 		// Back to an empty line and an empty history.
 		void reset() noexcept;
+
+		// The lines Up and Down walk, oldest first: what the terminal carries from one program to the next.
+		using History = std::deque<std::vector<u32>>;
+		const History& historyLines() const noexcept { return _lines; }
+		void setHistoryLines(History lines);
 	};
 
 	// A code point as UTF-8.
