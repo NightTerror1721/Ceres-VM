@@ -21,6 +21,10 @@
 #include <cmath>
 #include <functional>
 #include <optional>
+#if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <emmintrin.h>
+#define CERES_VM_SSE2_SQRT 1
+#endif
 
 namespace ceres::vm
 {
@@ -753,6 +757,27 @@ namespace ceres::vm
 			}
 		}
 
+		// The square root rounded once, as IEEE 754 asks, whatever the build. std::sqrt is not enough: unoptimised, GCC
+		// calls the C library, and MinGW's works in x87 extended precision and rounds a second time, so sqrt(0x3FEF...FF)
+		// came out 1.0 in Debug and right in Release. On x86 the SSE2 instruction is taken directly; elsewhere the
+		// library's sqrt is already correctly rounded.
+		static forceinline f64 squareRoot(const f64 value) noexcept
+		{
+#ifdef CERES_VM_SSE2_SQRT
+			return _mm_cvtsd_f64(_mm_sqrt_sd(_mm_setzero_pd(), _mm_set_sd(value)));
+#else
+			return std::sqrt(value);
+#endif
+		}
+		static forceinline f32 squareRoot(const f32 value) noexcept
+		{
+#ifdef CERES_VM_SSE2_SQRT
+			return _mm_cvtss_f32(_mm_sqrt_ss(_mm_set_ss(value)));
+#else
+			return std::sqrt(value);
+#endif
+		}
+
 		forceinline void executeAdd(const u8 regDest, const u32 a, const u32 b) noexcept
 		{
 			const u64 result = static_cast<u64>(a) + static_cast<u64>(b);
@@ -1354,7 +1379,7 @@ namespace ceres::vm
 		forceinline void RORI(const Instruction inst) noexcept { executeResult(inst.rd(), rotateLeft(getReg(inst.rs()), 32u - (static_cast<u32>(inst.imm16()) & 31u))); }
 		forceinline void SXTB(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(static_cast<i32>(static_cast<i8>(getReg(inst.rs()) & 0xFFu)))); }
 		forceinline void SXTH(const Instruction inst) noexcept { executeResult(inst.rd(), static_cast<u32>(static_cast<i32>(static_cast<i16>(getReg(inst.rs()) & 0xFFFFu)))); }
-		forceinline void FSQRT(const Instruction inst) noexcept { setFloatReg(inst.fd(), std::sqrt(getFloatReg(inst.fs()))); advancePC(); }
+		forceinline void FSQRT(const Instruction inst) noexcept { setFloatReg(inst.fd(), squareRoot(getFloatReg(inst.fs()))); advancePC(); }
 		forceinline void FABS(const Instruction inst) noexcept { setFloatReg(inst.fd(), std::fabs(getFloatReg(inst.fs()))); advancePC(); }
 		// Rounding, sign injection and the multiply-accumulate a software math library needs for
 		// polynomial evaluation. None of these touch the flags register, the same as FSQRT/FABS
@@ -1392,7 +1417,7 @@ namespace ceres::vm
 				divisionByZero();
 				return;
 			}
-			setFloatReg(inst.fd(), value == 0.0f ? ieeeDivideByZero(1.0f, value) : 1.0f / std::sqrt(value));   // 1/sqrt(-0) is -inf
+			setFloatReg(inst.fd(), value == 0.0f ? ieeeDivideByZero(1.0f, value) : 1.0f / squareRoot(value));   // 1/sqrt(-0) is -inf
 			advancePC();
 		}
 
@@ -2550,7 +2575,7 @@ namespace ceres::vm
 		{
 			if (!decoded(inst))
 				return;
-			setDouble(inst.rd(), std::sqrt(getDouble(inst.rs())));
+			setDouble(inst.rd(), squareRoot(getDouble(inst.rs())));
 			advancePC();
 		}
 		forceinline void FCMPD(const Instruction inst) noexcept
