@@ -240,3 +240,29 @@
   línea. Ahora el texto guionizado se teclea a medida que el programa lee (al mirar `Status`, `Input`, `Available` o
   con una lectura de bloque), una tecla cada vez, bajo el modo que tenga entonces; una tecla de la ventana espera
   detrás, y el cierre de la entrada llega cuando se ha leído todo.
+  Después, al pasar los tests de la STDLIB: un `
+` tecleado es un solo Enter (y `` ya no se convierte en
+  `
+`: en raw llega tal cual), y un byte que no es UTF-8 se teclea como ese byte (en raw llega igual; en una línea,
+  U+FFFD). Se añade `--gpu auto|software|hardware` (SPEC §10), que por ahora no cambia nada: sólo hay ejecutor
+  software.
+- **F5.10**: `ceres/video.h` (nivel, resolución, VBlank, `Present`, motor de copia), `ceres/text.h` (sustituye a
+  `textfb.h`: la cuadrícula en RAM se copia a las celdas de VRAM y `text_present` espera al VBlank; las cajas usan los
+  caracteres de caja de la fuente; el atributo 0 sigue siendo «los colores del terminal») y `ceres/fb.h` (sustituye a
+  `display.h`: dos búferes en VRAM tras el scrollback, con paleta propia, que `fb_present` intercambia en el VBlank y
+  espera). `gfx` dibuja directamente en el búfer trasero y `gfx_present` copia el fotograma mostrado al nuevo
+  trasero (`fb_keep`), así lo dibujado se conserva como cuando estaba en RAM. `game_pace_vblank`. En el terminal, el
+  modo raw es del propio terminal (`key.h` lee siempre sus bytes) y Ctrl+C se convierte en `SIGINT` cuando el
+  programa lee. Stubs de las IRQ 32–35.
+- **F5.11**: los dos runners (`runtests.js` y `runtests.ps1`) pasan `--headless --speed max --gpu software
+  --transcript` (y `--type` con el `.stdin`); la salida es la parte normal del transcript y el `.stderr` la de error
+  más lo que dice el propio `ceres`. Un test que incluye `ceres/text.h` o `ceres/tui.h` compara además su
+  `--screen-log` con `tests/expected/<name>.screen`. Sólo cambiaron los `.expected` que imprimían fotogramas del
+  framebuffer de texto (ahora en los `.screen`) y los de tests tocados; los de los ejemplos quedaron idénticos. El
+  texto guionizado llega de línea en línea según se lee: `test_input` junta su entrada en una línea,
+  `test_line_edges` descarta las dos líneas de una vez y `test_key` pone el modo raw antes de leer. Los ejemplos
+  (pong, snake, life, mandelbrot, calc, guess...) ya usan la GPU a través de `gfx`/`game` sin cambios en su código.
+- **Revisión F5.8–F5.11** (delegada): en el terminal, leer `Status` o `Available` teclea el texto guionizado, así que
+  pasan a «la lectura tiene efecto» (el `dev` del debugger no los lee); un programa que espera su entrada sólo por
+  la IRQ 19 recibe un aviso cuando hay texto por teclear; en la STDLIB se quita el camino muerto de `key.c` que leía
+  del registro del teclado.

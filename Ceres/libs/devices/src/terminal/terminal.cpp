@@ -13,10 +13,10 @@ namespace ceres::devices
 	{
 		// Every register of the device (plan/v2 SPEC 8.1), in offset order.
 		constexpr RegisterInfo Registers[] = {
-			{ 0x00, "Status",       RegisterAccess::Read,      0x2, false, "Bit 0 input waiting, 1 ready for output, 2 end of input (Ctrl+D), 3 Ctrl+C pending." },
+			{ 0x00, "Status",       RegisterAccess::Read,      0x2, true,  "Bit 0 input waiting, 1 ready for output, 2 end of input (Ctrl+D), 3 Ctrl+C pending; reading takes in typed text." },
 			{ 0x04, "Output",       RegisterAccess::Write,     0x0, false, "The low byte to the output: UTF-8, controls and ANSI sequences." },
 			{ 0x08, "Input",        RegisterAccess::Read,      0x0, true,  "The next input byte, or 0 when there is none." },
-			{ 0x0C, "Available",    RegisterAccess::Read,      0x0, false, "Input bytes waiting." },
+			{ 0x0C, "Available",    RegisterAccess::Read,      0x0, true,  "Input bytes waiting; reading takes in typed text." },
 			{ 0x10, "Mode",         RegisterAccess::ReadWrite, TerminalDevice::DefaultMode, false, "Bit 0 raw, 1 echo, 2 history, 3 interrupt 19 when input comes." },
 			{ 0x14, "ErrorOutput",  RegisterAccess::Write,     0x0, false, "The low byte to the output, in the error colour." },
 			{ 0x18, "Control",      RegisterAccess::ReadWrite, TerminalDevice::DefaultControl, false, "Bit 0 on, 1 cursor visible, 2 scrollback, 3 autoscroll." },
@@ -464,6 +464,9 @@ namespace ceres::devices
 			i += length;
 			_typeahead.push_back(cp);
 		}
+		// A program that waits for its input by interrupt, without looking, is told there is some to look for.
+		if (!_typeahead.empty() && (_mode & ModeInterrupt) != 0)
+			raiseInterrupt(Interrupt);
 	}
 
 	void TerminalDevice::refill()

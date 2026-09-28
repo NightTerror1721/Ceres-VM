@@ -328,6 +328,7 @@ TEST(terminal, a_script_types_as_the_program_reads_under_the_mode_it_has_then)
 	Screen s;
 	s.terminal.type("ab\n\x1b[Aq");
 	CHECK_EQ(s.text(), std::string("\n\n\n\n"));        // nothing yet: the program has not looked
+	CHECK(s.vm.interrupts().peek() == TerminalDevice::Interrupt);   // but it is told there is something to look for
 	std::string line;                                      // a line, edited and echoed as it is read - and no more
 	while (line.empty() || line.back() != '\n')
 		if (s.reg(TerminalDevice::StatusRegister) & TerminalDevice::StatusInputAvailable)

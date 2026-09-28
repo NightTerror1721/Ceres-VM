@@ -96,8 +96,8 @@ Archivo: [phases/F05-ventana-v0-v1-terminal.md](phases/F05-ventana-v0-v1-termina
 | F5.7 | Salidas sin ventana y entrada guionizada | F5.6 | DONE | asm@39ca8d9 |
 | F5.8 | Retirar los dispositivos de texto y píxeles antiguos | F5.5, F5.7 | DONE | asm@dd96b1a |
 | F5.9 | Ceres-C: tests y ejemplos sin stdout del host | F5.7 | DONE | cc@630db42 |
-| F5.10 | STDLIB: cabeceras de vídeo y terminal | F5.8 | TODO |  |
-| F5.11 | STDLIB: tests y ejemplos sin ventana | F5.10, F5.9 | TODO |  |
+| F5.10 | STDLIB: cabeceras de vídeo y terminal | F5.8 | DONE | lib@9b600c2 |
+| F5.11 | STDLIB: tests y ejemplos sin ventana | F5.10, F5.9 | DONE | lib@a0170b4 |
 | F5.12 | Puerta «host limpio» y documentación | F5.11 | TODO |  |
 
 ## F6 · 64 bits en Ceres-C y en la STDLIB
