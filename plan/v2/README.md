@@ -47,7 +47,9 @@ pasos, criterios de aceptación (casillas), verificación y mensaje de commit. U
 | Ceres-C (compilador) | `D:\Projects\Ceres-C` | `main` | `Ceres-C` |
 | Ceres STDLIB (biblioteca de C) | `D:\Projects\Ceres Projects\Ceres STDLIB` | `main` | — |
 
-La STDLIB encuentra a los otros dos como hermanos (`../../Ceres-C`, `../../CeresASM`).
+La STDLIB encuentra `ceres` y `ceresc` como `ceresc` encuentra `ceres`: `CERES_PATH` y `CERESC` (el ejecutable o su
+directorio) y luego el `PATH`; nunca en los repos hermanos. Tras recompilar, copia los binarios al directorio del
+`PATH` o apunta esas variables al build.
 
 ## Comandos
 
