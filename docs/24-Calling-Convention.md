@@ -43,7 +43,7 @@ keeps working (see [Register aliases](10-Language-Syntax.md#register-aliases)).
 | `r15` / `sp` | Stack pointer | Yes |
 | `f0`–`f3` | Float arguments. `f0` is also the float return value. | No |
 | `f4`–`f7` | Float scratch | No |
-| `f8`–`f15` | General purpose float | **Yes** |
+| `f8`–`f15` | General purpose float (the pairs `d4`–`d7`) | **Yes** |
 | Flags | — | **No.** A `cmp` before a `call` is worthless after it. |
 
 Three of these are worth saying out loud:
@@ -197,11 +197,24 @@ Float arguments go in `f0`–`f3` and are counted separately: a function taking 
 receives them in `r0`, `f0`, `r1`. Beyond four of either, the stack area is words, so a `f32` takes
 one slot like anything else.
 
+### 64-bit arguments
+
+A 64-bit value travels in a [register pair](34-64-bit.md) (plan/v2 SPEC 6.7, normative since F6):
+
+- A `u64`/`i64` goes in `x0` (`r0:r1`) or `x1` (`r2:r3`), a `f64` in `d0` (`f0:f1`) or `d1` (`f2:f3`), low word in
+  the even register. A pair always starts on an even register, so the odd one before it is skipped and stays
+  empty: `(u32, i64)` arrives in `r0` and `x1`, with `r1` unused; `(f64, u32, f64)` in `d0`, `r0` and `d1`.
+- When its bank has no pair left, the value goes to the outgoing area as **two words**, low first, aligned to 4
+  like every other slot (no padding). From then on that bank is spent: a later word argument of the same bank
+  goes to the stack too, rather than back into the register a pair skipped. `(u32, u32, u32, i64, u32)` puts the
+  first three in `r0`–`r2` and the last two on the stack, at `[sp + 0]`/`[sp + 4]` and `[sp + 8]`.
+
 ## Returning a value
 
 `r0` for an integer or an address, `f0` for a float — `ret0` and `fret0` under the convention's own
-names. Anything larger than a word is returned by the caller passing a pointer to space it owns,
-which is not a rule the machine knows anything about; it is just an argument.
+names. A 64-bit result comes back in a pair: `x0` (`r0:r1`) for an integer, `d0` (`f0:f1`) for a double. Anything
+larger than that is returned by the caller passing a pointer to space it owns, which is not a rule the machine
+knows anything about; it is just an argument.
 
 ## Why the convention does not use `pushm`
 
@@ -318,10 +331,12 @@ To write a function that follows the convention:
 
 And to call one:
 
-1. Put the first four arguments in `arg0`–`arg3` (`farg0`–`farg3` for floats).
+1. Put the first four arguments in `arg0`–`arg3` (`farg0`–`farg3` for floats); a 64-bit one takes the next
+   aligned pair, `x0`/`x1` or `d0`/`d1`.
 2. Write the rest into your own outgoing area at `[sp + 0]` upward.
 3. `call` it.
-4. Assume `r0`–`r7`, `r12`, `f0`–`f7`, `at` and the flags are gone. Read the result from `ret0`.
+4. Assume `r0`–`r7`, `r12`, `f0`–`f7`, `at` and the flags are gone. Read the result from `ret0` (`x0` or `d0`
+   for a 64-bit one).
 
 ## What still is not enforced
 
