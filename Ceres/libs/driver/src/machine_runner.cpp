@@ -462,7 +462,37 @@ namespace ceres::driver
 				log.write(HostLog::Warning, std::format("Cannot load '{}': {}", request->path, unresolvedReason(path.error())));
 				return;
 			}
-			auto program = Program::loadFromFile(*path);
+			// The file is the program's choice, not the user's, and the loader sizes its buffers by the header: one
+			// bigger than the RAM, or shorter than the segments its header claims, is refused before it is read, and
+			// anything else that goes wrong reading it is a failed load, not the host's end.
+			std::error_code sizeError;
+			const auto bytes = std::filesystem::file_size(*path, sizeError);
+			if (!sizeError && bytes > vm.memory().size())
+			{
+				log.write(HostLog::Warning, std::format("Cannot load '{}': {} bytes, more than the RAM", request->path, bytes));
+				return;
+			}
+			if (!sizeError)
+			{
+				std::ifstream file(*path, std::ios::binary);
+				ProgramHeader header{};
+				if (file.read(reinterpret_cast<char*>(&header), sizeof(header)) && header.magic == ProgramHeader::MagicNumber &&
+					sizeof(header) + u64{ header.textSize } + header.rodataSize + header.dataSize > bytes)
+				{
+					log.write(HostLog::Warning, std::format("Cannot load '{}': the file is shorter than its header says", request->path));
+					return;
+				}
+			}
+			std::expected<Program, std::string> program = std::unexpected(std::string("it cannot be read"));
+			try
+			{
+				program = Program::loadFromFile(*path);
+			}
+			catch (const std::exception&)
+			{
+				log.write(HostLog::Warning, std::format("Cannot load '{}': its header asks for more memory than the host has", request->path));
+				return;
+			}
 			if (!program)
 			{
 				// The reason names the file by its host path: the program knows it by its own.

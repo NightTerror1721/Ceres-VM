@@ -193,6 +193,26 @@ TEST(driver_load, a_load_that_fails_returns_to_the_program_and_the_log_says_why)
 	CHECK(bare.diagnostics.find("no host directory") != std::string::npos);
 }
 
+TEST(driver_load, a_file_whose_header_claims_more_than_it_holds_is_refused_before_it_is_read)
+{
+	// A program chooses what to load: a child.cres whose header says it has 4 GiB of text, in 36 bytes, must be a
+	// failed load - not a host that tries to make room for it.
+	const Setup setup{ false };
+	fmt::ProgramHeader header{};
+	header.magic = fmt::ProgramHeader::MagicNumber;
+	header.version = fmt::ProgramHeader::CurrentVersion;
+	header.textSize = 0xFFFFFFF0u;
+	{
+		std::ofstream file(setup.host / "child.cres", std::ios::binary | std::ios::trunc);
+		file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+		file << "tail";
+	}
+	const CapturedRun result = captureRun(RunCommand{ .input = setup.sysroot / "bin" / "shell.cres", .hostDirectory = setup.host });
+	CHECK_EQ(result.status, 9);
+	CHECK_EQ(result.output, std::string{ "AF" });
+	CHECK(result.diagnostics.find("shorter than its header says") != std::string::npos);
+}
+
 TEST(driver_load, without_a_shell_to_start_the_run_says_where_it_looked)
 {
 	const Setup setup;
