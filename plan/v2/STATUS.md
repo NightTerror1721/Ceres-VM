@@ -106,8 +106,8 @@ Archivo: [phases/F06-64bits-c-stdlib.md](phases/F06-64bits-c-stdlib.md)
 
 | ID | Tarea | Depende de | Estado | Commits |
 | --- | --- | --- | --- | --- |
-| F6.1 | ABI de pares | fase: F3, F5, decisiones P10, P11 | TODO |  |
-| F6.2 | `long long` con instrucciones nativas | F6.1 | TODO |  |
+| F6.1 | ABI de pares | fase: F3, F5, decisiones P10, P11 | DONE | asm@875321c, cc@c858e3f |
+| F6.2 | `long long` con instrucciones nativas | F6.1 | DONE | cc@e07d69a, lib@3319b90 |
 | F6.3 | `double` binary64 | F6.1 | TODO |  |
 | F6.4 | STDLIB en doble | F6.2, F6.3 | TODO |  |
 | F6.5 | Pares en el asignador de registros | F6.4 | TODO |  |

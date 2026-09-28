@@ -20,7 +20,7 @@
 - **Repos**: CeresASM (doc 24), Ceres-C · **Depende de**: — · **Decisiones**: P11
 - **Pasos**: actualiza `docs/24-Calling-Convention.md` con SPEC §6.7; en Ceres-C, asignación de argumentos y
   retorno de 64 bits a pares alineados (`x0`, `x1`; `d0`, `d1`), y pila de 8 bytes con alineación 4.
-- **Aceptación**: [ ] Tests de llamadas con mezclas `(int, long long)`, `(double, int, double)`, más de cuatro argumentos.
+- **Aceptación**: [x] Tests de llamadas con mezclas `(int, long long)`, `(double, int, double)`, más de cuatro argumentos.
 - **Commit** (uno por repo): `Pass 64-bit values in aligned register pairs (F6.1)`
 
 ### F6.2 · `long long` con instrucciones nativas
@@ -32,7 +32,7 @@
   2. Elimina `__cc_div64` y su emisión.
   3. Levanta `E5002` para `switch` de 64 bits (compara con `cmp64`) y añade builtins de 64 bits
      (`__builtin_clzll`, `ctzll`, `popcountll`) sobre `0xE7`.
-- **Aceptación**: [ ] Suite de Ceres-C en verde. [ ] El ejemplo `35_int64.c` ocupa menos instrucciones (apúntalo en «Notas»).
+- **Aceptación**: [x] Suite de Ceres-C en verde. [x] El ejemplo `35_int64.c` ocupa menos instrucciones (apúntalo en «Notas»).
 - **Commit**: `Compile long long with the native 64-bit instructions (F6.2)`
 
 ### F6.3 · `double` binary64
@@ -73,3 +73,19 @@
 - [ ] Suites en verde. [ ] Revisión `ocr` en Ceres-C y STDLIB. [ ] Hito 2 anunciado.
 
 ## Notas
+
+- **F6.1**: `assignArgSlots` alinea el par al registro par de su banco y no rellena el impar que salta; si no
+  queda par, el valor va a dos palabras de pila y el banco se da por gastado (una palabra posterior también va a
+  la pila), como AAPCS. `(double, int, double)` se prueba sobre el reparto (`d0`, `r0`, `d1`); con el `double`
+  nativo lo prueba también F6.3 de extremo a extremo. Arreglo de paso (viene de F5): los tests de Ceres-C que
+  enlazan con `ceresc --run` (el grupo `prebuilt` y uno de `e2e`) no pasaban `--headless`, y un `ceres run` con
+  ventana espera una tecla al acabar; el primero se colgaba. Ahora pasan `--headless --speed max`.
+- **F6.2**: en vez de emitir `ldrd`/op/`strd` sobre el par direccionado de antes, el valor de 64 bits pasa a ser
+  un temporal de par del IR (opcode nuevo `Wide`, `ir_instr.h`), que por ahora vive siempre en un campo de 8
+  bytes del marco: la forma que pide el paso 1 («sobre la representación en memoria») y la que F6.5 sólo tiene
+  que llevar a registros. Los pares de trabajo son `x2` (`r4:r5`) y `x3` (`r6:r7`, que sale de la reserva en una
+  función con operaciones de 64 bits). `and`/`or`/`xor`/`not` de 64 bits no tienen instrucción y son dos de 32.
+  `35_int64.c`: 2283 instrucciones a -O1 antes, 1142 ahora (-O0: 7333 → 1903; -O2: 2295 → 1136). El inliner
+  sigue rechazando funciones con valores de 64 bits (F6.5). En la STDLIB, `timerdemo` imprimía un `tick 6` de
+  más: un `printf` cuesta ~2300 ciclos frente a un periodo de 3000 y la fase de los sondeos cambió; sus plazos
+  se multiplicaron por 10 (lib@3319b90).
