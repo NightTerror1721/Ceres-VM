@@ -429,6 +429,14 @@ namespace ceres::devices
 			}
 			raiseInterrupt(Interrupt);
 		};
+		if ((keystroke & RawByte) != 0)
+		{
+			if (_discipline.raw())
+				deliver(std::string(1, static_cast<char>(keystroke & 0xFF)));
+			else
+				_discipline.key(0xFFFD, out);   // a line holds characters: the byte that is none is the replacement
+			return;
+		}
 		_discipline.key(keystroke & ~KeyboardDevice::KeyShift, out);
 	}
 
@@ -437,12 +445,22 @@ namespace ceres::devices
 		for (usize i = 0; i < utf8.size();)
 		{
 			const u8 lead = static_cast<u8>(utf8[i]);
-			u32 length = lead < 0x80 ? 1 : lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 1;
-			u32 cp = length == 1 ? lead : lead & (0x7Fu >> length);
-			if (i + length > utf8.size())
-				length = 1;
-			for (u32 k = 1; k < length; ++k)
-				cp = (cp << 6) | (static_cast<u8>(utf8[i + k]) & 0x3Fu);
+			u32 length = lead < 0x80 ? 1 : lead >= 0xF8 ? 0 : lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 0;
+			bool valid = length != 0 && i + length <= utf8.size();
+			u32 cp = length <= 1 ? lead : lead & (0x7Fu >> length);
+			for (u32 k = 1; valid && k < length; ++k)
+			{
+				const u8 next = static_cast<u8>(utf8[i + k]);
+				valid = (next & 0xC0) == 0x80;
+				cp = (cp << 6) | (next & 0x3Fu);
+			}
+			if (!valid)
+			{
+				// Not UTF-8: the byte on its own, which raw mode hands over as it is (a script can type anything).
+				_typeahead.push_back(RawByte | lead);
+				++i;
+				continue;
+			}
 			i += length;
 			_typeahead.push_back(cp);
 		}

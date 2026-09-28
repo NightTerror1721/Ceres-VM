@@ -131,6 +131,8 @@ namespace ceres::devices
 		// still gets its arrows, and a line is edited only when it is read. A keystroke from the window waits
 		// behind it, in order. The input closes after it when it was asked to close meanwhile.
 		std::deque<u32> _typeahead;
+		// In _typeahead: a byte a script typed that is not UTF-8, kept as the byte.
+		static inline constexpr u32 RawByte = 1u << 29;
 		bool _closeAfterTypeahead = false;
 
 		OutputSink _outputSink;

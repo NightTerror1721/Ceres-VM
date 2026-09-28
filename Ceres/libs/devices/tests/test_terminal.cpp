@@ -337,6 +337,9 @@ TEST(terminal, a_script_types_as_the_program_reads_under_the_mode_it_has_then)
 	// The program goes raw: the arrow the script typed next reaches it as its bytes, not the history.
 	s.terminal.write(TerminalDevice::ModeRegister, TerminalDevice::ModeRaw);
 	CHECK_EQ(s.readInput(), std::string("\x1b[Aq"));
+	// A byte that is not UTF-8 reaches a raw program as it is, and what follows is not lost.
+	s.terminal.type("\xC3z");
+	CHECK_EQ(s.readInput(), std::string("\xC3z"));
 	// A keystroke from the window waits behind a script's.
 	s.terminal.type("1");
 	s.terminal.typeKeystroke('2');
