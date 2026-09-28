@@ -65,6 +65,15 @@ TEST(line_discipline, editing_keys_change_the_line_before_it_is_sent)
 	CHECK_EQ(r.delivered.back(), std::string("jelly\n"));
 }
 
+TEST(line_discipline, a_return_a_newline_or_both_end_a_line_once)
+{
+	LineDiscipline d;
+	Recorder r;
+	typeText(d, r, "one\r\ntwo\rthree\n\n");
+	const std::vector<std::string> expected{ "one\n", "two\n", "three\n", "\n" };
+	CHECK(r.delivered == expected);
+}
+
 TEST(line_discipline, ctrl_u_empties_the_line)
 {
 	LineDiscipline d;

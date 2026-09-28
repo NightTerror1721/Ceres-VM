@@ -53,6 +53,7 @@ namespace ceres::devices::term
 		std::deque<std::vector<u32>> _lines;   // the history, newest last
 		usize _recall = 0;            // how far back Up has gone (0: the line being typed)
 		std::vector<u32> _draft;      // the line being typed, kept while the history is shown
+		bool _afterCr = false;        // the last key was a '\r': a '\n' right after it is the same Enter
 
 		void replaceLine(const std::vector<u32>& with, Output& out);
 		void submit(Output& out, bool newline);

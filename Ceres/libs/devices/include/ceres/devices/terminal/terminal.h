@@ -163,7 +163,8 @@ namespace ceres::devices
 		// A keystroke typed in the window (keyboard.h's): Shift+PageUp and Shift+PageDown move through the scrollback;
 		// everything else goes through the line discipline.
 		void typeKeystroke(u32 keystroke);
-		// Text typed, a character at a time, as if at the keyboard: '\n' is Enter, 0x03 Ctrl+C, 0x04 Ctrl+D (--type).
+		// Text typed, a character at a time, as if at the keyboard: '\n', '\r' or "\r\n" is Enter, 0x03 Ctrl+C, 0x04 Ctrl+D
+		// (--type).
 		// It is taken as the program reads (see _typeahead).
 		void type(std::string_view utf8);
 		// Bytes straight into the program's input, past the line discipline, as from a pipe (a debugger's console).

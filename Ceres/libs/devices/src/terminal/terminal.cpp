@@ -444,7 +444,7 @@ namespace ceres::devices
 			for (u32 k = 1; k < length; ++k)
 				cp = (cp << 6) | (static_cast<u8>(utf8[i + k]) & 0x3Fu);
 			i += length;
-			_typeahead.push_back(cp == '\r' ? u32{ '\n' } : cp);
+			_typeahead.push_back(cp);
 		}
 	}
 

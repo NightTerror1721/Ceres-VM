@@ -51,6 +51,7 @@ namespace ceres::devices::term
 
 	void LineDiscipline::reset() noexcept
 	{
+		_afterCr = false;
 		_line.clear();
 		_cursor = 0;
 		_lines.clear();
@@ -184,9 +185,14 @@ namespace ceres::devices::term
 		}
 
 		const u32 cp = named ? (code == scancode::Backspace ? 0x08u : keystroke) : keystroke;
+		const bool afterCr = _afterCr;
+		_afterCr = cp == '\r';
 		switch (cp)
 		{
 			case '\n':
+				if (afterCr)
+					return;   // "\r\n" is one Enter, as a file's line end
+				[[fallthrough]];
 			case '\r':
 				if (_echo)
 					out.echo(right(_line.size() - _cursor) + "\n");
