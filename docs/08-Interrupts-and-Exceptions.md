@@ -39,10 +39,10 @@ enum class InterruptNumber : u8
   | --- | --- | --- | --- |
   | 16 | the timer's countdown | 28 | the audio device, when a tone has finished |
   | 17 | the timer's alarm | 29–31 | reserved for audio |
-  | 18 | the DMA controller, when a transfer completes | 32 | the GPU's VBlank (F5) |
-  | 19 | the terminal, when `pushInput()` adds a byte or its input is closed | 33 | the GPU's line compare (F5) |
-  | 20 | the keyboard, for each event | 34 | the GPU's fence or copy engine; the blitter until then |
-  | 21 | the mouse, for each change | 35 | a GPU fault (F5) |
+  | 18 | the DMA controller, when a transfer completes | 32 | the GPU's vertical blank |
+  | 19 | the terminal, when input comes (with `Mode` bit 3), its input ends, or Ctrl+C is pressed | 33 | the GPU's line compare |
+  | 20 | the keyboard, for each event | 34 | the GPU's copy engine (its fences from V3), and the blitter |
+  | 21 | the mouse, for each change | 35 | a GPU fault |
   | 22 | the gamepad, for each change | 36–63 | reserved |
   | 23 | reserved | | |
   | 24 | the disk (nothing raises it yet) | | |

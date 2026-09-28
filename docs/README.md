@@ -18,7 +18,7 @@ the assembler does internally at each stage of the build.
 4. [Instruction format](04-Instruction-Format.md) — the 32-bit encoding, and how fields overlap.
 5. [Instruction set](05-Instruction-Set.md) — full reference for every real instruction, grouped by category.
 6. [Pseudo-instructions](06-Pseudo-Instructions.md) — `la`, `ldv`, `stv`, `neg`, `ifXX`, and how they expand.
-7. [I/O devices and ports](07-IO-Devices-and-Ports.md) — the MMIO map, the terminal, the timer, the DMA controller, the keyboard, the mouse, the display, the gamepad, system control.
+7. [I/O devices and ports](07-IO-Devices-and-Ports.md) — the MMIO map, the terminal, the timer, the DMA controller, the debug log, the keyboard, the mouse, the gamepad, the GPU, system control.
 8. [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — the vector table, `INT`/`IRET`, hardware faults.
 9. [The `.cres` binary format](09-CRES-Binary-Format.md) — the executable header and the loaded program's memory layout.
 
@@ -45,6 +45,8 @@ the assembler does internally at each stage of the build.
 28. [Roadmap educativa y retro](28-Roadmap-Educativo-y-Retro.md) — mejoras y ampliaciones para aprender arquitectura, practicar con kernels y crear pequeños juegos retro.
 29. [SDL3 integration plan](29-SDL3-Integration-Plan.md) — historical: how the SDL3 window came in. Superseded by the v2 plan below.
 30. [The machine's clock and its profiles](30-Machine-Clock-and-Profiles.md) — cycles, the machine's own time, events and the scheduler, `--speed`, recording and replaying input; the eight machine profiles, `--profile`, `--ram`, `--vram`.
+31. [Video](31-Video.md) — the GPU at levels V0 and V1: the text plane, the bitmap plane, the copy engine, the vertical blank, the VRAM at start, and where the frames go.
+33. [The virtual terminal and the debug log](33-Terminal-and-Debug-Log.md) — the program's terminal, drawn in the window: output and escape sequences, the line discipline, raw keys, scripted input, headless runs; and the debug log.
 34. [64-bit operations](34-64-bit.md) — the register pairs `x0`–`x6` and `d0`–`d7`: 64-bit integers and binary64 doubles, their flags, cycles and faults, `li64` and the `u64`/`i64`/`f64` types.
 35. [Devices and the bus](35-Devices-and-Bus.md) — 32-bit registers, fault reasons, the register table every device declares, one device per file, and how to add one.
 
@@ -64,6 +66,14 @@ the assembler does internally at each stage of the build.
 
 If you already knew this language, these are the parts that moved:
 
+- **The window is the computer** (plan/v2 F5). The machine's screen is a GPU at `0xFF400000` with a text plane
+  (V0), a bitmap plane and a copy engine (V1), composed from the VRAM at every vertical blank —
+  [Video](31-Video.md). The terminal is drawn on it and reads what is typed in the window, with a line
+  discipline, raw keys and a scrollback — [The virtual terminal](33-Terminal-and-Debug-Log.md). A program never
+  writes to the host's terminal any more: `--headless` runs keep its output in `--transcript`, `--screen-log` and
+  `--frames` files, and `--type`/`--keys` type its input. The text framebuffer (`0xFF440000`) and the pixel display
+  (`0xFF450000`) are gone, and so are `--terminal` and reading the host's stdin; the terminal's registers moved
+  (SPEC 8.1) and its block write is now command `1` — [CLI](16-CLI-and-Assembly-Pipeline.md#running-a-program).
 - **Block memory**: `mcpy`, `mset`, `mcmp` and `mscan` do a whole `memcpy`/`memset`/`memcmp`/`memchr` in one
   instruction, a page per step, resumable after an interrupt or a page fault —
   [Instruction set](05-Instruction-Set.md#block-memory-0xa00xa3).

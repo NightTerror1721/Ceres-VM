@@ -66,8 +66,8 @@ happens to be declared later in the same file.
 
 ## A worked example: waking on terminal input
 
-`TerminalDevice::pushInput()` raises `UserInterrupt3` (19) whenever it actually adds a byte to its input
-buffer (see [I/O devices and ports](07-IO-Devices-and-Ports.md#terminaldevice-ports-0x00-0x02)).
+The terminal raises `UserInterrupt3` (19) whenever input reaches the program, while its `Mode` bit 3 is set (as it
+is at start; see [The virtual terminal](33-Terminal-and-Debug-Log.md#input)).
 Binding a handler for it turns the busy-wait every program used to need on `TERM_STATUS` into a real
 wake-up:
 

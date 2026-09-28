@@ -22,14 +22,10 @@ cmake --preset gcc && cmake --build --preset gcc-debug
 
 The binary lands at `Ceres/build/gcc/bin/Debug/ceres`.
 
-**Important note if your copy of `ceres` predates this tutorial:** `ceres run` didn't read the
-real keyboard. The terminal device (`TerminalDevice`, MMIO base `0xFF000000`) always had an input
-buffer meant to receive data concurrently (`pushInput`, protected with atomics), but nothing in
-`main.cpp` connected it to `stdin`. Without that, no interactive program — and so neither of the
-two games — could read what the player types. A background thread has been added in
-`runProgram()` that reads from `stdin` and calls `terminal.pushInput()`, reusing the buffer that
-already existed. If your binary is newer than this change, you already have working keyboard
-input with `ceres run game.casm`; if not, rebuild it.
+`ceres run` opens the machine's window: the program's terminal is drawn there, and what you type in the window
+is its input (see [The virtual terminal](33-Terminal-and-Debug-Log.md)). The terminal in which you ran `ceres`
+is left alone. To run a program without a window, with its input from a file and its output kept in another,
+use `ceres run program.casm --headless --type input.txt --transcript output.txt`.
 
 Check that it works:
 

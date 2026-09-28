@@ -11,7 +11,7 @@ const TERM_OUT = 0xFF000004
 const TERM_BLOCK_ADDR = 0xFF0000F0
 const TERM_BLOCK_LEN = 0xFF0000F4
 const TERM_BLOCK_CMD = 0xFF0000F8
-const BLOCK_CMD_WRITE = 2
+const BLOCK_CMD_WRITE = 1
 const EXIT_CODE = 0x01
 const SYS_CTRL = 0xFFFF0000
 
@@ -80,7 +80,7 @@ const TERM_OUT = 0xFF000004
 const TERM_BLOCK_ADDR = 0xFF0000F0
 const TERM_BLOCK_LEN = 0xFF0000F4
 const TERM_BLOCK_CMD = 0xFF0000F8
-const BLOCK_CMD_WRITE = 2
+const BLOCK_CMD_WRITE = 1
 const EXIT_CODE = 0x01
 const SYS_CTRL = 0xFFFF0000
 ```
@@ -171,7 +171,7 @@ These demonstrate the two different ways to write the null-terminated string poi
   costs several VM instructions per character.
 - **`print`** instead computes the string's length once (`call strlen`) and then hands the whole
   block to the device at once: write the source address to `TERM_BLOCK_ADDR`, the length to
-  `TERM_BLOCK_LEN`, and finally `2` (write) to `TERM_BLOCK_CMD` — the block-transfer trio every
+  `TERM_BLOCK_LEN`, and finally `1` (write) to `TERM_BLOCK_CMD` — the block-transfer trio every
   MMIO device exposes at its top three offsets (see
   [I/O devices and ports → block-transfer registers](07-IO-Devices-and-Ports.md)). `main` actually
   calls `print`, not `println` — `println` is left in the file as an illustration of the manual

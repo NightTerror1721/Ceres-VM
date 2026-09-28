@@ -21,7 +21,7 @@ detects by asking the linker.) The tests run with `ctest --preset gcc-debug`.
 | `ceres asm <source.casm> [-o <output.cres>] [--listing] [--json] [--debug] [--emit-debug-json]` | Assembles a source file. Without `-o`, the source is only checked (parsed, translated, linked, emitted in memory) and discarded — useful as a pure syntax/semantics check. |
 | `ceres link <file.cobj\|file.car> [...] -o <out.cres> [--debug] [--symtab] [--gc-sections]` | Places, resolves and finishes separately assembled objects — see [Separate compilation](25-Separate-Compilation.md). `--symtab` appends a table of the code's global names to `.rodata`, between `__symtab_start` and `__symtab_end`, for a program that names its own addresses — see [Labels and symbols](12-Labels-and-Symbols.md). `--gc-sections` leaves out the functions nothing reaches: each object's `.text` is cut at its global names, and a piece is kept when the entry point, an `interrupt` binding, a word in `.rodata`/`.data` or a kept piece refers to it, or when the piece before it is kept and does not end in `jp`, `jpr`, `ret` or `iret` (it could run on into it). Only objects that record every reference inside their `.text` are cut — every object this assembler writes (header flag 1); an older one is kept whole — and the option does nothing together with `--debug`. The standard library's `hello` goes from 15.9 KB to 5 KB. |
 | `ceres ar <out.car> <file.cobj> [...]` | Collects objects into an archive: a library that ships compiled. |
-| `ceres run <file.casm\|file.cres> [<machine>] [--disk <image>] [--window \| --terminal] [--strict-mmio] [--rtc <YYYY-MM-DDThh:mm:ss>] [--speed realtime\|max\|<f>x] [--record <file> \| --replay <file>] [--log <file>] [--port <n>=<image>]... [--cart <n>=<file>]... [--env <name>=<value>]... [--host-dir <dir>] [-- <argument>...]` | Runs a program, assembling it first if given a `.casm` source file. |
+| `ceres run <file.casm\|file.cres> [<machine>] [--disk <image>] [--window \| --headless] [--strict-mmio] [--fullscreen] [--exit-on-halt] [--frames <dir>] [--refresh 50\|60] [--transcript <file>] [--screen-log <file>] [--type <file>] [--keys <file>] [--gpu auto\|software\|hardware] [--rtc <YYYY-MM-DDThh:mm:ss>] [--speed realtime\|max\|<f>x] [--record <file> \| --replay <file>] [--log <file>] [--port <n>=<image>]... [--cart <n>=<file>]... [--env <name>=<value>]... [--host-dir <dir>] [-- <argument>...]` | Runs a program, assembling it first if given a `.casm` source file, on a machine with a screen: see [Running a program](#running-a-program). |
 | `ceres disasm <file.casm\|file.cres> [--debug]` | Prints the `.text` section as address, encoded word, and disassembled instruction, one per line. |
 | `ceres debug <file.casm\|file.cres> [<source2.casm> ...] [<machine>]` | Runs a program under the interactive debugger. See [The debugger](22-Debugger.md). |
 | *(bare path)* | Shorthand for `run` — `ceres program.casm` is exactly `ceres run program.casm`. |
@@ -46,16 +46,47 @@ Global flags:
 | `--env <name>=<value>` | `run` | Gives the program an environment variable. Repeatable, kept in order; nothing of the host's own environment is passed on. |
 | `--host-dir <dir>` | `run` | Lets the program open, write, list and remove the host's files under `<dir>`, and nowhere else, through the host file device. See [I/O devices and ports](07-IO-Devices-and-Ports.md#hostfsdevice-0xff310000). |
 | `-- <argument>...` | `run` | Everything after `--` is the program's: `argv[0]` is the input's path as given, and these follow, options or not. |
-| `--window` | `run` | Opens the SDL3 window at once. (Without a flag, in a build with SDL, the window opens when the program first shows a frame - of the text framebuffer or the pixel display - so a program that never does opens none.) In it the text framebuffer and the pixel display are drawn and real keyboard/mouse events feed the keyboard and mouse devices. Escape is the program's; the window closes with its close button or Ctrl+Q. Only present in builds with `CERES_ENABLE_SDL`; without it, `run --window` reports an error — see [SDL3 integration plan](29-SDL3-Integration-Plan.md). |
+| `--window` | `run` | Makes a window that cannot be opened (no display, or a build without SDL) an error, instead of running without one. Refused together with `--headless`. |
+| `--headless` | `run` | Runs without a window: the machine's screen is composed but nobody sees it, and `--transcript`, `--screen-log` and `--frames` keep what it showed. Setting `CERES_HEADLESS` in the environment (to anything but `""`, `0` or `false`) does the same, for scripts and tests; `--window` outranks it. A build without SDL is always headless. |
+| `--fullscreen` | `run` | The window fills the screen from the start. F11 switches in and out of it. |
+| `--exit-on-halt` | `run` | Closes the window as soon as the program ends. Without it the window stays with the last frame, its title saying how the program ended, until a key is pressed or it is closed. |
+| `--refresh 50\|60` | `run` | The GPU's frames a second, 60 by default. See [Video](31-Video.md#time-frames-and-the-vertical-blank). |
+| `--frames <dir>` | `run` | Writes a PNG of the screen into `<dir>` (created if it is not there) for every `Present`: `frame_000000.png`, `frame_000001.png`… |
+| `--transcript <file>` | `run` | Writes every byte the program wrote to its terminal to `<file>`, the error stream's between `ESC[E` and `ESC[e`. See [The virtual terminal](33-Terminal-and-Debug-Log.md#without-a-window). |
+| `--screen-log <file>` | `run` | Writes the text plane as plain text to `<file>`: a `--- present N ---` section at every `Present` and a `--- end ---` one when the program stops. |
+| `--type <file>` | `run` | Types the file's text on the program's terminal as if at the keyboard, taken as the program reads (a line end is Enter, byte 3 Ctrl+C, byte 4 Ctrl+D). Without a window the input ends after it. |
+| `--keys <file>` | `run` | Presses keys at instants of the machine's time, one a line: `<ms> down\|up\|press <key>` or `<ms> text <text>` (`#` starts a comment). Without a window the input ends after the last. |
+| `--gpu auto\|software\|hardware` | `run` | The GPU's executor. There is only the software one so far, and a run without a window always uses it. |
 | `--strict-mmio` | `run` | A load or store to an offset the device does not declare in its register table is a `MemoryFault` (the system control device's `FaultReasonRegister` reads `7`), instead of reading `0` and dropping the write. For finding a program that reaches a register by a wrong offset. |
 | `--rtc <YYYY-MM-DDThh:mm:ss>` | `run` | Starts the timer's real-time clock (`Rtc`, seconds since 1970) at that moment, in UTC, instead of the host's clock when the machine starts. With it every clock the program can read is the same on every run. |
 | `--speed realtime\|max\|<f>x` | `run` | How the machine's time keeps pace with the host's (plan/v2 SPEC 3.3). `realtime`: a second of machine time takes a second of the host's, the program waiting in `halt` included. `max`: no waiting at all - a halt jumps straight to its event and the program runs as fast as the host can. `0.5x`, `2x`...: real time scaled. Unset, it is `realtime` while a window is open and `max` otherwise. |
 | `--cpu-clock <hz>` | `run`, `profile`, `debug` | The CPU clock in cycles per second, what turns the machine's cycles into its time (the profile's; 50M for `standard`), up to 400M; `k`, `M` or `G` and an optional `Hz` may follow the number. Makes the profile `custom`. The timer's `CpuClockHz` and the system control device's report it. |
-| `--record <file>` | `run` | Writes everything the host gives the machine - standard input and its end, a window's keys, text, mouse and gamepad, files dropped on it, the window being closed - to `<file>`, each with the cycle it went in at. The host's input only ever reaches the devices between two slices of the machine's time, so those cycles are all that decides what the program saw. |
+| `--record <file>` | `run` | Writes everything the host gives the machine - the text of `--type` and the keys of `--keys`, a window's keys, text, mouse and gamepad, files dropped on it, the window being closed - to `<file>`, each with the cycle it went in at. The host's input only ever reaches the devices between two slices of the machine's time, so those cycles are all that decides what the program saw. |
 | `--replay <file>` | `run` | Feeds a `--record` file back, each event at its cycle, and reads no input of the host's: the run is the one recorded, whatever the host does now. It stops where the recorded window was closed. |
-| `--terminal` | `run` | Never opens a window: the text framebuffer's frames are printed to the terminal as text. The opposite of `--window`, and refused together with it. Setting `CERES_HEADLESS` in the environment (to anything but `""`, `0` or `false`) does the same, for scripts and tests; `--window` outranks it. |
 | `--no-stop-on-entry` | `debug` | Start running immediately instead of stopping before the first instruction. |
 | `-h` / `--help` | any | Prints usage and exits. |
+
+## Running a program
+
+A machine has a screen, and the program's terminal is on it: `ceres run` opens the machine's window at the start
+and shows a frame of the GPU at every vertical blank ([Video](31-Video.md)). What the program writes goes to its
+[virtual terminal](33-Terminal-and-Debug-Log.md), drawn in the window, and what is typed in the window is its
+input. **Nothing the program writes reaches the process's stdout, and nothing typed at the host's terminal reaches
+the program** (plan/v2 SPEC 1.4); stderr carries only the host's log - the program's debug log and the host's own
+diagnostics, or neither with `--log <file>`. When the program ends the window stays, its title saying how, until a
+key is pressed.
+
+A run without a window (`--headless`, `CERES_HEADLESS`, a build without SDL, a machine with no display) is the
+same machine with nobody looking. What it did is kept in files instead, and its input comes from files:
+
+```bash
+ceres run calc.cres --headless --type input.txt --transcript out.txt --screen-log screen.txt
+```
+
+`--transcript` holds what the program wrote to its terminal (the error stream between `ESC[E` and `ESC[e`),
+`--screen-log` what the screen showed, `--frames` a PNG of every frame it presented. The tests of the three
+repositories run that way, and a gate test (`host_clean`) runs every example headless and fails if one writes
+anything to the process's stdout.
 
 ## Profiling a run
 

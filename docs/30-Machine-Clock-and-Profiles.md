@@ -76,7 +76,7 @@ measures the effective speed for the window to show.
 
 ## Input
 
-Everything the host gives the machine - standard input and its end, the console, a window's keys, text,
+Everything the host gives the machine - the text of `--type`, the keys of `--keys`, a window's keys, text,
 mouse and gamepad, files dropped on it - waits in the driver's **input hub** and goes in between two slices,
 stamped with the cycle it went in at (`libs/driver/include/ceres/driver/input_journal.h`). Those stamps are
 the whole of what the host decides about a run, so:

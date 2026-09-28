@@ -29,3 +29,10 @@ add_test(NAME headless_output
 		-DCERES_EXE=$<TARGET_FILE:ceres>
 		-DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/both_streams.casm
 		-P ${CMAKE_CURRENT_SOURCE_DIR}/headless_output.cmake)
+
+# No example writes to the host's terminal: run without a window, the process's stdout stays empty (plan/v2 F5.12).
+add_test(NAME host_clean
+	COMMAND ${CMAKE_COMMAND}
+		-DCERES_EXE=$<TARGET_FILE:ceres>
+		-DEXAMPLES_DIR=${PROJECT_SOURCE_DIR}/examples
+		-P ${CMAKE_CURRENT_SOURCE_DIR}/host_clean.cmake)

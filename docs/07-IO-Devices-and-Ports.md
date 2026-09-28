@@ -40,10 +40,8 @@ video, `0xFF` control. Each device has its own interrupt, numbered by group the 
 | `0xFF300000` | `0x30` | Disk | (24, not raised yet) |
 | `0xFF310000` | `0x31` | Host files (semihosting) | (25, not raised yet) |
 | `0xFF320000` | `0x32` | Peripheral ports (plug-in media) | 26 |
-| `0xFF400000`–`0xFF430000` | `0x40`–`0x43` | The GPU (plan/v2 F5) | 32–35 |
-| `0xFF440000` | `0x44` | Framebuffer (text grid), until the GPU replaces it in F5 | — |
-| `0xFF450000` | `0x45` | Display (pixel framebuffer), until F5 | — |
-| `0xFF460000` | `0x46` | Blitter (2D rectangle operations), until F10 | 34 |
+| `0xFF400000` | `0x40` | The GPU: the text and bitmap planes and the copy engine ([Video](31-Video.md)); `0x41`–`0x43` are kept for its later levels | 32–35 |
+| `0xFF460000` | `0x46` | Blitter (2D rectangle operations), until F10 | 34 (the GPU's copy one too) |
 | `0xFFFF0000` | `0xFF` | System control | — |
 
 Every other slot is reserved.
@@ -89,7 +87,7 @@ address, write the length, then write the command to fire the transfer.
 
 A transfer whose `BLOCK_ADDR`/`BLOCK_LEN` runs past the end of RAM is **clamped** rather than
 rejected: it moves what fits, and a device with a count register (the terminal's
-`BlockReadCountRegister`, the DMA controller's `TransferredRegister`) reports the shortfall. An
+`BlockCount`, the DMA controller's `TransferredRegister`) reports the shortfall. An
 address that points into the null page or the BIOS, or past the end of memory, moves nothing.
 
 ## Devices implemented today
@@ -240,19 +238,25 @@ halt                    // the alarm's request (IRQ 17) ends it
 
 ### `TerminalDevice` (`0xFF000000`)
 
-A minimal character terminal.
+The program's standard input, output and error: a virtual terminal drawn on the GPU's text plane, in the machine's
+window, that reads what is typed there. It never touches the host's terminal. The whole of it - the output's
+escape sequences, the line discipline, raw keys, the scrollback, scripted input and the files a headless run
+keeps - is in [The virtual terminal and the debug log](33-Terminal-and-Debug-Log.md).
 
 | Offset | Register | Direction | Meaning |
 | --- | --- | --- | --- |
-| `0x00` | `StatusRegister` | Read | Bit 0 (`0x01`) set when input is available to read; bit 1 (`0x02`) is always set (the terminal is always ready to accept output in this simple implementation); bit 2 (`0x04`) set at **end of input**: the host closed the input and every byte it sent has been read. |
-| `0x04` | `OutputRegister` | Write | A 32-bit store sends its **low byte** to the process's standard output; the rest of the word is ignored. A buffer goes through the block registers. |
-| `0x08` | `InputRegister` | Read | Reads the next byte from a small 64-byte input ring buffer (`pushInput()`, called by the host embedding the VM), or `0` if nothing is buffered. |
-| `0x0C` | `BytesAvailableRegister` | Read | How many bytes are currently buffered and unread. |
-| `0x10` | `BlockReadCountRegister` | Read | How many bytes the most recent block read actually moved into RAM (a short read is how a program learns its input ended early). |
-| `0x14` | `DroppedInputRegister` | Read | How many input bytes were discarded because the ring was full (truncated to 32 bits). |
-| `0x18` | `ModeRegister` | Read/write | Write `1` (`ModeRaw`) to ask the host for keys as they are pressed; read what the host granted: bit 0 raw, bit 1 (`ModeKeystrokes`) the keys arrive on the keyboard's `KeyRegister`. Reads `0` when the host cannot. |
-| `0x1C` | `ErrorOutputRegister` | Write | Like `OutputRegister`, for the **error stream**: under `ceres run` it goes to the host's stderr, so a program's diagnostics stay out of what it prints (`2>err.txt` separates them). The debugger shows both. |
-| `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` reads from the input ring into RAM; `2` writes RAM out as characters; `3` writes RAM out to the error stream. |
+| `0x00` | `Status` | Read | Bit 0 input waiting; bit 1 ready for output (always); bit 2 end of input (Ctrl+D); bit 3 Ctrl+C pending. |
+| `0x04` | `Output` | Write | The low byte to the output: UTF-8, controls and ANSI sequences. |
+| `0x08` | `Input` | Read | The next input byte, or `0` when there is none. |
+| `0x0C` | `Available` | Read | Input bytes waiting. |
+| `0x10` | `Mode` | Read/write | Bit 0 raw, bit 1 echo, bit 2 history, bit 3 interrupt 19 when input comes (`0xE` at start). |
+| `0x14` | `ErrorOutput` | Write | The low byte to the output, in the error colour. |
+| `0x18` | `Control` | Read/write | Bit 0 on, bit 1 cursor visible, bit 2 scrollback, bit 3 autoscroll (`0xF` at start). |
+| `0x1C`/`0x20` | `Cols`/`Rows` | Read | The screen, in cells. |
+| `0x24`/`0x28` | `CursorX`/`CursorY` | Read/write | The cursor. |
+| `0x2C` | `InterruptAck` | Write | `1` clears a pending Ctrl+C. |
+| `0xF0`/`0xF4`/`0xF8` | Block registers | Write | `1` writes RAM to the output, `2` reads input into RAM, `3` writes RAM to the error stream. |
+| `0xFC` | `BlockCount` | Read | Bytes the last block command moved. |
 
 ```casm
 // print one character
@@ -265,56 +269,15 @@ str  [r13 + 0], r0
     ldrb r2, [r1]
     cmp r2, 0
     jz .print_end
-    str  [r13 + 0], r2   // r13 is still the OutputRegister's address
+    str  [r13 + 0], r2   // r13 is still the Output register's address
     add r1, r1, 1
     jp .print_loop
 .print_end:
 ```
 
-**Raw keys.** A console hands a program whole lines, and only once Enter is pressed: the keys before it
-are held back by the console's own line editor, and an arrow or Home never arrives, because that editor
-uses it. That suits `scanf`; it does not suit a menu. A program that wants each key as it is pressed writes
-`ModeRaw` to `ModeRegister` and reads back what it was given:
-
-- `ModeRaw | ModeKeystrokes` (`3`): the host took the console out of line mode, or has a window with a keyboard.
-  The keys arrive on the [keyboard's](#keyboarddevice-0xff100000) `KeyRegister`, in the order they were typed,
-  with no echo (the program draws what it wants shown). Writing `0` puts the console back.
-- `0`: nothing changed. The input is a pipe or a file, so the program keeps reading the terminal's bytes -
-  a menu can still be driven from a file that spells an arrow key the way a terminal sends it (`ESC [ A`).
-
-The host switches the console on the thread that reads it, restores it when the machine stops (a
-program that exits while raw included), and leaves Ctrl-C alone. In a window the keys already come from
-the window's keyboard, so the console stays as it is and a program is granted `3` straight away. When the
-program has not asked for raw keys, a window's keystrokes are also written to the terminal's input ring as
-bytes (a character as UTF-8, Enter as `\n`, Backspace as `\b`, an arrow as `ESC [ A` and so on), so a program
-reading its input as a stream sees what was typed; once it has asked for raw keys they are not, because they
-would only pile up unread.
-
-**End of input.** Bit 2 of the status register is what tells "no data yet" from "no data ever": it is
-set only once the host has closed the input *and* the ring is empty, so a reader checks bit 0 first and
-bit 2 second. `ceres run` closes the input when its standard input ends (a pipe running dry, or Ctrl-Z /
-Ctrl-D at a console), and closing raises the terminal's interrupt so a program halted waiting for a byte
-wakes up to see it. A host embedding the machine calls `closeInput()`. The bit never sets on a terminal
-nobody closed.
-
-`ceres run` feeds the ring from its own standard input, and does so with flow control: everything the
-host gives the machine waits in the driver's input hub and goes in between two slices of the machine's
-time, stamped with the cycle it went in at (`ceres run --record` writes those stamps, `--replay` feeds
-them back). The hub gives the ring only what it has room for, so a piped file longer than 63 bytes
-arrives whole however busy the program is. (The ring keeps one slot free, so it holds at most 63
-bytes.) Only a host that calls `pushInput()` itself — a debugger, an embedding — can overflow it, and
-for that source dropping is still the behaviour: `DroppedInputRegister` counts what was lost.
-
-Each `pushInput()` call that actually adds a byte to the ring buffer also raises `UserInterrupt3` (19) —
-so a program need not poll `StatusRegister` in a busy loop to notice input; it can `sti`/`halt` instead
-and be woken the instant a byte arrives, the same wake-up pattern the timer uses above. See
-[Interrupts and exceptions](08-Interrupts-and-Exceptions.md) and
-[Interrupt vector binding](26-Interrupt-Vector-Binding.md) for how a program installs a handler for
-it rather than falling through to the BIOS's default one.
-
-The block registers work here too: writing a RAM address to `BLOCK_ADDR`, a length to `BLOCK_LEN`,
-and `2` to `BLOCK_CMD` prints that many bytes in three word-stores instead of a byte-by-byte loop —
-this is exactly what [`examples/main.casm`](../Ceres/examples/main.casm)'s `print` routine does.
+Writing a RAM address to `BlockAddress`, a length to `BlockLength` and `1` to `BlockCommand` prints that many bytes
+in three stores instead of a loop - this is what [`examples/main.casm`](../Ceres/examples/main.casm)'s `print`
+routine does.
 
 ### `DiskDevice` (`0xFF300000`)
 
@@ -353,76 +316,13 @@ puts a host file behind it, creating it if it is not there. Writing `1` to `Comm
 out, and so does the device going away when the run ends, so a program that forgets to flush still
 keeps its data.
 
-### `FramebufferDevice` (`0xFF440000`)
+### `GpuDevice` (`0xFF400000`)
 
-A grid of characters that a program draws into and then shows. Not pixels: a grid redrawn whole is what a
-text game or interface on this VM actually wants — the terminal's own output is a stream that only ever
-moves forward. Shown in the host's **window** (see below) or as text on the terminal.
-
-| Offset | Register | Direction | Meaning |
-| --- | --- | --- | --- |
-| `0x00` | `CommandRegister` | Write | `1` clears the grid and rewinds the write cursor; `2` shows the frame. |
-| `0x04` | `WidthRegister` | Read/write | Columns, up to 200. Zero or more than that is ignored as a typo. |
-| `0x08` | `HeightRegister` | Read/write | Rows, up to 100. Resizing clears the grid. |
-| `0x0C` | `DataRegister` | Write | One cell per word write, continuing from where the last write left off. |
-| `0x10` | `ModeRegister` | Read/write | Where a frame should go: `0` `ModeAuto` (the default), `1` `ModeTerminal`, `2` `ModeWindow`. Anything else is ignored. |
-| `0x14` | `OutputRegister` | Read | Where a frame goes now: `1` `OutputTerminal` or `2` `OutputWindow`. |
-| `0xF0`/`0xF4`/`0xF8` | Block registers | Write (write only) | `2` writes a run of cells from RAM in one trigger; `3` a run of attributes. |
-
-**Where a frame goes.** A machine has a screen, so by default (`ModeAuto`) presenting a frame shows it in the
-host's window; the window opens when the first frame arrives, so a program that never shows one opens none.
-`ModeTerminal` prints the frame as text on the terminal instead (one line per row, with SGR escape sequences if
-any cell has a colour), even where there is a window. `ModeWindow` asks for the window explicitly and is the
-same as `ModeAuto` where there is one. Where the host has **no window** - a build without SDL, `ceres run
---terminal`, or `CERES_HEADLESS` set in the environment to anything but `""`, `0` or `false` - every mode ends up on
-the terminal, so a program that asks for the window still shows something; `OutputRegister` reads what
-actually happens. A host that finds it cannot open a window after all (no display) says so once on standard
-error and gives that frame and every later one to the terminal.
-
-The frame the window draws is the grid **as it was when the program presented it**, not as it is when the host
-gets round to drawing it (between slices of instructions), so a program that starts on its next frame does not tear
-this one; presenting twice in a slice shows the later. In the window each cell is 8 x 16 pixels of a bitmap font
-(the standard library's 5x7 dot-matrix shapes, `video/default_font.h`) in the 16-colour palette the attribute picks
-(attribute 0 is light grey on black); the strokes of `| - _ =` run to the edge of their cell and a `+` reaches only
-toward the strokes it can join, so a box drawn with them is a box. The window's size follows the grid, at the
-largest whole scale that fits 1280 x 720, and stays crisp when resized. `TextRenderer` (`video/text_renderer.h`) does the
-drawing and needs no window, which is how it is tested.
-
-The window closes when the machine stops, like the terminal's output stays: a program that wants its last
-frame looked at waits for a key first.
-
-```casm
-li   r1, 20
-la   r13, 0xFF440004   // GPU_WIDTH
-str  [r13 + 0], r1
-li   r1, 10
-la   r13, 0xFF440008    // GPU_HEIGHT
-str  [r13 + 0], r1
-li   r1, 1
-la   r13, 0xFF440000     // GPU_CMD
-str  [r13 + 0], r1        // clear
-// ... write BLOCK_ADDR/BLOCK_LEN, then 2 to BLOCK_CMD (0xFF4400F8) to blit the whole grid ...
-li   r1, 2
-str  [r13 + 0], r1         // show it
-```
-
-A cell holds one byte of Latin-1: printable ASCII, and `0xA0`–`0xFF` for the code points U+00A0–U+00FF
-(the accented letters of Spanish, French, German or Portuguese, `¿`, `¡`, `°`, `£`…), which the window
-draws with the same 5x7 glyphs as the standard library's font and the terminal receives in UTF-8. A control
-byte — below `0x20`, or `0x7F`–`0x9F` — is shown as a space, so a stray one cannot move the host terminal's
-own cursor. (The standard library's `fb_text` takes UTF-8 and stores each character's code point; one above
-U+00FF becomes `?`.)
-
-**Colour.** Each cell also has an attribute byte. A word written to `DataRegister` holds the character
-in bits 7:0 and the attribute in bits 15:8, so one store sets both. Attribute `0` means the terminal's
-own colours; otherwise the low nibble is the foreground and the high nibble the background, numbered like
-the ANSI palette — 0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 white, and 8–15 the
-bright versions. A frame with any coloured cell is presented with SGR escape sequences (each row ends back
-on the default colours); a frame with none is the plain text it always was. Block command `3` writes a
-run of attribute bytes, one per cell in the same row-major order, with a cursor of its own; clearing the
-grid resets the attributes too. A presented frame goes to
-stdout by default, and a host that would rather route it elsewhere — an editor, a test —
-installs a sink with `setPresentSink`.
+The machine's screen: a simulated GPU that composes a frame from the VRAM at every vertical blank - the background
+colour, a bitmap plane (V1) and a text plane of 8 x 16 cells (V0) on top - and a copy engine that moves and fills
+memory without the CPU. It raises interrupts 32 (vertical blank), 33 (a line), 34 (a copy done) and 35 (a fault).
+The registers, the VRAM it sets up at start, the cell and pixel formats and where the frames go are in
+[Video](31-Video.md).
 
 ### `DmaController` (`0xFF020000`)
 
@@ -508,13 +408,13 @@ flag — so a game can tell a held key from a freshly pressed one, or stop an ac
 layout made of it — capitals, accents, dead keys, an input method. A separate 64-entry queue carries that:
 the host calls `pushText(codePoint)` (or `pushText(utf8)`, which decodes and skips malformed bytes) and a
 program pops code points from `TextRegister`. Pushing text raises the same interrupt as a key event, and a
-full queue drops the character. `ceres run --window` feeds it from SDL's text input.
+full queue drops the character. The window feeds it from SDL's text input.
 
 **Keystrokes.** The event queue and the text queue are separate, so a program reading both cannot tell
 whether the `a` or the Enter came first, and Enter, Escape and the arrows type no text at all. The
 `KeyRegister` merges them into one ordered stream: the device itself queues each typed character, and each
 *press* of a named key (a release, and a key that types a character, add nothing here), so any host that
-feeds `pushText` and `pushKey` gets it - a window, a raw console, an embedding, a test. It holds 64 entries
+feeds `pushText` and `pushKey` gets it - a window, an embedding, a test. It holds 64 entries
 like the others and raises the same interrupt. This is what a menu or a text field reads.
 
 Events queue up in a 64-entry ring, exactly like the terminal's input. The host feeds the device one
@@ -551,45 +451,6 @@ The host reports movement with `pushMotion(dx, dy, buttons, wheel)`; deltas and 
 until read, and each push that changes state raises `UserInterrupt5` (interrupt 21). Absolute
 position and buttons are plain state and never reset.
 
-### `DisplayDevice` (`0xFF450000`)
-
-A pixel framebuffer, the display half of the "consola retro" the roadmap wants: a grid of RGB32
-pixels (`0x00RRGGBB`, top byte ignored) that a program draws into and then presents. It is a
-different surface from the text `FramebufferDevice` above, not a replacement — text goes to the
-framebuffer, pixels to the display.
-
-| Offset | Register | Direction | Meaning |
-| --- | --- | --- | --- |
-| `0x00` | `CommandRegister` | Write | `1` clears the surface to black and rewinds the cursor; `2` presents the frame. |
-| `0x04` | `WidthRegister` | Read/write | Pixel columns, up to 1280. Zero or more than that is ignored as a typo. |
-| `0x08` | `HeightRegister` | Read/write | Pixel rows, up to 720. Resizing clears the surface. |
-| `0x0C` | `DataRegister` | Write | One pixel per word write (an index in the indexed mode), continuing from where the last write left off. |
-| `0x10` | `ModeRegister` | Read/write | `0` RGB32 (the default), `1` **indexed**: a pixel is one byte, an index into the palette. Switching clears the indexed pixels and rewinds the cursor. |
-| `0x14` | `PaletteIndexRegister` | Write | The palette entry (0–255) the next `PaletteData` write sets. |
-| `0x18` | `PaletteDataRegister` | Write | RGB32 for that entry; the index moves on to the next, so 256 writes set the whole palette. |
-| `0x1C` | `ScrollXRegister` | Read/write | The column shown at the left edge; what goes off one side comes back on the other. |
-| `0x20` | `ScrollYRegister` | Read/write | The row shown at the top, wrapping the same way. |
-| `0xF0`/`0xF4`/`0xF8` | Block registers | Write (write only) | `2` blits a run of pixels from RAM in one trigger; `BLOCK_LEN` is bytes (a multiple of 4, or any count in the indexed mode, a byte a pixel). |
-
-A presented frame goes through the palette (indexed mode) and the scroll: the frame the host sees is what the
-screen shows, and `DisplayDevice::frame()` keeps the last one for a window to draw. The host routes a presented
-frame with `setFrameSink(width, height, pixels)`; without a sink nothing
-happens, so a headless build stays silent and `ceres run --window` uploads the pixels into an SDL
-texture instead (see the [SDL3 plan](29-SDL3-Integration-Plan.md)).
-
-```casm
-li   r1, 320
-la   r13, 0xFF450004   // DISP_WIDTH
-str  [r13 + 0], r1
-li   r1, 200
-la   r13, 0xFF450008   // DISP_HEIGHT
-str  [r13 + 0], r1
-// ... write BLOCK_ADDR/BLOCK_LEN, then 2 to BLOCK_CMD (0xFF4500F8) to blit the pixels ...
-li   r1, 2
-la   r13, 0xFF450000   // DISP_CMD
-str  [r13 + 0], r1     // present
-```
-
 ### `GamepadDevice` (`0xFF120000`)
 
 A gamepad, **polled rather than event-driven**: a game loop reads the button mask and the axes every
@@ -617,7 +478,7 @@ la   r13, 0xFF120000   // Gamepad's base
 
 A tone generator: one voice, a note at a time. Not a sample player — a beeper with a choice of timbre,
 the audio half of the retro console. The device holds what the program asked for; a host with speakers
-installs a sink (`setToneSink`) that plays it, and `ceres run --window` does so through SDL. Without a
+installs a sink (`setToneSink`) that plays it, and `ceres run` does so through SDL when it has a window. Without a
 host to play it the machine is silent and never busy.
 
 | Offset | Register | Direction | Meaning |
@@ -740,7 +601,7 @@ operation per function.
 
 ### `BlitterDevice` (`0xFF460000`)
 
-Rectangle operations on RGB32 surfaces in RAM, done by the host rather than by the program's instructions —
+Rectangle operations on RGB32 surfaces in RAM or VRAM, done by the host rather than by the program's instructions —
 what a game's frame spends most of its time on. A surface is an address (its first pixel) and a stride (bytes
 from one row to the next); an operation is a width, a height and a command, carried out at once.
 
@@ -754,7 +615,7 @@ from one row to the next); an operation is a width, a height and a command, carr
 | `0x20` | `ScaleRegister` | Write | 1–8: each source pixel becomes a block this size in `CopyScaled`. |
 | `0x24` | `PaletteAddressRegister` | Write | 256 RGB32 entries in RAM, for the indexed copies. |
 | `0x28` | `ControlRegister` | Read/write | Bit 0: raise interrupt 34 when an operation is done. |
-| `0x2C` | `StatusRegister` | Read | Bit 0: the last operation ran a row outside RAM and stopped there. |
+| `0x2C` | `StatusRegister` | Read | Bit 0: the last operation ran a row outside RAM and VRAM and stopped there. |
 | `0x30` | `PixelsRegister` | Read | How many destination pixels the last operation wrote. |
 
 | Command | Operation |
@@ -769,6 +630,8 @@ from one row to the next); an operation is a width, a height and a command, carr
 ## Related pages
 
 - [Instruction set](05-Instruction-Set.md) — `ldr`/`str` and the rest; there is no dedicated I/O family any more.
+- [Video](31-Video.md) — the GPU.
+- [The virtual terminal and the debug log](33-Terminal-and-Debug-Log.md) — the terminal in full.
 - [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — how the timer's, the terminal's and the DMA controller's interrupts reach your handler.
 - [Virtual memory and paging](27-Virtual-Memory-and-Paging.md) — a device's MMIO window composes with paging for free: mapping it into a program's virtual space is an ordinary page table entry.
 - [Known limitations](19-Known-Limitations.md) — which devices are still stubs.
