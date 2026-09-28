@@ -23,11 +23,14 @@
 
 ### F7.2 · El shell
 
-- **Repos**: STDLIB · **Depende de**: F7.1
-- **Archivos**: crear `tools/shell/shell.c` (o `bin/shell/`, según encaje con el build) y su regla de build e instalación en `sysroot/bin`.
+- **Repos**: STDLIB (y CeresASM: el aviso de una carga fallida nombra el programa, no la ruta del host) · **Depende de**: F7.1
+- **Archivos**: `bin/shell/shell.c`; `src/ceres/run.c` e `include/ceres/sys.h` (`sys_run`, el comando 3);
+  `CMakeLists.txt` (paso 5: `<build>/bin/shell.cres`, instalado en `<prefix>/bin`), `tools/install.ps1`,
+  `tools/common.ps1` (`Build-Program`), `tools/runtests.js` y `tools/runtests.ps1` (paso del shell);
+  `tests/shell/` (sesiones `.type`/`.expected`/`.stderr`/`.status`, `files/` y `greet.c`); `tests/test_sys.c`.
 - **Pasos**: prompt `ceres:<dir>>`; comandos `help`, `ls`, `cd`, `cat`, `run`, `clear`, `mem`, `time`, `info`,
   `reset`, `exit` (`play` se añade en F9 y F11); historial por el terminal virtual; errores claros.
-- **Aceptación**: [ ] Tests con `--type` que recorren cada comando y comparan el transcript.
+- **Aceptación**: [x] Tests con `--type` que recorren cada comando y comparan el transcript.
 - **Commit**: `Add the Ceres shell (F7.2)`
 
 ### F7.3 · Documentación
@@ -49,3 +52,15 @@
   que da al hijo. El shell es `<sysroot>/bin/shell.cres`, con `--sysroot` o `CERES_SYSROOT`; en modo shell el
   directorio del host es el actual si no hay `--host-dir`. Un fallo no atendido en el programa se informa (log y
   pantalla) antes de volver al shell.
+- **F7.2**: el shell es un programa normal (`bin/shell/shell.c`, enlazado con el archivo a -O2). Guarda su
+  directorio en el `PWD` que da al hijo y lo recupera al volver; el historial y la pantalla los conserva el
+  terminal. Un programa también se ejecuta por su nombre (`snake`, `snake.cres`). Saluda cuando la pantalla está
+  limpia (arranque o `reset`) y, al volver de un programa que acabó con estado distinto de 0, dice
+  `(exit status N)`. `reset` es el comando 2 (reinicio completo: pantalla e historial limpios); `exit [n]` apaga la
+  máquina con ese estado; el fin de la entrada (Ctrl+D, o el final de `--type`) también sale. Ctrl+C en el prompt
+  descarta la línea. `mem` redondea a KiB/MiB para que su salida no cambie con cada byte del programa. El
+  historial no se puede probar con `--type` (en modo cocinado ESC es la tecla Esc; las flechas necesitan `--keys`):
+  lo cubre el test del terminal en CeresASM. Los dos runners construyen el shell en `build/shell/bin`, copian
+  `tests/shell/files` a `build/shell/host`, compilan ahí `tests/shell/*.c` (en `games/`) y teclean cada sesión con
+  `--rtc` fijo; `.gitattributes` deja esos ficheros sin conversión de fin de línea, porque `ls` enseña tamaños.
+  De paso: `tools/install.ps1 -Prefix` con una ruta absoluta fallaba (`Join-Path` de dos rutas absolutas).

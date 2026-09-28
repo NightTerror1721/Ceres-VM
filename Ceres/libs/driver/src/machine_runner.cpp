@@ -465,7 +465,12 @@ namespace ceres::driver
 			auto program = Program::loadFromFile(*path);
 			if (!program)
 			{
-				log.write(HostLog::Warning, std::format("Cannot load '{}': {}", request->path, program.error()));
+				// The reason names the file by its host path: the program knows it by its own.
+				std::string reason = program.error();
+				const std::string hostPath = path->string();
+				for (usize at = reason.find(hostPath); at != std::string::npos; at = reason.find(hostPath, at + request->path.size()))
+					reason.replace(at, hostPath.size(), request->path);
+				log.write(HostLog::Warning, std::format("Cannot load '{}': {}", request->path, reason));
 				return;
 			}
 			vm::ProgramArguments arguments{ std::move(request->arguments),

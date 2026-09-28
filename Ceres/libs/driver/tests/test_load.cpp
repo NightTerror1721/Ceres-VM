@@ -184,6 +184,8 @@ TEST(driver_load, a_load_that_fails_returns_to_the_program_and_the_log_says_why)
 	CHECK_EQ(result.status, 9);
 	CHECK_EQ(result.output, std::string{ "AF" });
 	CHECK(result.diagnostics.find("Cannot load 'child.cres'") != std::string::npos);
+	// The program's name for it, not where the host keeps it.
+	CHECK(result.diagnostics.find(setup.root.filename().string()) == std::string::npos);
 
 	// Without a host directory there is nothing to load from.
 	const CapturedRun bare = captureRun(RunCommand{ .input = setup.sysroot / "bin" / "shell.cres" });
