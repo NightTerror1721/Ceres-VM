@@ -21,8 +21,9 @@ namespace ceres::driver
 		std::istream* input = nullptr;
 		std::ostream* output = nullptr;
 		std::ostream* diagnostics = nullptr;
-		// Where Ceres is installed, in the order they are tried: the shell (plan/v2 F7) is shell/shell.cres in the
-		// first that has one. The command line passes installDirectories(); a run given none has no shell.
+		// Where Ceres is installed, in the order they are tried: the shell (plan/v2 F7) is the first of their
+		// shell/shell.cres and shell/shell-small.cres that fits the machine's RAM. The command line passes
+		// installDirectories(); a run given none has no shell.
 		std::vector<std::filesystem::path> installDirectories;
 	};
 

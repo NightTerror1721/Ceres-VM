@@ -47,7 +47,7 @@ pasos, criterios de aceptación (casillas), verificación y mensaje de commit. U
 | Ceres-C (compilador) | `D:\Projects\Ceres-C` | `main` | `Ceres-C` |
 | Ceres STDLIB (biblioteca de C) | `D:\Projects\Ceres Projects\Ceres STDLIB` | `main` | — |
 
-`CERES_PATH` es el directorio donde está instalado Ceres: `ceres`, `ceresc`, `shell/shell.cres` y `stdlib/`
+`CERES_PATH` es el directorio donde está instalado Ceres: `ceres`, `ceresc`, `shell/` (`shell.cres` y `shell-small.cres`) y `stdlib/`
 (`include` y `lib`); lo monta el instalador de Ceres Binaries (`D:\Projects\CeresBinaries`). `ceres` busca ahí el
 shell y `ceresc --stdlib` la biblioteca (y, si no, en su propio directorio). La STDLIB encuentra `ceres` y `ceresc`
 como `ceresc` encuentra `ceres`: la opción explícita, `CERES_PATH` (el directorio o el ejecutable) y luego el

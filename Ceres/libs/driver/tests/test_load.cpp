@@ -1,7 +1,8 @@
 // Loading and running a program from inside the machine (plan/v2 F7.1): the system control device's command 3 starts
 // a .cres of the host directory in place of the running program, and `ceres run --shell` - or `ceres run` without a
-// program - goes back to the shell whenever a program ends, with its exit status in CERES_STATUS. The shell is
-// shell/shell.cres in the first install directory that has one (CERES_PATH, then where ceres is).
+// program - goes back to the shell whenever a program ends, with its exit status in CERES_STATUS. The shell is the
+// first of the install directories' (CERES_PATH, then where ceres is; shell/shell.cres, then shell/shell-small.cres
+// in each) that fits the machine's RAM.
 
 #include "framework.h"
 #include "run_capture.h"
@@ -109,6 +110,34 @@ global main:
 .end:
     la   r13, 0xFFFF0000
     la   r0, 0x0701
+    str  [r13 + 0], r0
+    halt
+)";
+
+	// A shell that prints 'W' and ends, with 100000 bytes of .bss: more than a micro machine's 64 KiB of RAM.
+	const char* WholeShell = R"(
+@bss
+    let room: u8[100000]
+@text
+global main:
+    la   r4, 0xFF000004
+    li   r5, 87
+    str  [r4 + 0], r5
+    la   r13, 0xFFFF0000
+    li   r0, 1
+    str  [r13 + 0], r0
+    halt
+)";
+
+	// A shell that prints 'S' and ends, small enough for any machine.
+	const char* SmallShell = R"(
+@text
+global main:
+    la   r4, 0xFF000004
+    li   r5, 83
+    str  [r4 + 0], r5
+    la   r13, 0xFFFF0000
+    li   r0, 1
     str  [r13 + 0], r0
     halt
 )";
@@ -248,7 +277,7 @@ TEST(driver_load, without_a_shell_to_start_the_run_says_where_it_looked)
 	std::filesystem::create_directories(empty);
 	const CapturedRun result = captureRun(RunCommand{ .input = {} }, {}, {}, { empty });
 	CHECK_EQ(result.status, 1);
-	CHECK(result.diagnostics.find("no shell/shell.cres in '" + empty.string() + "'") != std::string::npos);
+	CHECK(result.diagnostics.find("no shell/shell.cres or shell/shell-small.cres in '" + empty.string() + "'") != std::string::npos);
 
 	const CapturedRun nowhere = captureRun(RunCommand{ .input = {} });
 	CHECK_EQ(nowhere.status, 1);
@@ -265,6 +294,35 @@ TEST(driver_load, the_shell_is_the_first_install_directorys_that_has_one)
 		.hostDirectory = setup.host, .shell = true }, {}, {}, { empty, setup.install });
 	CHECK_EQ(result.status, 0);
 	CHECK_EQ(result.output, std::string{ "ByoCERES_STATUS=7;" });
+}
+
+TEST(driver_load, the_shell_is_the_first_that_fits_the_machines_ram)
+{
+	const auto root = uniqueTempPath("ceres_load_shells");
+	const auto whole = root / "whole", both = root / "both";
+	assembleInto(whole / "shell", "shell.cres", WholeShell);
+	assembleInto(both / "shell", "shell.cres", WholeShell);
+	assembleInto(both / "shell", "shell-small.cres", SmallShell);
+
+	// With room for it, the whole shell; on micro, the small one - whatever the profile, `ceres run` has a shell.
+	const CapturedRun standard = captureRun(RunCommand{ .input = {} }, {}, {}, { both });
+	CHECK_EQ(standard.status, 0);
+	CHECK_EQ(standard.output, std::string{ "W" });
+	const CapturedRun micro = captureRun(RunCommand{ .input = {}, .machine = machineProfile(ProfileId::Micro) }, {}, {}, { both });
+	CHECK_EQ(micro.diagnostics, std::string{});
+	CHECK_EQ(micro.status, 0);
+	CHECK_EQ(micro.output, std::string{ "S" });
+
+	// A directory whose shell does not fit is passed over for the next one's that does.
+	const CapturedRun next = captureRun(RunCommand{ .input = {}, .machine = machineProfile(ProfileId::Micro) }, {}, {}, { whole, both });
+	CHECK_EQ(next.output, std::string{ "S" });
+
+	// None that fits: the run says so, and what the smallest needs.
+	const CapturedRun none = captureRun(RunCommand{ .input = {}, .machine = machineProfile(ProfileId::Micro) }, {}, {}, { whole });
+	CHECK_EQ(none.status, 1);
+	CHECK(none.diagnostics.find("no shell fits this machine's 65536 bytes of RAM") != std::string::npos);
+	CHECK(none.diagnostics.find((whole / "shell" / "shell.cres").string()) != std::string::npos);
+	std::filesystem::remove_all(root);
 }
 
 TEST(driver_load, the_install_directories_are_ceres_path_and_then_where_ceres_is)

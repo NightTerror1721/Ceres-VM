@@ -608,7 +608,8 @@ direcciones se publican en los registros del plano de texto; los programas las l
 
 Se eliminan `--terminal` y la entrada de consola del host. `ceres run` sin programa arranca el shell, `shell/shell.cres` en el
 directorio de `CERES_PATH` o, si no está allí, en el de `ceres`; con el shell, el directorio del host es el actual si
-no se da `--host-dir`.
+no se da `--host-dir`. Con cualquier perfil: si `shell.cres` no cabe en la RAM de la máquina (`micro`), arranca
+`shell/shell-small.cres`, el mismo shell en pequeño; se toma el primero que cabe, directorio a directorio.
 
 ## 11. STDLIB por niveles (NORMATIVA en nombres; contenido en cada fase)
 

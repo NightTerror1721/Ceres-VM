@@ -7,6 +7,7 @@
 #include <ceres/core/isa/disassembler.h>
 #include <ceres/debug/debug_cli.h>
 #include <ceres/debug/debug_server.h>
+#include <array>
 #include <cstdlib>
 #include <exception>
 #include <iostream>
@@ -219,41 +220,60 @@ namespace ceres::driver
 			return !text.empty() && text != "0" && text != "false";
 		}
 
-		// The shell of `ceres run` without a program, or with --shell: shell/shell.cres in the first of the install
-		// directories that has one (CERES_PATH, then where ceres is). Null, with the reason told, when there is none.
+		// The shells an install directory can have, the whole one first: shell-small.cres is the same shell made for the
+		// machines the other does not fit (micro's 64 KiB).
+		constexpr std::array<std::string_view, 2> ShellNames{ "shell.cres", "shell-small.cres" };
+
+		// The shell of `ceres run` without a program, or with --shell: the first of the install directories' shells
+		// (CERES_PATH, then where ceres is; shell/shell.cres, then shell/shell-small.cres in each) that fits the
+		// machine's RAM. Null, with the reason told, when none is there or none fits.
 		std::shared_ptr<const ShellProgram> findShell(const RunCommand& command, std::span<const std::filesystem::path> directories, std::ostream& err)
 		{
-			std::filesystem::path path;
+			const char* const why = command.input.empty() ? "No program was given" : "--shell";
+			std::filesystem::path smallest;      // of the shells that do not fit, the one that needs least
+			usize smallestNeeds = 0;
 			for (const auto& directory : directories)
-			{
-				std::error_code error;
-				if (const auto candidate = directory / "shell" / "shell.cres"; std::filesystem::is_regular_file(candidate, error))
+				for (const std::string_view name : ShellNames)
 				{
-					path = candidate;
-					break;
+					std::error_code error;
+					const auto path = directory / "shell" / name;
+					if (!std::filesystem::is_regular_file(path, error))
+						continue;
+					auto program = Program::loadFromFile(path);
+					if (!program)
+					{
+						err << "Failed to load the shell " << path.string() << ": " << program.error() << '\n';
+						return nullptr;
+					}
+					// Started as executeRun starts it when there is no program: its path, then the run's arguments.
+					ProgramArguments arguments{ { path.string() }, command.environment };
+					arguments.arguments.insert(arguments.arguments.end(), command.arguments.begin(), command.arguments.end());
+					const usize needs = CeresVM::requiredMemory(program->header(), arguments);
+					if (needs <= command.machine.ramBytes)
+						return std::make_shared<const ShellProgram>(ShellProgram{ std::move(*program), path.string() });
+					if (smallest.empty() || needs < smallestNeeds)
+					{
+						smallest = path;
+						smallestNeeds = needs;
+					}
 				}
-			}
-			if (path.empty())
+			if (!smallest.empty())
 			{
-				err << (command.input.empty() ? "No program was given" : "--shell") << ", and there is no shell: ";
-				if (directories.empty())
-					err << "nowhere to look for one.\n";
-				else
-				{
-					err << "no shell/shell.cres in ";
-					for (std::size_t i = 0; i < directories.size(); ++i)
-						err << (i == 0 ? "" : i + 1 == directories.size() ? " or " : ", ") << '\'' << directories[i].string() << '\'';
-					err << " (CERES_PATH names the directory Ceres is installed in).\n";
-				}
+				err << why << ", and no shell fits this machine's " << command.machine.ramBytes << " bytes of RAM: the smallest, "
+					<< smallest.string() << ", needs " << smallestNeeds << ".\n";
 				return nullptr;
 			}
-			auto program = Program::loadFromFile(path);
-			if (!program)
+			err << why << ", and there is no shell: ";
+			if (directories.empty())
+				err << "nowhere to look for one.\n";
+			else
 			{
-				err << "Failed to load the shell " << path.string() << ": " << program.error() << '\n';
-				return nullptr;
+				err << "no shell/shell.cres or shell/shell-small.cres in ";
+				for (std::size_t i = 0; i < directories.size(); ++i)
+					err << (i == 0 ? "" : i + 1 == directories.size() ? " or " : ", ") << '\'' << directories[i].string() << '\'';
+				err << " (CERES_PATH names the directory Ceres is installed in).\n";
 			}
-			return std::make_shared<const ShellProgram>(ShellProgram{ std::move(*program), path.string() });
+			return nullptr;
 		}
 
 		int executeRun(const RunCommand& command, HostServices services, const WindowHostFactory& windowHost)

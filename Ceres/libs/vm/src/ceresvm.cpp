@@ -14,13 +14,11 @@ namespace ceres::vm
 		return ((strings + 3) & ~usize{ 3 }) + pointers + 8;   // the strings word-aligned, and sp 8-aligned below
 	}
 
-	std::expected<void, std::string> CeresVM::check(const Program& program, const ProgramArguments& arguments) const noexcept
+	usize CeresVM::requiredMemory(const ProgramHeader& header, const ProgramArguments& arguments) noexcept
 	{
-		const ProgramHeader& header = program.header();
-
 		// The image, the program's own stack, and the system stack at the top that interrupt handlers run
 		// on: the image must end below systemStackFloor() with minimumStack to spare.
-		const usize requiredMemory = Memory::UnrestrictedSegmentStartValue +
+		return Memory::UnrestrictedSegmentStartValue +
 			header.textSize +
 			header.rodataSize +
 			header.dataSize +
@@ -28,10 +26,13 @@ namespace ceres::vm
 			header.minimumStack +
 			Memory::SystemStackSize +
 			argumentBlockSize(arguments);
+	}
 
-		if (requiredMemory > _memory.size())
+	std::expected<void, std::string> CeresVM::check(const Program& program, const ProgramArguments& arguments) const noexcept
+	{
+		if (const usize required = requiredMemory(program.header(), arguments); required > _memory.size())
 		{
-			return std::unexpected("Program requires at least " + std::to_string(requiredMemory) +
+			return std::unexpected("Program requires at least " + std::to_string(required) +
 				" bytes of memory, but only " + std::to_string(_memory.size()) + " bytes are available.");
 		}
 

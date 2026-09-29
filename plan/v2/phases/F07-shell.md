@@ -90,3 +90,13 @@
   `CERES_PATH`. El shell pasa a `shell/shell.c`. El paquete y los instaladores (Windows, Linux, macOS) son el
   proyecto Ceres Binaries (`D:\Projects\CeresBinaries`). Commits: cc@c9018ee, lib@339e8c7 y el de CeresASM que
   añade esta nota.
+- **Un shell para cada máquina** (tras F8, antes de F9): `ceres run --profile micro` sin programa no tenía shell; el
+  de la STDLIB pedía 124 KB de RAM y `micro` tiene 64 KiB (los demás perfiles ya lo arrancaban). La STDLIB construye
+  ahora dos: `shell/shell.cres` y `shell/shell-small.cres`, el mismo `shell/shell.c` con `SHELL_SMALL`, que formatea
+  lo que imprime con un `printf` mínimo propio (`%s %d %u %c`, `-`, `0` y anchura) en lugar del de la biblioteca,
+  cuya coma flotante era la mitad del shell; `time` escribe la fecha a mano en los dos (`strftime` traía el `printf`
+  entero). Los dos se enlazan con `--gc-sections`: el completo pide unos 90 KB y el pequeño unos 53 KB. `ceres`
+  arranca el primero que cabe en la RAM de la máquina (`CeresVM::requiredMemory`, la cuenta de `check()`), de
+  `shell.cres` a `shell-small.cres` y directorio a directorio, y si ninguno cabe dice lo que pide el más pequeño.
+  Los runners teclean cada sesión de `tests/shell` en los dos (la misma salida) y una sesión nueva, `micro`, corre
+  en esa máquina. Ceres Binaries empaqueta los dos.

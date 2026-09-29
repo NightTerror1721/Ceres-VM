@@ -71,6 +71,11 @@ namespace ceres::vm
 		void placeArguments() noexcept;
 
 	public:
+		// The RAM `program` needs to start with `arguments`: the low 1 KiB, its image, its stack and the system stack
+		// at the top, and the argument block. What check() holds against the machine's; the driver asks it too, to
+		// choose the shell that fits.
+		static usize requiredMemory(const ProgramHeader& header, const ProgramArguments& arguments) noexcept;
+
 		explicit CeresVM(usize memorySize = Memory::DefaultSize, usize vramSize = Vram::DefaultSize) :
 			_memory(memorySize),
 			_vram(vramSize),

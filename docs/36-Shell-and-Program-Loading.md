@@ -54,6 +54,7 @@ returns `-1` only when the load failed.
 
 ```bash
 ceres run                        # the shell, from <CERES_PATH>/shell/shell.cres
+ceres run --profile micro        # the same on a micro machine: <CERES_PATH>/shell/shell-small.cres
 ceres run game.cres --shell      # game.cres first, then the shell
 ```
 
@@ -62,6 +63,12 @@ ceres run game.cres --shell      # game.cres first, then the shell
   directory `CERES_PATH` names first (a path to a file in it, such as `ceres` itself, stands for the directory),
   and then in the one it is in itself. With no shell in either, `ceres run` says where it looked and exits with
   status 1.
+- **The shell that fits.** An install directory can have two: `shell/shell.cres`, and `shell/shell-small.cres`, the
+  same shell built for the machines the other does not fit (the STDLIB builds it with its own small `printf`: the
+  whole one needs about 90 KB of RAM, more than `micro`'s 64 KiB, and the small one about 53 KB). `ceres` takes the
+  first that fits the machine's RAM - `shell.cres` before `shell-small.cres`, directory by directory - so the
+  machine has a shell whatever `--profile` and `--ram` make it. When none fits, it says what the smallest needs and
+  exits with status 1.
 - **`ceres run` without a program** runs the shell, and goes back to it whenever a program ends.
 - **`--shell`** does the same after a program given by name: the program runs first, then the shell.
 - **Going back.** When a program other than the shell ends - it shut the machine down, or an exception nobody
