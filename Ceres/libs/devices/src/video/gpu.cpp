@@ -71,7 +71,14 @@ namespace ceres::devices
 			{ 0x294, "CopyStatus",      RegisterAccess::Read,            0x0, false, "Bit 0 busy, bit 1 the last command faulted." },
 			{ 0x300, "TilePaletteBase", RegisterAccess::ReadWrite,       0x0, false, "The tile layers' palette: 256 entries of 0x00RRGGBB, 16 banks of 16 in 4 bpp." },
 			{ 0x304, "SpritePaletteBase", RegisterAccess::ReadWrite,     0x0, false, "The sprites' palette, the same way." },
-			LAYER(0, 0x340), LAYER(1, 0x360), LAYER(2, 0x380), LAYER(3, 0x3A0)
+			LAYER(0, 0x340), LAYER(1, 0x360), LAYER(2, 0x380), LAYER(3, 0x3A0),
+			{ 0x3C0, "AffineControl",   RegisterAccess::ReadWrite,       0x0, false, "As a layer's, and bit 11 repeats the map (without it, outside is transparent)." },
+			{ 0x3C4, "AffineMapBase",   RegisterAccess::ReadWrite,       0x0, false, "The affine layer's map." },
+			{ 0x3C8, "AffineTileBase",  RegisterAccess::ReadWrite,       0x0, false, "Its tiles." },
+			{ 0x3CC, "AffineOriginX",   RegisterAccess::ReadWrite,       0x0, false, "The map's x under the screen's top-left pixel, signed 24.8." },
+			{ 0x3D0, "AffineOriginY",   RegisterAccess::ReadWrite,       0x0, false, "Its y." },
+			{ 0x3D4, "AffineMatrixAB",  RegisterAccess::ReadWrite,       0x100, false, "pa in bits 15:0 (x per screen x), pb in 31:16 (x per screen y), signed 8.8." },
+			{ 0x3D8, "AffineMatrixCD",  RegisterAccess::ReadWrite,       0x1000000, false, "pc in bits 15:0 (y per screen x), pd in 31:16 (y per screen y)." },
 		};
 
 #undef LAYER

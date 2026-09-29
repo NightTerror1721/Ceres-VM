@@ -1,7 +1,7 @@
 #pragma once
 
-// One line of the Retro 2D level, V2, in software (plan/v2 SPEC 7.5): the tile layers over what the line already
-// holds (the background colour and the bitmap plane), in the order of their priorities. The software executor calls
+// One line of the Retro 2D level, V2, in software (plan/v2 SPEC 7.5): the tile layers and the affine layer over what
+// the line already holds (the background colour and the bitmap plane), in the order of their priorities. The software executor calls
 // it for every line of a frame in V2; what it draws is what every other executor has to match.
 
 #include <ceres/devices/video/retro2d.h>
@@ -18,8 +18,10 @@ namespace ceres::devices::video
 	public:
 		// What a layer's pixel is drawn at when it has nothing to draw there.
 		static inline constexpr u8 Transparent = 0xFF;
-		// The layers in the order they are drawn among the same priority, from the back (SPEC 7.5): 3, 2, 1, 0.
-		static inline constexpr u32 LayerSlots = Retro2D::LayerCount;
+		// A line buffer for each layer: the tile layers 0-3, then the affine one. Among the same priority they are drawn
+		// from the back (SPEC 7.5): the affine layer, then 3, 2, 1 and 0.
+		static inline constexpr u32 AffineSlot = Retro2D::LayerCount;
+		static inline constexpr u32 LayerSlots = Retro2D::LayerCount + 1;
 
 	private:
 		// A layer's pixels on the line being drawn: the colour, and the priority it is drawn at (or Transparent).
@@ -49,5 +51,6 @@ namespace ceres::devices::video
 	private:
 		const Palette& palette(Palette& cache, u32 base, const vm::Vram& vram);
 		void drawTileLayer(const TileLayer& layer, const Palette& palette, const vm::Vram& vram, u32 y, LayerLine& out);
+		void drawAffineLayer(const AffineLayer& affine, const Palette& palette, const vm::Vram& vram, u32 y, LayerLine& out);
 	};
 }

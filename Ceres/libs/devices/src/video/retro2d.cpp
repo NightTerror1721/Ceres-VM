@@ -12,7 +12,7 @@ namespace ceres::devices::video
 		for (const TileLayer& layer : _layers)
 			if (layer.enabled())
 				return true;
-		return false;
+		return _affine.enabled();
 	}
 
 	u32 Retro2D::read(u32 offset) const noexcept
@@ -35,6 +35,13 @@ namespace ceres::devices::video
 		{
 			case TilePaletteBaseRegister: return _tilePaletteBase;
 			case SpritePaletteBaseRegister: return _spritePaletteBase;
+			case AffineControlRegister: return _affine.control;
+			case AffineMapBaseRegister: return _affine.mapBase;
+			case AffineTileBaseRegister: return _affine.tileBase;
+			case AffineOriginXRegister: return _affine.originX;
+			case AffineOriginYRegister: return _affine.originY;
+			case AffineMatrixABRegister: return _affine.matrixAB;
+			case AffineMatrixCDRegister: return _affine.matrixCD;
 			default: return 0;
 		}
 	}
@@ -60,6 +67,13 @@ namespace ceres::devices::video
 		{
 			case TilePaletteBaseRegister: _tilePaletteBase = value; break;
 			case SpritePaletteBaseRegister: _spritePaletteBase = value; break;
+			case AffineControlRegister: _affine.control = value & LayerControl::Mask; break;
+			case AffineMapBaseRegister: _affine.mapBase = value; break;
+			case AffineTileBaseRegister: _affine.tileBase = value; break;
+			case AffineOriginXRegister: _affine.originX = value; break;
+			case AffineOriginYRegister: _affine.originY = value; break;
+			case AffineMatrixABRegister: _affine.matrixAB = value; break;
+			case AffineMatrixCDRegister: _affine.matrixCD = value; break;
 			default: break;
 		}
 	}

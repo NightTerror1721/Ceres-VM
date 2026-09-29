@@ -36,6 +36,25 @@ namespace ceres::devices::video
 
 		i32 low16(u32 word) noexcept { return static_cast<i16>(static_cast<u16>(word & 0xFFFFu)); }
 		i32 high16(u32 word) noexcept { return static_cast<i16>(static_cast<u16>(word >> 16)); }
+
+		// Pixel (fineX, fineY) of the tile a map entry names, as `layer` draws it: false when it is transparent, and
+		// otherwise its colour and the priority it is drawn at.
+		bool mapPixel(const TileLayer& layer, const std::array<u32, Retro2D::PaletteEntries>& palette, const vm::Vram& vram,
+			u32 entry, u32 fineX, u32 fineY, u32& colour, u8& priority) noexcept
+		{
+			const u32 size = layer.tileSize();
+			const u32 bpp = layer.bitsPerPixel();
+			const u32 px = (entry & MapEntry::FlipX) != 0 ? size - 1 - fineX : fineX;
+			const u32 py = (entry & MapEntry::FlipY) != 0 ? size - 1 - fineY : fineY;
+			const u64 tile = u64{ layer.tileBase } + u64{ entry & MapEntry::TileMask } * layer.tileBytes();
+			const u32 index = pictureIndex(vram, tile, size, bpp, px, py);
+			if (index == 0)
+				return false;
+			const u32 entryBank = (entry >> MapEntry::PaletteShift) & MapEntry::PaletteMask;
+			colour = palette[bpp == 8 ? index : ((entryBank + layer.paletteBank()) & 15u) * 16 + index];
+			priority = static_cast<u8>(std::min<u32>(3, layer.priority() + ((entry & MapEntry::Priority) != 0 ? 1 : 0)));
+			return true;
+		}
 	}
 
 	void RetroScanout::beginFrame() noexcept
@@ -60,11 +79,9 @@ namespace ceres::devices::video
 	void RetroScanout::drawTileLayer(const TileLayer& layer, const Palette& palette, const vm::Vram& vram, u32 y, LayerLine& out)
 	{
 		const u32 size = layer.tileSize();
-		const u32 bpp = layer.bitsPerPixel();
 		const u32 mapWidth = layer.mapWidth();
 		const u32 widthMask = mapWidth * size - 1;
 		const u32 heightMask = layer.mapHeight() * size - 1;
-		const u32 bank = layer.paletteBank();
 
 		u32 dx = 0, dy = 0;
 		if (layer.lineScroll())
@@ -87,19 +104,42 @@ namespace ceres::devices::video
 				column = mapX / size;
 				entry = vramHalf(vram, u64{ layer.mapBase } + 2 * (u64{ row } * mapWidth + column));
 			}
-			const u32 fineX = mapX % size;
-			const u32 px = (entry & MapEntry::FlipX) != 0 ? size - 1 - fineX : fineX;
-			const u32 py = (entry & MapEntry::FlipY) != 0 ? size - 1 - fineY : fineY;
-			const u64 tile = u64{ layer.tileBase } + u64{ entry & MapEntry::TileMask } * layer.tileBytes();
-			const u32 index = pictureIndex(vram, tile, size, bpp, px, py);
-			if (index == 0)
+			if (!mapPixel(layer, palette.colours, vram, entry, mapX % size, fineY, out.colours[x], out.priorities[x]))
+				out.priorities[x] = Transparent;
+		}
+	}
+
+	// The affine layer's pixels on line y: each is looked up through the matrix on its own. The coordinates are
+	// worked out in 64 bits, where nothing overflows, and shifted arithmetically, so -0.5 is pixel -1.
+	void RetroScanout::drawAffineLayer(const AffineLayer& affine, const Palette& palette, const vm::Vram& vram, u32 y, LayerLine& out)
+	{
+		const TileLayer layer = affine.asTileLayer();
+		const u32 size = layer.tileSize();
+		const u32 mapWidth = layer.mapWidth();
+		const i64 widthPixels = i64{ mapWidth } * size;
+		const i64 heightPixels = i64{ layer.mapHeight() } * size;
+		const bool wraps = affine.wraps();
+		i64 u = i64{ static_cast<i32>(affine.originX) } + i64{ affine.pb() } * y;
+		i64 v = i64{ static_cast<i32>(affine.originY) } + i64{ affine.pd() } * y;
+		for (usize x = 0; x < out.colours.size(); ++x, u += affine.pa(), v += affine.pc())
+		{
+			i64 mapX = u >> 8;
+			i64 mapY = v >> 8;
+			if (wraps)
+			{
+				mapX &= widthPixels - 1;
+				mapY &= heightPixels - 1;
+			}
+			else if (mapX < 0 || mapY < 0 || mapX >= widthPixels || mapY >= heightPixels)
 			{
 				out.priorities[x] = Transparent;
 				continue;
 			}
-			const u32 entryBank = (entry >> MapEntry::PaletteShift) & MapEntry::PaletteMask;
-			out.colours[x] = palette.colours[bpp == 8 ? index : ((entryBank + bank) & 15u) * 16 + index];
-			out.priorities[x] = static_cast<u8>(std::min<u32>(3, layer.priority() + ((entry & MapEntry::Priority) != 0 ? 1 : 0)));
+			const u32 column = static_cast<u32>(mapX) / size;
+			const u32 row = static_cast<u32>(mapY) / size;
+			const u32 entry = vramHalf(vram, u64{ layer.mapBase } + 2 * (u64{ row } * mapWidth + column));
+			if (!mapPixel(layer, palette.colours, vram, entry, static_cast<u32>(mapX) % size, static_cast<u32>(mapY) % size, out.colours[x], out.priorities[x]))
+				out.priorities[x] = Transparent;
 		}
 	}
 
@@ -117,8 +157,16 @@ namespace ceres::devices::video
 			drawTileLayer(layer, palette(_tilePalette, retro.tilePaletteBase(), vram), vram, y, out);
 			drawn[i] = true;
 		}
+		if (retro.affine().enabled())
+		{
+			LayerLine& out = _layers[AffineSlot];
+			out.colours.resize(line.size());
+			out.priorities.resize(line.size());
+			drawAffineLayer(retro.affine(), palette(_tilePalette, retro.tilePaletteBase(), vram), vram, y, out);
+			drawn[AffineSlot] = true;
+		}
 
-		// From the back: each priority in turn, and within one the layers from 3 to 0.
+		// From the back: each priority in turn, and within one the affine layer, then the tile layers from 3 to 0.
 		for (u8 priority = 0; priority <= 3; ++priority)
 			for (u32 i = LayerSlots; i-- > 0;)
 			{

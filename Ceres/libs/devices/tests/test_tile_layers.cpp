@@ -193,8 +193,15 @@ TEST(tile_layers, every_tile_size_depth_and_map_size_matches_the_model)
 		CeresVM vm;
 		GpuDevice gpu;
 		gpu.attachTo(vm.io());
-		Layer layer{ .tileSize = c.tileSize, .bpp = c.bpp, .mapCode = c.mapCode, .mapHeightCode = c.mapHeightCode,
-			.scrollX = c.scrollX, .scrollY = c.scrollY, .bank = c.bank, .lineScroll = c.lineScroll };
+		Layer layer;
+		layer.tileSize = c.tileSize;
+		layer.bpp = c.bpp;
+		layer.mapCode = c.mapCode;
+		layer.mapHeightCode = c.mapHeightCode;
+		layer.scrollX = c.scrollX;
+		layer.scrollY = c.scrollY;
+		layer.bank = c.bank;
+		layer.lineScroll = c.lineScroll;
 		fill(layer, seed++);
 		upload(vm, layer);
 		show(vm, layer);

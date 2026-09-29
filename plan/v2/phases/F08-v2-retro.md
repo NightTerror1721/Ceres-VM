@@ -79,3 +79,8 @@ VRAM fuera del VBlank en `micro` y `pocket` (`FaultCode` 2) y §7.6, el scanout 
   bpp, mapas de 32 a 128 por lado, scrolls grandes y negativos, tabla de scroll por línea) píxel a píxel con un
   modelo escrito en el test y fija su hash; aparte, prioridades (número de capa y bit del tile) y transparencia sobre
   el plano bitmap.
+- **F8.2**: la capa afín usa las mismas entradas y tiles que las otras (volteos, banco de paleta y bit de
+  prioridad incluidos); su Control es el de una capa con b11 (repetir). Las coordenadas se calculan en 64 bits y se
+  desplazan con signo, así que −0,5 es el píxel −1 y ni los extremos (origen ±2^23, matriz ±128) desbordan.
+  `test_affine_layer` compara con un modelo diez casos (identidad, desplazada, girada 30° en los dos sentidos,
+  ampliada, reducida, espejada, cizallada, extremos; con vuelta y con recorte) y fija su hash.
