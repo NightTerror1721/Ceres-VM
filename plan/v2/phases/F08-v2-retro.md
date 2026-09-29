@@ -1,38 +1,62 @@
 # F8 · V2: Retro 2D
 
-- **Tamaño**: L · **Depende de**: F5, decisión P04 · **Repos**: CeresASM, STDLIB
+- **Tamaño**: L · **Depende de**: F5, decisión P04 (cerrada: D17) · **Repos**: CeresASM, STDLIB
 - **Objetivo**: tiles, sprites y efectos raster con color indexado, programados por registros y tablas en VRAM,
-  como las consolas de 8 y 16 bits. Todo en el `SoftwareExecutor` (el hardware llega en F12). P04 sólo bloquea F8.3.
-- **SPEC**: §7.1 (V2), §7.2, §7.3 (`0x300–0x3FF`, que esta fase fija y pasa a NORMATIVA).
+  como las consolas de 8 y 16 bits. Todo en el `SoftwareExecutor` (el hardware llega en F12).
+- **SPEC**: §7.1 (V2), §7.2, §7.3, §7.5 (`0x300–0x3FF` y los formatos en VRAM) y §7.6 (scanout por líneas), que esta
+  fase fija y pasa a NORMATIVA.
 
 ## Antes de empezar
 
-Fija en SPEC §7.3 la disposición exacta de `0x300–0x3FF` (capas, capa afín, sprites, tabla de líneas) y el
-formato de las entradas en VRAM (entrada de mapa de tiles de 16 bits: índice, paleta, flip, prioridad; entrada
-de OAM de 16 bytes: x, y, tile, tamaño, paleta, flip, prioridad). Commit `plan: fix the V2 register layout`.
+Hecho en el commit `plan: fix the V2 register layout`: SPEC §7.5 fija `0x300–0x3FF` (paletas, sprites, tabla de
+líneas, cuatro capas de `0x20` bytes y la capa afín), la entrada de mapa de 16 bits (tile 9:0, paleta 12:10,
+volteos 13 y 14, prioridad 15), la entrada de OAM de 16 bytes, la tabla de líneas, qué pasa con una escritura en
+VRAM fuera del VBlank en `micro` y `pocket` (`FaultCode` 2) y §7.6, el scanout por líneas.
+
+## Punto de partida
+
+- La GPU (`libs/devices/src/video/gpu.cpp`) tiene V0 y V1 (`ImplementedLevel = 1`); sus partes internas son
+  `text_plane`, `bitmap_plane`, `copy_engine` y `display_controller`, y el `SoftwareExecutor` compone el fotograma
+  entero con el estado del momento (`GpuDevice::compose`), que el runner llama en el observador del VBlank.
+- `MachineProfile::spritesPerLine` ya existe (`driver/profiles.h`) pero no llega a la GPU.
+- Las escrituras de la CPU en VRAM pasan por `ExecutionEngine::writeOutsideRam` y, las de bloque, por
+  `vramBlockSpan`; la DMA, el motor de copia y el terminal escriben la VRAM por su cuenta.
 
 ## Tareas
 
 ### F8.1 · Paletas y capas de tiles
-- **Depende de**: F5 y el commit de «Antes de empezar»
-- **Pasos**: 16 paletas de 16 y una de 256 en VRAM; 4 capas (mapa, tileset, tamaño de mapa 32–128, tile 8×8 o
-  16×16, 4 u 8 bpp, scroll, prioridad, banco de paleta, tabla de scroll por línea).
-- **Aceptación**: [ ] Tests por hash con cada combinación de tamaño y bpp.
+- **Repos**: CeresASM · **Depende de**: F5 y el commit de «Antes de empezar»
+- **Archivos**: nuevos `devices/video/retro2d.{h,cpp}` (el bloque de registros de V2: paletas, capas y, en las
+  tareas siguientes, la afín, los sprites y la tabla de líneas) y `devices/video/retro_scanout.{h,cpp}` (la línea
+  de V2 en software); `video/gpu.{h,cpp}` (`ImplementedLevel` 2, `0x300–0x3FF`), `video/gpu_executor.h`
+  (`ScanoutState::retro`), `video/software_executor.cpp`; test `devices/tests/test_tile_layers.cpp`.
+- **Pasos**: 16 paletas de 16 y una de 256 en VRAM (TilePaletteBase); 4 capas (mapa, tileset, tamaño de mapa 32–128,
+  tile 8×8 o 16×16, 4 u 8 bpp, scroll, prioridad, banco de paleta, tabla de scroll por línea).
+- **Aceptación**: [ ] Tests por hash con cada combinación de tamaño y bpp, contra un modelo de referencia del test.
 - **Commit**: `Add palettes and tile layers (F8.1)`
 
 ### F8.2 · Capa afín
-- **Pasos**: una capa con matriz 2×2 en 8.8 y origen; modo de vuelta o de recorte.
+- **Archivos**: `video/retro2d.{h,cpp}`, `video/retro_scanout.cpp`; test `devices/tests/test_affine_layer.cpp`.
+- **Pasos**: una capa con matriz 2×2 en 8.8 y origen en 24.8; modo de vuelta o de recorte.
 - **Commit**: `Add the affine layer (F8.2)`
 
-### F8.3 · Sprites · requiere P04
+### F8.3 · Sprites y VRAM en el VBlank (D17)
+- **Archivos**: `video/retro2d.{h,cpp}`, `video/retro_scanout.{h,cpp}` (evaluación de sprites por línea, que usa
+  también `SpriteStatus`), `video/gpu.{h,cpp}` (`Config::spritesPerLine` y `vramInVblankOnly`, `FaultCode` 2),
+  `vm/vram.h` (la compuerta de escritura de la CPU), `vm/execution_engine.h`, `driver/profiles.{h,cpp}`,
+  `driver/src/machine_runner.cpp`; tests `devices/tests/test_sprites.cpp` y el de la compuerta en `vm/tests`.
 - **Pasos**: OAM de 128 sprites en VRAM; tamaños de 8×8 a 64×64; flip; prioridad frente a las capas; límite de
-  sprites por línea del perfil y bit de desbordamiento; en `micro` y `pocket`, si P04 lo decide, la VRAM sólo se
-  escribe durante el VBlank.
+  sprites por línea del perfil y bit de desbordamiento; en `micro` y `pocket` la CPU sólo escribe la VRAM en el
+  VBlank o con la pantalla apagada.
 - **Commit**: `Add hardware sprites (F8.3)`
 
 ### F8.4 · Tabla de líneas y efectos raster
+- **Archivos**: `video/gpu.{h,cpp}` (recorrido por líneas: los tramos de estado de cada fotograma), `video/retro2d`
+  (tabla de líneas), `video/gpu_executor.h` y `software_executor.cpp` (componer por tramos),
+  `driver/src/machine_runner.cpp` (la ventana y `--frames` usan el fotograma recorrido); test
+  `devices/tests/test_line_table.cpp`.
 - **Pasos**: tabla en VRAM de (línea, registro, valor) que el scanout aplica al llegar a cada línea; la IRQ de línea
-  sigue disponible; el `SoftwareExecutor` compone por línea para que ambos efectos sean exactos.
+  sigue disponible; el `SoftwareExecutor` compone por línea (SPEC §7.6) para que ambos efectos sean exactos.
 - **Commit**: `Add the line table for raster effects (F8.4)`
 
 ### F8.5 · STDLIB, herramienta y ejemplos

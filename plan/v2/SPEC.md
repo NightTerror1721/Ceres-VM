@@ -407,8 +407,8 @@ A entero: truncan hacia cero y saturan (NaN → 0), como `ftoi`. A float: redond
   (`─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬█▀▄░▒▓■•▲▼`), a los que el terminal traduce esos puntos de código.
 - **Paleta al arrancar**: las 16 de ANSI (VGA), el cubo 6×6×6 de xterm y sus 24 grises.
 - **Límites retro** (D17): el límite de sprites por línea del perfil (tabla de §4) se aplica en todos los perfiles.
-  En `micro` y `pocket`, además, la VRAM sólo se puede escribir durante el VBlank; qué hace una escritura fuera de
-  él se fija en F8.3.
+  En `micro` y `pocket`, además, la CPU sólo puede escribir en la VRAM durante el VBlank o con la pantalla apagada
+  (§7.5, «VRAM en el VBlank»).
 
 ### 7.2 Composición (orden fijo, de fondo a frente)
 
@@ -430,7 +430,7 @@ El scanout compone por línea, no consume ciclos de GPU y aplica los límites po
 | `0x020` | Status | R | b0 ocupada; b1 fallo; b2 en VBlank; b3 flip pendiente |
 | `0x024` | IrqEnable | RW | b0 VBlank (32); b1 línea (33); b2 fence/copia (34); b3 fallo (35) |
 | `0x028` | IrqStatus | W1C | |
-| `0x02C` | FaultCode | R | |
+| `0x02C` | FaultCode | R | 1 dirección de un motor fuera de RAM y VRAM; 2 escritura de la CPU en VRAM fuera del VBlank (§7.5) |
 | `0x030` | FaultAddress | R | |
 | `0x100` | Width | RW | píxeles; ≤ resolución máxima del perfil |
 | `0x104` | Height | RW | |
@@ -444,10 +444,73 @@ El scanout compone por línea, no consume ciclos de GPU y aplica los límites po
 | `0x200–0x23F` | Plano de texto | RW | Enable `0x200`, Cols `0x204` (R), Rows `0x208` (R), CellsBase `0x20C`, CellFormat `0x210` (0: 16 bits, 1: 32 bits), FontBase `0x214`, GlyphCount `0x218`, PaletteBase `0x21C`, CursorX `0x220`, CursorY `0x224`, CursorShape `0x228` (1:0 nada, subrayado, bloque, barra; b8 parpadeo), ScrollbackBase `0x22C`, ScrollbackLines `0x230`, ScrollY `0x234`, ScrollbackHead `0x238`, ScrollbackCount `0x23C`. Las bases (celdas, fuente, paleta) se aplican con `Present` |
 | `0x240–0x27F` | Plano bitmap | RW | Enable `0x240`, Base `0x244`, BackBase `0x248`, Pitch `0x24C`, Format `0x250` (0 I1, 1 I2, 2 I4, 3 I8, 4 RGB565, 5 ARGB1555, 6 XRGB8888, 7 ARGB8888), Width `0x254`, Height `0x258`, ScrollX `0x25C`, ScrollY `0x260`, Buffers `0x264`, PaletteBase `0x268`, SpareBase `0x26C` (el tercer búfer). Base y PaletteBase se aplican con `Present`; con 2 búferes, Base y BackBase se intercambian en el VBlank; con 3, `Present` pone BackBase en cola y SpareBase pasa a ser BackBase |
 | `0x280–0x2BF` | Motor de copia | RW | Src `0x280`, Dst `0x284`, Length `0x288`, FillValue `0x28C`, Command `0x290` (1 copy, 2 fill), Status `0x294` (b0 ocupado, b1 fallo). Coste: 16 ciclos de GPU + 1 por cada 4 bytes (copia) u 8 (relleno); IRQ 34 al terminar; una dirección fuera de RAM y VRAM es `FaultCode` 1 (IRQ 35) |
-| `0x300–0x3FF` | V2–V3 | RW | Capas, capa afín, sprites, tabla de líneas (se fija en F8 y F10) |
+| `0x300–0x3FF` | Retro 2D | RW | Paletas, sprites, tabla de líneas, 4 capas de tiles y la capa afín (§7.5); `0x324–0x33F` y `0x3E0–0x3FF` quedan para V3 (F10) |
 
 Slots `0x41` (procesador de comandos: RingBase, RingSize, RingHead, RingTail, FenceCompleted, CmdStatus), `0x42`
 (estado 2D y vectorial) y `0x43` (estado 3D): PROVISIONALES, se fijan en F10, F13 y F14.
+
+### 7.5 Retro 2D, V2 (`0x300–0x3FF`; NORMATIVA desde F8)
+
+Los registros de V2 no esperan a `Present`: una escritura vale desde la línea siguiente (§7.6). Se ven con
+`Mode` ≥ 2. Al arrancar, y con el reset de la GPU, están a 0, salvo la matriz de la capa afín, que es la identidad.
+
+| Offset | Nombre | Acceso | Descripción |
+| --- | --- | --- | --- |
+| `0x300` | TilePaletteBase | RW | Paleta de las capas: 256 entradas `0x00RRGGBB`; en 4 bpp, 16 bancos de 16 |
+| `0x304` | SpritePaletteBase | RW | Paleta de los sprites, igual |
+| `0x308` | OamBase | RW | Los 128 sprites: 16 bytes cada uno |
+| `0x30C` | SpriteTileBase | RW | Los gráficos de los sprites (entrada de OAM, palabra 1) |
+| `0x310` | SpriteControl | RW | b0 sprites activos |
+| `0x314` | SpriteStatus | R | Del último fotograma, puesto en cada VBlank: b0 alguna línea tenía más sprites que el límite; bits 31:16 la primera |
+| `0x318` | SpriteLimit | R | Sprites por línea del perfil (§4) |
+| `0x31C` | LineTableBase | RW | La tabla de líneas |
+| `0x320` | LineTableCount | RW | Sus entradas; 0 la apaga |
+| `0x340 + 0x20·n` | Capa n (0–3) | RW | Control `+0x00`, MapBase `+0x04`, TileBase `+0x08`, ScrollX `+0x0C`, ScrollY `+0x10`, LineScrollBase `+0x14`; `+0x18` y `+0x1C` reservados |
+| `0x3C0–0x3DF` | Capa afín | RW | Control `0x3C0`, MapBase `0x3C4`, TileBase `0x3C8`, OriginX `0x3CC`, OriginY `0x3D0`, MatrixAB `0x3D4`, MatrixCD `0x3D8`; `0x3DC` reservado |
+
+- **Control de capa** (y de la afín): b0 activa; b1 tiles de 16×16 (0: 8×8); b2 8 bpp (0: 4 bpp); b5:4 prioridad
+  0–3 (3, delante); b7:6 ancho del mapa en tiles (0: 32, 1: 64, 2 y 3: 128); b9:8 alto, igual; b10 tabla de scroll
+  por línea (capas 0–3); b11 la capa afín repite el mapa (0: fuera de él es transparente); b15:12 banco de paleta.
+- **Mapa**: ancho × alto entradas de 16 bits, fila a fila, en MapBase. Entrada: bits 9:0 el tile; 12:10 la paleta
+  (en 4 bpp el banco es (paleta + banco de la capa) mod 16; en 8 bpp se ignora); 13 volteo horizontal; 14 vertical;
+  15 prioridad: el tile va un nivel por delante de su capa (como mucho, 3).
+- **Tiles**: en TileBase + índice × tamaño del tile (8×8: 32 bytes en 4 bpp, 64 en 8; 16×16: 128 y 256), fila a
+  fila; en 4 bpp dos píxeles por byte, el de la izquierda en los bits altos (como I4). El color 0 es transparente
+  (el 0 de cada banco en 4 bpp).
+- **Scroll**: el píxel (x, y) de la pantalla es el (x + ScrollX + dx, y + ScrollY + dy) del mapa, que se repite.
+  Con b10, dx y dy son la palabra de la línea y en LineScrollBase + 4·y (bits 15:0 dx, 31:16 dy, con signo); sin
+  él, 0.
+- **Capa afín**: OriginX y OriginY con signo en 24.8; MatrixAB = pa (15:0) y pb (31:16), MatrixCD = pc y pd, con
+  signo en 8.8. El píxel (x, y) es el (u, v) del mapa, con u = (OriginX + pa·x + pb·y) >> 8 y v = (OriginY + pc·x +
+  pd·y) >> 8 (desplazamiento aritmético). Mapa, tiles y entradas, como en las otras capas.
+- **Sprites**: entrada de OAM de 16 bytes. Palabra 0: bits 15:0 X, 31:16 Y (esquina superior izquierda en la
+  pantalla, con signo). Palabra 1: bits 15:0 el gráfico, en SpriteTileBase + índice × 32; 19:16 banco de paleta
+  (4 bpp); 21:20 ancho (8, 16, 32, 64); 23:22 alto, igual; 24 volteo horizontal; 25 vertical; 27:26 prioridad; 28
+  8 bpp; 31 visible. Palabras 2 y 3: reservadas (V3). El gráfico es una imagen de ancho × alto fila a fila, en 4 u
+  8 bpp como los tiles; el color 0 es transparente.
+- **Prioridad**, de fondo a frente: para p = 0…3, las capas de prioridad p (la afín, luego la 3, la 2, la 1 y la 0)
+  y después los sprites de prioridad p. Donde dos sprites se tapan manda el de índice menor, sea cual sea su
+  prioridad.
+- **Límite por línea**: los sprites visibles que tocan una línea se toman en orden de OAM; pasados SpriteLimit, los
+  demás no se dibujan en esa línea y se marca el desbordamiento (SpriteStatus).
+- **Tabla de líneas**: entradas de 8 bytes. Palabra 0: bits 15:0 la línea, 27:16 el offset de un registro de este
+  slot (múltiplo de 4); palabra 1: el valor. Al empezar cada línea visible, el scanout escribe, como lo haría la
+  CPU, los valores de las entradas de esa línea; se leen en orden y una entrada cuya línea ya pasó se salta. Sólo
+  valen BackgroundColor, ScrollX y ScrollY del plano bitmap y los registros de `0x300–0x3FF` salvo SpriteStatus,
+  SpriteLimit, LineTableBase y LineTableCount; las demás se ignoran. Lo escrito se queda, como una escritura de la
+  CPU.
+- **VRAM en el VBlank** (D17, `micro` y `pocket`): un almacenamiento de la CPU en la VRAM (también el de las
+  instrucciones de bloque) con la pantalla activa y fuera del VBlank no se hace: la GPU pone `FaultCode` 2 y
+  `FaultAddress`, e IRQ 35 si está activa. La DMA, el motor de copia y el terminal no tienen esa restricción.
+
+### 7.6 Scanout por líneas (NORMATIVA desde F8)
+
+Cada línea visible se compone con los registros que había al empezar: lo que la CPU escribe durante la línea L (por
+ejemplo, en la IRQ de línea de L) se ve desde la L + 1, y las entradas de la tabla de líneas de L se aplican antes
+de L (la tabla se lee al llegar a cada línea). El resto de la VRAM (tiles, mapas, paletas, OAM, tablas de
+scroll, celdas) se lee al componer el fotograma, en su VBlank. El
+fotograma que se ve en el VBlank n es el que acaba de recorrerse: un `Present` escrito durante él aplica las bases
+en ese VBlank y se ve desde el fotograma n + 1.
 
 ### 7.4 VRAM al arrancar
 
