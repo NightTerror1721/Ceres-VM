@@ -539,10 +539,10 @@ direcciones se publican en los registros del plano de texto; los programas las l
 | `--fullscreen` | Ventana a pantalla completa (también F11) |
 | `--exit-on-halt` | Cerrar la ventana al terminar el programa |
 | `--shell` | Volver al shell al terminar el programa (con su entorno y `CERES_STATUS=<código>`) |
-| `--sysroot <dir>` | Dónde está el shell: `<dir>/bin/shell.cres` (si no, `CERES_SYSROOT`) |
 
-Se eliminan `--terminal` y la entrada de consola del host. `ceres run` sin programa arranca el shell; con el shell,
-el directorio del host es el actual si no se da `--host-dir`.
+Se eliminan `--terminal` y la entrada de consola del host. `ceres run` sin programa arranca el shell, `shell/shell.cres` en el
+directorio de `CERES_PATH` o, si no está allí, en el de `ceres`; con el shell, el directorio del host es el actual si
+no se da `--host-dir`.
 
 ## 11. STDLIB por niveles (NORMATIVA en nombres; contenido en cada fase)
 

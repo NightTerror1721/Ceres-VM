@@ -3,7 +3,7 @@
 A program can hand the machine over to another program, and `ceres run` can put a **shell** in front of everything:
 start the machine, get a prompt, move through the host directory and run programs from it, as on a home computer.
 The machine side is small - one command of the system control device - and the shell itself is an ordinary program
-of the C library (Ceres STDLIB, `bin/shell/shell.c`).
+of the C library (Ceres STDLIB, `shell/shell.c`).
 
 ## Loading and running from inside the machine: command 3
 
@@ -53,15 +53,15 @@ returns `-1` only when the load failed.
 ## `--shell`, and `ceres run` without a program
 
 ```bash
-ceres run                                   # the shell, from <sysroot>/bin/shell.cres
-ceres run --sysroot C:\ceres                # the same, with the sysroot named
-ceres run game.cres --shell --sysroot C:\ceres   # game.cres first, then the shell
+ceres run                        # the shell, from <CERES_PATH>/shell/shell.cres
+ceres run game.cres --shell      # game.cres first, then the shell
 ```
 
-- **The shell** is `<sysroot>/bin/shell.cres`. The sysroot is `--sysroot <dir>`, or `CERES_SYSROOT` in the
-  environment: the directory the STDLIB installs into (`make install PREFIX=<dir>`, or `tools\install.ps1 -Prefix
-  <dir>`), the same one `ceresc --sysroot` takes. Without either, or with no shell there, `ceres run` says where it
-  looked and exits with status 1.
+- **The shell** is `shell/shell.cres` in the directory Ceres is installed in - the one that holds `ceres`, `ceresc`,
+  the C library and the shell, laid out by the Ceres installer (the Ceres Binaries project). `ceres` looks in the
+  directory `CERES_PATH` names first (a path to a file in it, such as `ceres` itself, stands for the directory),
+  and then in the one it is in itself. With no shell in either, `ceres run` says where it looked and exits with
+  status 1.
 - **`ceres run` without a program** runs the shell, and goes back to it whenever a program ends.
 - **`--shell`** does the same after a program given by name: the program runs first, then the shell.
 - **Going back.** When a program other than the shell ends - it shut the machine down, or an exception nobody
@@ -75,7 +75,7 @@ ceres run game.cres --shell --sysroot C:\ceres   # game.cres first, then the she
 
 ## The shell
 
-The STDLIB's shell (`bin/shell/shell.c`) prompts with its directory, `ceres:/games>`, and reads a line at a time on
+The STDLIB's shell (`shell/shell.c`) prompts with its directory, `ceres:/games>`, and reads a line at a time on
 the terminal - so the terminal's line editing and history (Up and Down) work, and carry over programs.
 
 | Command | What it does |
@@ -99,7 +99,7 @@ the error colour: `cd: no such directory: x`, `run: no such program: x`, `unknow
 Without a window the shell is driven like any program ([Running a program](16-CLI-and-Assembly-Pipeline.md#running-a-program)):
 
 ```bash
-ceres run --sysroot C:\ceres --host-dir games --headless --type session.txt --transcript out.txt
+ceres run --host-dir games --headless --type session.txt --transcript out.txt
 ```
 
 ## Related pages

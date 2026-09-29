@@ -80,3 +80,13 @@
   Descartados: que un programa lanzado desde el shell pueda leer lo tecleado por adelantado para el shell es lo
   que hace un terminal real; tras `reset` el shell conserva el entorno con que se cargó (y un `CERES_STATUS`
   viejo), pero con la pantalla limpia saluda en vez de repetir el estado.
+- **Tras el cierre (2026-09-29, a petición del usuario): `CERES_PATH` en vez de sysroot.** `CERES_PATH` es el
+  directorio de la instalación: `ceres`, `ceresc`, `shell/shell.cres` y `stdlib/include` + `stdlib/lib`. Desaparecen
+  `--sysroot` y `CERES_SYSROOT` de `ceres run` (el shell se busca en `CERES_PATH/shell/shell.cres` y, si no, junto
+  al ejecutable: `HostServices::installDirectories`, que llena `installDirectories()`), `--sysroot` de `ceresc`
+  (lo sustituye `--stdlib`: `stdlib/include` en la búsqueda de cabeceras y, con `--run`, `stdlib/lib` en la de
+  `-l` más `-lceres`, en `--ceres-path`, `CERES_PATH` o el directorio de `ceresc`) y `make install`,
+  `tools/install.ps1` y las reglas `install` de la STDLIB, cuyo build deja `stdlib/` y `shell/` como van en
+  `CERES_PATH`. El shell pasa a `shell/shell.c`. El paquete y los instaladores (Windows, Linux, macOS) son el
+  proyecto Ceres Binaries (`D:\Projects\CeresBinaries`). Commits: cc@c9018ee, lib@339e8c7 y el de CeresASM que
+  añade esta nota.

@@ -40,5 +40,5 @@ int main(int argc, char** argv)
 #ifdef CERES_HAS_SDL
 	window = &ceres::sdl::createSdlHost;
 #endif
-	return ceres::driver::runCommandLine(argc, argv, { &std::cin, &std::cout, &std::cerr }, std::move(window));
+	return ceres::driver::runCommandLine(argc, argv, { &std::cin, &std::cout, &std::cerr, ceres::driver::installDirectories() }, std::move(window));
 }

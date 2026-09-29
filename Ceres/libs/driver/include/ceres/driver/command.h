@@ -53,7 +53,7 @@ namespace ceres::driver
 
 	struct RunCommand
 	{
-		std::filesystem::path input;            // empty: the shell (<sysroot>/bin/shell.cres) is the program
+		std::filesystem::path input;            // empty: the shell (<ceres path>/shell/shell.cres) is the program
 		MachineProfile machine = defaultMachineProfile();   // --profile and the options that make it custom
 		std::filesystem::path diskImage;
 		bool listing = false;
@@ -80,7 +80,6 @@ namespace ceres::driver
 		std::filesystem::path keysFile;         // --keys: keyboard events at instants of the machine's time
 		GpuExecutor gpu = GpuExecutor::Auto;    // --gpu auto|software|hardware
 		bool shell = false;                     // --shell: back to the shell whenever the program ends (so without an input)
-		std::filesystem::path sysroot;          // --sysroot: where the shell is, <dir>/bin/shell.cres (else CERES_SYSROOT)
 	};
 
 	struct ProfileCommand

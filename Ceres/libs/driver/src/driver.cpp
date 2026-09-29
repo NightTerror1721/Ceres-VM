@@ -218,25 +218,32 @@ namespace ceres::driver
 			return !text.empty() && text != "0" && text != "false";
 		}
 
-		// The shell of `ceres run` without a program, or with --shell: <sysroot>/bin/shell.cres, the sysroot from
-		// --sysroot or CERES_SYSROOT. Null, with the reason told, when there is none.
-		std::shared_ptr<const ShellProgram> findShell(const RunCommand& command, std::ostream& err)
+		// The shell of `ceres run` without a program, or with --shell: shell/shell.cres in the first of the install
+		// directories that has one (CERES_PATH, then where ceres is). Null, with the reason told, when there is none.
+		std::shared_ptr<const ShellProgram> findShell(const RunCommand& command, std::span<const std::filesystem::path> directories, std::ostream& err)
 		{
-			std::filesystem::path sysroot = command.sysroot;
-			if (sysroot.empty())
-				if (const char* value = std::getenv("CERES_SYSROOT"); value != nullptr)
-					sysroot = value;
-			const std::string_view why = command.input.empty() ? "No program was given" : "--shell";
-			if (sysroot.empty())
+			std::filesystem::path path;
+			for (const auto& directory : directories)
 			{
-				err << why << ", and the shell is in <sysroot>/bin/shell.cres: pass --sysroot <dir> or set CERES_SYSROOT "
-					"(the STDLIB installs it: make install PREFIX=<dir>).\n";
-				return nullptr;
+				std::error_code error;
+				if (const auto candidate = directory / "shell" / "shell.cres"; std::filesystem::is_regular_file(candidate, error))
+				{
+					path = candidate;
+					break;
+				}
 			}
-			const std::filesystem::path path = sysroot / "bin" / "shell.cres";
-			if (!std::filesystem::is_regular_file(path))
+			if (path.empty())
 			{
-				err << why << ", and there is no shell at " << path.string() << " (the STDLIB installs it: make install PREFIX=<dir>).\n";
+				err << (command.input.empty() ? "No program was given" : "--shell") << ", and there is no shell: ";
+				if (directories.empty())
+					err << "nowhere to look for one.\n";
+				else
+				{
+					err << "no shell/shell.cres in ";
+					for (std::size_t i = 0; i < directories.size(); ++i)
+						err << (i == 0 ? "" : i + 1 == directories.size() ? " or " : ", ") << '\'' << directories[i].string() << '\'';
+					err << " (CERES_PATH names the directory Ceres is installed in).\n";
+				}
 				return nullptr;
 			}
 			auto program = Program::loadFromFile(path);
@@ -262,7 +269,7 @@ namespace ceres::driver
 			std::shared_ptr<const ShellProgram> shell;
 			if (command.input.empty() || command.shell)
 			{
-				shell = findShell(command, *services.diagnostics);
+				shell = findShell(command, services.installDirectories, *services.diagnostics);
 				if (!shell) return 1;
 			}
 			std::optional<LoadedProgram> loaded;

@@ -15,7 +15,7 @@ namespace ceres::driver
 			"                          [--debug] [--emit-debug-json] [-c]\n"
 			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab] [--gc-sections]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
-			"  ceres run [<file.casm|file.cres>] [<machine>] [--shell] [--sysroot <dir>] [--disk <image>]\n"
+			"  ceres run [<file.casm|file.cres>] [<machine>] [--shell] [--disk <image>]\n"
 			"                                  [--window | --headless] [--strict-mmio]\n"
 			"                                  [--fullscreen] [--exit-on-halt] [--frames <dir>] [--refresh 50|60]\n"
 			"                                  [--transcript <file>] [--screen-log <file>] [--type <file>] [--keys <file>]\n"
@@ -51,9 +51,9 @@ namespace ceres::driver
 			"Everything after -- goes to the program: main(argc, argv) gets the input's path as argv[0], then those.\n"
 			"--env gives it an environment variable (getenv); nothing of the host's environment is passed on.\n"
 			"--host-dir lets it open, write and list the host's files under <dir>, and nowhere else.\n"
-			"Without a program, 'run' starts the Ceres shell, <sysroot>/bin/shell.cres (--sysroot, or CERES_SYSROOT in the\n"
-			"environment: where the STDLIB is installed); --shell goes back to it whenever the program ends. With the\n"
-			"shell, the host directory is the current one unless --host-dir names another.\n"
+			"Without a program, 'run' starts the Ceres shell: shell/shell.cres in the directory CERES_PATH names (where\n"
+			"Ceres is installed), or else in the one this ceres is in; --shell goes back to it whenever the program ends.\n"
+			"With the shell, the host directory is the current one unless --host-dir names another.\n"
 			"--rtc starts the machine's real-time clock at that moment (UTC) instead of the host's.\n"
 			"--speed paces the machine's time against the host's: realtime (the default while a window is open), max\n"
 			"(the default without one: no waiting at all) or a factor such as 0.5x or 2x.\n"
@@ -129,8 +129,7 @@ namespace ceres::driver
 			bool usedWindow = false;
 			bool headless = false;
 			bool usedHeadless = false;
-			bool shell = false;               // --shell and --sysroot belong to run alone
-			std::filesystem::path sysroot;
+			bool shell = false;               // --shell belongs to run alone
 			bool usedShell = false;
 		};
 
@@ -371,13 +370,6 @@ namespace ceres::driver
 				raw.usedDisk = true;
 			}
 			else if (argument == "--shell") { raw.shell = true; raw.usedShell = true; }
-			else if (argument == "--sysroot")
-			{
-				auto value = nextValue(argument);
-				if (!value) return std::unexpected(value.error());
-				raw.sysroot = *value;
-				raw.usedShell = true;
-			}
 			else if (argument == "--window") { raw.window = true; raw.usedWindow = true; }
 			else if (argument == "--headless") { raw.headless = true; raw.usedHeadless = true; }
 			else if (argument == "--transcript" || argument == "--screen-log" || argument == "--type" || argument == "--keys")
@@ -503,7 +495,7 @@ namespace ceres::driver
 		if (raw.usedGcSections && command != "link")
 			return std::unexpected(invalidOption("--gc-sections", command));
 		if (raw.usedShell && command != "run")
-			return std::unexpected(invalidOption(raw.shell ? "--shell" : "--sysroot", command));
+			return std::unexpected(invalidOption("--shell", command));
 		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio || raw.rtc || raw.speed ||
 			!raw.record.empty() || !raw.replay.empty() || !raw.log.empty() || raw.usedScreen) && command != "run")
 			return std::unexpected(invalidOption(raw.usedScreen ? "a window or output option" : raw.usedEnv ? "--env" : raw.usedHostDir ? "--host-dir" : raw.strictMmio ? "--strict-mmio" :
@@ -555,7 +547,7 @@ namespace ceres::driver
 				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory), raw.strictMmio,
 				raw.rtc, raw.speed, std::move(raw.record), std::move(raw.replay), std::move(raw.log), raw.refresh, raw.fullscreen,
 				raw.exitOnHalt, std::move(raw.framesDir), std::move(raw.transcript), std::move(raw.screenLog), std::move(raw.typeFile),
-				std::move(raw.keysFile), raw.gpu, raw.shell, std::move(raw.sysroot) };
+				std::move(raw.keysFile), raw.gpu, raw.shell };
 		}
 		if (command == "profile")
 		{

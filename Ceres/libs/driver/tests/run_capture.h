@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace ceres::testing
 {
@@ -35,8 +36,10 @@ namespace ceres::testing
 		return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
 	}
 
-	// Runs `command` with a transcript, `typed` typed on its terminal, through `window` when given.
-	inline CapturedRun captureRun(driver::RunCommand command, std::string_view typed = {}, driver::WindowHostFactory window = {})
+	// Runs `command` with a transcript, `typed` typed on its terminal, through `window` when given; the shell, if it
+	// needs one, is looked for in `installDirectories`.
+	inline CapturedRun captureRun(driver::RunCommand command, std::string_view typed = {}, driver::WindowHostFactory window = {},
+		std::vector<std::filesystem::path> installDirectories = {})
 	{
 		const auto transcript = uniqueTempPath("ceres_transcript");
 		command.transcript = transcript;
@@ -52,7 +55,7 @@ namespace ceres::testing
 		std::ostringstream output;
 		std::ostringstream diagnostics;
 		CapturedRun run;
-		run.status = driver::execute(command, { &input, &output, &diagnostics }, std::move(window));
+		run.status = driver::execute(command, { &input, &output, &diagnostics, std::move(installDirectories) }, std::move(window));
 		run.output = readWhole(transcript);
 		run.hostOutput = output.str();
 		run.diagnostics = diagnostics.str();

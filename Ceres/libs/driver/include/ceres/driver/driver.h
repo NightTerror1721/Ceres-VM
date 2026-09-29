@@ -4,9 +4,11 @@
 #include "audio_output.h"
 #include "host_input.h"
 #include "video_output.h"
+#include <filesystem>
 #include <functional>
 #include <iosfwd>
 #include <memory>
+#include <vector>
 
 namespace ceres::driver
 {
@@ -19,7 +21,13 @@ namespace ceres::driver
 		std::istream* input = nullptr;
 		std::ostream* output = nullptr;
 		std::ostream* diagnostics = nullptr;
+		// Where Ceres is installed, in the order they are tried: the shell (plan/v2 F7) is shell/shell.cres in the
+		// first that has one. The command line passes installDirectories(); a run given none has no shell.
+		std::vector<std::filesystem::path> installDirectories;
 	};
+
+	// The directory CERES_PATH names, when it is set, and then the one the running ceres executable is in.
+	std::vector<std::filesystem::path> installDirectories();
 
 	// A windowed host, in its three parts: its input, its screen and its speakers. Any of them may be missing (a
 	// host without a sound card has no audio). Shared, because one object may play more than one part - the SDL
