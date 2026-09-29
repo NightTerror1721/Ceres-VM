@@ -235,14 +235,36 @@ namespace ceres::devices
 			.background = _background, .bitmap = _bitmap, .retro = _retro };
 	}
 
-	// A new frame's scan, from its line 0 with the registers as they are.
+	// A new frame's scan, from its line 0 with the registers as they are. Its line table is read when line 0 starts.
 	void GpuDevice::beginScan()
 	{
 		_scanFrame = _nextFrame;
 		_scanLine = 0;
 		_tableCursor = 0;
+		_tableRead = false;
+		_table.clear();
 		_scanning.clear();
 		_scanning.push_back(liveState(0));
+		if (Scheduler* events = scheduler())
+			events->schedule(*this, _display.frameStart(_scanFrame), FrameEvent);
+	}
+
+	// The frame's line table, whole, as the VRAM and LineTableBase and LineTableCount hold it at the start of its line 0
+	// (plan/v2 SPEC 7.5): what changes later is for the next frame. It ends where the VRAM does.
+	void GpuDevice::readLineTable()
+	{
+		_table.clear();
+		_tableCursor = 0;
+		_tableRead = true;
+		const u32 count = _retro.lineTableCount();
+		for (u32 i = 0; i < count; ++i)
+		{
+			const u64 at = u64{ _retro.lineTableBase() } + u64{ i } * video::Retro2D::LineTableEntrySize;
+			if (at > 0xFFFFFFFFull || !vram().backs(static_cast<u32>(at), video::Retro2D::LineTableEntrySize))
+				break;
+			const u32 offset = static_cast<u32>(at) - Vram::BaseValue;
+			_table.emplace_back(vram().read<u32>(offset), vram().read<u32>(offset + 4));
+		}
 	}
 
 	// The scan reaches the machine's cycle: every line started before it is done, the line table applied at each. A line
@@ -267,26 +289,21 @@ namespace ceres::devices
 
 	void GpuDevice::scanTo(u32 line)
 	{
+		// Line 0 can be reached before the frame's event is serviced (by an access in the instruction that crossed it).
+		if (_scanLine == 0 && line > 0 && !_tableRead)
+			readLineTable();
 		for (; _scanLine < line; ++_scanLine)
 			applyLineTable(_scanLine);
 	}
 
-	// The entries of `line` in the line table, written as the CPU would write them (plan/v2 SPEC 7.5). The table is read
-	// in order; one whose line has passed is skipped, and it ends where the VRAM does.
+	// The entries of `line` in the line table, written as the CPU would write them (plan/v2 SPEC 7.5). The table is gone
+	// through in order; an entry whose line has passed is skipped.
 	void GpuDevice::applyLineTable(u32 line)
 	{
-		const u32 count = _retro.lineTableCount();
 		bool changed = false;
-		while (_tableCursor < count)
+		while (_tableCursor < _table.size())
 		{
-			const u64 at = u64{ _retro.lineTableBase() } + u64{ _tableCursor } * video::Retro2D::LineTableEntrySize;
-			if (at > 0xFFFFFFFFull || !vram().backs(static_cast<u32>(at), video::Retro2D::LineTableEntrySize))
-			{
-				_tableCursor = count;
-				break;
-			}
-			const u32 offset = static_cast<u32>(at) - Vram::BaseValue;
-			const u32 head = vram().read<u32>(offset);
+			const auto [head, value] = _table[_tableCursor];
 			if ((head & 0xFFFFu) > line)
 				break;
 			++_tableCursor;
@@ -295,7 +312,6 @@ namespace ceres::devices
 			const u32 target = (head >> 16) & 0xFFFu;
 			if ((target & 3u) != 0)
 				continue;
-			const u32 value = vram().read<u32>(offset + 4);
 			if (target == BackgroundColorRegister.value())
 				_background = value & 0x00FFFFFFu;
 			else if (target == video::BitmapPlane::ScrollXRegister || target == video::BitmapPlane::ScrollYRegister)
@@ -367,6 +383,10 @@ namespace ceres::devices
 		{
 			case VblankEvent:
 				vblank();
+				break;
+			case FrameEvent:
+				if (!_tableRead)
+					readLineTable();
 				break;
 			case CopyEvent:
 				_copy.finish(memory(), vram());

@@ -68,11 +68,12 @@ TEST(gpu, the_vertical_blank_comes_on_the_exact_cycle_with_the_remainder_carried
 	gpu.attachTo(m.vm().io());
 	m.step();   // the HALT
 
-	// A halted machine jumps from event to event: every step is one vertical blank. The interrupt is not enabled,
-	// so nothing ends the halt.
+	// A halted machine jumps from event to event: the start of each frame (where the line table is read) and its
+	// vertical blank. The interrupt is not enabled, so nothing ends the halt.
 	for (u64 frame = 0; frame < 120; ++frame)
 	{
-		m.step();
+		for (u32 guard = 0; gpu.frameCounter() == frame && guard < 4; ++guard)
+			m.step();
 		CHECK_EQ(m.vm().engine().cycles(), expectedVblank(frame));
 		CHECK_EQ(gpu.frameCounter(), frame + 1);
 	}

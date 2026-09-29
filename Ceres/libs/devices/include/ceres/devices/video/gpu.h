@@ -31,6 +31,8 @@
 
 #include <functional>
 #include <memory>
+#include <utility>
+#include <vector>
 
 namespace ceres::devices
 {
@@ -94,6 +96,7 @@ namespace ceres::devices
 		static inline constexpr u32 VblankEvent = 0;
 		static inline constexpr u32 LineEvent = 1;
 		static inline constexpr u32 CopyEvent = 2;
+		static inline constexpr u32 FrameEvent = 3;   // line 0 of a frame starts: the line table is read
 
 		// FaultCode: an engine was given an address outside the RAM and the VRAM (FaultAddress says which).
 		static inline constexpr u32 FaultBadAddress = 1;
@@ -149,6 +152,8 @@ namespace ceres::devices
 		u64 _scanFrame = 0;
 		u32 _scanLine = 0;
 		u32 _tableCursor = 0;
+		bool _tableRead = false;                          // the frame's line table has been read
+		std::vector<std::pair<u32, u32>> _table;          // its entries, as they were at the frame's start
 		std::vector<video::LineState> _scanning;
 		std::vector<video::LineState> _scanned;
 		u32 _scannedWidth = 0;
@@ -206,6 +211,7 @@ namespace ceres::devices
 		video::LineState liveState(u32 firstLine) const;
 		void catchUp();
 		void scanTo(u32 line);
+		void readLineTable();
 		void applyLineTable(u32 line);
 		void noteChange();
 		void beginScan();

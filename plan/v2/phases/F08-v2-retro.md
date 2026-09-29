@@ -104,3 +104,12 @@ VRAM fuera del VBlank en `micro` y `pocket` (`FaultCode` 2) y §7.6, el scanout 
   entradas (SPEC §7.5) para que una tabla hostil no bloquee el host. Tropiezo: un registro que falte en la
   `RegisterMap` de la GPU no llega nunca al dispositivo (D19 lo descarta en el bus); hay un test que recorre todos
   los de V2.
+- **Revisión `ocr` F8.1–F8.4** (modo delegado: el diff revisado a mano con las reglas de `ocr delegate rule`): un
+  hallazgo real, corregido. La tabla de líneas se leía de la VRAM al alcanzar el recorrido cada línea, y el
+  recorrido va con retraso (en el siguiente acceso a un registro o en el VBlank). Así, un cambio en la tabla hecho a
+  mitad de fotograma podía valer para líneas ya pasadas, y una lectura del depurador cambiaba cuándo se leía. Ahora
+  la GPU la lee entera en el primer ciclo de la línea 0 de cada fotograma (evento `FrameEvent`, 60 por segundo) y
+  lo cambiado después vale para el siguiente (SPEC §7.5); con eso ningún acceso del depurador altera nada. Se
+  descartó otro: la VRAM puede quedarse apuntando a la GPU como compuerta si ésta se destruye sin desconectarse,
+  pero el runner la desconecta siempre y en la sesión del depurador la máquina ya no corre cuando la GPU se
+  destruye (las escrituras de memoria del depurador van sólo a la RAM).

@@ -181,6 +181,37 @@ TEST(line_table, a_write_in_a_lines_interrupt_shows_from_the_next_line)
 	gpu.detachFrom(vm.io());
 }
 
+TEST(line_table, the_table_is_read_when_the_frame_starts)
+{
+	// Line 10's interrupt changes the table's entry for line 20: this frame keeps what the table held at its start, the
+	// next one has the change.
+	Machine m = halting();
+	CeresVM& vm = m.vm();
+	GpuDevice gpu;
+	gpu.attachTo(vm.io());
+	screen(vm);
+	entry(vm, 0, 20, GpuDevice::BackgroundColorRegister.value(), 0x808080);
+	table(vm, 1);
+	m.installHandler(GpuDevice::LineInterrupt, Address(0x800), {
+		Instruction::LUI(2, static_cast<u16>(TableAt >> 16)),
+		Instruction::LUI(1, 0x00FF),
+		Instruction::STR(2, 1, 4),
+		Instruction::IRET(),
+	});
+	set(vm, GpuDevice::LineCompareRegister.value(), 10);
+	set(vm, GpuDevice::IrqEnableRegister.value(), GpuDevice::IrqLine);
+	runTo(m, gpu, 1);
+	CHECK_EQ(vm.vram().read<u32>(TableAt - Vram::BaseValue + 4), 0xFF0000u);
+	video::VideoFrame frame;
+	gpu.composeScanned(frame);
+	CHECK_EQ(at(frame, 0, 20), 0x808080u);
+	runTo(m, gpu, 2);
+	gpu.composeScanned(frame);
+	CHECK_EQ(at(frame, 0, 19), 0x808080u);   // what the table wrote last frame, until line 20 writes again
+	CHECK_EQ(at(frame, 0, 20), 0xFF0000u);
+	gpu.detachFrom(vm.io());
+}
+
 TEST(line_table, a_scroll_a_line_from_the_table_matches_the_layers_own_scroll_table)
 {
 	// The same wavy picture two ways: the layer's table of a scroll a line, and the line table writing ScrollX.
