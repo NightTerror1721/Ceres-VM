@@ -67,7 +67,15 @@ VRAM fuera del VBlank en `micro` y `pocket` (`FaultCode` 2) y §7.6, el scanout 
 - **Commit**: `Add tile and sprite headers, img2tiles and retro examples (F8.5)`
 
 ### F8.6 · Documentación
-- **Commit**: `Document the Retro 2D level (F8.6)`
+- **Repos**: CeresASM, STDLIB
+- **Archivos**: CeresASM `docs/31-Video.md` (V2, el recorrido por líneas, la VRAM en el VBlank), `docs/07`, `docs/30`,
+  `docs/README.md`; STDLIB `docs/reference` (con `tools/gendocs.js`) y `README.md`.
+- **Commit** (uno por repo): `Document the Retro 2D level (F8.6)`
+
+## Cierre de la fase
+
+- [x] Suites en verde: CeresASM `ctest` 11/11, Ceres-C `ctest` 11/11, STDLIB 319 comprobaciones con los dos runners.
+- [x] Revisión `ocr` de cierre (delegada) sobre F8.5–F8.6.
 
 ## Notas
 
@@ -113,3 +121,24 @@ VRAM fuera del VBlank en `micro` y `pocket` (`FaultCode` 2) y §7.6, el scanout 
   descartó otro: la VRAM puede quedarse apuntando a la GPU como compuerta si ésta se destruye sin desconectarse,
   pero el runner la desconecta siempre y en la sesión del depurador la máquina ya no corre cuando la GPU se
   destruye (las escrituras de memoria del depurador van sólo a la RAM).
+- **F8.5** (lib@34b0ccb): `ceres/tiles.h` (capas, capa afín, tabla de líneas; `LINE_ENTRY`), `ceres/sprite.h` pasa a
+  ser la OAM por hardware (una copia en RAM que `sprites_commit()` lleva a la VRAM con el motor de copia, que en
+  `micro` y `pocket` puede escribir en cualquier momento) y los sprites por software pasan a `gfx.h`
+  (`src/ceres/gfx_sprite.c`). `video.h` gana `video_vram_alloc` (bloques de 256 tras el scrollback, la misma cuenta
+  que hace la GPU al arrancar), `video_vram_reset` y `video_vram_resets`; `fb.h` toma de ahí sus búferes y ya no
+  baja de V2 a V1. `tools/img2tiles.js` (Node sin dependencias: decodificador PNG propio con los cinco filtros, 1–8
+  bits, paleta con `tRNS`) reparte los colores en bancos de 15, deduplica tiles también volteados y en otro banco,
+  y rellena el mapa a 32/64/128; en CASM cada array va en una línea (el ensamblador no admite un literal repartido).
+  Ejemplos: `maze.c` en `micro` (escribe los puntos del camino con la CPU justo tras `video_wait_vblank()`, y dice
+  al final si se perdió alguna escritura: ninguna) y `platformer.c` en `retro` (parallax, degradado con la tabla de
+  líneas, héroe y monedas como sprites). Con `printf` el laberinto no cabía en los 64 KiB de `micro` (el formateo
+  de `double` son unos 35 KB): escribe sus números a mano con `puts`, y se enlaza con `--gc-sections` (en su
+  `.flags`). Los runners aceptan en los ejemplos `.run` (el perfil) y `.frames` (SHA-256 de cada PNG de
+  `--frames`), y comprueban `tools/img2tiles.cases` (tests de la herramienta y cabeceras de `examples/art`, cuyos
+  PNG dibuja `examples/art/make_art.js`). Revisión de cierre (delegada): un hallazgo real, corregido en
+  lib@1b1d813 (una línea de `img2tiles.cases` sin argumentos hacía contar `1..0` hacia atrás en PowerShell).
+- **F8.6** (lib@f401f68 y el commit de CeresASM que añade esta nota): `docs/31-Video.md` describe V2 entero, el
+  recorrido por líneas y la regla de la VRAM de `micro` y `pocket`; la referencia de la STDLIB sale de las
+  cabeceras. Para F10: V3 tiene libres `0x324–0x33F` y `0x3E0–0x3FF` del slot `0x40`; las capas 4–7 y los 1024
+  sprites afines necesitarán más (el resto del slot `0x40` pasado `0x3FF`, o el `0x42`), y las palabras 2 y 3 de
+  cada entrada de OAM están reservadas para V3.

@@ -321,9 +321,10 @@ keeps its data.
 
 ### `GpuDevice` (`0xFF400000`)
 
-The machine's screen: a simulated GPU that composes a frame from the VRAM at every vertical blank - the background
-colour, a bitmap plane (V1) and a text plane of 8 x 16 cells (V0) on top - and a copy engine that moves and fills
-memory without the CPU. It raises interrupts 32 (vertical blank), 33 (a line), 34 (a copy done) and 35 (a fault).
+The machine's screen: a simulated GPU that scans a frame from the VRAM line by line - the background colour, a
+bitmap plane (V1), four tile layers, an affine layer and 128 sprites (V2), and a text plane of 8 x 16 cells (V0) on
+top - with a copy engine that moves and fills memory without the CPU and a line table that changes its registers
+line by line. It raises interrupts 32 (vertical blank), 33 (a line), 34 (a copy done) and 35 (a fault).
 The registers, the VRAM it sets up at start, the cell and pixel formats and where the frames go are in
 [Video](31-Video.md).
 

@@ -132,9 +132,9 @@ Archivo: [phases/F08-v2-retro.md](phases/F08-v2-retro.md)
 | F8.1 | Paletas y capas de tiles | F5 y el commit de «Antes de empezar» | DONE | asm@d0eafc4 |
 | F8.2 | Capa afín | F8.1 | DONE | asm@c8bc816 |
 | F8.3 | Sprites y VRAM en el VBlank (D17) | F8.2 | DONE | asm@bfa4037 |
-| F8.4 | Tabla de líneas y efectos raster | F8.3 | DONE | asm@245fc22 |
-| F8.5 | STDLIB, herramienta y ejemplos | F8.4 | TODO |  |
-| F8.6 | Documentación | F8.5 | TODO |  |
+| F8.4 | Tabla de líneas y efectos raster | F8.3 | DONE | asm@245fc22, asm@08dcd64 |
+| F8.5 | STDLIB, herramienta y ejemplos | F8.4 | DONE | lib@34b0ccb, lib@1b1d813 |
+| F8.6 | Documentación | F8.5 | DONE | lib@f401f68 |
 
 ## F9 · Audio A0–A2: tono, PSG, FM y secuenciador MIDI
 

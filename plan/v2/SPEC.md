@@ -382,7 +382,7 @@ A entero: truncan hacia cero y saturan (NaN → 0), como `ftoi`. A float: redond
 - `double`: binary64; argumentos en `d0`, `d1`; retorno en `d0`. `f8–f15` (pares `d4–d7`) los conserva el llamado.
 - `-fshort-double` hace `double` = `float` (sin cambiar la ABI de `float`).
 
-## 7. Vídeo (NORMATIVA en niveles y registros de núcleo; PROVISIONAL en detalles de V2–V6)
+## 7. Vídeo (NORMATIVA en niveles, registros de núcleo y V2; PROVISIONAL en detalles de V3–V6)
 
 ### 7.1 Niveles
 

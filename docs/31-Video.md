@@ -1,20 +1,22 @@
-# Video: the GPU, levels V0 and V1
+# Video: the GPU, levels V0 to V2
 
 [← Back to index](README.md)
 
 The machine's screen is a simulated GPU at `0xFF400000` (slot `0x40`, plan/v2 SPEC 7). It reads what it shows
-from the **VRAM** at `0xA0000000` (see [Memory](02-Memory.md#the-physical-map)) and composes it once a frame,
-at the vertical blank; the program never draws on the window itself. The GPU has **levels**: V0 is a text
-terminal and V1 adds a bitmap and a copy engine. V2–V6 (tiles and sprites, a 2D engine, vectors, 3D) are in the
-[v2 plan](../plan/v2/README.md) and not implemented yet: `Caps` says which levels there are.
+from the **VRAM** at `0xA0000000` (see [Memory](02-Memory.md#the-physical-map)) and scans it line by line, once a
+frame; the program never draws on the window itself. The GPU has **levels**: V0 is a text terminal, V1 adds a
+bitmap and a copy engine, and V2 (Retro 2D) tile layers, an affine layer, sprites and a line table, as the 8- and
+16-bit consoles had them. V3–V6 (a 2D engine, vectors, 3D) are in the [v2 plan](../plan/v2/README.md) and not
+implemented yet: `Caps` says which levels there are.
 
 The terminal of [the virtual terminal](33-Terminal-and-Debug-Log.md) draws on the GPU's text plane, so a program
 that only prints already uses V0 without knowing it.
 
-The source is in [`libs/devices/src/video`](../Ceres/libs/devices/src/video): `gpu.cpp` (the registers and the
-frame timing), `text_plane.cpp`, `bitmap_plane.cpp`, `copy_engine.cpp`, and `software_executor.cpp` (the scanout,
-which turns the planes into pixels). The standard library wraps it in `ceres/video.h`, `ceres/text.h` and
-`ceres/fb.h`.
+The source is in [`libs/devices/src/video`](../Ceres/libs/devices/src/video): `gpu.cpp` (the registers, the frame
+timing and the scan line by line), `text_plane.cpp`, `bitmap_plane.cpp`, `copy_engine.cpp`, `retro2d.cpp` (V2's
+registers), `sprites.cpp` (reading the OAM and the sprites of a line), and `software_executor.cpp` with
+`retro_scanout.cpp` (the scanout, which turns the planes into pixels). The standard library wraps it in
+`ceres/video.h`, `ceres/text.h`, `ceres/fb.h`, `ceres/tiles.h` and `ceres/sprite.h`.
 
 ## The core registers
 
@@ -22,7 +24,7 @@ which turns the planes into pixels). The standard library wraps it in `ceres/vid
 | --- | --- | --- | --- |
 | `0x000` | `Id` | R | `0x55504743` (`"CGPU"`). |
 | `0x004` | `Version` | R | Major << 16 \| minor: `0x00010000`. |
-| `0x008` | `Caps` | R | Bits 0–6: the levels available (bit n, level Vn). Bits 8–15: the bitmap formats (all eight from V1). Bit 31: a hardware executor (never, so far). |
+| `0x008` | `Caps` | R | Bits 0–6: the levels available (bit n, level Vn; V0–V2, as far as the profile allows). Bits 8–15: the bitmap formats (all eight from V1). Bit 31: a hardware executor (never, so far). |
 | `0x00C` | `VramSize` | R | The VRAM, in bytes (the profile's, or `--vram`). |
 | `0x010` | `GpuClockHz` | R | The GPU clock (the profile's, or `--gpu-clock`); what the copy engine's cost is counted in. |
 | `0x014` | `Mode` | RW | The level in use, 0–6. A write above what the machine has is clamped to it. Starts at 0. |
@@ -31,7 +33,7 @@ which turns the planes into pixels). The standard library wraps it in `ceres/vid
 | `0x020` | `Status` | R | Bit 0 the copy engine is busy; bit 1 a fault is pending; bit 2 the scan is in the vertical blank; bit 3 a `Present` waits for the blank. |
 | `0x024` | `IrqEnable` | RW | Bit 0 VBlank (interrupt 32), bit 1 line (33), bit 2 copy done (34), bit 3 fault (35). |
 | `0x028` | `IrqStatus` | W1C | What happened, by the same bits, whether enabled or not; writing 1s clears them (bit 3 clears the fault too). |
-| `0x02C` | `FaultCode` | R | `1`: an engine was given an address outside RAM and VRAM. `0`: no fault. |
+| `0x02C` | `FaultCode` | R | `1`: an engine was given an address outside RAM and VRAM. `2`: on `micro` or `pocket`, the CPU stored to the VRAM outside the vertical blank (the store was lost; see [below](#vram-in-the-vertical-blank-micro-and-pocket)). `0`: no fault. |
 | `0x030` | `FaultAddress` | R | The address that faulted. |
 | `0x100` | `Width` | RW | The screen in pixels, at least 8 and at most the profile's largest (`--max-resolution`). |
 | `0x104` | `Height` | RW | At least 16. Changing either resizes the text plane (`Width / 8` by `Height / 16` cells). |
@@ -55,12 +57,25 @@ frame. It is an event of the scheduler, so a program in `halt` wakes for it and 
 
 At every vertical blank the GPU:
 
-1. applies what a `Present` asked for (the bases of the planes, the bitmap's flip), if one did;
-2. counts the frame and sets `IrqStatus` bit 0, raising interrupt 32 if it is enabled;
-3. tells the host a frame is ready, and the host shows it (see [Where the frames go](#where-the-frames-go)).
+1. finishes the frame just scanned, and counts its sprites a line (`SpriteStatus`, V2);
+2. applies what a `Present` asked for (the bases of the planes, the bitmap's flip), if one did;
+3. counts the frame and sets `IrqStatus` bit 0, raising interrupt 32 if it is enabled;
+4. tells the host the frame is ready, and the host shows it (see [Where the frames go](#where-the-frames-go)).
 
 A program that wants one picture a frame draws into the back buffer, writes `1` to `Present` and waits for the
 blank - `halt` with interrupt 32 enabled, or `FrameCounter` changing. Writing twice before a blank presents once.
+What a `Present` applies is seen from the next frame on, the first scanned with it.
+
+### The scan, line by line
+
+Each visible line is composed with the registers as they were when the scan reached it (SPEC 7.6): what the CPU
+writes while line *L* is on its way - in the handler of `LineCompare`'s interrupt, say - changes the picture from
+line *L* + 1 (a write on the very cycle *L* starts is in time for *L*), and the line table's entries for *L* are
+written before *L*. So a split screen, a sky of several colours or a floor in perspective are exact, whenever the
+program does it. The GPU does not draw as it goes: it keeps the stretches of lines that share their registers and
+composes the frame at its blank, when the VRAM behind them - tiles, maps, palettes, the OAM, cells - is read. The
+text plane is composed as it is at that moment. Before any access to one of its registers the GPU catches up with
+the machine's cycle, so a program always reads what the scan has done by then.
 
 ## VRAM at start
 
@@ -185,10 +200,100 @@ str  [r13 + 0x290], r2      // fill
 The blitter at `0xFF460000` (see [I/O devices](07-IO-Devices-and-Ports.md#blitterdevice-0xff460000)) also draws
 into VRAM surfaces, until the 2D engine of V3 replaces it.
 
+## V2: the tile layers (`0x300`–`0x3DC`)
+
+Level V2 draws the screen from small pictures, as the consoles did: four **tile layers** and an **affine layer**,
+coloured through palettes, with the sprites among them (below). Its registers take effect at once - no `Present` -
+and are seen with `Mode` 2 or more. At the start, and at a reset of the GPU, they are 0, but for the affine
+layer's matrix, which is the identity.
+
+| Offset | Register | Meaning |
+| --- | --- | --- |
+| `0x300` | `TilePaletteBase` | The layers' palette: 256 entries of `0x00RRGGBB`; 4-bit tiles see it as 16 banks of 16. |
+| `0x304` | `SpritePaletteBase` | The sprites' palette, the same way. |
+| `0x308`–`0x318` | the sprites | See [V2: the sprites](#v2-the-sprites-0x308-0x318). |
+| `0x31C`, `0x320` | the line table | See [V2: the line table](#v2-the-line-table-0x31c-0x320). |
+| `0x340 + 0x20·n` | layer *n* (0–3) | `Control` `+0x00`, `MapBase` `+0x04`, `TileBase` `+0x08`, `ScrollX` `+0x0C`, `ScrollY` `+0x10`, `LineScrollBase` `+0x14`. |
+| `0x3C0`–`0x3D8` | the affine layer | `AffineControl` `0x3C0`, `AffineMapBase` `0x3C4`, `AffineTileBase` `0x3C8`, `AffineOriginX` `0x3CC`, `AffineOriginY` `0x3D0`, `AffineMatrixAB` `0x3D4`, `AffineMatrixCD` `0x3D8`. |
+
+`0x324`–`0x33F` and `0x3E0`–`0x3FF` are kept for V3.
+
+A layer's **`Control`**: bit 0 on; bit 1 tiles of 16×16 (8×8 without it); bit 2 8 bits a pixel (4 without it);
+bits 5:4 the priority, 0–3, 3 in front; bits 7:6 the map's width in tiles (0: 32, 1: 64, 2 and 3: 128); bits 9:8
+its height, the same; bit 10 the table of a scroll a line; bit 11 the affine layer repeats its map (without it,
+what is outside the map is clear); bits 15:12 the palette bank, added to the entries'.
+
+The **map** is width × height entries of 16 bits, row by row, at `MapBase`. An entry: bits 9:0 the tile; 12:10 its
+palette (at 4 bits a pixel the bank is (palette + the layer's bank) mod 16; at 8 bits it is ignored); bit 13 flips
+it across, bit 14 up and down; bit 15 puts it one priority in front of its layer (3 at most).
+
+The **tiles** are at `TileBase` + number × the tile's size (8×8: 32 bytes at 4 bits, 64 at 8; 16×16: 128 and 256),
+row by row, two pixels to a byte at 4 bits with the left one in the high half (as the bitmap's I4). Colour 0 is
+clear - the 0 of every bank at 4 bits - and shows what is behind.
+
+**Scrolling.** Screen pixel (*x*, *y*) shows map pixel (*x* + `ScrollX` + *dx*, *y* + `ScrollY` + *dy*), and the map
+repeats both ways. With bit 10, *dx* and *dy* are the word for line *y* at `LineScrollBase` + 4·*y* (bits 15:0 and
+31:16, signed): a layer that waves, or scrolls at several speeds. Without it they are 0.
+
+**The affine layer** draws a map the same way (the same entries and tiles) through a matrix: screen pixel (*x*,
+*y*) is map pixel (*u*, *v*) with *u* = (`OriginX` + *pa*·*x* + *pb*·*y*) >> 8 and *v* = (`OriginY` + *pc*·*x* +
+*pd*·*y*) >> 8. The origin is signed 24.8; *pa* is bits 15:0 of `AffineMatrixAB` and *pb* its bits 31:16, *pc* and
+*pd* those of `AffineMatrixCD`, signed 8.8. The shift is arithmetic, so −0.5 is pixel −1. A turned or zoomed map,
+and - writing the origin and the matrix every line from the line table - a floor in perspective.
+
+**Priority.** From the back: the background colour, the bitmap plane, then for each priority from 0 to 3 the
+layers of that priority - the affine layer, then layers 3, 2, 1 and 0 - and the sprites of that priority; the text
+plane is always in front.
+
+## V2: the sprites (`0x308`–`0x318`)
+
+| Offset | Register | Meaning |
+| --- | --- | --- |
+| `0x308` | `OamBase` | The 128 sprites, 16 bytes each. |
+| `0x30C` | `SpriteTileBase` | Their pictures. |
+| `0x310` | `SpriteControl` | Bit 0 on. |
+| `0x314` | `SpriteStatus` | R. Of the last frame, set at each vertical blank: bit 0 a line had more sprites than `SpriteLimit`, bits 31:16 the first. |
+| `0x318` | `SpriteLimit` | R. Sprites a line, the profile's (16 on `micro`, 128 on `standard`). |
+
+An entry of the **OAM**: word 0, bits 15:0 *x* and 31:16 *y*, signed, the top-left corner on the screen. Word 1:
+bits 15:0 the picture, at `SpriteTileBase` + 32 × this; 19:16 the palette bank (4 bits a pixel); 21:20 the width
+(8, 16, 32 or 64) and 23:22 the height; bit 24 flips across, 25 up and down; 27:26 the priority; bit 28 8 bits a
+pixel; bit 31 visible. Words 2 and 3 are V3's. The picture is width × height pixels row by row, packed as the
+tiles are; colour 0 is clear. Where two sprites meet, the lower number is in front, whatever their priorities.
+
+The visible sprites that touch a line are taken in the order of their numbers, off the screen across or not; past
+`SpriteLimit` the rest are left out of that line, and `SpriteStatus` says so after the frame.
+
+## V2: the line table (`0x31C`–`0x320`)
+
+`LineTableBase` names a table in VRAM of up to 8192 entries (`LineTableCount`, 0 off) of 8 bytes: word 0 is the
+line in bits 15:0 and the offset of a register of the GPU's slot in bits 27:16, word 1 a value. At the start of each
+visible line the scan writes the values of that line's entries, as the CPU would - and they stay written. The table
+is gone through in order and an entry whose line has passed is skipped; only `BackgroundColor`, the bitmap's
+`ScrollX` and `ScrollY` and V2's registers (not `SpriteStatus`, `SpriteLimit` or the table's own) are written, the
+rest ignored. The GPU reads the whole table, with `LineTableBase` and `LineTableCount`, at the first cycle of each
+frame's line 0: what changes later is for the next frame. A program usually rewrites it in the vertical blank.
+
+```casm
+// a sky of four bands: the background colour at lines 0, 60, 120 and 180
+@rodata
+let sky: u32[8] = [0x011C0000, 0x203080, 0x011C003C, 0x3050A0, 0x011C0078, 0x5078C0, 0x011C00B4, 0x80A0E0]
+```
+
+## VRAM in the vertical blank (`micro` and `pocket`)
+
+On the two smallest profiles (D17) the CPU may store to the VRAM only in the vertical blank or with the display off
+(`Control` bit 0 clear), as on the handhelds whose scan held the video memory while it drew. Any other store - a
+plain one, or a chunk of a block instruction - is lost: the GPU sets `FaultCode` 2 and `FaultAddress`, and raises
+interrupt 35 if enabled; the CPU goes on. The DMA, the copy engine and the terminal are not held to it, so a program
+loads its tiles with the copy engine, or with the display off, and writes its maps and OAM in the blank. A `custom`
+machine made from `micro` or `pocket` keeps the rule.
+
 ## Where the frames go
 
-The GPU composes a frame - the background colour, then the bitmap plane, then the text plane with its cursor - and
-hands it to the host at the blank. The host decides what to do with it:
+The GPU composes the frame just scanned - the background colour, then the bitmap plane, then the tile layers and
+sprites, then the text plane with its cursor - and hands it to the host at the blank. The host decides what to do
+with it:
 
 - **In the window** (`ceres run`, in a build with SDL): the window opens at the start, shows the latest frame at
   the largest whole scale that fits (F11 or `--fullscreen` fills the screen), and at most one frame every 8 ms of
@@ -196,8 +301,9 @@ hands it to the host at the blank. The host decides what to do with it:
   exit code. The window stays with the last frame until a key is pressed or it is closed, unless
   `--exit-on-halt`.
 - **Without one** (`--headless`, `CERES_HEADLESS`, or a build without SDL): nothing is drawn. `--frames <dir>`
-  writes a PNG of the screen for every `Present` (`frame_000000.png`, …), and `--screen-log <file>` writes the
-  text plane as text at every `Present` and at the end - how the tests check what a program shows.
+  writes a PNG for every `Present` (`frame_000000.png`, …) - of the first frame that shows it, written when that
+  frame ends (or, when the program ends first, of the screen as it is then) - and `--screen-log <file>` writes the
+  text plane as text at every `Present` and at the end: how the tests check what a program shows.
 
 Nothing about the program's screen ever reaches the host's terminal (SPEC 1.4); see
 [CLI](16-CLI-and-Assembly-Pipeline.md) for the options.

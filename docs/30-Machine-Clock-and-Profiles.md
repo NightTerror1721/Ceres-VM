@@ -98,8 +98,10 @@ A replay is the recorded run, whatever the host does now or however fast it is.
 ## Profiles
 
 A machine is one of eight profiles (plan/v2 SPEC 4), from a small handheld to a workstation. The profile fixes
-its clocks, its memory and the most it offers in video and sound; the video and audio levels, the resolution and
-the sprites take effect as the GPU and the sound devices arrive (plan/v2 F5 on), and the rest already does.
+its clocks, its memory and the most it offers in video and sound; the audio level takes effect as the sound devices
+arrive (plan/v2 F9 on), and the rest already does. The sprites a line are the GPU's `SpriteLimit`
+([Video](31-Video.md#v2-the-sprites-0x308-0x318)), and on `micro` and `pocket` the CPU writes the VRAM only in the
+vertical blank ([Video](31-Video.md#vram-in-the-vertical-blank-micro-and-pocket)).
 
 | Profile | CPU | GPU | RAM | VRAM | Video | Resolution | Audio | Sprites a line |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
