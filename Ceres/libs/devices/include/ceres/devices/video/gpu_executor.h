@@ -12,6 +12,7 @@ namespace ceres::devices::video
 {
 	class TextPlane;
 	class BitmapPlane;
+	class Retro2D;
 
 	// One composed picture: Width x Height pixels, row by row, 0x00RRGGBB.
 	struct VideoFrame
@@ -27,12 +28,13 @@ namespace ceres::devices::video
 	{
 		u32 width = 0;
 		u32 height = 0;
-		u32 mode = 0;               // the video level: 0 text only, 1 adds the bitmap plane
+		u32 mode = 0;               // the video level: 0 text only, 1 adds the bitmap plane, 2 the tile layers
 		bool displayOn = true;      // Control bit 0; off, the screen is black
 		u32 background = 0;         // BackgroundColor, 0x00RRGGBB
 		u64 frameCounter = 0;       // what a blinking cursor counts with
 		const TextPlane* text = nullptr;
 		const BitmapPlane* bitmap = nullptr;
+		const Retro2D* retro = nullptr;
 	};
 
 	class GpuExecutor

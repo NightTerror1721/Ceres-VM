@@ -8,7 +8,10 @@ namespace ceres::devices
 {
 	namespace
 	{
-		// Every register of the core and the display (plan/v2 SPEC 7.3), in offset order.
+		// A tile layer's registers (plan/v2 SPEC 7.5), from its block's first offset.
+#define LAYER(n, at) 			{ at + 0x00, "Layer" #n "Control",   RegisterAccess::ReadWrite, 0x0, false, "Bit 0 on, 1 16x16 tiles, 2 8 bpp, 5:4 priority, 7:6 and 9:8 the map's size, 10 line scroll, 15:12 palette bank." }, 			{ at + 0x04, "Layer" #n "MapBase",   RegisterAccess::ReadWrite, 0x0, false, "The map: 16-bit entries, row by row." }, 			{ at + 0x08, "Layer" #n "TileBase",  RegisterAccess::ReadWrite, 0x0, false, "The tiles the map's entries number." }, 			{ at + 0x0C, "Layer" #n "ScrollX",   RegisterAccess::ReadWrite, 0x0, false, "The map's column at the screen's left edge (it wraps round)." }, 			{ at + 0x10, "Layer" #n "ScrollY",   RegisterAccess::ReadWrite, 0x0, false, "Its row at the top." }, 			{ at + 0x14, "Layer" #n "LineScrollBase", RegisterAccess::ReadWrite, 0x0, false, "A word a line: dx in bits 15:0, dy in 31:16 (with Control bit 10)." }
+
+		// Every register of the core, the display and the planes (plan/v2 SPEC 7.3 and 7.5), in offset order.
 		constexpr RegisterInfo Registers[] = {
 			{ 0x000, "Id",              RegisterAccess::Read,            GpuDevice::IdValue, false, "0x55504743, \"CGPU\"." },
 			{ 0x004, "Version",         RegisterAccess::Read,            GpuDevice::VersionValue, false, "Major << 16 | minor." },
@@ -66,7 +69,12 @@ namespace ceres::devices
 			{ 0x28C, "FillValue",       RegisterAccess::ReadWrite,       0x0, false, "The 32-bit pattern a fill repeats, aligned to the address." },
 			{ 0x290, "CopyCommand",     RegisterAccess::Write,           0x0, false, "1 copy, 2 fill; done after its GPU cycles (interrupt 34)." },
 			{ 0x294, "CopyStatus",      RegisterAccess::Read,            0x0, false, "Bit 0 busy, bit 1 the last command faulted." },
+			{ 0x300, "TilePaletteBase", RegisterAccess::ReadWrite,       0x0, false, "The tile layers' palette: 256 entries of 0x00RRGGBB, 16 banks of 16 in 4 bpp." },
+			{ 0x304, "SpritePaletteBase", RegisterAccess::ReadWrite,     0x0, false, "The sprites' palette, the same way." },
+			LAYER(0, 0x340), LAYER(1, 0x360), LAYER(2, 0x380), LAYER(3, 0x3A0)
 		};
+
+#undef LAYER
 
 		constexpr RegisterMap Map{ "gpu", Registers };
 	}
@@ -130,6 +138,7 @@ namespace ceres::devices
 			_bitmap.reset(_width, _height, (layout.scrollbackBase + layout.scrollbackBytes + 255) & ~255u, layout.paletteBase, vram().size());
 		}
 		_copy.reset();
+		_retro.reset();
 		if (Scheduler* events = scheduler())
 			events->cancel(*this, CopyEvent);
 		scheduleVblank();
@@ -227,6 +236,7 @@ namespace ceres::devices
 		state.frameCounter = _frameCounter;
 		state.text = &_text;
 		state.bitmap = &_bitmap;
+		state.retro = &_retro;
 		_executor->compose(state, vram(), frame);
 	}
 
@@ -238,6 +248,8 @@ namespace ceres::devices
 			return _bitmap.read(offset.value());
 		if (video::CopyEngine::handles(offset.value()))
 			return _copy.read(offset.value());
+		if (video::Retro2D::handles(offset.value()))
+			return _retro.read(offset.value());
 		switch (offset.value())
 		{
 			case IdRegister.value(): return IdValue;
@@ -294,6 +306,11 @@ namespace ceres::devices
 			else if (start.started)
 				if (Scheduler* events = scheduler())
 					events->schedule(*this, now() + video::CostModel::toCpuCycles(start.gpuCycles, events->clockHz(), _config.gpuClockHz), CopyEvent);
+			return;
+		}
+		if (video::Retro2D::handles(offset.value()))
+		{
+			_retro.write(offset.value(), value);
 			return;
 		}
 		switch (offset.value())

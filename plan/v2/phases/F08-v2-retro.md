@@ -32,7 +32,7 @@ VRAM fuera del VBlank en `micro` y `pocket` (`FaultCode` 2) y §7.6, el scanout 
   (`ScanoutState::retro`), `video/software_executor.cpp`; test `devices/tests/test_tile_layers.cpp`.
 - **Pasos**: 16 paletas de 16 y una de 256 en VRAM (TilePaletteBase); 4 capas (mapa, tileset, tamaño de mapa 32–128,
   tile 8×8 o 16×16, 4 u 8 bpp, scroll, prioridad, banco de paleta, tabla de scroll por línea).
-- **Aceptación**: [ ] Tests por hash con cada combinación de tamaño y bpp, contra un modelo de referencia del test.
+- **Aceptación**: [x] Tests por hash con cada combinación de tamaño y bpp, contra un modelo de referencia del test.
 - **Commit**: `Add palettes and tile layers (F8.1)`
 
 ### F8.2 · Capa afín
@@ -70,3 +70,12 @@ VRAM fuera del VBlank en `micro` y `pocket` (`FaultCode` 2) y §7.6, el scanout 
 - **Commit**: `Document the Retro 2D level (F8.6)`
 
 ## Notas
+
+- **F8.1**: los registros de V2 viven en `video/retro2d.{h,cpp}` (un tipo valor, como pide §7.6 para copiarlo por
+  tramos en F8.4) y la línea de V2 en software en `video/retro_scanout.{h,cpp}`, que el `SoftwareExecutor` llama por
+  cada línea tras el plano bitmap. Las paletas se leen de la VRAM una vez por fotograma mientras su base no cambie.
+  El mapa mide en píxeles una potencia de dos, así que el scroll (con el de la línea sumado, con signo) da la vuelta
+  con una máscara. `Caps` pasa a `0xFF07` (V0–V2). `test_tile_layers` compara 16 combinaciones (tile 8 y 16, 4 y 8
+  bpp, mapas de 32 a 128 por lado, scrolls grandes y negativos, tabla de scroll por línea) píxel a píxel con un
+  modelo escrito en el test y fija su hash; aparte, prioridades (número de capa y bit del tile) y transparencia sobre
+  el plano bitmap.

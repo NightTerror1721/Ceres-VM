@@ -1,6 +1,7 @@
 #include <ceres/devices/video/software_executor.h>
 #include <ceres/devices/video/bitmap_plane.h>
 #include <ceres/devices/video/formats.h>
+#include <ceres/devices/video/retro2d.h>
 #include <ceres/devices/video/text_plane.h>
 
 #include <algorithm>
@@ -147,6 +148,12 @@ namespace ceres::devices::video
 		std::fill(frame.pixels.begin(), frame.pixels.end(), state.background & 0x00FFFFFFu);
 		if (state.mode >= 1 && state.bitmap != nullptr && state.bitmap->enabled())
 			composeBitmap(*state.bitmap, vram, frame);
+		if (state.mode >= 2 && state.retro != nullptr && state.retro->anyEnabled())
+		{
+			_retro.beginFrame();
+			for (u32 y = 0; y < frame.height; ++y)
+				_retro.composeLine(*state.retro, vram, y, std::span<u32>(frame.pixels.data() + static_cast<usize>(y) * frame.width, frame.width));
+		}
 		if (state.text != nullptr && state.text->enabled())
 			composeText(state, *state.text, vram, frame);
 	}

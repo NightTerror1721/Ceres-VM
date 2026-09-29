@@ -129,7 +129,7 @@ Archivo: [phases/F08-v2-retro.md](phases/F08-v2-retro.md)
 
 | ID | Tarea | Depende de | Estado | Commits |
 | --- | --- | --- | --- | --- |
-| F8.1 | Paletas y capas de tiles | F5 y el commit de «Antes de empezar» | TODO |  |
+| F8.1 | Paletas y capas de tiles | F5 y el commit de «Antes de empezar» | DONE |  |
 | F8.2 | Capa afín | F8.1 | TODO |  |
 | F8.3 | Sprites y VRAM en el VBlank (D17) | F8.2 | TODO |  |
 | F8.4 | Tabla de líneas y efectos raster | F8.3 | TODO |  |

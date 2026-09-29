@@ -30,8 +30,8 @@ TEST(gpu, identifies_itself_and_boots_in_text_mode_at_640x480)
 	CHECK_EQ(vm.io().read(default_mmio::Gpu + GpuDevice::HeightRegister), 480u);
 	CHECK_EQ(vm.io().read(default_mmio::Gpu + GpuDevice::RefreshRegister), 60u);
 	CHECK_EQ(vm.io().read(default_mmio::Gpu + GpuDevice::LinesTotalRegister), 525u);
-	// V0 and V1 built, every bitmap format, no hardware executor.
-	CHECK_EQ(vm.io().read(default_mmio::Gpu + GpuDevice::CapsRegister), 0xFF03u);
+	// V0, V1 and V2 built, every bitmap format, no hardware executor.
+	CHECK_EQ(vm.io().read(default_mmio::Gpu + GpuDevice::CapsRegister), 0xFF07u);
 	gpu.detachFrom(vm.io());
 }
 

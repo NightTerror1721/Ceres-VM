@@ -4,14 +4,15 @@
 // composes and the engines that draw. Its internal parts - the display controller, the planes, the engines, the
 // executor - are not devices of their own (SPEC 5.2); only this is on the bus.
 //
-// F5 builds levels V0 (the text plane) and V1 (the bitmap plane and the copy engine). The registers of the core and
-// the display are at 0x000-0x120 of slot 0x40 (SPEC 7.3). The slots 0x41-0x43 are the command processor's and the
+// F5 builds levels V0 (the text plane) and V1 (the bitmap plane and the copy engine), F8 level V2 (the tile layers,
+// retro2d.h). The registers of the core and the display are at 0x000-0x120 of slot 0x40 (SPEC 7.3). The slots 0x41-0x43 are the command processor's and the
 // 2D and 3D engines' and are not attached until the phases that fill them (F10, F13, F14).
 
 #include <ceres/devices/video/bitmap_plane.h>
 #include <ceres/devices/video/copy_engine.h>
 #include <ceres/devices/video/display_controller.h>
 #include <ceres/devices/video/gpu_executor.h>
+#include <ceres/devices/video/retro2d.h>
 #include <ceres/devices/video/software_executor.h>
 #include <ceres/devices/video/text_plane.h>
 #include <ceres/vm/mmio_bus.h>
@@ -53,8 +54,8 @@ namespace ceres::devices
 
 		static inline constexpr u32 IdValue = 0x55504743;
 		static inline constexpr u32 VersionValue = 0x00010000;   // 1.0
-		// The highest level this GPU builds so far: V1. A Mode above it (or above the profile's MaxLevel) is clamped.
-		static inline constexpr u32 ImplementedLevel = 1;
+		// The highest level this GPU builds so far: V2. A Mode above it (or above the profile's MaxLevel) is clamped.
+		static inline constexpr u32 ImplementedLevel = 2;
 		static inline constexpr u32 CapsHardwareExecutor = 1u << 31;
 
 		static inline constexpr u32 ControlDisplayOn = 1u << 0;
@@ -110,6 +111,7 @@ namespace ceres::devices
 		video::TextPlane _text;
 		video::BitmapPlane _bitmap;
 		video::CopyEngine _copy;
+		video::Retro2D _retro;
 
 		u32 _mode = 0;
 		u32 _control = ControlDisplayOn;
@@ -155,6 +157,7 @@ namespace ceres::devices
 		video::TextPlane& textPlane() noexcept { return _text; }
 		const video::TextPlane& textPlane() const noexcept { return _text; }
 		const video::BitmapPlane& bitmapPlane() const noexcept { return _bitmap; }
+		const video::Retro2D& retro() const noexcept { return _retro; }
 		// The text plane's screen as text, a line a row (what --screen-log writes).
 		std::string screenText() const { return _text.toText(vram()); }
 
