@@ -76,6 +76,8 @@ namespace ceres::devices
 			{ 0x310, "SpriteControl",   RegisterAccess::ReadWrite,       0x0, false, "Bit 0 the sprites on." },
 			{ 0x314, "SpriteStatus",    RegisterAccess::Read,            0x0, false, "Of the last frame: bit 0 a line had more sprites than the limit, 31:16 the first." },
 			{ 0x318, "SpriteLimit",     RegisterAccess::Read,            0x0, false, "Sprites a line, the profile's." },
+			{ 0x31C, "LineTableBase",   RegisterAccess::ReadWrite,       0x0, false, "The line table: 8-byte entries of (line | register << 16, value)." },
+			{ 0x320, "LineTableCount",  RegisterAccess::ReadWrite,       0x0, false, "Its entries, up to 8192; 0 turns it off." },
 			LAYER(0, 0x340), LAYER(1, 0x360), LAYER(2, 0x380), LAYER(3, 0x3A0),
 			{ 0x3C0, "AffineControl",   RegisterAccess::ReadWrite,       0x0, false, "As a layer's, and bit 11 repeats the map (without it, outside is transparent)." },
 			{ 0x3C4, "AffineMapBase",   RegisterAccess::ReadWrite,       0x0, false, "The affine layer's map." },
@@ -167,6 +169,8 @@ namespace ceres::devices
 			events->cancel(*this, CopyEvent);
 		scheduleVblank();
 		scheduleLine();
+		_scanned.clear();
+		beginScan();
 	}
 
 	void GpuDevice::setResolution(u32 width, u32 height)
@@ -196,23 +200,141 @@ namespace ceres::devices
 			events->cancel(*this, LineEvent);
 	}
 
-	// What the frame just scanned did with the profile's limit of sprites a line (SpriteStatus).
+	// What the frame just scanned did with the profile's limit of sprites a line (SpriteStatus): each stretch of lines
+	// with its own OAM, limit and level, the first line over the limit being the one reported.
 	void GpuDevice::countSprites()
 	{
-		if (_mode < 2 || !_retro.spritesOn())
+		bool read = false;
+		u32 readBase = 0;
+		for (usize i = 0; i < _scanning.size(); ++i)
 		{
-			_retro.setSpriteStatus(false, 0);
+			const video::LineState& lines = _scanning[i];
+			const u32 end = std::min(i + 1 < _scanning.size() ? _scanning[i + 1].firstLine : _height, _height);
+			if (lines.mode < 2 || !lines.displayOn || !lines.retro.spritesOn() || lines.firstLine >= end)
+				continue;
+			if (!read || readBase != lines.retro.oamBase())
+			{
+				video::readOam(vram(), lines.retro.oamBase(), _sprites);
+				readBase = lines.retro.oamBase();
+				read = true;
+			}
+			const video::SpriteOverflow overflow = video::findOverflow(_sprites, lines.firstLine, end, lines.retro.spriteLimit());
+			if (overflow.overflowed)
+			{
+				_retro.setSpriteStatus(true, overflow.firstLine);
+				return;
+			}
+		}
+		_retro.setSpriteStatus(false, 0);
+	}
+
+	// Everything the scanout reads but the text plane, as the registers hold it now.
+	video::LineState GpuDevice::liveState(u32 firstLine) const
+	{
+		return video::LineState{ .firstLine = firstLine, .mode = _mode, .displayOn = (_control & ControlDisplayOn) != 0,
+			.background = _background, .bitmap = _bitmap, .retro = _retro };
+	}
+
+	// A new frame's scan, from its line 0 with the registers as they are.
+	void GpuDevice::beginScan()
+	{
+		_scanFrame = _nextFrame;
+		_scanLine = 0;
+		_tableCursor = 0;
+		_scanning.clear();
+		_scanning.push_back(liveState(0));
+	}
+
+	// The scan reaches the machine's cycle: every line started before it is done, the line table applied at each. A line
+	// that starts on this very cycle is not: what is written now is in time for it.
+	void GpuDevice::catchUp()
+	{
+		const Scheduler* clock = scheduler();
+		if (clock == nullptr)
+			return;
+		const u64 cycle = clock->now();
+		const u64 frame = _display.frameAt(cycle);
+		if (frame < _scanFrame)
+			return;   // the blank before the frame: nothing of it is scanned yet
+		if (frame > _scanFrame)
+		{
+			scanTo(_height);
 			return;
 		}
-		video::readOam(vram(), _retro.oamBase(), _sprites);
-		const video::SpriteOverflow overflow = video::findOverflow(_sprites, 0, _height, _retro.spriteLimit());
-		_retro.setSpriteStatus(overflow.overflowed, overflow.firstLine);
+		const u32 line = _display.lineAt(cycle);
+		scanTo(std::min(cycle > _display.lineStart(frame, line) ? line + 1 : line, _height));
+	}
+
+	void GpuDevice::scanTo(u32 line)
+	{
+		for (; _scanLine < line; ++_scanLine)
+			applyLineTable(_scanLine);
+	}
+
+	// The entries of `line` in the line table, written as the CPU would write them (plan/v2 SPEC 7.5). The table is read
+	// in order; one whose line has passed is skipped, and it ends where the VRAM does.
+	void GpuDevice::applyLineTable(u32 line)
+	{
+		const u32 count = _retro.lineTableCount();
+		bool changed = false;
+		while (_tableCursor < count)
+		{
+			const u64 at = u64{ _retro.lineTableBase() } + u64{ _tableCursor } * video::Retro2D::LineTableEntrySize;
+			if (at > 0xFFFFFFFFull || !vram().backs(static_cast<u32>(at), video::Retro2D::LineTableEntrySize))
+			{
+				_tableCursor = count;
+				break;
+			}
+			const u32 offset = static_cast<u32>(at) - Vram::BaseValue;
+			const u32 head = vram().read<u32>(offset);
+			if ((head & 0xFFFFu) > line)
+				break;
+			++_tableCursor;
+			if ((head & 0xFFFFu) < line)
+				continue;
+			const u32 target = (head >> 16) & 0xFFFu;
+			if ((target & 3u) != 0)
+				continue;
+			const u32 value = vram().read<u32>(offset + 4);
+			if (target == BackgroundColorRegister.value())
+				_background = value & 0x00FFFFFFu;
+			else if (target == video::BitmapPlane::ScrollXRegister || target == video::BitmapPlane::ScrollYRegister)
+				_bitmap.write(target, value);
+			else if (video::Retro2D::lineTableWrites(target))
+				_retro.write(target, value);
+			else
+				continue;
+			changed = true;
+		}
+		if (changed)
+			noteChange();
+	}
+
+	// A register may have changed: from the next line to scan, the lines have the registers as they are now. Nothing is
+	// kept when nothing the scanout reads changed, nor once the visible lines are done (the next frame starts from the
+	// registers as the vertical blank leaves them).
+	void GpuDevice::noteChange()
+	{
+		if (_scanLine >= _height || _scanning.empty())
+			return;
+		video::LineState now = liveState(_scanLine);
+		if (now.sameAs(_scanning.back()))
+			return;
+		if (_scanning.back().firstLine == _scanLine)
+			_scanning.back() = now;
+		else
+			_scanning.push_back(now);
 	}
 
 	void GpuDevice::vblank()
 	{
+		scanTo(_height);
 		countSprites();
+		_scanned.swap(_scanning);
+		_scannedWidth = _width;
+		_scannedHeight = _height;
 		_frameCounter = _nextFrame + 1;
+		_scannedNumber = _frameCounter;
 		++_nextFrame;
 		const bool presented = _presentPending;
 		_presentPending = false;
@@ -221,6 +343,7 @@ namespace ceres::devices
 			_text.applyPending();
 			_bitmap.applyPending();
 		}
+		beginScan();
 		_irqStatus |= IrqVblank;
 		if ((_irqEnable & IrqVblank) != 0)
 			raiseInterrupt(VblankInterrupt);
@@ -265,30 +388,56 @@ namespace ceres::devices
 
 	void GpuDevice::compose(video::VideoFrame& frame)
 	{
+		const video::LineState now = liveState(0);
 		video::ScanoutState state;
 		state.width = _width;
 		state.height = _height;
-		state.mode = _mode;
-		state.displayOn = (_control & ControlDisplayOn) != 0;
-		state.background = _background;
 		state.frameCounter = _frameCounter;
 		state.text = &_text;
-		state.bitmap = &_bitmap;
-		state.retro = &_retro;
+		state.lines = std::span<const video::LineState>(&now, 1);
+		_executor->compose(state, vram(), frame);
+	}
+
+	void GpuDevice::composeScanned(video::VideoFrame& frame)
+	{
+		if (_scanned.empty())
+		{
+			compose(frame);
+			return;
+		}
+		video::ScanoutState state;
+		state.width = _scannedWidth;
+		state.height = _scannedHeight;
+		state.frameCounter = _scannedNumber;
+		state.text = &_text;
+		state.lines = _scanned;
 		_executor->compose(state, vram(), frame);
 	}
 
 	u32 GpuDevice::read(Address offset)
 	{
-		if (video::TextPlane::handles(offset.value()))
-			return _text.read(offset.value());
-		if (video::BitmapPlane::handles(offset.value()))
-			return _bitmap.read(offset.value());
-		if (video::CopyEngine::handles(offset.value()))
-			return _copy.read(offset.value());
-		if (video::Retro2D::handles(offset.value()))
-			return _retro.read(offset.value());
-		switch (offset.value())
+		catchUp();
+		return readRegister(offset.value());
+	}
+
+	void GpuDevice::write(Address offset, u32 value)
+	{
+		catchUp();
+		writeRegister(offset.value(), value);
+		noteChange();
+	}
+
+	u32 GpuDevice::readRegister(u32 offset)
+	{
+		if (video::TextPlane::handles(offset))
+			return _text.read(offset);
+		if (video::BitmapPlane::handles(offset))
+			return _bitmap.read(offset);
+		if (video::CopyEngine::handles(offset))
+			return _copy.read(offset);
+		if (video::Retro2D::handles(offset))
+			return _retro.read(offset);
+		switch (offset)
 		{
 			case IdRegister.value(): return IdValue;
 			case VersionRegister.value(): return VersionValue;
@@ -324,21 +473,21 @@ namespace ceres::devices
 		}
 	}
 
-	void GpuDevice::write(Address offset, u32 value)
+	void GpuDevice::writeRegister(u32 offset, u32 value)
 	{
-		if (video::TextPlane::handles(offset.value()))
+		if (video::TextPlane::handles(offset))
 		{
-			_text.write(offset.value(), value);
+			_text.write(offset, value);
 			return;
 		}
-		if (video::BitmapPlane::handles(offset.value()))
+		if (video::BitmapPlane::handles(offset))
 		{
-			_bitmap.write(offset.value(), value);
+			_bitmap.write(offset, value);
 			return;
 		}
-		if (video::CopyEngine::handles(offset.value()))
+		if (video::CopyEngine::handles(offset))
 		{
-			const video::CopyEngine::Start start = _copy.write(offset.value(), value, memory(), vram());
+			const video::CopyEngine::Start start = _copy.write(offset, value, memory(), vram());
 			if (start.fault)
 				fault(FaultBadAddress, start.faultAddress);
 			else if (start.started)
@@ -346,12 +495,12 @@ namespace ceres::devices
 					events->schedule(*this, now() + video::CostModel::toCpuCycles(start.gpuCycles, events->clockHz(), _config.gpuClockHz), CopyEvent);
 			return;
 		}
-		if (video::Retro2D::handles(offset.value()))
+		if (video::Retro2D::handles(offset))
 		{
-			_retro.write(offset.value(), value);
+			_retro.write(offset, value);
 			return;
 		}
-		switch (offset.value())
+		switch (offset)
 		{
 			case ModeRegister.value():
 				_mode = std::min(value, availableLevel());

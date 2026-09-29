@@ -64,6 +64,8 @@ namespace ceres::devices::video
 		bool lineScroll() const noexcept { return (control & LayerControl::LineScroll) != 0; }
 		u32 paletteBank() const noexcept { return (control >> LayerControl::PaletteBankShift) & 15u; }
 
+		bool operator==(const TileLayer&) const noexcept = default;
+
 		static constexpr u32 mapTiles(u32 code) noexcept { return 32u << std::min<u32>(code & 3u, 2u); }
 	};
 
@@ -89,6 +91,8 @@ namespace ceres::devices::video
 		i32 pb() const noexcept { return static_cast<i16>(static_cast<u16>(matrixAB >> 16)); }
 		i32 pc() const noexcept { return static_cast<i16>(static_cast<u16>(matrixCD)); }
 		i32 pd() const noexcept { return static_cast<i16>(static_cast<u16>(matrixCD >> 16)); }
+
+		bool operator==(const AffineLayer&) const noexcept = default;
 	};
 
 	class Retro2D
@@ -101,6 +105,8 @@ namespace ceres::devices::video
 		static inline constexpr u32 SpriteControlRegister = 0x310;       // RW: bit 0 the sprites on
 		static inline constexpr u32 SpriteStatusRegister = 0x314;        // R: bit 0 a line overflowed last frame, 31:16 the first
 		static inline constexpr u32 SpriteLimitRegister = 0x318;         // R: sprites a line, the profile's
+		static inline constexpr u32 LineTableBaseRegister = 0x31C;       // RW: the line table
+		static inline constexpr u32 LineTableCountRegister = 0x320;      // RW: its entries, 0 off
 		static inline constexpr u32 FirstRegister = 0x300;
 		static inline constexpr u32 LastRegister = 0x3FC;
 
@@ -130,6 +136,10 @@ namespace ceres::devices::video
 		static inline constexpr u32 SpriteOverflow = 1u << 0;            // SpriteStatus
 		static inline constexpr u32 SpriteOverflowLineShift = 16;
 
+		// The line table: entries of 8 bytes (SPEC 7.5), no more than this many.
+		static inline constexpr u32 LineTableEntrySize = 8;
+		static inline constexpr u32 MaxLineTableEntries = 8192;
+
 		// The register of layer `layer` at `field` (one of the Layer*Register offsets).
 		static constexpr u32 layerRegister(u32 layer, u32 field) noexcept { return LayerRegisters + layer * LayerStride + field; }
 
@@ -141,6 +151,8 @@ namespace ceres::devices::video
 		u32 _spriteControl = 0;
 		u32 _spriteStatus = 0;
 		u32 _spriteLimit = 128;
+		u32 _lineTableBase = 0;
+		u32 _lineTableCount = 0;
 		std::array<TileLayer, LayerCount> _layers{};
 		AffineLayer _affine;
 
@@ -159,6 +171,8 @@ namespace ceres::devices::video
 		bool spritesOn() const noexcept { return (_spriteControl & SpritesOn) != 0; }
 		u32 spriteLimit() const noexcept { return _spriteLimit; }
 		u32 spriteStatus() const noexcept { return _spriteStatus; }
+		u32 lineTableBase() const noexcept { return _lineTableBase; }
+		u32 lineTableCount() const noexcept { return _lineTableCount; }
 		// The GPU's, at each vertical blank: what the frame's lines did with the limit.
 		void setSpriteStatus(bool overflowed, u32 firstLine) noexcept
 		{
@@ -168,5 +182,14 @@ namespace ceres::devices::video
 		const AffineLayer& affine() const noexcept { return _affine; }
 		// Whether anything of V2 would show: a layer or the sprites on.
 		bool anyEnabled() const noexcept;
+		// Whether the line table may write the register at `offset` (SPEC 7.5): its own registers and the read-only ones
+		// may not.
+		static constexpr bool lineTableWrites(u32 offset) noexcept
+		{
+			return handles(offset) && offset != SpriteStatusRegister && offset != SpriteLimitRegister &&
+				offset != LineTableBaseRegister && offset != LineTableCountRegister;
+		}
+
+		bool operator==(const Retro2D&) const noexcept = default;
 	};
 }

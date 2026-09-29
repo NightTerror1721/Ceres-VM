@@ -329,6 +329,31 @@ TEST(driver_screen, the_window_opens_at_the_start_at_the_gpus_resolution_and_sho
 	CHECK_EQ(run.stats.firstPixel, 0x123456u);   // the last frame shown has the background the program set
 }
 
+TEST(driver_screen, frames_writes_the_first_frame_that_shows_a_present)
+{
+	// A Present is applied at the blank that ends its frame, and shown by the next frame (plan/v2 SPEC 7.6): --frames
+	// writes that one when it ends - or, when the program ends first, the screen as it is.
+	setHeadless("1");
+	const auto dir = std::filesystem::temp_directory_path() / "ceres_frames_test";
+	const auto pngs = [&]
+	{
+		usize count = 0;
+		for (const auto& file : std::filesystem::directory_iterator(dir))
+			count += file.path().extension() == ".png" ? 1 : 0;
+		return count;
+	};
+	RunCommand command;
+	command.framesDir = dir;
+	std::filesystem::remove_all(dir);
+	CHECK_EQ(runProgram(frameProgram(4, "    li   r0, 1\n    str  [r13 + 0x120], r0\n"), command, false).result, 0);
+	CHECK_EQ(pngs(), usize{ 1 });
+	std::filesystem::remove_all(dir);
+	CHECK_EQ(runProgram(frameProgram(1, "    li   r0, 1\n    str  [r13 + 0x120], r0\n"), command, false).result, 0);
+	CHECK_EQ(pngs(), usize{ 1 });
+	std::filesystem::remove_all(dir);
+	setHeadless("");
+}
+
 TEST(driver_screen, a_window_shows_one_frame_a_vertical_blank_in_real_time)
 {
 	setHeadless("");

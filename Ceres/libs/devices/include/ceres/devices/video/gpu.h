@@ -8,6 +8,12 @@
 // affine layer and sprites: retro2d.h). The registers of the core and the display are at 0x000-0x120 of slot 0x40
 // (SPEC 7.3).
 //
+// The scanout goes line by line (SPEC 7.6): each line is composed with the registers it found when the scan reached
+// it, so a register written in a line's interrupt, or by the line table, changes the picture from the next line. The
+// GPU does not draw as it goes. It keeps, for the frame being scanned, the stretches of lines that share their
+// registers - a new one whenever a register changes - and composes the frame from them at its vertical blank, when
+// the VRAM is read. Before any access to a register, the scan catches up with the machine's cycle.
+//
 // On micro and pocket (Config::vramInVblankOnly) the GPU is also the VRAM's write gate (plan/v2 SPEC 7.5, D17): the
 // CPU's stores only go in during the vertical blank or with the display off; the others are dropped, and FaultCode 2
 // says so. The slots 0x41-0x43 are the command processor's and the
@@ -111,7 +117,8 @@ namespace ceres::devices
 		};
 
 		// Called on the machine's thread at every vertical blank, after the pending bases were applied; `presented`
-		// says whether a Present was among them. A host composes its frame here.
+		// says whether a Present was among them. A host composes the frame just scanned here (composeScanned), which
+		// shows what was presented from the next blank on.
 		using VblankObserver = std::function<void(bool presented)>;
 
 	private:
@@ -137,6 +144,16 @@ namespace ceres::devices
 		u64 _frameCounter = 0;   // vertical blanks since the start
 		u64 _nextFrame = 0;      // the frame whose vertical blank is scheduled
 		std::vector<video::Sprite> _sprites;   // the OAM, read at each vertical blank to count the sprites a line
+		// The scan: the frame whose lines are being scanned, the next of its lines to reach, where the line table is,
+		// and the stretches of lines so far. The last frame scanned is kept whole for composeScanned().
+		u64 _scanFrame = 0;
+		u32 _scanLine = 0;
+		u32 _tableCursor = 0;
+		std::vector<video::LineState> _scanning;
+		std::vector<video::LineState> _scanned;
+		u32 _scannedWidth = 0;
+		u32 _scannedHeight = 0;
+		u64 _scannedNumber = 0;
 		VblankObserver _vblankObserver;
 
 	public:
@@ -157,8 +174,10 @@ namespace ceres::devices
 
 		void setVblankObserver(VblankObserver observer) { _vblankObserver = std::move(observer); }
 
-		// The picture as the scanout would show it now.
+		// The picture as the scanout would show it now, every line with the registers as they are.
 		void compose(video::VideoFrame& frame);
+		// The frame the scan finished at the last vertical blank, line by line (or, before one, compose()).
+		void composeScanned(video::VideoFrame& frame);
 
 		u32 width() const noexcept { return _width; }
 		u32 height() const noexcept { return _height; }
@@ -182,6 +201,14 @@ namespace ceres::devices
 		const RegisterMap& registers() const override;
 
 	private:
+		u32 readRegister(u32 offset);
+		void writeRegister(u32 offset, u32 value);
+		video::LineState liveState(u32 firstLine) const;
+		void catchUp();
+		void scanTo(u32 line);
+		void applyLineTable(u32 line);
+		void noteChange();
+		void beginScan();
 		u64 now() const noexcept;
 		u32 availableLevel() const noexcept;
 		void setResolution(u32 width, u32 height);

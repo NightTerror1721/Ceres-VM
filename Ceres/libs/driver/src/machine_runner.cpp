@@ -685,15 +685,26 @@ namespace ceres::driver
 			}
 		}
 
-		// Every vertical blank (plan/v2 F5.5): the window gets the frame the scanout composes - no more than one every
-		// few milliseconds of the host's, so a machine running flat out does not spend its time drawing - and a
-		// Present also goes to --frames as a PNG, composed at the blank itself so it is the same on every run.
+		// Every vertical blank (plan/v2 F5.5): the window gets the frame just scanned, line by line (SPEC 7.6) - no more
+		// than one every few milliseconds of the host's, so a machine running flat out does not spend its time drawing.
+		// A Present goes to --frames as a PNG of the first frame that shows it, the one that ends at the next blank, so
+		// it is the same on every run.
 		const HostStatus runningStatus{ std::string(profileName(machine.id)), 0.0, std::nullopt };
 		constexpr auto MinPresentGap = std::chrono::milliseconds(8);
 		constexpr auto StatusEvery = std::chrono::milliseconds(250);
 		video::VideoFrame frame;
 		u64 framesWritten = 0;
 		bool framesFailed = false;
+		bool frameOwed = false;   // a Present was applied at the last blank: this frame is the first to show it
+		const auto writeFrame = [&]
+		{
+			const auto path = options.framesDir / std::format("frame_{:06}.png", framesWritten++);
+			if (!writePng(path, frame))
+			{
+				framesFailed = true;
+				log.error("--frames: cannot write " + path.string());
+			}
+		};
 		HostClock::time_point lastShown{};
 		HostClock::time_point lastStatus{};
 		gpu.setVblankObserver([&](bool presented)
@@ -701,24 +712,20 @@ namespace ceres::driver
 			bool composed = false;
 			if (presented && headless.hasScreenLog())
 				headless.screen(gpu.screenText(), false);
-			if (presented && !options.framesDir.empty() && !framesFailed)
+			if (frameOwed && !framesFailed)
 			{
-				gpu.compose(frame);
+				gpu.composeScanned(frame);
 				composed = true;
-				const auto path = options.framesDir / std::format("frame_{:06}.png", framesWritten++);
-				if (!writePng(path, frame))
-				{
-					framesFailed = true;
-					log.error("--frames: cannot write " + path.string());
-				}
+				writeFrame();
 			}
+			frameOwed = presented && !options.framesDir.empty();
 			if (!host.video)
 				return;
 			const HostClock::time_point now = HostClock::now();
 			if (now - lastShown >= MinPresentGap)
 			{
 				if (!composed)
-					gpu.compose(frame);
+					gpu.composeScanned(frame);
 				host.video->present(frame);
 				lastShown = now;
 			}
@@ -806,6 +813,12 @@ namespace ceres::driver
 		}
 
 		reportUnhandled();
+		// The program ended before the frame that shows its last Present did: that one is the screen as it is.
+		if (frameOwed && !framesFailed)
+		{
+			gpu.compose(frame);
+			writeFrame();
+		}
 		if (profileInfo)
 			printProfile(vm, *profileInfo, *services.diagnostics);
 		headless.screen(gpu.screenText(), true);

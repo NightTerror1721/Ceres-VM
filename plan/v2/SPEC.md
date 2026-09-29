@@ -493,8 +493,9 @@ Los registros de V2 no esperan a `Present`: una escritura vale desde la línea s
   prioridad.
 - **Límite por línea**: los sprites visibles que tocan una línea se toman en orden de OAM; pasados SpriteLimit, los
   demás no se dibujan en esa línea y se marca el desbordamiento (SpriteStatus).
-- **Tabla de líneas**: entradas de 8 bytes. Palabra 0: bits 15:0 la línea, 27:16 el offset de un registro de este
-  slot (múltiplo de 4); palabra 1: el valor. Al empezar cada línea visible, el scanout escribe, como lo haría la
+- **Tabla de líneas**: hasta 8192 entradas de 8 bytes (un LineTableCount mayor se queda en 8192; la tabla acaba
+  también donde acaba la VRAM). Palabra 0: bits 15:0 la línea, 27:16 el offset de un registro de este slot
+  (múltiplo de 4); palabra 1: el valor. Al empezar cada línea visible, el scanout escribe, como lo haría la
   CPU, los valores de las entradas de esa línea; se leen en orden y una entrada cuya línea ya pasó se salta. Sólo
   valen BackgroundColor, ScrollX y ScrollY del plano bitmap y los registros de `0x300–0x3FF` salvo SpriteStatus,
   SpriteLimit, LineTableBase y LineTableCount; las demás se ignoran. Lo escrito se queda, como una escritura de la
@@ -506,8 +507,8 @@ Los registros de V2 no esperan a `Present`: una escritura vale desde la línea s
 ### 7.6 Scanout por líneas (NORMATIVA desde F8)
 
 Cada línea visible se compone con los registros que había al empezar: lo que la CPU escribe durante la línea L (por
-ejemplo, en la IRQ de línea de L) se ve desde la L + 1, y las entradas de la tabla de líneas de L se aplican antes
-de L (la tabla se lee al llegar a cada línea). El resto de la VRAM (tiles, mapas, paletas, OAM, tablas de
+ejemplo, en la IRQ de línea de L) se ve desde la L + 1 (una escritura en el mismo ciclo en que empieza L llega a
+tiempo para L), y las entradas de la tabla de líneas de L se aplican antes de L (la tabla se lee al llegar a cada línea). El resto de la VRAM (tiles, mapas, paletas, OAM, tablas de
 scroll, celdas) se lee al componer el fotograma, en su VBlank. El
 fotograma que se ve en el VBlank n es el que acaba de recorrerse: un `Present` escrito durante él aplica las bases
 en ese VBlank y se ve desde el fotograma n + 1.

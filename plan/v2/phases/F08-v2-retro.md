@@ -92,3 +92,15 @@ VRAM fuera del VBlank en `micro` y `pocket` (`FaultCode` 2) y §7.6, el scanout 
   de las instrucciones de bloque (un trozo rechazado va a una página que nadie lee, así que la instrucción termina);
   sin compuerta, la ruta cuesta un puntero nulo. La GPU es la compuerta cuando `MachineProfile::vramInVblankOnly`
   (`micro` y `pocket`, y un `custom` hecho desde ellos). La DMA, el motor de copia y el terminal escriben siempre.
+- **F8.4**: la GPU no dibuja mientras recorre: guarda los tramos de líneas que comparten registros
+  (`video::LineState`: nivel, pantalla, color de fondo, plano bitmap y V2; el plano de texto no, se compone como
+  esté) y compone en el VBlank. Antes de cualquier lectura o escritura de un registro, el recorrido alcanza el ciclo
+  de la máquina aplicando la tabla de líneas línea a línea; tras una escritura, si cambió algo que el scanout lee,
+  empieza un tramo en la siguiente línea por recorrer. `SpriteStatus` se cuenta por tramos. `compose()` sigue siendo
+  «la pantalla con los registros de ahora» (tests, pantalla final); `composeScanned()` es el último fotograma
+  recorrido, el que usan la ventana y `--frames`. Con eso un `Present` se ve un fotograma más tarde que en F5 (como
+  en el hardware): `--frames` escribe el PNG en el VBlank siguiente al que aplicó el `Present` (y, si el programa
+  termina antes, la pantalla de ese momento), así que sigue habiendo un PNG por `Present`. La tabla se limita a 8192
+  entradas (SPEC §7.5) para que una tabla hostil no bloquee el host. Tropiezo: un registro que falte en la
+  `RegisterMap` de la GPU no llega nunca al dispositivo (D19 lo descarta en el bus); hay un test que recorre todos
+  los de V2.

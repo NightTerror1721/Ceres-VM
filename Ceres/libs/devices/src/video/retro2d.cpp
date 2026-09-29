@@ -1,5 +1,7 @@
 #include <ceres/devices/video/retro2d.h>
 
+#include <algorithm>
+
 namespace ceres::devices::video
 {
 	void Retro2D::reset(u32 spriteLimit) noexcept
@@ -41,6 +43,8 @@ namespace ceres::devices::video
 			case SpriteControlRegister: return _spriteControl;
 			case SpriteStatusRegister: return _spriteStatus;
 			case SpriteLimitRegister: return _spriteLimit;
+			case LineTableBaseRegister: return _lineTableBase;
+			case LineTableCountRegister: return _lineTableCount;
 			case AffineControlRegister: return _affine.control;
 			case AffineMapBaseRegister: return _affine.mapBase;
 			case AffineTileBaseRegister: return _affine.tileBase;
@@ -76,6 +80,8 @@ namespace ceres::devices::video
 			case OamBaseRegister: _oamBase = value; break;
 			case SpriteTileBaseRegister: _spriteTileBase = value; break;
 			case SpriteControlRegister: _spriteControl = value & SpritesOn; break;
+			case LineTableBaseRegister: _lineTableBase = value; break;
+			case LineTableCountRegister: _lineTableCount = std::min(value, MaxLineTableEntries); break;
 			case AffineControlRegister: _affine.control = value & LayerControl::Mask; break;
 			case AffineMapBaseRegister: _affine.mapBase = value; break;
 			case AffineTileBaseRegister: _affine.tileBase = value; break;

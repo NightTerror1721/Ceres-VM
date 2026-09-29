@@ -80,5 +80,7 @@ namespace ceres::devices::video
 		u32 base() const noexcept { return _base; }
 		u32 backBase() const noexcept { return _backBase; }
 		u32 spareBase() const noexcept { return _spareBase; }
+
+		bool operator==(const BitmapPlane&) const noexcept = default;
 	};
 }

@@ -44,9 +44,9 @@ namespace ceres::devices::video
 			return 0;
 		}
 
-		// The bitmap plane over the background colour, scrolled and wrapping round (plan/v2 SPEC 7.1, V1). A row the
-		// VRAM does not wholly back shows nothing.
-		void composeBitmap(const BitmapPlane& bitmap, const vm::Vram& vram, VideoFrame& frame)
+		// Lines [first, end) of the bitmap plane over the background colour, scrolled and wrapping round (plan/v2 SPEC
+		// 7.1, V1). A row the VRAM does not wholly back shows nothing.
+		void composeBitmap(const BitmapPlane& bitmap, const vm::Vram& vram, VideoFrame& frame, u32 first, u32 end)
 		{
 			const u32 width = bitmap.width();
 			const u32 height = bitmap.height();
@@ -60,7 +60,7 @@ namespace ceres::devices::video
 				for (u32 i = 0; i < palette.size(); ++i)
 					palette[i] = vramWord(vram, bitmap.shownPalette() + i * 4) & 0x00FFFFFFu;
 
-			for (u32 y = 0; y < frame.height; ++y)
+			for (u32 y = first; y < end; ++y)
 			{
 				const u32 sourceY = static_cast<u32>((u64{ y } + bitmap.scrollY()) % height);
 				const u64 rowAddress = u64{ bitmap.shownBase() } + u64{ sourceY } * bitmap.pitch();
@@ -136,25 +136,43 @@ namespace ceres::devices::video
 		}
 	}
 
+	// Each stretch of lines with its own registers (plan/v2 SPEC 7.6): the background, the bitmap plane and V2; then
+	// the text plane, as it is now, over the whole screen; then the lines the display was off for go black.
 	void SoftwareExecutor::compose(const ScanoutState& state, const vm::Vram& vram, VideoFrame& frame)
 	{
 		frame.width = state.width;
 		frame.height = state.height;
 		frame.number = state.frameCounter;
 		frame.pixels.assign(static_cast<usize>(state.width) * state.height, 0u);
-		if (!state.displayOn)
+
+		const auto lineOf = [&](u32 y) { return std::span<u32>(frame.pixels.data() + static_cast<usize>(y) * frame.width, frame.width); };
+		const auto endOf = [&](usize i) { return std::min(i + 1 < state.lines.size() ? state.lines[i + 1].firstLine : frame.height, frame.height); };
+		bool anyOn = false;
+		_retro.beginFrame();
+		for (usize i = 0; i < state.lines.size(); ++i)
+		{
+			const LineState& lines = state.lines[i];
+			const u32 first = std::min(lines.firstLine, frame.height);
+			const u32 end = endOf(i);
+			if (!lines.displayOn || first >= end)
+				continue;
+			anyOn = true;
+			for (u32 y = first; y < end; ++y)
+				std::ranges::fill(lineOf(y), lines.background & 0x00FFFFFFu);
+			if (lines.mode >= 1 && lines.bitmap.enabled())
+				composeBitmap(lines.bitmap, vram, frame, first, end);
+			if (lines.mode >= 2 && lines.retro.anyEnabled())
+				for (u32 y = first; y < end; ++y)
+					_retro.composeLine(lines.retro, vram, y, lineOf(y));
+		}
+		if (!anyOn)
 			return;
 
-		std::fill(frame.pixels.begin(), frame.pixels.end(), state.background & 0x00FFFFFFu);
-		if (state.mode >= 1 && state.bitmap != nullptr && state.bitmap->enabled())
-			composeBitmap(*state.bitmap, vram, frame);
-		if (state.mode >= 2 && state.retro != nullptr && state.retro->anyEnabled())
-		{
-			_retro.beginFrame();
-			for (u32 y = 0; y < frame.height; ++y)
-				_retro.composeLine(*state.retro, vram, y, std::span<u32>(frame.pixels.data() + static_cast<usize>(y) * frame.width, frame.width));
-		}
 		if (state.text != nullptr && state.text->enabled())
 			composeText(state, *state.text, vram, frame);
+		for (usize i = 0; i < state.lines.size(); ++i)
+			if (!state.lines[i].displayOn)
+				for (u32 y = std::min(state.lines[i].firstLine, frame.height); y < endOf(i); ++y)
+					std::ranges::fill(lineOf(y), 0u);
 	}
 }
