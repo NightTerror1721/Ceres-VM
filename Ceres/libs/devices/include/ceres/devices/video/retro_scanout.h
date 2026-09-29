@@ -1,10 +1,11 @@
 #pragma once
 
-// One line of the Retro 2D level, V2, in software (plan/v2 SPEC 7.5): the tile layers and the affine layer over what
-// the line already holds (the background colour and the bitmap plane), in the order of their priorities. The software executor calls
+// One line of the Retro 2D level, V2, in software (plan/v2 SPEC 7.5): the tile layers, the affine layer and the sprites
+// over what the line already holds (the background colour and the bitmap plane), in the order of their priorities. The software executor calls
 // it for every line of a frame in V2; what it draws is what every other executor has to match.
 
 #include <ceres/devices/video/retro2d.h>
+#include <ceres/devices/video/sprites.h>
 #include <ceres/vm/vram.h>
 
 #include <array>
@@ -41,6 +42,13 @@ namespace ceres::devices::video
 
 		std::array<LayerLine, LayerSlots> _layers;
 		Palette _tilePalette;
+		Palette _spritePalette;
+		// The OAM as the VRAM held it when it was read, kept for the frame while its base stays.
+		std::vector<Sprite> _sprites;
+		u32 _oamBase = 0;
+		bool _oamLoaded = false;
+		std::vector<const Sprite*> _onLine;
+		LayerLine _spriteLine;
 
 	public:
 		// A new frame: the palettes are read from the VRAM again.
@@ -52,5 +60,7 @@ namespace ceres::devices::video
 		const Palette& palette(Palette& cache, u32 base, const vm::Vram& vram);
 		void drawTileLayer(const TileLayer& layer, const Palette& palette, const vm::Vram& vram, u32 y, LayerLine& out);
 		void drawAffineLayer(const AffineLayer& affine, const Palette& palette, const vm::Vram& vram, u32 y, LayerLine& out);
+		// The sprites of line y into _spriteLine; false when none is on it.
+		bool drawSprites(const Retro2D& retro, const vm::Vram& vram, u32 y);
 	};
 }

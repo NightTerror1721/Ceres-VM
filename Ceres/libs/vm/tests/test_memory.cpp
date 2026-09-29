@@ -223,6 +223,45 @@ TEST(memory, a_vram_access_costs_three_cycles_and_marks_its_page)
 	CHECK_EQ(m.vm().vram().writtenPages(), usize{ 0 });
 }
 
+TEST(memory, a_write_gate_can_drop_the_cpus_stores_to_the_vram)
+{
+	// The gate of micro and pocket (plan/v2 SPEC 7.5): a store it refuses is not made and the CPU does not fault; a
+	// block store it refuses runs to its end, writing nowhere.
+	struct Gate final : VramWriteGate
+	{
+		bool open = false;
+		u32 refused = 0;
+		u32 last = 0;
+		bool admitCpuStore(u32 physical) noexcept override
+		{
+			if (open)
+				return true;
+			++refused;
+			last = physical;
+			return false;
+		}
+	} gate;
+	constexpr u32 At = Vram::BaseValue + 0x100;
+	Machine m{ Instruction::LI(2, 0x5A5A), Instruction::STR(1, 2, 0), Instruction::MSET(4, 2, 3), Instruction::STR(1, 2, 0) };
+	m.vm().vram().setWriteGate(&gate);
+	m.set(1, At);
+	m.set(3, 16);
+	m.set(4, At + 0x100);
+	m.step(2);
+	CHECK_EQ(m.vm().vram().read<u32>(0x100), 0u);
+	CHECK_EQ(gate.refused, 1u);
+	CHECK_EQ(gate.last, At);
+	CHECK_EQ(m.pc(), Memory::UnrestrictedSegmentStart.value() + 8);   // no fault
+	m.step();
+	CHECK_EQ(m.reg(3), 0u);
+	CHECK_EQ(m.vm().vram().read<u32>(0x200), 0u);
+	CHECK_EQ(gate.refused, 2u);
+	gate.open = true;
+	m.step();
+	CHECK_EQ(m.vm().vram().read<u32>(0x100), 0x5A5Au);
+	m.vm().vram().setWriteGate(nullptr);
+}
+
 TEST(memory, the_block_instructions_run_on_the_vram_and_fault_past_the_ram)
 {
 	// mset fills the VRAM in one span and marks the pages it covers; mcpy brings the bytes back to the RAM.

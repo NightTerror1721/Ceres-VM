@@ -385,7 +385,8 @@ namespace ceres::driver
 		debugLog.attachTo(vm.io());
 		GpuDevice gpu;
 		gpu.configure(GpuDevice::Config{ .gpuClockHz = machine.gpuClockHz, .maxLevel = machine.maxVideo,
-			.maxWidth = machine.maxWidth, .maxHeight = machine.maxHeight, .refresh = options.refresh });
+			.maxWidth = machine.maxWidth, .maxHeight = machine.maxHeight, .refresh = options.refresh,
+			.spritesPerLine = machine.spritesPerLine, .vramInVblankOnly = machine.vramInVblankOnly });
 		gpu.attachTo(vm.io());
 		// The terminal draws in the GPU's text plane (plan/v2 SPEC 8). It may outlive this function (a reader thread
 		// holds it), so it lets go of the GPU before the GPU goes.

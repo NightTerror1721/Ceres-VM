@@ -84,3 +84,11 @@ VRAM fuera del VBlank en `micro` y `pocket` (`FaultCode` 2) y §7.6, el scanout 
   desplazan con signo, así que −0,5 es el píxel −1 y ni los extremos (origen ±2^23, matriz ±128) desbordan.
   `test_affine_layer` compara con un modelo diez casos (identidad, desplazada, girada 30° en los dos sentidos,
   ampliada, reducida, espejada, cizallada, extremos; con vuelta y con recorte) y fija su hash.
+- **F8.3**: `video/sprites.{h,cpp}` lee la OAM (sólo las entradas visibles, en orden) y elige los sprites de una
+  línea; el scanout y `SpriteStatus` cuentan con lo mismo. Un sprite cuenta para el límite si toca la línea aunque
+  esté fuera de la pantalla en horizontal (como en las consolas: se evalúa por Y). `SpriteStatus` se calcula en cada
+  VBlank con una tabla de diferencias (una pasada por los sprites y otra por las líneas). La compuerta de VRAM es
+  `vm::VramWriteGate` (en `vram.h`): el motor la consulta en los almacenamientos de la CPU en VRAM y en los trozos
+  de las instrucciones de bloque (un trozo rechazado va a una página que nadie lee, así que la instrucción termina);
+  sin compuerta, la ruta cuesta un puntero nulo. La GPU es la compuerta cuando `MachineProfile::vramInVblankOnly`
+  (`micro` y `pocket`, y un `custom` hecho desde ellos). La DMA, el motor de copia y el terminal escriben siempre.

@@ -4,6 +4,7 @@
 #include <ceres/core/base/host_pages.h>
 #include <ceres/core/format/memory_map.h>
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstring>
 #include <stdexcept>
@@ -13,6 +14,17 @@
 
 namespace ceres::vm
 {
+	// Who decides whether the CPU may store to the VRAM at the moment (plan/v2 SPEC 7.5, D17): the GPU of a micro or
+	// pocket machine lets it only in the vertical blank or with the display off. Without a gate every store goes in.
+	// Only the CPU's stores ask - plain and block ones; the DMA, the GPU's engines and the terminal do not.
+	class VramWriteGate
+	{
+	public:
+		virtual ~VramWriteGate() = default;
+		// The CPU is about to store at `physical`: false drops the store (the gate has noted it).
+		virtual bool admitCpuStore(u32 physical) noexcept = 0;
+	};
+
 	// The video memory: up to 1 GiB at 0xA0000000 (plan/v2 SPEC 2). The CPU reaches it with the same loads and
 	// stores as RAM, at 3 cycles instead of 2, and so do the block instructions and the DMA.
 	//
@@ -39,6 +51,8 @@ namespace ceres::vm
 	private:
 		HostPages _data;
 		std::vector<u64> _written;   // bit p: page p was stored to since the marks were last cleared
+		VramWriteGate* _gate = nullptr;
+		std::array<u8, PageSize> _discard{};   // where a block store the gate refused goes instead
 
 		static usize checkedSize(usize size)
 		{
@@ -61,6 +75,11 @@ namespace ceres::vm
 		Vram& operator=(Vram&&) = delete;
 
 		forceinline usize size() const noexcept { return _data.size(); }
+
+		void setWriteGate(VramWriteGate* gate) noexcept { _gate = gate; }
+		forceinline VramWriteGate* writeGate() const noexcept { return _gate; }
+		// A page nothing reads, for a block store the gate refused to write into.
+		u8* discardPage() noexcept { return _discard.data(); }
 
 		// Whether a physical access of `bytes` at `physical` lies wholly in the backed VRAM.
 		forceinline bool backs(u32 physical, u32 bytes) const noexcept

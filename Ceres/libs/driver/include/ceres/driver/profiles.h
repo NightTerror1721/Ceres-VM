@@ -36,6 +36,7 @@ namespace ceres::driver
 		u32 maxHeight = 0;
 		u32 maxAudio = 0;          // the highest audio level, A0-A4
 		u32 spritesPerLine = 0;
+		bool vramInVblankOnly = false;   // micro and pocket: the CPU writes the VRAM only in the vertical blank (D17)
 
 		bool operator==(const MachineProfile&) const = default;
 	};

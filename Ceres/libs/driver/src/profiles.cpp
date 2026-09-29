@@ -13,16 +13,17 @@ namespace ceres::driver
 		constexpr usize MiB = 1024 * KiB;
 		constexpr u64 MHz = 1'000'000;
 
-		// plan/v2 SPEC 4, row by row. `custom` starts as `standard` with custom's ceilings for what it shows.
+		// plan/v2 SPEC 4, row by row. `custom` starts as `standard` with custom's ceilings for what it shows. A `custom`
+		// made from micro or pocket keeps their VRAM written only in the vertical blank.
 		constexpr std::array<MachineProfile, 8> Profiles{ {
-			{ ProfileId::Micro,       2 * MHz,   2 * MHz,  64 * KiB,  32 * KiB, 2,  256, 192, 1,  16 },
-			{ ProfileId::Pocket,      8 * MHz,   8 * MHz, 512 * KiB,  96 * KiB, 2,  240, 160, 1,  32 },
-			{ ProfileId::Retro,      16 * MHz,  32 * MHz,   2 * MiB, 512 * KiB, 2,  320, 240, 2,  32 },
-			{ ProfileId::Arcade,     25 * MHz,  50 * MHz,   8 * MiB,   4 * MiB, 3,  640, 480, 3,  96 },
-			{ ProfileId::Polygon,    33 * MHz,  66 * MHz,  16 * MiB,   8 * MiB, 5,  640, 480, 3,  96 },
-			{ ProfileId::Standard,   50 * MHz, 200 * MHz,  64 * MiB,  32 * MiB, 5, 1280, 720, 4, 128 },
-			{ ProfileId::Workstation, 100 * MHz, 400 * MHz, 512 * MiB, 256 * MiB, 6, 1280, 720, 4, 256 },
-			{ ProfileId::Custom,     50 * MHz, 200 * MHz,  64 * MiB,  32 * MiB, 6, 1920, 1080, 4, 256 },
+			{ ProfileId::Micro,       2 * MHz,   2 * MHz,  64 * KiB,  32 * KiB, 2,  256, 192, 1,  16, true },
+			{ ProfileId::Pocket,      8 * MHz,   8 * MHz, 512 * KiB,  96 * KiB, 2,  240, 160, 1,  32, true },
+			{ ProfileId::Retro,      16 * MHz,  32 * MHz,   2 * MiB, 512 * KiB, 2,  320, 240, 2,  32, false },
+			{ ProfileId::Arcade,     25 * MHz,  50 * MHz,   8 * MiB,   4 * MiB, 3,  640, 480, 3,  96, false },
+			{ ProfileId::Polygon,    33 * MHz,  66 * MHz,  16 * MiB,   8 * MiB, 5,  640, 480, 3,  96, false },
+			{ ProfileId::Standard,   50 * MHz, 200 * MHz,  64 * MiB,  32 * MiB, 5, 1280, 720, 4, 128, false },
+			{ ProfileId::Workstation, 100 * MHz, 400 * MHz, 512 * MiB, 256 * MiB, 6, 1280, 720, 4, 256, false },
+			{ ProfileId::Custom,     50 * MHz, 200 * MHz,  64 * MiB,  32 * MiB, 6, 1920, 1080, 4, 256, false },
 		} };
 
 		constexpr std::array<std::string_view, 8> Names{ "micro", "pocket", "retro", "arcade", "polygon", "standard", "workstation", "custom" };

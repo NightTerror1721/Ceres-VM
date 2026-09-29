@@ -60,6 +60,8 @@ namespace ceres::devices::video
 	void RetroScanout::beginFrame() noexcept
 	{
 		_tilePalette.loaded = false;
+		_spritePalette.loaded = false;
+		_oamLoaded = false;
 	}
 
 	const RetroScanout::Palette& RetroScanout::palette(Palette& cache, u32 base, const vm::Vram& vram)
@@ -143,6 +145,47 @@ namespace ceres::devices::video
 		}
 	}
 
+	// Each sprite of the line, in OAM order, fills the pixels no sprite before it took: where two meet, the lower index
+	// is in front, whatever their priorities (SPEC 7.5).
+	bool RetroScanout::drawSprites(const Retro2D& retro, const vm::Vram& vram, u32 y)
+	{
+		if (!_oamLoaded || _oamBase != retro.oamBase())
+		{
+			readOam(vram, retro.oamBase(), _sprites);
+			_oamBase = retro.oamBase();
+			_oamLoaded = true;
+		}
+		spritesOnLine(_sprites, y, retro.spriteLimit(), _onLine);
+		if (_onLine.empty())
+			return false;
+
+		const Palette& colours = palette(_spritePalette, retro.spritePaletteBase(), vram);
+		const i64 width = static_cast<i64>(_spriteLine.colours.size());
+		std::fill(_spriteLine.priorities.begin(), _spriteLine.priorities.end(), Transparent);
+		for (const Sprite* sprite : _onLine)
+		{
+			const u32 bpp = sprite->bpp8 ? 8u : 4u;
+			const u64 picture = u64{ retro.spriteTileBase() } + u64{ sprite->graphic } * OamEntry::GraphicUnit;
+			const u32 row = y - static_cast<u32>(sprite->y);
+			const u32 py = sprite->flipY ? sprite->height - 1 - row : row;
+			const i64 left = std::max<i64>(sprite->x, 0);
+			const i64 right = std::min<i64>(i64{ sprite->x } + sprite->width, width);
+			for (i64 x = left; x < right; ++x)
+			{
+				if (_spriteLine.priorities[static_cast<usize>(x)] != Transparent)
+					continue;
+				const u32 column = static_cast<u32>(x - sprite->x);
+				const u32 px = sprite->flipX ? sprite->width - 1 - column : column;
+				const u32 index = pictureIndex(vram, picture, sprite->width, bpp, px, py);
+				if (index == 0)
+					continue;
+				_spriteLine.colours[static_cast<usize>(x)] = colours.colours[bpp == 8 ? index : sprite->bank * 16 + index];
+				_spriteLine.priorities[static_cast<usize>(x)] = static_cast<u8>(sprite->priority);
+			}
+		}
+		return true;
+	}
+
 	void RetroScanout::composeLine(const Retro2D& retro, const vm::Vram& vram, u32 y, std::span<u32> line)
 	{
 		std::array<bool, LayerSlots> drawn{};
@@ -166,16 +209,29 @@ namespace ceres::devices::video
 			drawn[AffineSlot] = true;
 		}
 
-		// From the back: each priority in turn, and within one the affine layer, then the tile layers from 3 to 0.
+		bool sprites = false;
+		if (retro.spritesOn())
+		{
+			_spriteLine.colours.resize(line.size());
+			_spriteLine.priorities.resize(line.size());
+			sprites = drawSprites(retro, vram, y);
+		}
+
+		// From the back: each priority in turn, and within one the affine layer, the tile layers from 3 to 0 and then
+		// the sprites.
+		const auto paint = [&](const LayerLine& from, u8 priority)
+		{
+			for (usize x = 0; x < line.size(); ++x)
+				if (from.priorities[x] == priority)
+					line[x] = from.colours[x];
+		};
 		for (u8 priority = 0; priority <= 3; ++priority)
+		{
 			for (u32 i = LayerSlots; i-- > 0;)
-			{
-				if (!drawn[i])
-					continue;
-				const LayerLine& layer = _layers[i];
-				for (usize x = 0; x < line.size(); ++x)
-					if (layer.priorities[x] == priority)
-						line[x] = layer.colours[x];
-			}
+				if (drawn[i])
+					paint(_layers[i], priority);
+			if (sprites)
+				paint(_spriteLine, priority);
+		}
 	}
 }

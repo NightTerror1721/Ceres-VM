@@ -2,9 +2,10 @@
 
 namespace ceres::devices::video
 {
-	void Retro2D::reset() noexcept
+	void Retro2D::reset(u32 spriteLimit) noexcept
 	{
 		*this = Retro2D{};
+		_spriteLimit = spriteLimit;
 	}
 
 	bool Retro2D::anyEnabled() const noexcept
@@ -12,7 +13,7 @@ namespace ceres::devices::video
 		for (const TileLayer& layer : _layers)
 			if (layer.enabled())
 				return true;
-		return _affine.enabled();
+		return _affine.enabled() || spritesOn();
 	}
 
 	u32 Retro2D::read(u32 offset) const noexcept
@@ -35,6 +36,11 @@ namespace ceres::devices::video
 		{
 			case TilePaletteBaseRegister: return _tilePaletteBase;
 			case SpritePaletteBaseRegister: return _spritePaletteBase;
+			case OamBaseRegister: return _oamBase;
+			case SpriteTileBaseRegister: return _spriteTileBase;
+			case SpriteControlRegister: return _spriteControl;
+			case SpriteStatusRegister: return _spriteStatus;
+			case SpriteLimitRegister: return _spriteLimit;
 			case AffineControlRegister: return _affine.control;
 			case AffineMapBaseRegister: return _affine.mapBase;
 			case AffineTileBaseRegister: return _affine.tileBase;
@@ -67,6 +73,9 @@ namespace ceres::devices::video
 		{
 			case TilePaletteBaseRegister: _tilePaletteBase = value; break;
 			case SpritePaletteBaseRegister: _spritePaletteBase = value; break;
+			case OamBaseRegister: _oamBase = value; break;
+			case SpriteTileBaseRegister: _spriteTileBase = value; break;
+			case SpriteControlRegister: _spriteControl = value & SpritesOn; break;
 			case AffineControlRegister: _affine.control = value & LayerControl::Mask; break;
 			case AffineMapBaseRegister: _affine.mapBase = value; break;
 			case AffineTileBaseRegister: _affine.tileBase = value; break;

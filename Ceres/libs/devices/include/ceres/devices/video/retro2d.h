@@ -4,7 +4,8 @@
 // them. Colour is indexed, as on the 8- and 16-bit consoles: a palette of 256 entries of 0x00RRGGBB in VRAM, which
 // 4-bit graphics see as 16 banks of 16. Four tile layers draw maps of 16-bit entries (the tile, a palette, the flips
 // and a priority bit) over tiles of 8x8 or 16x16 pixels, each layer scrolling on its own and, with a table in VRAM,
-// line by line. A fifth, affine layer draws a map the same way through a 2x2 matrix: turned, scaled, sheared.
+// line by line. A fifth, affine layer draws a map the same way through a 2x2 matrix: turned, scaled, sheared. 128
+// sprites (sprites.h) go among the layers by priority, no more on a line than the machine's profile allows.
 //
 // These registers take effect at once - no Present - and the scanout reads them line by line (SPEC 7.6). It is a
 // value type: nothing here reaches the VRAM, which the scanout reads when it composes.
@@ -94,7 +95,12 @@ namespace ceres::devices::video
 	{
 	public:
 		static inline constexpr u32 TilePaletteBaseRegister = 0x300;     // RW: the layers' palette, 256 entries
-		static inline constexpr u32 SpritePaletteBaseRegister = 0x304;   // RW: the sprites' palette (F8.3)
+		static inline constexpr u32 SpritePaletteBaseRegister = 0x304;   // RW: the sprites' palette
+		static inline constexpr u32 OamBaseRegister = 0x308;             // RW: 128 sprites of 16 bytes
+		static inline constexpr u32 SpriteTileBaseRegister = 0x30C;      // RW: their pictures, in units of 32 bytes
+		static inline constexpr u32 SpriteControlRegister = 0x310;       // RW: bit 0 the sprites on
+		static inline constexpr u32 SpriteStatusRegister = 0x314;        // R: bit 0 a line overflowed last frame, 31:16 the first
+		static inline constexpr u32 SpriteLimitRegister = 0x318;         // R: sprites a line, the profile's
 		static inline constexpr u32 FirstRegister = 0x300;
 		static inline constexpr u32 LastRegister = 0x3FC;
 
@@ -120,18 +126,27 @@ namespace ceres::devices::video
 
 		static inline constexpr u32 PaletteEntries = 256;
 
+		static inline constexpr u32 SpritesOn = 1u << 0;                 // SpriteControl
+		static inline constexpr u32 SpriteOverflow = 1u << 0;            // SpriteStatus
+		static inline constexpr u32 SpriteOverflowLineShift = 16;
+
 		// The register of layer `layer` at `field` (one of the Layer*Register offsets).
 		static constexpr u32 layerRegister(u32 layer, u32 field) noexcept { return LayerRegisters + layer * LayerStride + field; }
 
 	private:
 		u32 _tilePaletteBase = 0;
 		u32 _spritePaletteBase = 0;
+		u32 _oamBase = 0;
+		u32 _spriteTileBase = 0;
+		u32 _spriteControl = 0;
+		u32 _spriteStatus = 0;
+		u32 _spriteLimit = 128;
 		std::array<TileLayer, LayerCount> _layers{};
 		AffineLayer _affine;
 
 	public:
-		// Every register back to 0, and the affine layer's matrix to the identity.
-		void reset() noexcept;
+		// Every register back to 0, and the affine layer's matrix to the identity; SpriteLimit reads `spriteLimit`.
+		void reset(u32 spriteLimit) noexcept;
 
 		static constexpr bool handles(u32 offset) noexcept { return offset >= FirstRegister && offset <= LastRegister; }
 		u32 read(u32 offset) const noexcept;
@@ -139,9 +154,19 @@ namespace ceres::devices::video
 
 		u32 tilePaletteBase() const noexcept { return _tilePaletteBase; }
 		u32 spritePaletteBase() const noexcept { return _spritePaletteBase; }
+		u32 oamBase() const noexcept { return _oamBase; }
+		u32 spriteTileBase() const noexcept { return _spriteTileBase; }
+		bool spritesOn() const noexcept { return (_spriteControl & SpritesOn) != 0; }
+		u32 spriteLimit() const noexcept { return _spriteLimit; }
+		u32 spriteStatus() const noexcept { return _spriteStatus; }
+		// The GPU's, at each vertical blank: what the frame's lines did with the limit.
+		void setSpriteStatus(bool overflowed, u32 firstLine) noexcept
+		{
+			_spriteStatus = overflowed ? SpriteOverflow | (firstLine << SpriteOverflowLineShift) : 0;
+		}
 		const TileLayer& layer(u32 index) const noexcept { return _layers[index]; }
 		const AffineLayer& affine() const noexcept { return _affine; }
-		// Whether anything of V2 would show: a layer on.
+		// Whether anything of V2 would show: a layer or the sprites on.
 		bool anyEnabled() const noexcept;
 	};
 }

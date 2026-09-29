@@ -573,6 +573,9 @@ namespace ceres::vm
 			{
 				if (chargeMemory)
 					_cycles += isa::cycles::VramAccess;
+				// On micro and pocket the GPU may refuse it outside the vertical blank (plan/v2 SPEC 7.5).
+				if (VramWriteGate* gate = _vram.writeGate(); gate != nullptr && !gate->admitCpuStore(p)) [[unlikely]]
+					return;
 				_vram.write<T>(p - Vram::BaseValue, value);
 				return;
 			}
@@ -1714,7 +1717,12 @@ namespace ceres::vm
 			if (!_vram.backs(physical, size))
 				return nullptr;
 			const u32 offset = physical - Vram::BaseValue;
-			return forWrite ? _vram.span(offset, size) : const_cast<u8*>(_vram.data()) + offset;
+			if (!forWrite)
+				return const_cast<u8*>(_vram.data()) + offset;
+			// A chunk the gate refuses is stored nowhere: it goes to a page nothing reads (a chunk is at most a page).
+			if (VramWriteGate* gate = _vram.writeGate(); gate != nullptr && !gate->admitCpuStore(physical)) [[unlikely]]
+				return _vram.discardPage();
+			return _vram.span(offset, size);
 		}
 
 		// A chunk a byte at a time, through read<u8>/write<u8>: false at the first byte that faults.

@@ -4,8 +4,13 @@
 // composes and the engines that draw. Its internal parts - the display controller, the planes, the engines, the
 // executor - are not devices of their own (SPEC 5.2); only this is on the bus.
 //
-// F5 builds levels V0 (the text plane) and V1 (the bitmap plane and the copy engine), F8 level V2 (the tile layers,
-// retro2d.h). The registers of the core and the display are at 0x000-0x120 of slot 0x40 (SPEC 7.3). The slots 0x41-0x43 are the command processor's and the
+// F5 builds levels V0 (the text plane) and V1 (the bitmap plane and the copy engine), F8 level V2 (tile layers, an
+// affine layer and sprites: retro2d.h). The registers of the core and the display are at 0x000-0x120 of slot 0x40
+// (SPEC 7.3).
+//
+// On micro and pocket (Config::vramInVblankOnly) the GPU is also the VRAM's write gate (plan/v2 SPEC 7.5, D17): the
+// CPU's stores only go in during the vertical blank or with the display off; the others are dropped, and FaultCode 2
+// says so. The slots 0x41-0x43 are the command processor's and the
 // 2D and 3D engines' and are not attached until the phases that fill them (F10, F13, F14).
 
 #include <ceres/devices/video/bitmap_plane.h>
@@ -13,6 +18,7 @@
 #include <ceres/devices/video/display_controller.h>
 #include <ceres/devices/video/gpu_executor.h>
 #include <ceres/devices/video/retro2d.h>
+#include <ceres/devices/video/sprites.h>
 #include <ceres/devices/video/software_executor.h>
 #include <ceres/devices/video/text_plane.h>
 #include <ceres/vm/mmio_bus.h>
@@ -24,7 +30,7 @@ namespace ceres::devices
 {
 	using namespace vm;
 
-	class GpuDevice final : public IODevice
+	class GpuDevice final : public IODevice, public vm::VramWriteGate
 	{
 	public:
 		// The core.
@@ -85,6 +91,8 @@ namespace ceres::devices
 
 		// FaultCode: an engine was given an address outside the RAM and the VRAM (FaultAddress says which).
 		static inline constexpr u32 FaultBadAddress = 1;
+		// FaultCode: on micro or pocket, the CPU stored to the VRAM outside the vertical blank; the store was dropped.
+		static inline constexpr u32 FaultVramBusy = 2;
 
 		// The resolution the GPU starts in: 640x480 (80x30 cells of text), or the profile's largest when that is smaller.
 		static inline constexpr u32 BootWidth = 640;
@@ -98,6 +106,8 @@ namespace ceres::devices
 			u32 maxWidth = 1280;
 			u32 maxHeight = 720;
 			u32 refresh = 60;
+			u32 spritesPerLine = 128;
+			bool vramInVblankOnly = false;   // micro and pocket: the CPU writes the VRAM only in the vertical blank
 		};
 
 		// Called on the machine's thread at every vertical blank, after the pending bases were applied; `presented`
@@ -126,6 +136,7 @@ namespace ceres::devices
 		bool _presentPending = false;
 		u64 _frameCounter = 0;   // vertical blanks since the start
 		u64 _nextFrame = 0;      // the frame whose vertical blank is scheduled
+		std::vector<video::Sprite> _sprites;   // the OAM, read at each vertical blank to count the sprites a line
 		VblankObserver _vblankObserver;
 
 	public:
@@ -164,6 +175,7 @@ namespace ceres::devices
 		// Back to the state the machine starts in: the boot resolution, level V0, the timing from now.
 		void reset() override;
 		void onEvent(u32 tag, u64 cycle) override;
+		bool admitCpuStore(u32 physical) noexcept override;
 
 		u32 read(Address offset) override;
 		void write(Address offset, u32 value) override;
@@ -176,6 +188,7 @@ namespace ceres::devices
 		void scheduleVblank();
 		void scheduleLine();
 		void vblank();
+		void countSprites();
 		void fault(u32 code, u32 address);
 	};
 }

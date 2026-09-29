@@ -24,7 +24,7 @@ namespace ceres::devices
 			{ 0x020, "Status",          RegisterAccess::Read,            0x0, false, "Bit 0 busy, 1 fault, 2 in the vertical blank, 3 flip pending." },
 			{ 0x024, "IrqEnable",       RegisterAccess::ReadWrite,       0x0, false, "Bit 0 VBlank (32), 1 line (33), 2 fence or copy (34), 3 fault (35)." },
 			{ 0x028, "IrqStatus",       RegisterAccess::WriteOneToClear, 0x0, false, "What happened, by the same bits; write 1s to clear." },
-			{ 0x02C, "FaultCode",       RegisterAccess::Read,            0x0, false, "Why the GPU faulted: 1 an engine's address outside RAM and VRAM." },
+			{ 0x02C, "FaultCode",       RegisterAccess::Read,            0x0, false, "Why the GPU faulted: 1 an engine's address outside RAM and VRAM, 2 a CPU store to VRAM outside the vertical blank." },
 			{ 0x030, "FaultAddress",    RegisterAccess::Read,            0x0, false, "The address that faulted." },
 			{ 0x100, "Width",           RegisterAccess::ReadWrite,       0x0, false, "The screen's width in pixels, up to the profile's largest." },
 			{ 0x104, "Height",          RegisterAccess::ReadWrite,       0x0, false, "The screen's height in pixels." },
@@ -71,6 +71,11 @@ namespace ceres::devices
 			{ 0x294, "CopyStatus",      RegisterAccess::Read,            0x0, false, "Bit 0 busy, bit 1 the last command faulted." },
 			{ 0x300, "TilePaletteBase", RegisterAccess::ReadWrite,       0x0, false, "The tile layers' palette: 256 entries of 0x00RRGGBB, 16 banks of 16 in 4 bpp." },
 			{ 0x304, "SpritePaletteBase", RegisterAccess::ReadWrite,     0x0, false, "The sprites' palette, the same way." },
+			{ 0x308, "OamBase",         RegisterAccess::ReadWrite,       0x0, false, "The 128 sprites, 16 bytes each." },
+			{ 0x30C, "SpriteTileBase",  RegisterAccess::ReadWrite,       0x0, false, "The sprites' pictures: an entry's graphic is at this plus 32 times its number." },
+			{ 0x310, "SpriteControl",   RegisterAccess::ReadWrite,       0x0, false, "Bit 0 the sprites on." },
+			{ 0x314, "SpriteStatus",    RegisterAccess::Read,            0x0, false, "Of the last frame: bit 0 a line had more sprites than the limit, 31:16 the first." },
+			{ 0x318, "SpriteLimit",     RegisterAccess::Read,            0x0, false, "Sprites a line, the profile's." },
 			LAYER(0, 0x340), LAYER(1, 0x360), LAYER(2, 0x380), LAYER(3, 0x3A0),
 			{ 0x3C0, "AffineControl",   RegisterAccess::ReadWrite,       0x0, false, "As a layer's, and bit 11 repeats the map (without it, outside is transparent)." },
 			{ 0x3C4, "AffineMapBase",   RegisterAccess::ReadWrite,       0x0, false, "The affine layer's map." },
@@ -99,12 +104,24 @@ namespace ceres::devices
 	void GpuDevice::attachTo(MmioBus& bus)
 	{
 		bus.attach(default_mmio::Gpu, *this);
+		if (_config.vramInVblankOnly)
+			vram().setWriteGate(this);
 		reset();
 	}
 
 	void GpuDevice::detachFrom(MmioBus& bus)
 	{
+		if (vram().writeGate() == this)
+			vram().setWriteGate(nullptr);
 		bus.detach(default_mmio::Gpu);
+	}
+
+	bool GpuDevice::admitCpuStore(u32 physical) noexcept
+	{
+		if ((_control & ControlDisplayOn) == 0 || _display.inVblank(now()))
+			return true;
+		fault(FaultVramBusy, physical);
+		return false;
 	}
 
 	u64 GpuDevice::now() const noexcept
@@ -145,7 +162,7 @@ namespace ceres::devices
 			_bitmap.reset(_width, _height, (layout.scrollbackBase + layout.scrollbackBytes + 255) & ~255u, layout.paletteBase, vram().size());
 		}
 		_copy.reset();
-		_retro.reset();
+		_retro.reset(_config.spritesPerLine);
 		if (Scheduler* events = scheduler())
 			events->cancel(*this, CopyEvent);
 		scheduleVblank();
@@ -179,8 +196,22 @@ namespace ceres::devices
 			events->cancel(*this, LineEvent);
 	}
 
+	// What the frame just scanned did with the profile's limit of sprites a line (SpriteStatus).
+	void GpuDevice::countSprites()
+	{
+		if (_mode < 2 || !_retro.spritesOn())
+		{
+			_retro.setSpriteStatus(false, 0);
+			return;
+		}
+		video::readOam(vram(), _retro.oamBase(), _sprites);
+		const video::SpriteOverflow overflow = video::findOverflow(_sprites, 0, _height, _retro.spriteLimit());
+		_retro.setSpriteStatus(overflow.overflowed, overflow.firstLine);
+	}
+
 	void GpuDevice::vblank()
 	{
+		countSprites();
 		_frameCounter = _nextFrame + 1;
 		++_nextFrame;
 		const bool presented = _presentPending;
