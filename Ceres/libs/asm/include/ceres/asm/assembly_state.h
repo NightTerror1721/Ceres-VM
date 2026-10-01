@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <functional>
+#include <filesystem>
 #include <ranges>
 #include <vector>
 #include <algorithm>
@@ -72,6 +73,9 @@ namespace ceres::casm
 		StringPool _stringPool;
 		LoadTranslationUnitFn _loadTranslationUnitFn;
 		AssemblerErrorHandler _errorHandler;
+		// Where a relative import is looked for when it is not beside the importing file: the
+		// standard library's lib directory (--stdlib) and whatever -I named. Empty for a plain build.
+		std::vector<std::filesystem::path> _importDirectories;
 
 	public:
 		AssemblyState() = delete;
@@ -119,9 +123,13 @@ namespace ceres::casm
 		}
 
 	public:
-		AssemblyState(const LoadTranslationUnitFn& loadTranslationUnitFn) noexcept :
-			_loadTranslationUnitFn(loadTranslationUnitFn)
+		AssemblyState(const LoadTranslationUnitFn& loadTranslationUnitFn, std::vector<std::filesystem::path> importDirectories = {}) noexcept :
+			_loadTranslationUnitFn(loadTranslationUnitFn), _importDirectories(std::move(importDirectories))
 		{}
+
+		// The path an `import "name"` means: beside the importing file first, then each search
+		// directory. Falls back to the file-relative path so a failed load names where it looked.
+		std::string resolveModulePath(const std::filesystem::path& fromFile, std::string_view moduleName) const;
 
 		MemoryMap& memoryMap() noexcept { return _memoryMap; }
 		const MemoryMap& memoryMap() const noexcept { return _memoryMap; }

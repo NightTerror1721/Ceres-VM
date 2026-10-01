@@ -12,8 +12,8 @@ namespace ceres::driver
 			"Ceres - assembler and virtual machine\n"
 			"\n"
 			"  ceres asm <source.casm> [<source2.casm> ...] [-o <output.cres>] [--listing] [--json]\n"
-			"                          [--debug] [--emit-debug-json] [-c]\n"
-			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab] [--gc-sections]\n"
+			"                          [--debug] [--emit-debug-json] [-c] [-I <dir>] [--stdlib]\n"
+			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab] [--gc-sections] [--stdlib]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
 			"  ceres run [<file.casm|file.cres>] [<machine>] [--shell] [--disk <image>]\n"
 			"                                  [--window | --headless] [--strict-mmio]\n"
@@ -65,7 +65,13 @@ namespace ceres::driver
 			"--record writes everything the host gives the machine (input, keys, the mouse, files dropped), each with the\n"
 			"cycle it went in at; --replay feeds such a recording back at the same cycles and reads no input of the host's.\n"
 			"--log sends the host's log - the program's debug log and what the host has to say about the run, such as an\n"
-			"exception nobody handled - to a file instead of stderr, one '[ceres:<level>] <line>' each.\n";
+			"exception nobody handled - to a file instead of stderr, one '[ceres:<level>] <line>' each.\n"
+			"\n"
+			"--stdlib compiles (and, where a program is produced, links) against the standard library installed with\n"
+			"Ceres: its stdlib/lib joins the import search, so a program writes `import \"libceres.decls.casm\"` for the\n"
+			"library's names, and libceres.car is linked. Where Ceres is installed is CERES_PATH, or the directory\n"
+			"ceres itself is in. -I <dir> adds an import search directory of your own; a relative import is looked for\n"
+			"beside the importing file first, then in each search directory.\n";
 
 		struct RawOptions
 		{
@@ -85,6 +91,10 @@ namespace ceres::driver
 			bool usedSymbolTable = false;
 			bool gcSections = false;
 			bool usedGcSections = false;
+			bool stdlib = false;                              // --stdlib: the library installed with Ceres
+			bool usedStdlib = false;
+			std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
+			bool usedImport = false;
 			bool stopOnEntry = true;
 			bool usedStopOnEntry = false;
 			bool server = false;
@@ -342,6 +352,14 @@ namespace ceres::driver
 			else if (argument == "--emit-debug-json") { raw.debugJson = true; raw.debugInfo = true; raw.usedDebugJson = true; }
 			else if (argument == "--symtab") { raw.symbolTable = true; raw.usedSymbolTable = true; }
 			else if (argument == "--gc-sections") { raw.gcSections = true; raw.usedGcSections = true; }
+			else if (argument == "--stdlib") { raw.stdlib = true; raw.usedStdlib = true; }
+			else if (argument == "-I")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				raw.importDirectories.emplace_back(*value);
+				raw.usedImport = true;
+			}
 			else if (argument == "--no-stop-on-entry") { raw.stopOnEntry = false; raw.usedStopOnEntry = true; }
 			else if (argument == "--server") { raw.server = true; raw.usedServer = true; }
 			else if (argument == "--no-history") { raw.recordHistory = false; raw.usedHistory = true; }
@@ -495,6 +513,10 @@ namespace ceres::driver
 			return std::unexpected(invalidOption("--symtab", command));
 		if (raw.usedGcSections && command != "link")
 			return std::unexpected(invalidOption("--gc-sections", command));
+		if (raw.usedStdlib && command != "asm" && command != "link")
+			return std::unexpected(invalidOption("--stdlib", command));
+		if (raw.usedImport && command != "asm")
+			return std::unexpected(invalidOption("-I", command));
 		if (raw.usedShell && command != "run")
 			return std::unexpected(invalidOption("--shell", command));
 		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio || raw.rtc || raw.speed ||
@@ -513,14 +535,14 @@ namespace ceres::driver
 			if (raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			return AssembleCommand{ std::move(inputs), std::move(raw.output), raw.compileOnly, raw.listing,
-				raw.json, raw.debugInfo, raw.debugJson };
+				raw.json, raw.debugInfo, raw.debugJson, raw.stdlib, std::move(raw.importDirectories) };
 		}
 		if (command == "link")
 		{
 			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (raw.output.empty()) return std::unexpected(ParseError{ "'ceres link' needs -o <output.cres>" });
-			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson, raw.symbolTable, raw.gcSections };
+			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson, raw.symbolTable, raw.gcSections, raw.stdlib };
 		}
 		if (command == "ar")
 		{

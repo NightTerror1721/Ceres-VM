@@ -21,6 +21,8 @@ namespace ceres::driver
 		bool jsonDiagnostics = false;
 		bool debugInfo = false;
 		bool debugJson = false;
+		bool stdlib = false;                                    // --stdlib
+		std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
 	};
 
 	struct LinkCommand
@@ -31,6 +33,7 @@ namespace ceres::driver
 		bool debugJson = false;
 		bool symbolTable = false;   // --symtab
 		bool gcSections = false;    // --gc-sections
+		bool stdlib = false;        // --stdlib: link the standard library's libceres.car
 	};
 
 	struct ArchiveCommand

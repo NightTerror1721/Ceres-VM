@@ -12,7 +12,8 @@ namespace ceres::casm
 			[&](const std::string& filePath) -> OptionalRef<TranslationUnit>
 			{
 				return loadTranslationUnit(filePath);
-			}
+			},
+			_options.importDirectories
 		);
 
 		if (sourceFiles.empty())
@@ -101,20 +102,6 @@ namespace ceres::casm
 		}
 	}
 
-	namespace
-	{
-		// `import "path"` resolves against the importing file, exactly as the translation-unit
-		// builder resolves it - the two have to agree or a file would inherit aliases from a
-		// module it does not actually import.
-		std::string resolveModulePath(const std::filesystem::path& fromFile, std::string_view moduleName)
-		{
-			std::filesystem::path modulePath{ moduleName };
-			if (modulePath.is_relative() && !fromFile.empty())
-				modulePath = fromFile.parent_path() / modulePath;
-			return modulePath.lexically_normal().string();
-		}
-	}
-
 	const Assembler::AliasMap& Assembler::collectGlobalAliases(const std::string& resolvedPath)
 	{
 		if (const auto cached = _globalAliasCache.find(resolvedPath); cached != _globalAliasCache.end())
@@ -164,7 +151,7 @@ namespace ceres::casm
 
 				if (token.keywordTypeValue() == KeywordType::Import && i + 1 < tokens.size() && tokens[i + 1].isLiteralString())
 				{
-					const std::string importedPath = resolveModulePath(fromFile, tokens[i + 1].literalStringValue().view());
+					const std::string importedPath = _state->resolveModulePath(fromFile, tokens[i + 1].literalStringValue().view());
 					for (const auto& [name, operand] : collectGlobalAliases(importedPath))
 						aliases.insert_or_assign(name, operand);
 					continue;
@@ -209,7 +196,7 @@ namespace ceres::casm
 		{
 			if (previous.isKeyword() && previous.keywordTypeValue() == KeywordType::Import && token.isLiteralString())
 			{
-				for (const auto& [name, operand] : collectGlobalAliases(resolveModulePath(fromFile, token.literalStringValue().view())))
+				for (const auto& [name, operand] : collectGlobalAliases(_state->resolveModulePath(fromFile, token.literalStringValue().view())))
 					aliases.insert_or_assign(name, operand);
 			}
 			previous = token;
@@ -261,7 +248,8 @@ namespace ceres::casm
 			[&](const std::string& filePath) -> OptionalRef<TranslationUnit>
 			{
 				return loadTranslationUnit(filePath);
-			}
+			},
+			_options.importDirectories
 		);
 
 		loadTranslationUnit(sourceFile.string());

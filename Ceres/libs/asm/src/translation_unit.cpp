@@ -226,13 +226,10 @@ namespace ceres::casm
 				else if (statement.isImport())
 				{
 					auto& imp = statement.asImport();
-					// Relative imports resolve against the importing file, so a module travels with the
-					// files it belongs to instead of depending on the working directory.
-					std::filesystem::path modulePath{ imp.moduleName.str() };
-					if (modulePath.is_relative() && !_sourcePath.empty())
-						modulePath = _sourcePath.parent_path() / modulePath;
-
-					const std::string resolvedPath = modulePath.lexically_normal().string();
+					// Beside the importing file first, then the search directories (--stdlib, -I).
+					// The assembler's alias scan resolves it the same way, which is what keeps the two
+					// agreeing on which file was really imported.
+					const std::string resolvedPath = _translationUnit.state().resolveModulePath(_sourcePath, imp.moduleName.str());
 
 					if (_translationUnit.state().isBeingLoaded(resolvedPath))
 						error(statement.line(), "Import cycle: '{}' is already being assembled", imp.moduleName);

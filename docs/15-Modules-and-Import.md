@@ -30,6 +30,11 @@ location, and moving the whole library to a different directory (or being import
 a different depth) doesn't break those internal imports. The resolved path is then normalized
 (`lexically_normal()`) before being used as the module's identity for caching and cycle detection.
 
+A relative path that is not beside the importing file is looked for next in each **search
+directory** the command was given, in order: `-I <dir>`, and `--stdlib`'s `stdlib/lib` (where the
+installed `libceres.decls.casm` lives). An absolute path is used as it is. See
+[The standard library](16-CLI-and-Assembly-Pipeline.md#the-standard-library).
+
 ## What actually gets imported
 
 Only what the module declares `global` crosses the boundary — constants, variables, macros,

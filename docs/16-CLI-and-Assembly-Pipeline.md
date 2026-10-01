@@ -18,8 +18,8 @@ detects by asking the linker.) The tests run with `ctest --preset gcc-debug`.
 
 | Command | What it does |
 | --- | --- |
-| `ceres asm <source.casm> [-o <output.cres>] [--listing] [--json] [--debug] [--emit-debug-json]` | Assembles a source file. Without `-o`, the source is only checked (parsed, translated, linked, emitted in memory) and discarded — useful as a pure syntax/semantics check. |
-| `ceres link <file.cobj\|file.car> [...] -o <out.cres> [--debug] [--symtab] [--gc-sections]` | Places, resolves and finishes separately assembled objects — see [Separate compilation](25-Separate-Compilation.md). `--symtab` appends a table of the code's global names to `.rodata`, between `__symtab_start` and `__symtab_end`, for a program that names its own addresses — see [Labels and symbols](12-Labels-and-Symbols.md). `--gc-sections` leaves out the functions nothing reaches: each object's `.text` is cut at its global names, and a piece is kept when the entry point, an `interrupt` binding, a word in `.rodata`/`.data` or a kept piece refers to it, or when the piece before it is kept and does not end in `jp`, `jpr`, `ret` or `iret` (it could run on into it). Only objects that record every reference inside their `.text` are cut — every object this assembler writes (header flag 1); an older one is kept whole — and the option does nothing together with `--debug`. The standard library's `hello` goes from 15.9 KB to 5 KB. |
+| `ceres asm <source.casm> [-o <output.cres>] [--listing] [--json] [--debug] [--emit-debug-json] [-I <dir>] [--stdlib]` | Assembles a source file. Without `-o`, the source is only checked (parsed, translated, linked, emitted in memory) and discarded — useful as a pure syntax/semantics check. |
+| `ceres link <file.cobj\|file.car> [...] -o <out.cres> [--debug] [--symtab] [--gc-sections] [--stdlib]` | Places, resolves and finishes separately assembled objects — see [Separate compilation](25-Separate-Compilation.md). `--symtab` appends a table of the code's global names to `.rodata`, between `__symtab_start` and `__symtab_end`, for a program that names its own addresses — see [Labels and symbols](12-Labels-and-Symbols.md). `--gc-sections` leaves out the functions nothing reaches: each object's `.text` is cut at its global names, and a piece is kept when the entry point, an `interrupt` binding, a word in `.rodata`/`.data` or a kept piece refers to it, or when the piece before it is kept and does not end in `jp`, `jpr`, `ret` or `iret` (it could run on into it). Only objects that record every reference inside their `.text` are cut — every object this assembler writes (header flag 1); an older one is kept whole — and the option does nothing together with `--debug`. The standard library's `hello` goes from 15.9 KB to 5 KB. |
 | `ceres ar <out.car> <file.cobj> [...]` | Collects objects into an archive: a library that ships compiled. |
 | `ceres run [<file.casm\|file.cres>] [<machine>] [--shell] [--disk <image>] [--window \| --headless] [--strict-mmio] [--fullscreen] [--exit-on-halt] [--frames <dir>] [--refresh 50\|60] [--transcript <file>] [--screen-log <file>] [--type <file>] [--keys <file>] [--gpu auto\|software\|hardware] [--rtc <YYYY-MM-DDThh:mm:ss>] [--speed realtime\|max\|<f>x] [--record <file> \| --replay <file>] [--log <file>] [--port <n>=<image>]... [--cart <n>=<file>]... [--env <name>=<value>]... [--host-dir <dir>] [-- <argument>...]` | Runs a program, assembling it first if given a `.casm` source file, on a machine with a screen: see [Running a program](#running-a-program). Without a program it runs the shell ([The shell and loading programs](36-Shell-and-Program-Loading.md)). |
 | `ceres disasm <file.casm\|file.cres> [--debug]` | Prints the `.text` section as address, encoded word, and disassembled instruction, one per line. |
@@ -40,6 +40,8 @@ Global flags:
 | `--gpu-clock <hz>`, `--max-video V0-V6`, `--max-audio A0-A4`, `--max-resolution <w>x<h>` | `run`, `profile`, `debug` | The rest of the machine, each making the profile `custom`; only `custom` reaches 1920x1080. |
 | `--log <file>` | `run` | The host's log - the program's debug log and the run's own diagnostics, `[ceres:<level>] <line>` each - goes to this file instead of stderr. See [I/O devices → the debug log](07-IO-Devices-and-Ports.md#debuglogdevice-0xff030000). |
 | `-c` | `asm` | Assembles one file on its own into a `.cobj` object instead of linking a program. Takes a single source file, since an object is one unit. |
+| `-I <dir>` | `asm` | Adds `<dir>` to the search for a relative `import`: beside the importing file first, then each `-I` directory in the order given. Repeatable. See [Modules and `import`](15-Modules-and-Import.md#path-resolution). |
+| `--stdlib` | `asm`, `link` | Compiles (and, when a program is produced, links) against the standard library installed with Ceres: its `stdlib/lib` joins the import search, so a program writes `import "libceres.decls.casm"` to name the library's symbols, and `libceres.car` is linked. Where Ceres is installed is `CERES_PATH`, or the directory `ceres` itself is in. See [The standard library](#the-standard-library). |
 | `--disk <image>` | `run` | Backs the disk ports with a host file, created if it is not there. Without it the disk keeps its sectors only while the machine runs — see [I/O devices and ports](07-IO-Devices-and-Ports.md). |
 | `--port <n>=<image>` | `run` | Plugs a host file into peripheral port `n` (0-3) as a storage medium before the program starts, creating it with 64 sectors if it is not there. Repeatable. The port is a number and the file is everything after the first `=`. See [I/O devices and ports](07-IO-Devices-and-Ports.md#peripheraldevice-0xff320000). |
 | `--cart <n>=<file>` | `run` | The same for a cartridge: the file has to exist and is read only. |
@@ -66,6 +68,27 @@ Global flags:
 | `--replay <file>` | `run` | Feeds a `--record` file back, each event at its cycle, and reads no input of the host's: the run is the one recorded, whatever the host does now. It stops where the recorded window was closed. |
 | `--no-stop-on-entry` | `debug` | Start running immediately instead of stopping before the first instruction. |
 | `-h` / `--help` | any | Prints usage and exits. |
+
+## The standard library
+
+The standard library ships with the tools, not with a program: `ceres` and `ceresc` are installed
+together with `stdlib/include` (the C headers `ceresc` compiles against), `stdlib/lib/libceres.car`
+(the library's compiled objects), `stdlib/lib/libceres.decls.casm` (their declarations, which CASM
+imports to name them) and the optional modules (`libceres_irq.cobj`, `libceres_mmu.cobj`,
+`libceres_fault.cobj`). Where they are is `CERES_PATH`, or the directory `ceres` itself is in.
+
+`--stdlib` points the assembler's import search at `stdlib/lib` and, when a program is produced,
+links `libceres.car`:
+
+```bash
+ceres asm prog.casm -c -o prog.cobj --stdlib    # names the library's symbols
+ceres link prog.cobj -o prog.cres --stdlib      # pulls in what it calls
+ceres run prog.cres
+```
+
+A `.casm` names the library the way it names any other object — `import "libceres.decls.casm"` at
+the top, then `call putchar` and so on. `--stdlib` is only where that import is found and the
+archive linked; the import itself is written, exactly as a C file writes `#include <stdio.h>`.
 
 ## Running a program
 

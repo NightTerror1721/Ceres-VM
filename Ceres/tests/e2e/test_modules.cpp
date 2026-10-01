@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 using namespace ceres;
 using namespace ceres::isa;
@@ -46,11 +47,11 @@ namespace
 			file.write(contents.data(), static_cast<std::streamsize>(contents.size()));
 		}
 
-		AssembleResult assemble(std::string_view entry) const
+		AssembleResult assemble(std::string_view entry, std::vector<std::filesystem::path> importDirectories = {}) const
 		{
 			AssembleResult result;
 
-			casm::Assembler assembler{};
+			casm::Assembler assembler{ casm::AssemblerOptions{ .importDirectories = std::move(importDirectories) } };
 			result.program = assembler.assemble({ root / entry });
 			for (const auto& diagnostic : assembler.errors())
 			{
@@ -61,6 +62,31 @@ namespace
 			return result;
 		}
 	};
+
+}
+
+TEST(modules, an_import_is_found_in_a_search_directory_when_it_is_not_beside_the_file)
+{
+	// A relative import is looked for beside the importing file first, then in each search
+	// directory - which is what -I and --stdlib's lib become. The module lives in its own
+	// directory here, so only a search directory can answer it.
+	Workspace ws{ "search_directory" };
+	ws.write("modules/math.casm", "global const ANSWER = 42\r\n");
+	ws.write("program.casm",
+		"import \"math.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r0, ANSWER\r\n"
+		"    halt\r\n");
+
+	// Nowhere to find it: the import is beside no file, and no search directory was given.
+	const AssembleResult plain = ws.assemble("program.casm");
+	CHECK(!plain.ok());
+	CHECK(plain.joinedErrors().find("math.casm") != std::string::npos);
+
+	const AssembleResult found = ws.assemble("program.casm", { ws.root / "modules" });
+	CHECK(found.ok());
+	if (!found.ok()) { Registry::instance().recordFailure(found.joinedErrors()); return; }
 }
 
 TEST(modules, an_imported_constant_is_visible)

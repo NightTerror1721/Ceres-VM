@@ -13,6 +13,7 @@
 #include <iostream>
 #include <format>
 #include <span>
+#include <system_error>
 
 namespace ceres::driver
 {
@@ -102,6 +103,82 @@ namespace ceres::driver
 			return LoadedProgram{std::move(*program), assembler.debugInfo()};
 		}
 
+		// The standard library's lib directory, where --stdlib looks for it: stdlib/lib under the first
+		// install directory that has one (CERES_PATH, then the one ceres is in). Empty when none does.
+		std::filesystem::path findStdlibLib(std::span<const std::filesystem::path> installDirectories)
+		{
+			for (const auto& directory : installDirectories)
+			{
+				std::error_code error;
+				const auto lib = directory / "stdlib" / "lib";
+				if (std::filesystem::is_directory(lib, error))
+					return lib;
+			}
+			return {};
+		}
+
+		// Where imports are looked for, and the standard library's lib when --stdlib found it. The
+		// lib is resolved here once, so the archive's path is derived from the same lookup instead of
+		// probing the filesystem a second time and risking a different answer.
+		struct ImportDirectories
+		{
+			std::vector<std::filesystem::path> directories;   // the command's -I, then --stdlib's lib
+			std::filesystem::path stdlibLib;                  // empty unless --stdlib found it
+		};
+
+		std::expected<ImportDirectories, std::string> resolveImportDirectories(
+			std::span<const std::filesystem::path> own, bool stdlib, std::span<const std::filesystem::path> installDirectories)
+		{
+			ImportDirectories resolved;
+			resolved.directories.assign(own.begin(), own.end());
+			if (stdlib)
+			{
+				resolved.stdlibLib = findStdlibLib(installDirectories);
+				if (resolved.stdlibLib.empty())
+					return std::unexpected("ceres: --stdlib: cannot find the standard library (stdlib/lib in the directory Ceres is installed in)");
+				resolved.directories.push_back(resolved.stdlibLib);
+			}
+			return resolved;
+		}
+
+		// The object pipeline: each source becomes one object on its own, then the objects - the
+		// program's own and any already built (the standard library's libceres.car) - go to the object
+		// linker. assemble() only ever sees sources, so a name that lives in a library has nothing to
+		// resolve against until this. This is what `ceres link` does, driven from sources.
+		std::optional<LoadedProgram> assembleAndLink(const std::vector<std::filesystem::path>& sources,
+			std::span<const std::filesystem::path> objects, bool emitDebugInfo, bool requireEntryPoint,
+			const std::vector<std::filesystem::path>& importDirectories, bool jsonDiagnostics,
+			std::ostream& out, std::ostream& err)
+		{
+			std::vector<ObjectArchive::Member> inputs;
+			Assembler assembler{AssemblerOptions{.emitDebugInfo = emitDebugInfo, .importDirectories = importDirectories}};
+			for (const auto& source : sources)
+			{
+				auto object = assembler.assembleObject(source);
+				const bool failed = !object || assembler.hasErrors();
+				// A unit that assembled can still have warned (an unused private declaration), and
+				// --json has to answer on a clean build - so report whether or not it failed, exactly
+				// as the plain assembly path does.
+				if (jsonDiagnostics) printJsonErrors(assembler, out);
+				else if (failed || !assembler.errors().empty()) reportErrors(assembler, std::span(&source, 1), err);
+				if (failed) return std::nullopt;
+				inputs.push_back(ObjectArchive::Member{source.filename().string(), std::move(*object), false});
+			}
+			for (const auto& path : objects)
+			{
+				auto members = readObjectsFrom(path);
+				if (!members) { err << members.error() << '\n'; return std::nullopt; }
+				for (auto& member : *members)
+					inputs.push_back(std::move(member));
+			}
+			ObjectLinker linker;
+			auto program = linker.link(std::move(inputs), {.requireEntryPoint = requireEntryPoint, .emitDebugInfo = emitDebugInfo});
+			if (!program) { for (const auto& error : linker.errors()) err << "Link error: " << error << '\n'; return std::nullopt; }
+			LoadedProgram loaded{std::move(*program), {}};
+			if (emitDebugInfo) loaded.debugInfo = linker.takeDebugInfo();
+			return loaded;
+		}
+
 		void printListing(const Program& program, const std::filesystem::path& path, const DebugInfo& debugInfo, std::ostream& out)
 		{
 			const auto& header = program.header();
@@ -125,13 +202,16 @@ namespace ceres::driver
 			}
 		}
 
-		int executeAssemble(const AssembleCommand& command, std::ostream& out, std::ostream& err)
+		int executeAssemble(const AssembleCommand& command, std::span<const std::filesystem::path> installDirectories, std::ostream& out, std::ostream& err)
 		{
 			if (!inputsExist(command.inputs, err)) return 1;
+			auto directories = resolveImportDirectories(command.importDirectories, command.stdlib, installDirectories);
+			if (!directories) { err << directories.error() << '\n'; return 1; }
+
 			if (command.compileOnly)
 			{
 				if (command.inputs.size() != 1) { err << "'ceres asm -c' takes a single source file\n"; return 2; }
-				Assembler assembler{AssemblerOptions{.emitDebugInfo = command.debugInfo, .requireEntryPoint = false}};
+				Assembler assembler{AssemblerOptions{.emitDebugInfo = command.debugInfo, .requireEntryPoint = false, .importDirectories = directories->directories}};
 				auto object = assembler.assembleObject(command.inputs.front());
 				const bool failed = !object || assembler.hasErrors();
 				if (command.jsonDiagnostics) printJsonErrors(assembler, out);
@@ -142,25 +222,48 @@ namespace ceres::driver
 				return 0;
 			}
 
-			Assembler assembler{AssemblerOptions{.emitDebugInfo = command.debugInfo, .requireEntryPoint = !command.output.empty()}};
-			auto program = assembler.assemble(command.inputs);
-			const bool failed = !program || assembler.hasErrors();
-			if (command.jsonDiagnostics) printJsonErrors(assembler, out);
-			else if (failed || !assembler.errors().empty()) reportErrors(assembler, command.inputs, err);
-			if (failed) return 1;
-			if (command.debugJson) out << assembler.debugInfo().toJson() << '\n';
-			if (command.listing) printListing(*program, command.inputs.front(), assembler.debugInfo(), out);
+			std::optional<LoadedProgram> loaded;
+			if (command.stdlib)
+			{
+				const auto archive = directories->stdlibLib / "libceres.car";
+				loaded = assembleAndLink(command.inputs, std::span(&archive, 1), command.debugInfo,
+					!command.output.empty(), directories->directories, command.jsonDiagnostics, out, err);
+			}
+			else
+			{
+				Assembler assembler{AssemblerOptions{.emitDebugInfo = command.debugInfo, .requireEntryPoint = !command.output.empty(), .importDirectories = directories->directories}};
+				auto program = assembler.assemble(command.inputs);
+				const bool failed = !program || assembler.hasErrors();
+				if (command.jsonDiagnostics) printJsonErrors(assembler, out);
+				else if (failed || !assembler.errors().empty()) reportErrors(assembler, command.inputs, err);
+				if (failed) return 1;
+				loaded = LoadedProgram{std::move(*program), assembler.debugInfo()};
+			}
+			if (!loaded) return 1;
+			if (command.debugJson) out << loaded->debugInfo.toJson() << '\n';
+			if (command.listing) printListing(loaded->program, command.inputs.front(), loaded->debugInfo, out);
 			if (command.output.empty()) return 0;
-			if (auto saved = program->saveToFile(command.output); !saved) { err << "Failed to write " << command.output.string() << ": " << saved.error() << '\n'; return 1; }
+			if (auto saved = loaded->program.saveToFile(command.output); !saved) { err << "Failed to write " << command.output.string() << ": " << saved.error() << '\n'; return 1; }
 			err << "Wrote " << command.output.string() << '\n';
 			return 0;
 		}
 
-		int executeLink(const LinkCommand& command, std::ostream& out, std::ostream& err)
+		int executeLink(const LinkCommand& command, std::span<const std::filesystem::path> installDirectories, std::ostream& out, std::ostream& err)
 		{
-			if (!inputsExist(command.inputs, err)) return 1;
+			std::vector<std::filesystem::path> paths(command.inputs);
+			if (command.stdlib)
+			{
+				const auto lib = findStdlibLib(installDirectories);
+				if (lib.empty())
+				{
+					err << "ceres: --stdlib: cannot find the standard library (stdlib/lib in the directory Ceres is installed in)\n";
+					return 1;
+				}
+				paths.push_back(lib / "libceres.car");
+			}
+			if (!inputsExist(paths, err)) return 1;
 			std::vector<ObjectArchive::Member> inputs;
-			for (const auto& path : command.inputs)
+			for (const auto& path : paths)
 			{
 				auto members = readObjectsFrom(path);
 				if (!members) { err << members.error() << '\n'; return 1; }
@@ -381,8 +484,8 @@ namespace ceres::driver
 	{
 		auto& out = *services.output;
 		auto& err = *services.diagnostics;
-		if (const auto* value = std::get_if<AssembleCommand>(&command)) return executeAssemble(*value, out, err);
-		if (const auto* value = std::get_if<LinkCommand>(&command)) return executeLink(*value, out, err);
+		if (const auto* value = std::get_if<AssembleCommand>(&command)) return executeAssemble(*value, services.installDirectories, out, err);
+		if (const auto* value = std::get_if<LinkCommand>(&command)) return executeLink(*value, services.installDirectories, out, err);
 		if (const auto* value = std::get_if<ArchiveCommand>(&command)) return executeArchive(*value, err);
 		if (const auto* value = std::get_if<DebugCommand>(&command)) return executeDebug(*value, err);
 		if (const auto* value = std::get_if<RunCommand>(&command)) return executeRun(*value, services, windowHost);

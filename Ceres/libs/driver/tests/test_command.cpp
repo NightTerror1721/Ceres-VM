@@ -15,6 +15,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace ceres::driver;
 using namespace ceres::testing;
@@ -915,4 +916,42 @@ TEST(driver_run, the_machine_publishes_its_profile)
 		CHECK_EQ(words[3], static_cast<ceres::u32>(machine.vramBytes));
 	}
 	std::filesystem::remove(source);
+}
+
+TEST(driver_command, stdlib_and_import_directories_belong_where_they_are_used)
+{
+	char program[] = "ceres";
+	char asmCommand[] = "asm";
+	char link[] = "link";
+	char ar[] = "ar";
+	char input[] = "main.casm";
+	char object[] = "main.cobj";
+	char output[] = "main.cres";
+	char dashO[] = "-o";
+	char stdlib[] = "--stdlib";
+	char dashI[] = "-I";
+	char directory[] = "libs";
+
+	// asm imports, so it takes both: --stdlib and its own -I directories, in order.
+	char* asmArgv[] = { program, asmCommand, input, stdlib, dashI, directory };
+	auto assembled = parseCommandLine(6, asmArgv);
+	const auto* assemble = assembled ? std::get_if<AssembleCommand>(&*assembled) : nullptr;
+	CHECK(assemble != nullptr && assemble->stdlib);
+	CHECK(assemble != nullptr && assemble->importDirectories == std::vector<std::filesystem::path>{ std::filesystem::path("libs") });
+
+	// link takes --stdlib: libceres.car joins the objects.
+	char* linkArgv[] = { program, link, object, dashO, output, stdlib };
+	auto linked = parseCommandLine(6, linkArgv);
+	const auto* linkCommand = linked ? std::get_if<LinkCommand>(&*linked) : nullptr;
+	CHECK(linkCommand != nullptr && linkCommand->stdlib);
+
+	// -I is for the command that imports; link does not, and ar neither builds nor links.
+	char* linkImport[] = { program, link, object, dashO, output, dashI, directory };
+	CHECK(!parseCommandLine(7, linkImport).has_value());
+	char* arStdlib[] = { program, ar, output, object, stdlib };
+	CHECK(!parseCommandLine(5, arStdlib).has_value());
+
+	// -I names a directory; without one it is a usage error, not a silent no-op.
+	char* missingValue[] = { program, asmCommand, input, dashI };
+	CHECK(!parseCommandLine(4, missingValue).has_value());
 }

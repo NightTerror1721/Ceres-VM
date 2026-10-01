@@ -28,6 +28,9 @@ namespace ceres::casm
 		// is what the language server runs on every open document) would otherwise report a missing
 		// entry point on every module that is not the main one.
 		bool requireEntryPoint = true;
+		// Where a relative `import` is looked for when it is not beside the importing file: the
+		// standard library's lib directory (--stdlib) and whatever -I named. Empty for a plain build.
+		std::vector<std::filesystem::path> importDirectories;
 	};
 
 	class Assembler
