@@ -12,6 +12,15 @@
 
 namespace ceres::driver
 {
+	// -L <dir> and -l <name>: where a link looks for lib<name>.car / lib<name>.cobj, and which ones
+	// to link. --stdlib adds its lib directory to the search, so -lceres_irq finds the optional
+	// modules installed beside the standard library.
+	struct LibrarySearch
+	{
+		std::vector<std::filesystem::path> directories;
+		std::vector<std::string> libraries;
+	};
+
 	struct AssembleCommand
 	{
 		std::vector<std::filesystem::path> inputs;
@@ -23,6 +32,7 @@ namespace ceres::driver
 		bool debugJson = false;
 		bool stdlib = false;                                    // --stdlib
 		std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
+		LibrarySearch libraries;                                // -L and -l
 	};
 
 	struct LinkCommand
@@ -34,6 +44,7 @@ namespace ceres::driver
 		bool symbolTable = false;   // --symtab
 		bool gcSections = false;    // --gc-sections
 		bool stdlib = false;        // --stdlib: link the standard library's libceres.car
+		LibrarySearch libraries;    // -L and -l
 	};
 
 	struct ArchiveCommand
@@ -85,6 +96,7 @@ namespace ceres::driver
 		bool shell = false;                     // --shell: back to the shell whenever the program ends (so without an input)
 		bool stdlib = false;                                    // --stdlib
 		std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
+		LibrarySearch libraries;                                // -L and -l
 	};
 
 	struct ProfileCommand
@@ -94,6 +106,7 @@ namespace ceres::driver
 		bool listing = false;
 		bool stdlib = false;                                    // --stdlib
 		std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
+		LibrarySearch libraries;                                // -L and -l
 	};
 
 	struct DisassembleCommand
@@ -103,6 +116,7 @@ namespace ceres::driver
 		bool debugJson = false;
 		bool stdlib = false;                                    // --stdlib
 		std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
+		LibrarySearch libraries;                                // -L and -l
 	};
 
 	struct DebugCommand
@@ -114,6 +128,7 @@ namespace ceres::driver
 		bool recordHistory = true;
 		bool stdlib = false;                                    // --stdlib
 		std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
+		LibrarySearch libraries;                                // -L and -l
 	};
 
 	using Command = std::variant<AssembleCommand, LinkCommand, ArchiveCommand, RunCommand,

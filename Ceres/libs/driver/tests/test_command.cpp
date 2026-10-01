@@ -994,6 +994,113 @@ TEST(driver_command, the_commands_that_assemble_take_stdlib_and_import_directori
 	CHECK(disassembleCommand != nullptr && disassembleCommand->importDirectories.size() == 1);
 }
 
+TEST(driver_command, library_search_belongs_to_the_commands_that_link)
+{
+	char program[] = "ceres";
+	char link[] = "link";
+	char asmCommand[] = "asm";
+	char ar[] = "ar";
+	char run[] = "run";
+	char object[] = "main.cobj";
+	char asmInput[] = "main.casm";
+	char output[] = "main.cres";
+	char dashO[] = "-o";
+	char dashC[] = "-c";
+	char dashL[] = "-L";
+	char dashl[] = "-l";
+	char directory[] = "libs";
+	char name[] = "ceres_irq";
+
+	char* linkArgv[] = { program, link, object, dashO, output, dashL, directory, dashl, name };
+	auto linked = parseCommandLine(9, linkArgv);
+	const auto* linkCommand = linked ? std::get_if<LinkCommand>(&*linked) : nullptr;
+	CHECK(linkCommand != nullptr);
+	if (!linkCommand) return;
+	CHECK(linkCommand->libraries.directories == std::vector<std::filesystem::path>{ std::filesystem::path("libs") });
+	CHECK(linkCommand->libraries.libraries == std::vector<std::string>{ "ceres_irq" });
+
+	// -L<dir> and -l<name>, the attached spellings the C compiler also takes.
+	char dashLAttached[] = "-Llibs";
+	char dashlAttached[] = "-lceres_irq";
+	char* attachedArgv[] = { program, link, object, dashO, output, dashLAttached, dashlAttached };
+	auto attached = parseCommandLine(7, attachedArgv);
+	const auto* attachedCommand = attached ? std::get_if<LinkCommand>(&*attached) : nullptr;
+	CHECK(attachedCommand != nullptr && attachedCommand->libraries.libraries == std::vector<std::string>{ "ceres_irq" });
+
+	// run links too, so it takes them; ar neither links nor assembles.
+	char* runArgv[] = { program, run, object, dashL, directory, dashl, name };
+	CHECK(parseCommandLine(7, runArgv).has_value());
+	char* arArgv[] = { program, ar, output, object, dashl, name };
+	CHECK(!parseCommandLine(6, arArgv).has_value());
+
+	// -l needs a link, and asm -c builds an object, not a program.
+	char* objectArgv[] = { program, asmCommand, asmInput, dashC, dashl, name };
+	CHECK(!parseCommandLine(6, objectArgv).has_value());
+}
+
+TEST(driver_run, a_library_found_through_the_library_search_is_linked)
+{
+	// -L <dir> -l<name> is the manual way to link a library: libceres_irq.cobj here, its
+	// declarations importable through -I. No --stdlib, so only -L answers it.
+	const auto root = uniqueTempPath("ceres_library");
+	const auto lib = root / "lib";
+	std::filesystem::create_directories(lib);
+
+	const auto module = root / "module.casm";
+	{
+		std::ofstream file(module, std::ios::binary | std::ios::trunc);
+		file << "@text\n"
+			"global lib_put:\n"
+			"    la r13, 0xFF000004\n"
+			"    str [r13 + 0], r0\n"
+			"    ret\n";
+	}
+	ceres::casm::Assembler assembler;
+	auto object = assembler.assembleObject(module);
+	CHECK(object.has_value());
+	if (!object) return;
+	CHECK(object->write(lib / "libceres_irq.cobj").has_value());
+	{
+		std::ofstream file(lib / "libceres_irq.decls.casm", std::ios::binary | std::ios::trunc);
+		file << "@text\n"
+			"global lib_put:\n";
+	}
+
+	const auto source = root / "program.casm";
+	{
+		std::ofstream file(source, std::ios::binary | std::ios::trunc);
+		file << "import \"libceres_irq.decls.casm\"\n"
+			"@text\n"
+			"global main:\n"
+			"    li r0, 65\n"
+			"    call lib_put\n"
+			"    la r13, 0xFFFF0000\n"
+			"    li r0, 1\n"
+			"    str [r13 + 0], r0\n"
+			"    halt\n";
+	}
+
+	RunCommand command{ .input = source };
+	command.importDirectories = { lib };
+	command.libraries.directories = { lib };
+	command.libraries.libraries = { "ceres_irq" };
+	const CapturedRun run = captureRun(command);
+	CHECK_EQ(run.status, 0);
+	CHECK_EQ(run.output, std::string{ "A" });
+
+	// A name no directory answers is an error, not a silent skip.
+	RunCommand missing{ .input = source };
+	missing.importDirectories = { lib };
+	missing.libraries.directories = { lib };
+	missing.libraries.libraries = { "no_such_library" };
+	const CapturedRun failed = captureRun(missing);
+	CHECK_EQ(failed.status, 1);
+	CHECK(failed.diagnostics.find("cannot find library") != std::string::npos);
+
+	std::error_code ignored;
+	std::filesystem::remove_all(root, ignored);
+}
+
 TEST(driver_run, stdlib_links_the_library_installed_with_ceres)
 {
 	// A stand-in standard library: one object that defines a routine the program calls, shipped the

@@ -7,6 +7,7 @@
 #include <ceres/core/isa/disassembler.h>
 #include <ceres/debug/debug_cli.h>
 #include <ceres/debug/debug_server.h>
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <exception>
@@ -156,6 +157,38 @@ namespace ceres::driver
 			return resolved;
 		}
 
+		// -l <name>: lib<name>.car or lib<name>.cobj, looked for in each search directory (the
+		// command's -L first, then --stdlib's lib when it was asked for). An archive is preferred
+		// over a lone object, the way a linker prefers the library.
+		std::expected<std::vector<std::filesystem::path>, std::string> resolveLibraries(
+			std::span<const std::string> names, std::span<const std::filesystem::path> directories)
+		{
+			std::vector<std::filesystem::path> resolved;
+			for (const auto& name : names)
+			{
+				std::filesystem::path library;
+				std::error_code error;
+				for (const auto& directory : directories)
+				{
+					for (const char* extension : { ".car", ".cobj" })
+					{
+						const auto candidate = directory / ("lib" + name + extension);
+						if (std::filesystem::is_regular_file(candidate, error))
+						{
+							library = candidate;
+							break;
+						}
+					}
+					if (!library.empty())
+						break;
+				}
+				if (library.empty())
+					return std::unexpected("ceres: cannot find library 'lib" + name + ".car' or 'lib" + name + ".cobj' in the library search directories (-L, and --stdlib's lib)");
+				resolved.push_back(library.lexically_normal());
+			}
+			return resolved;
+		}
+
 		// What a command that assembles from source needs: where imports are looked for, and the
 		// archives to link. A .cres is already linked, so neither applies and --stdlib is ignored.
 		struct SourceInputs
@@ -164,27 +197,51 @@ namespace ceres::driver
 			std::vector<std::filesystem::path> archives;
 		};
 
-		std::expected<SourceInputs, std::string> resolveSourceInputs(bool stdlib,
+		std::expected<SourceInputs, std::string> resolveSourceInputs(bool stdlib, const LibrarySearch& libraries,
 			std::span<const std::filesystem::path> own, std::span<const std::filesystem::path> installDirectories)
 		{
-			SourceInputs inputs;
 			auto resolved = resolveImportDirectories(own, stdlib, installDirectories);
 			if (!resolved)
 				return std::unexpected(resolved.error());
+
+			SourceInputs inputs;
 			inputs.importDirectories = std::move(resolved->directories);
 			if (!resolved->stdlibLib.empty())
 				inputs.archives.push_back(resolved->stdlibLib / "libceres.car");
+
+			// -L first, then --stdlib's lib: the same order the C compiler uses. A library that
+			// resolves to the standard archive already linked (say -lceres beside --stdlib) is not
+			// linked a second time.
+			std::vector<std::filesystem::path> searchDirectories(libraries.directories.begin(), libraries.directories.end());
+			if (!resolved->stdlibLib.empty())
+				searchDirectories.push_back(resolved->stdlibLib);
+			auto extra = resolveLibraries(libraries.libraries, searchDirectories);
+			if (!extra)
+				return std::unexpected(extra.error());
+			for (auto& library : *extra)
+			{
+				const bool alreadyLinked = std::any_of(inputs.archives.begin(), inputs.archives.end(),
+					[&](const std::filesystem::path& archive) { return archive.lexically_normal() == library.lexically_normal(); });
+				if (!alreadyLinked)
+					inputs.archives.push_back(std::move(library));
+			}
 			return inputs;
 		}
 
 		// The same, for a command with a single input: a .cres is already linked, so --stdlib has
 		// nothing to do for it.
 		std::expected<SourceInputs, std::string> resolveSourceInputs(const std::filesystem::path& input, bool stdlib,
-			std::span<const std::filesystem::path> own, std::span<const std::filesystem::path> installDirectories)
+			const LibrarySearch& libraries, std::span<const std::filesystem::path> own, std::span<const std::filesystem::path> installDirectories)
 		{
 			if (input.extension() == ".cres")
+			{
+				// A .cres is already linked: --stdlib has nothing to add and is ignored. A -l is a
+				// promise to link something, though, and dropping it silently would hide a mistake.
+				if (!libraries.libraries.empty())
+					return std::unexpected("ceres: -l links a program, and '" + input.string() + "' is already linked");
 				return SourceInputs{};
-			return resolveSourceInputs(stdlib, own, installDirectories);
+			}
+			return resolveSourceInputs(stdlib, libraries, own, installDirectories);
 		}
 
 		// The object pipeline: each source becomes one object on its own, then the objects - the
@@ -251,12 +308,12 @@ namespace ceres::driver
 		int executeAssemble(const AssembleCommand& command, std::span<const std::filesystem::path> installDirectories, std::ostream& out, std::ostream& err)
 		{
 			if (!inputsExist(command.inputs, err)) return 1;
-			auto directories = resolveImportDirectories(command.importDirectories, command.stdlib, installDirectories);
-			if (!directories) { err << directories.error() << '\n'; return 1; }
 
 			if (command.compileOnly)
 			{
 				if (command.inputs.size() != 1) { err << "'ceres asm -c' takes a single source file\n"; return 2; }
+				auto directories = resolveImportDirectories(command.importDirectories, command.stdlib, installDirectories);
+				if (!directories) { err << directories.error() << '\n'; return 1; }
 				Assembler assembler{AssemblerOptions{.emitDebugInfo = command.debugInfo, .requireEntryPoint = false, .importDirectories = directories->directories}};
 				auto object = assembler.assembleObject(command.inputs.front());
 				const bool failed = !object || assembler.hasErrors();
@@ -268,16 +325,18 @@ namespace ceres::driver
 				return 0;
 			}
 
+			auto inputs = resolveSourceInputs(command.stdlib, command.libraries, command.importDirectories, installDirectories);
+			if (!inputs) { err << inputs.error() << '\n'; return 1; }
+
 			std::optional<LoadedProgram> loaded;
-			if (command.stdlib)
+			if (!inputs->archives.empty())
 			{
-				const auto archive = directories->stdlibLib / "libceres.car";
-				loaded = assembleAndLink(command.inputs, std::span(&archive, 1), command.debugInfo,
-					!command.output.empty(), directories->directories, command.jsonDiagnostics, out, err);
+				loaded = assembleAndLink(command.inputs, inputs->archives, command.debugInfo,
+					!command.output.empty(), inputs->importDirectories, command.jsonDiagnostics, out, err);
 			}
 			else
 			{
-				Assembler assembler{AssemblerOptions{.emitDebugInfo = command.debugInfo, .requireEntryPoint = !command.output.empty(), .importDirectories = directories->directories}};
+				Assembler assembler{AssemblerOptions{.emitDebugInfo = command.debugInfo, .requireEntryPoint = !command.output.empty(), .importDirectories = inputs->importDirectories}};
 				auto program = assembler.assemble(command.inputs);
 				const bool failed = !program || assembler.hasErrors();
 				if (command.jsonDiagnostics) printJsonErrors(assembler, out);
@@ -297,16 +356,33 @@ namespace ceres::driver
 		int executeLink(const LinkCommand& command, std::span<const std::filesystem::path> installDirectories, std::ostream& out, std::ostream& err)
 		{
 			std::vector<std::filesystem::path> paths(command.inputs);
+			std::filesystem::path stdlibLib;
 			if (command.stdlib)
 			{
-				const auto lib = findStdlibLib(installDirectories);
-				if (lib.empty())
+				stdlibLib = findStdlibLib(installDirectories);
+				if (stdlibLib.empty())
 				{
 					err << "ceres: --stdlib: cannot find the standard library (stdlib/lib in the directory Ceres is installed in)\n";
 					return 1;
 				}
-				paths.push_back(lib / "libceres.car");
+				paths.push_back(stdlibLib / "libceres.car");
 			}
+
+			// -l <name>: resolved through -L, then --stdlib's lib, and appended after the objects
+			// named on the command line - the order a linker resolves them in.
+			std::vector<std::filesystem::path> searchDirectories(command.libraries.directories.begin(), command.libraries.directories.end());
+			if (!stdlibLib.empty())
+				searchDirectories.push_back(stdlibLib);
+			auto libraries = resolveLibraries(command.libraries.libraries, searchDirectories);
+			if (!libraries) { err << libraries.error() << '\n'; return 1; }
+			for (auto& library : *libraries)
+			{
+				const bool alreadyLinked = std::any_of(paths.begin(), paths.end(),
+					[&](const std::filesystem::path& path) { return path.lexically_normal() == library.lexically_normal(); });
+				if (!alreadyLinked)
+					paths.push_back(std::move(library));
+			}
+
 			if (!inputsExist(paths, err)) return 1;
 			std::vector<ObjectArchive::Member> inputs;
 			for (const auto& path : paths)
@@ -348,7 +424,7 @@ namespace ceres::driver
 			// several sources, so only the single-.cres case is that.
 			if (!(command.inputs.size() == 1 && command.inputs.front().extension() == ".cres"))
 			{
-				auto resolved = resolveSourceInputs(command.stdlib, command.importDirectories, installDirectories);
+				auto resolved = resolveSourceInputs(command.stdlib, command.libraries, command.importDirectories, installDirectories);
 				if (!resolved) { err << resolved.error() << '\n'; return 1; }
 				inputs = std::move(*resolved);
 			}
@@ -457,7 +533,7 @@ namespace ceres::driver
 			if (!command.input.empty())
 			{
 				if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
-				const auto inputs = resolveSourceInputs(command.input, command.stdlib, command.importDirectories, services.installDirectories);
+				const auto inputs = resolveSourceInputs(command.input, command.stdlib, command.libraries, command.importDirectories, services.installDirectories);
 				if (!inputs) { *services.diagnostics << inputs.error() << '\n'; return 1; }
 				loaded = loadProgram(command.input, command.debugInfo, inputs->importDirectories, inputs->archives, *services.diagnostics);
 				if (!loaded) return 1;
@@ -516,7 +592,7 @@ namespace ceres::driver
 		int executeProfile(const ProfileCommand& command, HostServices services)
 		{
 			if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
-			const auto inputs = resolveSourceInputs(command.input, command.stdlib, command.importDirectories, services.installDirectories);
+			const auto inputs = resolveSourceInputs(command.input, command.stdlib, command.libraries, command.importDirectories, services.installDirectories);
 			if (!inputs) { *services.diagnostics << inputs.error() << '\n'; return 1; }
 			auto loaded = loadProgram(command.input, true, inputs->importDirectories, inputs->archives, *services.diagnostics);
 			if (!loaded) return 1;
@@ -533,7 +609,7 @@ namespace ceres::driver
 		int executeDisassemble(const DisassembleCommand& command, HostServices services)
 		{
 			if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
-			const auto inputs = resolveSourceInputs(command.input, command.stdlib, command.importDirectories, services.installDirectories);
+			const auto inputs = resolveSourceInputs(command.input, command.stdlib, command.libraries, command.importDirectories, services.installDirectories);
 			if (!inputs) { *services.diagnostics << inputs.error() << '\n'; return 1; }
 			auto loaded = loadProgram(command.input, command.debugInfo, inputs->importDirectories, inputs->archives, *services.diagnostics);
 			if (!loaded) return 1;

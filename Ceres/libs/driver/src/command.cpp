@@ -13,7 +13,9 @@ namespace ceres::driver
 			"\n"
 			"  ceres asm <source.casm> [<source2.casm> ...] [-o <output.cres>] [--listing] [--json]\n"
 			"                          [--debug] [--emit-debug-json] [-c] [-I <dir>] [--stdlib]\n"
+			"                          [-L <dir>] [-l <name>]\n"
 			"  ceres link <file.cobj|file.car> [...] -o <output.cres> [--debug] [--symtab] [--gc-sections] [--stdlib]\n"
+			"                                      [-L <dir>] [-l <name>]\n"
 			"  ceres ar <output.car> <file.cobj> [...]\n"
 			"  ceres run [<file.casm|file.cres>] [<machine>] [--shell] [--disk <image>]\n"
 			"                                  [--window | --headless] [--strict-mmio]\n"
@@ -24,11 +26,11 @@ namespace ceres::driver
 			"                                  [--record <file> | --replay <file>] [--log <file>]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
 			"                                  [--env <name>=<value>]... [--host-dir <dir>] [-- <argument>...]\n"
-			"                                  [-I <dir>] [--stdlib]\n"
-			"  ceres profile <file.casm|file.cres> [<machine>] [-I <dir>] [--stdlib]\n"
-			"  ceres disasm <file.casm|file.cres> [--debug] [-I <dir>] [--stdlib]\n"
+			"                                  [-I <dir>] [--stdlib] [-L <dir>] [-l <name>]\n"
+			"  ceres profile <file.casm|file.cres> [<machine>] [-I <dir>] [--stdlib] [-L <dir>] [-l <name>]\n"
+			"  ceres disasm <file.casm|file.cres> [--debug] [-I <dir>] [--stdlib] [-L <dir>] [-l <name>]\n"
 			"  ceres debug <file.casm|file.cres> [<source2.casm> ...] [<machine>]\n"
-			"                                    [--no-stop-on-entry] [--server] [--no-history] [-I <dir>] [--stdlib]\n"
+			"                                    [--no-stop-on-entry] [--server] [--no-history] [-I <dir>] [--stdlib] [-L <dir>] [-l <name>]\n"
 			"\n"
 			"  <machine>: [--profile micro|pocket|retro|arcade|polygon|standard|workstation|custom]\n"
 			"             [--cpu-clock <hz>] [--gpu-clock <hz>] [--ram <bytes>] [--vram <bytes>]\n"
@@ -72,7 +74,9 @@ namespace ceres::driver
 			"Ceres: its stdlib/lib joins the import search, so a program writes `import \"libceres.decls.casm\"` for the\n"
 			"library's names, and libceres.car is linked. Where Ceres is installed is CERES_PATH, or the directory\n"
 			"ceres itself is in. -I <dir> adds an import search directory of your own; a relative import is looked for\n"
-			"beside the importing file first, then in each search directory.\n";
+			"beside the importing file first, then in each search directory. -L <dir> adds a library search directory\n"
+			"and -l <name> links lib<name>.car or lib<name>.cobj found there (with --stdlib, stdlib/lib is searched\n"
+			"too, so -lceres_irq finds the optional modules).\n";
 
 		struct RawOptions
 		{
@@ -96,6 +100,8 @@ namespace ceres::driver
 			bool usedStdlib = false;
 			std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
 			bool usedImport = false;
+			LibrarySearch libraries;                          // -L and -l
+			bool usedLibrary = false;
 			bool stopOnEntry = true;
 			bool usedStopOnEntry = false;
 			bool server = false;
@@ -361,6 +367,25 @@ namespace ceres::driver
 				raw.importDirectories.emplace_back(*value);
 				raw.usedImport = true;
 			}
+			else if (argument == "-L" || argument == "-l")
+			{
+				auto value = nextValue(argument);
+				if (!value) return std::unexpected(value.error());
+				if (argument == "-L") raw.libraries.directories.emplace_back(*value);
+				else raw.libraries.libraries.emplace_back(*value);
+				raw.usedLibrary = true;
+			}
+			// -L<dir> and -l<name>, the attached spellings the C compiler also takes.
+			else if (argument.starts_with("-L") && argument.size() > 2)
+			{
+				raw.libraries.directories.emplace_back(argument.substr(2));
+				raw.usedLibrary = true;
+			}
+			else if (argument.starts_with("-l") && argument.size() > 2)
+			{
+				raw.libraries.libraries.emplace_back(argument.substr(2));
+				raw.usedLibrary = true;
+			}
 			else if (argument == "--no-stop-on-entry") { raw.stopOnEntry = false; raw.usedStopOnEntry = true; }
 			else if (argument == "--server") { raw.server = true; raw.usedServer = true; }
 			else if (argument == "--no-history") { raw.recordHistory = false; raw.usedHistory = true; }
@@ -518,6 +543,8 @@ namespace ceres::driver
 			return std::unexpected(invalidOption("--stdlib", command));
 		if (raw.usedImport && (command == "link" || command == "ar"))
 			return std::unexpected(invalidOption("-I", command));
+		if (raw.usedLibrary && command == "ar")
+			return std::unexpected(invalidOption("-L/-l", command));
 		if (raw.usedShell && command != "run")
 			return std::unexpected(invalidOption("--shell", command));
 		if ((raw.usedDashDash || raw.usedEnv || raw.usedHostDir || raw.strictMmio || raw.rtc || raw.speed ||
@@ -535,15 +562,17 @@ namespace ceres::driver
 		{
 			if (raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
+			if (raw.compileOnly && raw.usedLibrary)
+				return std::unexpected(ParseError{ "'-L/-l' need a link, and 'asm -c' builds an object: name them on link, run, profile, disasm or debug, or drop -c" });
 			return AssembleCommand{ std::move(inputs), std::move(raw.output), raw.compileOnly, raw.listing,
-				raw.json, raw.debugInfo, raw.debugJson, raw.stdlib, std::move(raw.importDirectories) };
+				raw.json, raw.debugInfo, raw.debugJson, raw.stdlib, std::move(raw.importDirectories), std::move(raw.libraries) };
 		}
 		if (command == "link")
 		{
 			if (raw.compileOnly || raw.usedListing || raw.usedJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
 			if (raw.output.empty()) return std::unexpected(ParseError{ "'ceres link' needs -o <output.cres>" });
-			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson, raw.symbolTable, raw.gcSections, raw.stdlib };
+			return LinkCommand{ std::move(inputs), std::move(raw.output), raw.debugInfo, raw.debugJson, raw.symbolTable, raw.gcSections, raw.stdlib, std::move(raw.libraries) };
 		}
 		if (command == "ar")
 		{
@@ -571,22 +600,22 @@ namespace ceres::driver
 				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory), raw.strictMmio,
 				raw.rtc, raw.speed, std::move(raw.record), std::move(raw.replay), std::move(raw.log), raw.refresh, raw.fullscreen,
 				raw.exitOnHalt, std::move(raw.framesDir), std::move(raw.transcript), std::move(raw.screenLog), std::move(raw.typeFile),
-				std::move(raw.keysFile), raw.gpu, raw.shell, raw.stdlib, std::move(raw.importDirectories) };
+				std::move(raw.keysFile), raw.gpu, raw.shell, raw.stdlib, std::move(raw.importDirectories), std::move(raw.libraries) };
 		}
 		if (command == "profile")
 		{
 			if (raw.compileOnly || raw.usedOutput || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
-			return ProfileCommand{ std::move(inputs.front()), *machine, raw.listing, raw.stdlib, std::move(raw.importDirectories) };
+			return ProfileCommand{ std::move(inputs.front()), *machine, raw.listing, raw.stdlib, std::move(raw.importDirectories), std::move(raw.libraries) };
 		}
 		if (command == "disasm")
 		{
 			if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
-			return DisassembleCommand{ std::move(inputs.front()), raw.debugInfo, raw.debugJson, raw.stdlib, std::move(raw.importDirectories) };
+			return DisassembleCommand{ std::move(inputs.front()), raw.debugInfo, raw.debugJson, raw.stdlib, std::move(raw.importDirectories), std::move(raw.libraries) };
 		}
 		if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless)
 			return std::unexpected(invalidOption("a supplied option", command));
-		return DebugCommand{ std::move(inputs), *machine, raw.stopOnEntry, raw.server, raw.recordHistory, raw.stdlib, std::move(raw.importDirectories) };
+		return DebugCommand{ std::move(inputs), *machine, raw.stopOnEntry, raw.server, raw.recordHistory, raw.stdlib, std::move(raw.importDirectories), std::move(raw.libraries) };
 	}
 }
