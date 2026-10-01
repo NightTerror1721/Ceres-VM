@@ -12,9 +12,9 @@ Nothing in the machine enforces one, and nothing ever will: `call` pushes a retu
 pops it, and that is the whole of what the hardware knows about subroutines.
 
 What exists now is a convention **written down** — register roles, a frame shape, and the two macros
-that open and close it — in [`lib/call.casm`](../Ceres/stdlib/call.casm), documented in
-[A calling convention](24-Calling-Convention.md) and exercised by
-[`examples/calling_convention.casm`](../Ceres/examples/calling_convention.casm).
+that open and close it — in [A calling convention](24-Calling-Convention.md) and exercised by
+[`examples/calling_convention.casm`](../Ceres/examples/calling_convention.casm), which defines those
+macros itself.
 
 Following it is still discipline. There is no way to write a macro that verifies you preserved `r8`,
 or that you left `sp` where you found it, so the assembler cannot catch a function that breaks the

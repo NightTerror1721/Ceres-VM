@@ -798,8 +798,8 @@ See [Separate compilation](docs/25-Separate-Compilation.md).
 The assembler and the VM work end to end. What is not done:
 
 - **Nothing enforces the calling convention.** It is written down — register roles, a frame shape
-  and the two macros that open and close it, in `lib/call.casm` — but no macro can verify that you
-  preserved `r8` or left `sp` where you found it.
+  and the two macros that open and close it — but no macro can verify that you preserved `r8` or
+  left `sp` where you found it.
 - **Devices.** Twenty-six ports are reserved and fifteen are implemented. Input, audio and
   network are still stubs, and the framebuffer draws characters rather than pixels.
 - **Separate compilation has no consistency check.** `ceres asm -c` and `ceres link` build a

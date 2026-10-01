@@ -168,7 +168,7 @@ Here is a small, complete convention: **`r0` is the return value, `r1`–`r3` ar
 exactly like `rbx`/`rbp`/`r12`–`r15` on x86-64's System V ABI).
 
 ```casm
-// lib/call.casm
+// call.casm
 global macro proc_enter $frame_size
     enter
     sub sp, sp, $frame_size
@@ -189,7 +189,7 @@ prologues eventually would.
 A subroutine written against them:
 
 ```casm
-import "lib/call.casm"
+import "call.casm"
 
 struct FactFrame
     saved_r8: u32
@@ -262,9 +262,10 @@ declaration — see [Errors and diagnostics](17-Errors-and-Diagnostics.md#warnin
 
 ## Where this is actually used
 
-The calling convention's prologue and epilogue are two exported macros in
-[`lib/call.casm`](../Ceres/stdlib/call.casm) — a small, real example of a `global macro` that a
-project imports everywhere. See [A calling convention](24-Calling-Convention.md).
+The calling convention's prologue and epilogue are two macros, `proc_enter`/`proc_leave`, shown
+defined and exported at the top of
+[`examples/calling_convention.casm`](../Ceres/examples/calling_convention.casm) — a small, real
+example of a `global macro`. See [A calling convention](24-Calling-Convention.md).
 
 ## Related pages
 

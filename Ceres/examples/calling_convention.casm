@@ -9,10 +9,23 @@
 //
 // Prints "120" and then "21".
 
-// The import brings the two macros and the convention's names for the registers that have a
-// role in it: arg0-arg3, ret0, and the float ones. They are `global alias`, so nothing has to
-// be declared here.
-import "../stdlib/call.casm"
+// The convention's names for the registers that have a role in it, and the two macros that open
+// and close a frame. They are defined here so the example stands alone; docs/24-Calling-Convention.md
+// is where the convention itself is written down.
+global alias arg0 = r0
+global alias arg1 = r1
+global alias arg2 = r2
+global alias arg3 = r3
+global alias ret0 = r0
+
+global macro proc_enter $frame_size
+    enter $frame_size
+endmacro
+
+global macro proc_leave
+    leave
+    ret
+endmacro
 
 /// Terminal's OutputRegister, in its MMIO window. A `str` to it writes its low byte straight to stdout.
 const TERM_OUT = 0xFF000004

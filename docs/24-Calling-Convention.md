@@ -5,19 +5,14 @@
 Nothing in the machine enforces one. `call` pushes a return address, `ret` pops it, and that is the
 whole of what the hardware knows about subroutines — see
 [Known limitations](19-Known-Limitations.md). What follows is a contract between the code you write:
-one set of rules, kept in [`lib/call.casm`](../Ceres/stdlib/call.casm) so it is written the same way
-every time.
+one set of rules, so it is written the same way every time.
 
 The complete working example is
-[`examples/calling_convention.casm`](../Ceres/examples/calling_convention.casm). Everything on
-this page was checked against the assembler and the engine, and the instruction-level facts say
-where they come from.
+[`examples/calling_convention.casm`](../Ceres/examples/calling_convention.casm), which defines the
+two macros and the aliases below at the top of the file. Everything on this page was checked against
+the assembler and the engine, and the instruction-level facts say where they come from.
 
-```casm
-import "lib/call.casm"      // proc_enter, proc_leave, and the names below
-```
-
-That one line is the whole setup. The module publishes:
+The prologue is two macros and a handful of aliases:
 
 | Name | What it is |
 | --- | --- |
@@ -26,9 +21,9 @@ That one line is the whole setup. The module publishes:
 | `arg0`–`arg3`, `ret0` | `global alias` for `r0`–`r3`, and `r0` again under the name it returns in |
 | `farg0`–`farg3`, `fret0` | The same for `f0`–`f3` |
 
-The aliases are `global alias`, so importing the module is enough to write `arg0` — and declaring
-the same alias again in your own file is not an error, so a file that already had its own copies
-keeps working (see [Register aliases](10-Language-Syntax.md#register-aliases)).
+A file that declares `global alias` for them can export them to the files that import it, and
+declaring the same alias again in your own file is not an error (see
+[Register aliases](10-Language-Syntax.md#register-aliases)).
 
 ## Register roles
 
@@ -100,8 +95,6 @@ lower addresses
 The prologue and epilogue are two macros:
 
 ```casm
-import "lib/call.casm"
-
 my_function:
     proc_enter Frame        // enter Frame
     ...
@@ -361,6 +354,6 @@ And to call one:
 - [Instruction set](05-Instruction-Set.md#enter-and-leave) — what `enter` and `leave` do.
 - [Structs](23-Structs.md) — the offset constants a frame is described with, and the layout rule.
 - [Language syntax](10-Language-Syntax.md#register-aliases) — `alias`, and how `global alias` crosses a file.
-- [Macros](14-Macros.md) — how `proc_enter`/`proc_leave` are defined and exported.
+- [Macros](14-Macros.md) — how a `proc_enter`/`proc_leave` pair is written as exportable macros.
 - [Memory](02-Memory.md#the-stack) — where the stack lives and what happens when it runs out.
 - [Interrupts and exceptions](08-Interrupts-and-Exceptions.md) — why a handler does not disturb your frame.

@@ -178,10 +178,10 @@ called what they are.
 | From | To |
 | --- | --- |
 | `Ceres-ASM-old/examples/` | `Ceres/examples/` |
-| `Ceres-ASM-old/lib/call.casm` | `Ceres/stdlib/call.casm` |
+| `Ceres-ASM-old/lib/call.casm` | removed — the calling convention is defined in the examples |
 
-`lib/` becomes `stdlib/` so it isn't confused with `libs/`, which is something else. Both are
-candidates to move out into their own repository (`ceres-lang`) in phase 04.
+The old `lib/` (later `stdlib/`) held only `call.casm`; with the convention now defined where it is
+used, the directory is gone. `libs/`, the machine's own libraries, is unrelated.
 
 ---
 
@@ -202,7 +202,7 @@ cmake --build --preset gcc-debug
    the first green suite.
 6. **`asm`** — all 45 at once, applying both cuts. If it compiles, they're done.
 7. **`debug`** and **`cli`** — this is where the new tree's `ceres` first appears.
-8. **The tests and the data** — `tests/e2e/`, then the unit ones, then `examples/` and `stdlib/`.
+8. **The tests and the data** — `tests/e2e/`, then the unit ones, then `examples/`.
    Finishes with `ctest --preset gcc-debug`.
 
 Use `git mv`, not copy-and-delete: with 106 files git detects the renames by similarity and
