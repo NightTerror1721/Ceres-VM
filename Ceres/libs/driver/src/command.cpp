@@ -24,10 +24,11 @@ namespace ceres::driver
 			"                                  [--record <file> | --replay <file>] [--log <file>]\n"
 			"                                  [--port <n>=<image>]... [--cart <n>=<file>]...\n"
 			"                                  [--env <name>=<value>]... [--host-dir <dir>] [-- <argument>...]\n"
-			"  ceres profile <file.casm|file.cres> [<machine>]\n"
-			"  ceres disasm <file.casm|file.cres> [--debug]\n"
+			"                                  [-I <dir>] [--stdlib]\n"
+			"  ceres profile <file.casm|file.cres> [<machine>] [-I <dir>] [--stdlib]\n"
+			"  ceres disasm <file.casm|file.cres> [--debug] [-I <dir>] [--stdlib]\n"
 			"  ceres debug <file.casm|file.cres> [<source2.casm> ...] [<machine>]\n"
-			"                                    [--no-stop-on-entry] [--server] [--no-history]\n"
+			"                                    [--no-stop-on-entry] [--server] [--no-history] [-I <dir>] [--stdlib]\n"
 			"\n"
 			"  <machine>: [--profile micro|pocket|retro|arcade|polygon|standard|workstation|custom]\n"
 			"             [--cpu-clock <hz>] [--gpu-clock <hz>] [--ram <bytes>] [--vram <bytes>]\n"
@@ -513,9 +514,9 @@ namespace ceres::driver
 			return std::unexpected(invalidOption("--symtab", command));
 		if (raw.usedGcSections && command != "link")
 			return std::unexpected(invalidOption("--gc-sections", command));
-		if (raw.usedStdlib && command != "asm" && command != "link")
+		if (raw.usedStdlib && command == "ar")
 			return std::unexpected(invalidOption("--stdlib", command));
-		if (raw.usedImport && command != "asm")
+		if (raw.usedImport && (command == "link" || command == "ar"))
 			return std::unexpected(invalidOption("-I", command));
 		if (raw.usedShell && command != "run")
 			return std::unexpected(invalidOption("--shell", command));
@@ -570,22 +571,22 @@ namespace ceres::driver
 				std::move(raw.ports), std::move(raw.arguments), std::move(raw.environment), std::move(raw.hostDirectory), raw.strictMmio,
 				raw.rtc, raw.speed, std::move(raw.record), std::move(raw.replay), std::move(raw.log), raw.refresh, raw.fullscreen,
 				raw.exitOnHalt, std::move(raw.framesDir), std::move(raw.transcript), std::move(raw.screenLog), std::move(raw.typeFile),
-				std::move(raw.keysFile), raw.gpu, raw.shell };
+				std::move(raw.keysFile), raw.gpu, raw.shell, raw.stdlib, std::move(raw.importDirectories) };
 		}
 		if (command == "profile")
 		{
 			if (raw.compileOnly || raw.usedOutput || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
-			return ProfileCommand{ std::move(inputs.front()), *machine, raw.listing };
+			return ProfileCommand{ std::move(inputs.front()), *machine, raw.listing, raw.stdlib, std::move(raw.importDirectories) };
 		}
 		if (command == "disasm")
 		{
 			if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless || raw.usedStopOnEntry || raw.usedServer || raw.usedHistory)
 				return std::unexpected(invalidOption("a supplied option", command));
-			return DisassembleCommand{ std::move(inputs.front()), raw.debugInfo, raw.debugJson };
+			return DisassembleCommand{ std::move(inputs.front()), raw.debugInfo, raw.debugJson, raw.stdlib, std::move(raw.importDirectories) };
 		}
 		if (raw.compileOnly || raw.usedOutput || raw.usedListing || raw.usedJson || raw.usedDebugInfo || raw.usedDebugJson || raw.usedDisk || raw.usedWindow || raw.usedHeadless)
 			return std::unexpected(invalidOption("a supplied option", command));
-		return DebugCommand{ std::move(inputs), *machine, raw.stopOnEntry, raw.server, raw.recordHistory };
+		return DebugCommand{ std::move(inputs), *machine, raw.stopOnEntry, raw.server, raw.recordHistory, raw.stdlib, std::move(raw.importDirectories) };
 	}
 }

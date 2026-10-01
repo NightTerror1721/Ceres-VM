@@ -1,6 +1,7 @@
 #include <ceres/debug/debug_session.h>
 
 #include <ceres/asm/assembler.h>
+#include <ceres/asm/object_linker.h>
 #include <ceres/core/isa/disassembler.h>
 #include <ceres/core/isa/opcodes.h>
 #include <algorithm>
@@ -155,11 +156,50 @@ namespace ceres::debug
 			}
 			program = std::move(loaded.value());
 		}
+		else if (!config.archives.empty())
+		{
+			// Objects to link (the standard library): each source becomes one object on its own and
+			// the objects go to the object linker, the way `ceres link` would. The in-memory
+			// assembler alone only sees sources, so a name that lives in a library needs this.
+			std::vector<casm::ObjectArchive::Member> inputs;
+			casm::Assembler assembler{ casm::AssemblerOptions{ .emitDebugInfo = true, .importDirectories = config.importDirectories } };
+			for (const auto& source : config.sources)
+			{
+				auto object = assembler.assembleObject(source);
+				if (!object || assembler.hasErrors())
+				{
+					std::string message = "Failed to assemble " + source.string();
+					for (const auto& error : assembler.errors())
+						message += std::format("\n  [{}:{}] {}", error.file, error.line, error.message);
+					return std::unexpected(message);
+				}
+				inputs.push_back(casm::ObjectArchive::Member{ source.filename().string(), std::move(*object), false });
+			}
+			for (const auto& path : config.archives)
+			{
+				auto members = casm::readObjectsFrom(path);
+				if (!members)
+					return std::unexpected(members.error());
+				for (auto& member : *members)
+					inputs.push_back(std::move(member));
+			}
+			casm::ObjectLinker linker;
+			auto linked = linker.link(std::move(inputs), { .emitDebugInfo = true });
+			if (!linked)
+			{
+				std::string message = "Failed to link " + config.sources.front().string();
+				for (const auto& error : linker.errors())
+					message += "\n  " + error;
+				return std::unexpected(message);
+			}
+			program = std::move(*linked);
+			debugInfo = linker.takeDebugInfo();
+		}
 		else
 		{
 			// Always with debug information: a debug session is exactly the case that wants it,
 			// and assembling in memory means it never has to be written anywhere.
-			casm::Assembler assembler{ casm::AssemblerOptions{ .emitDebugInfo = true } };
+			casm::Assembler assembler{ casm::AssemblerOptions{ .emitDebugInfo = true, .importDirectories = config.importDirectories } };
 			auto assembled = assembler.assemble(config.sources);
 			if (!assembled.has_value() || assembler.hasErrors())
 			{

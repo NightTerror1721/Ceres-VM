@@ -81,7 +81,16 @@ namespace ceres::driver
 
 		struct LoadedProgram { Program program; DebugInfo debugInfo; };
 
-		std::optional<LoadedProgram> loadProgram(const std::filesystem::path& path, bool wantDebugInfo, std::ostream& err)
+		// Defined below; loadProgram reaches it when it has already-built objects to link (the standard
+		// library), which assemble() alone cannot consume.
+		std::optional<LoadedProgram> assembleAndLink(const std::vector<std::filesystem::path>& sources,
+			std::span<const std::filesystem::path> objects, bool emitDebugInfo, bool requireEntryPoint,
+			const std::vector<std::filesystem::path>& importDirectories, bool jsonDiagnostics,
+			std::ostream& out, std::ostream& err);
+
+		std::optional<LoadedProgram> loadProgram(const std::filesystem::path& path, bool wantDebugInfo,
+			const std::vector<std::filesystem::path>& importDirectories, std::span<const std::filesystem::path> archives,
+			std::ostream& err)
 		{
 			if (path.extension() == ".cres")
 			{
@@ -97,7 +106,13 @@ namespace ceres::driver
 				return LoadedProgram{std::move(*loaded), std::move(debugInfo)};
 			}
 
-			Assembler assembler{AssemblerOptions{.emitDebugInfo = wantDebugInfo}};
+			// An archive to link (the standard library) forces the object pipeline: the in-memory
+			// linker only sees sources, and a name the program calls can live in an already-built
+			// object.
+			if (!archives.empty())
+				return assembleAndLink({path}, archives, wantDebugInfo, true, importDirectories, false, err, err);
+
+			Assembler assembler{AssemblerOptions{.emitDebugInfo = wantDebugInfo, .importDirectories = importDirectories}};
 			auto program = assembler.assemble({path});
 			if (!program || assembler.hasErrors()) { reportErrors(assembler, std::span(&path, 1), err); return std::nullopt; }
 			return LoadedProgram{std::move(*program), assembler.debugInfo()};
@@ -139,6 +154,37 @@ namespace ceres::driver
 				resolved.directories.push_back(resolved.stdlibLib);
 			}
 			return resolved;
+		}
+
+		// What a command that assembles from source needs: where imports are looked for, and the
+		// archives to link. A .cres is already linked, so neither applies and --stdlib is ignored.
+		struct SourceInputs
+		{
+			std::vector<std::filesystem::path> importDirectories;
+			std::vector<std::filesystem::path> archives;
+		};
+
+		std::expected<SourceInputs, std::string> resolveSourceInputs(bool stdlib,
+			std::span<const std::filesystem::path> own, std::span<const std::filesystem::path> installDirectories)
+		{
+			SourceInputs inputs;
+			auto resolved = resolveImportDirectories(own, stdlib, installDirectories);
+			if (!resolved)
+				return std::unexpected(resolved.error());
+			inputs.importDirectories = std::move(resolved->directories);
+			if (!resolved->stdlibLib.empty())
+				inputs.archives.push_back(resolved->stdlibLib / "libceres.car");
+			return inputs;
+		}
+
+		// The same, for a command with a single input: a .cres is already linked, so --stdlib has
+		// nothing to do for it.
+		std::expected<SourceInputs, std::string> resolveSourceInputs(const std::filesystem::path& input, bool stdlib,
+			std::span<const std::filesystem::path> own, std::span<const std::filesystem::path> installDirectories)
+		{
+			if (input.extension() == ".cres")
+				return SourceInputs{};
+			return resolveSourceInputs(stdlib, own, installDirectories);
 		}
 
 		// The object pipeline: each source becomes one object on its own, then the objects - the
@@ -294,16 +340,27 @@ namespace ceres::driver
 			return 0;
 		}
 
-		int executeDebug(const DebugCommand& command, std::ostream& err)
+		int executeDebug(const DebugCommand& command, std::span<const std::filesystem::path> installDirectories, std::ostream& err)
 		{
 			if (!inputsExist(command.inputs, err)) return 1;
+			SourceInputs inputs;
+			// A .cres is already linked, so --stdlib has nothing to do for it. The debugger takes
+			// several sources, so only the single-.cres case is that.
+			if (!(command.inputs.size() == 1 && command.inputs.front().extension() == ".cres"))
+			{
+				auto resolved = resolveSourceInputs(command.stdlib, command.importDirectories, installDirectories);
+				if (!resolved) { err << resolved.error() << '\n'; return 1; }
+				inputs = std::move(*resolved);
+			}
 			auto session = DebugSession::launch({.sources = command.inputs, .memorySize = command.machine.ramBytes, .vramSize = command.machine.vramBytes,
 				.cpuClockHz = command.machine.cpuClockHz, .profileId = static_cast<u32>(command.machine.id),
 				.gpu = { .gpuClockHz = command.machine.gpuClockHz, .maxLevel = command.machine.maxVideo, .maxWidth = command.machine.maxWidth,
 					.maxHeight = command.machine.maxHeight, .refresh = 60, .spritesPerLine = command.machine.spritesPerLine,
 					.vramInVblankOnly = command.machine.vramInVblankOnly },
 				.stopOnEntry = command.stopOnEntry,
-				.recordHistory = command.recordHistory});
+				.recordHistory = command.recordHistory,
+				.importDirectories = std::move(inputs.importDirectories),
+				.archives = std::move(inputs.archives)});
 			if (!session) { err << session.error() << '\n'; return 1; }
 			if (command.server) { DebugServer server{**session}; return server.run(); }
 			DebugCLI cli{**session};
@@ -400,7 +457,9 @@ namespace ceres::driver
 			if (!command.input.empty())
 			{
 				if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
-				loaded = loadProgram(command.input, command.debugInfo, *services.diagnostics);
+				const auto inputs = resolveSourceInputs(command.input, command.stdlib, command.importDirectories, services.installDirectories);
+				if (!inputs) { *services.diagnostics << inputs.error() << '\n'; return 1; }
+				loaded = loadProgram(command.input, command.debugInfo, inputs->importDirectories, inputs->archives, *services.diagnostics);
 				if (!loaded) return 1;
 				if (command.listing) printListing(loaded->program, command.input, loaded->debugInfo, *services.output);
 			}
@@ -457,7 +516,9 @@ namespace ceres::driver
 		int executeProfile(const ProfileCommand& command, HostServices services)
 		{
 			if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
-			auto loaded = loadProgram(command.input, true, *services.diagnostics);
+			const auto inputs = resolveSourceInputs(command.input, command.stdlib, command.importDirectories, services.installDirectories);
+			if (!inputs) { *services.diagnostics << inputs.error() << '\n'; return 1; }
+			auto loaded = loadProgram(command.input, true, inputs->importDirectories, inputs->archives, *services.diagnostics);
 			if (!loaded) return 1;
 			if (command.listing) printListing(loaded->program, command.input, loaded->debugInfo, *services.output);
 			if (loaded->debugInfo.lines().empty())
@@ -472,7 +533,9 @@ namespace ceres::driver
 		int executeDisassemble(const DisassembleCommand& command, HostServices services)
 		{
 			if (!inputsExist(std::span(&command.input, 1), *services.diagnostics)) return 1;
-			auto loaded = loadProgram(command.input, command.debugInfo, *services.diagnostics);
+			const auto inputs = resolveSourceInputs(command.input, command.stdlib, command.importDirectories, services.installDirectories);
+			if (!inputs) { *services.diagnostics << inputs.error() << '\n'; return 1; }
+			auto loaded = loadProgram(command.input, command.debugInfo, inputs->importDirectories, inputs->archives, *services.diagnostics);
 			if (!loaded) return 1;
 			printListing(loaded->program, command.input, loaded->debugInfo, *services.output);
 			if (command.debugJson) *services.output << loaded->debugInfo.toJson() << '\n';
@@ -487,7 +550,7 @@ namespace ceres::driver
 		if (const auto* value = std::get_if<AssembleCommand>(&command)) return executeAssemble(*value, services.installDirectories, out, err);
 		if (const auto* value = std::get_if<LinkCommand>(&command)) return executeLink(*value, services.installDirectories, out, err);
 		if (const auto* value = std::get_if<ArchiveCommand>(&command)) return executeArchive(*value, err);
-		if (const auto* value = std::get_if<DebugCommand>(&command)) return executeDebug(*value, err);
+		if (const auto* value = std::get_if<DebugCommand>(&command)) return executeDebug(*value, services.installDirectories, err);
 		if (const auto* value = std::get_if<RunCommand>(&command)) return executeRun(*value, services, windowHost);
 		if (const auto* value = std::get_if<ProfileCommand>(&command)) return executeProfile(*value, services);
 		return executeDisassemble(std::get<DisassembleCommand>(command), services);

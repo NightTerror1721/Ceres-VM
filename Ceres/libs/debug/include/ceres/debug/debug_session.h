@@ -191,6 +191,10 @@ namespace ceres::debug
 		// where it is not.
 		bool recordHistory = true;
 		History::Settings history{};
+		// Where imports are looked for, and the archives to link (the standard library), for a source
+		// program. Empty for a .cres, which already carries everything the link had decided.
+		std::vector<std::filesystem::path> importDirectories;
+		std::vector<std::filesystem::path> archives;
 	};
 
 	// How many times each instruction has run. The addresses are every word of .text, whether it

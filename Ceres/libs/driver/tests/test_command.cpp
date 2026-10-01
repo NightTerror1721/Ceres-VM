@@ -4,6 +4,7 @@
 #include <ceres/driver/driver.h>
 #include <ceres/driver/machine.h>
 #include <ceres/asm/assembler.h>
+#include <ceres/asm/object_file.h>
 
 #include <filesystem>
 #include <fstream>
@@ -954,4 +955,96 @@ TEST(driver_command, stdlib_and_import_directories_belong_where_they_are_used)
 	// -I names a directory; without one it is a usage error, not a silent no-op.
 	char* missingValue[] = { program, asmCommand, input, dashI };
 	CHECK(!parseCommandLine(4, missingValue).has_value());
+}
+
+TEST(driver_command, the_commands_that_assemble_take_stdlib_and_import_directories)
+{
+	char program[] = "ceres";
+	char run[] = "run";
+	char profile[] = "profile";
+	char debug[] = "debug";
+	char disasm[] = "disasm";
+	char input[] = "main.casm";
+	char stdlib[] = "--stdlib";
+	char dashI[] = "-I";
+	char directory[] = "libs";
+
+	char* runArgv[] = { program, run, input, stdlib, dashI, directory };
+	auto ran = parseCommandLine(6, runArgv);
+	const auto* runCommand = ran ? std::get_if<RunCommand>(&*ran) : nullptr;
+	CHECK(runCommand != nullptr && runCommand->stdlib);
+	CHECK(runCommand != nullptr && runCommand->importDirectories.size() == 1);
+
+	char* profileArgv[] = { program, profile, input, stdlib, dashI, directory };
+	auto profiled = parseCommandLine(6, profileArgv);
+	const auto* profileCommand = profiled ? std::get_if<ProfileCommand>(&*profiled) : nullptr;
+	CHECK(profileCommand != nullptr && profileCommand->stdlib);
+	CHECK(profileCommand != nullptr && profileCommand->importDirectories.size() == 1);
+
+	char* debugArgv[] = { program, debug, input, stdlib, dashI, directory };
+	auto debugged = parseCommandLine(6, debugArgv);
+	const auto* debugCommand = debugged ? std::get_if<DebugCommand>(&*debugged) : nullptr;
+	CHECK(debugCommand != nullptr && debugCommand->stdlib);
+	CHECK(debugCommand != nullptr && debugCommand->importDirectories.size() == 1);
+
+	char* disasmArgv[] = { program, disasm, input, stdlib, dashI, directory };
+	auto disassembled = parseCommandLine(6, disasmArgv);
+	const auto* disassembleCommand = disassembled ? std::get_if<DisassembleCommand>(&*disassembled) : nullptr;
+	CHECK(disassembleCommand != nullptr && disassembleCommand->stdlib);
+	CHECK(disassembleCommand != nullptr && disassembleCommand->importDirectories.size() == 1);
+}
+
+TEST(driver_run, stdlib_links_the_library_installed_with_ceres)
+{
+	// A stand-in standard library: one object that defines a routine the program calls, shipped the
+	// way the real one is (stdlib/lib/libceres.car and libceres.decls.casm) and reached through
+	// --stdlib's install directory.
+	const auto root = uniqueTempPath("ceres_stdlib");
+	const auto lib = root / "stdlib" / "lib";
+	std::filesystem::create_directories(lib);
+
+	const auto module = root / "module.casm";
+	{
+		std::ofstream file(module, std::ios::binary | std::ios::trunc);
+		file << "@text\n"
+			"global lib_put:\n"
+			"    la r13, 0xFF000004\n"
+			"    str [r13 + 0], r0\n"
+			"    ret\n";
+	}
+	ceres::casm::Assembler assembler;
+	auto object = assembler.assembleObject(module);
+	CHECK(object.has_value());
+	if (!object) return;
+	ceres::casm::ObjectArchive archive;
+	archive.members.push_back(ceres::casm::ObjectArchive::Member{ "lib", std::move(*object), true });
+	CHECK(archive.write(lib / "libceres.car").has_value());
+	{
+		std::ofstream file(lib / "libceres.decls.casm", std::ios::binary | std::ios::trunc);
+		file << "@text\n"
+			"global lib_put:\n";
+	}
+
+	const auto source = root / "program.casm";
+	{
+		std::ofstream file(source, std::ios::binary | std::ios::trunc);
+		file << "import \"libceres.decls.casm\"\n"
+			"@text\n"
+			"global main:\n"
+			"    li r0, 65\n"
+			"    call lib_put\n"
+			"    la r13, 0xFFFF0000\n"
+			"    li r0, 1\n"
+			"    str [r13 + 0], r0\n"
+			"    halt\n";
+	}
+
+	RunCommand command{ .input = source };
+	command.stdlib = true;
+	const CapturedRun run = captureRun(command, {}, {}, { root });
+	CHECK_EQ(run.status, 0);
+	CHECK_EQ(run.output, std::string{ "A" });
+
+	std::error_code ignored;
+	std::filesystem::remove_all(root, ignored);
 }

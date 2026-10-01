@@ -40,8 +40,8 @@ Global flags:
 | `--gpu-clock <hz>`, `--max-video V0-V6`, `--max-audio A0-A4`, `--max-resolution <w>x<h>` | `run`, `profile`, `debug` | The rest of the machine, each making the profile `custom`; only `custom` reaches 1920x1080. |
 | `--log <file>` | `run` | The host's log - the program's debug log and the run's own diagnostics, `[ceres:<level>] <line>` each - goes to this file instead of stderr. See [I/O devices → the debug log](07-IO-Devices-and-Ports.md#debuglogdevice-0xff030000). |
 | `-c` | `asm` | Assembles one file on its own into a `.cobj` object instead of linking a program. Takes a single source file, since an object is one unit. |
-| `-I <dir>` | `asm` | Adds `<dir>` to the search for a relative `import`: beside the importing file first, then each `-I` directory in the order given. Repeatable. See [Modules and `import`](15-Modules-and-Import.md#path-resolution). |
-| `--stdlib` | `asm`, `link` | Compiles (and, when a program is produced, links) against the standard library installed with Ceres: its `stdlib/lib` joins the import search, so a program writes `import "libceres.decls.casm"` to name the library's symbols, and `libceres.car` is linked. Where Ceres is installed is `CERES_PATH`, or the directory `ceres` itself is in. See [The standard library](#the-standard-library). |
+| `-I <dir>` | `asm`, `run`, `profile`, `disasm`, `debug` | Adds `<dir>` to the search for a relative `import`: beside the importing file first, then each `-I` directory in the order given. Repeatable. See [Modules and `import`](15-Modules-and-Import.md#path-resolution). |
+| `--stdlib` | `asm`, `link`, `run`, `profile`, `disasm`, `debug` | Compiles (and, when a program is produced, links) against the standard library installed with Ceres: its `stdlib/lib` joins the import search, so a program writes `import "libceres.decls.casm"` to name the library's symbols, and `libceres.car` is linked. Where Ceres is installed is `CERES_PATH`, or the directory `ceres` itself is in. On a command given a `.cres` there is nothing to assemble or link, so it does nothing. See [The standard library](#the-standard-library). |
 | `--disk <image>` | `run` | Backs the disk ports with a host file, created if it is not there. Without it the disk keeps its sectors only while the machine runs — see [I/O devices and ports](07-IO-Devices-and-Ports.md). |
 | `--port <n>=<image>` | `run` | Plugs a host file into peripheral port `n` (0-3) as a storage medium before the program starts, creating it with 64 sectors if it is not there. Repeatable. The port is a number and the file is everything after the first `=`. See [I/O devices and ports](07-IO-Devices-and-Ports.md#peripheraldevice-0xff320000). |
 | `--cart <n>=<file>` | `run` | The same for a cartridge: the file has to exist and is read only. |
@@ -81,6 +81,7 @@ imports to name them) and the optional modules (`libceres_irq.cobj`, `libceres_m
 links `libceres.car`:
 
 ```bash
+ceres run prog.casm --stdlib                    # assemble, link the library, run
 ceres asm prog.casm -c -o prog.cobj --stdlib    # names the library's symbols
 ceres link prog.cobj -o prog.cres --stdlib      # pulls in what it calls
 ceres run prog.cres

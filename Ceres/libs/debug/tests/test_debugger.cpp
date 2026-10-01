@@ -4,6 +4,7 @@
 
 #include "framework.h"
 #include <ceres/asm/assembler.h>
+#include <ceres/asm/object_file.h>
 #include <ceres/debug/debug_session.h>
 #include <ceres/core/format/memory_map.h>
 #include <filesystem>
@@ -363,6 +364,72 @@ TEST(debugger, the_program_output_reaches_the_handler_byte_by_byte)
 	session->resume();
 
 	CHECK_EQ(captured, std::string("Hi"));
+}
+
+TEST(debugger, archives_and_import_directories_link_a_source_program)
+{
+	// The standard library's shape: an object in libceres.car reached through the import directory,
+	// and libceres.decls.casm to name it. The program has no lib_put of its own, so only the object
+	// pipeline - assemble each source, then link the archives - can build it.
+	const auto root = std::filesystem::temp_directory_path() / "ceres_debug_stdlib";
+	const auto lib = root / "stdlib" / "lib";
+	std::error_code ignored;
+	std::filesystem::remove_all(root, ignored);
+	std::filesystem::create_directories(lib);
+
+	const auto module = root / "module.casm";
+	{
+		std::ofstream file(module, std::ios::binary | std::ios::trunc);
+		file << "@text\r\n"
+			"global lib_put:\r\n"
+			"    la r13, 0xFF000004\r\n"
+			"    str [r13 + 0], r0\r\n"
+			"    ret\r\n";
+	}
+	casm::Assembler assembler;
+	auto object = assembler.assembleObject(module);
+	CHECK(object.has_value());
+	if (!object) return;
+	casm::ObjectArchive archive;
+	archive.members.push_back(casm::ObjectArchive::Member{ "lib", std::move(*object), true });
+	CHECK(archive.write(lib / "libceres.car").has_value());
+	{
+		std::ofstream file(lib / "libceres.decls.casm", std::ios::binary | std::ios::trunc);
+		file << "@text\r\n"
+			"global lib_put:\r\n";
+	}
+
+	TempSource source{
+		"import \"libceres.decls.casm\"\r\n"
+		"@text\r\n"
+		"global main:\r\n"
+		"    li r0, 65\r\n"
+		"    call lib_put\r\n"
+		"    li r0, 1\r\n"
+		"    la r13, 0xFFFF0000\r\n"
+		"    str [r13 + 0], r0\r\n"
+		"    ret\r\n", "stdlib" };
+
+	auto session = debug::DebugSession::launch(debug::LaunchConfig{
+		.sources = { source.path() },
+		.importDirectories = { lib },
+		.archives = { lib / "libceres.car" }
+	});
+	CHECK(session.has_value());
+	if (!session) { Registry::instance().recordFailure(session.error()); return; }
+
+	std::string captured;
+	(*session)->setOutputHandler([&captured](std::span<const u8> bytes)
+	{
+		for (u8 byte : bytes)
+			captured.push_back(static_cast<char>(byte));
+	});
+	(*session)->start();
+	const debug::StopEvent event = (*session)->resume();
+
+	CHECK(event.reason == debug::StopReason::Exited);
+	CHECK_EQ(captured, std::string("A"));
+	std::filesystem::remove_all(root, ignored);
 }
 
 TEST(debugger, a_fault_reports_the_instruction_that_caused_it_not_the_handler)

@@ -83,6 +83,8 @@ namespace ceres::driver
 		std::filesystem::path keysFile;         // --keys: keyboard events at instants of the machine's time
 		GpuExecutor gpu = GpuExecutor::Auto;    // --gpu auto|software|hardware
 		bool shell = false;                     // --shell: back to the shell whenever the program ends (so without an input)
+		bool stdlib = false;                                    // --stdlib
+		std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
 	};
 
 	struct ProfileCommand
@@ -90,6 +92,8 @@ namespace ceres::driver
 		std::filesystem::path input;
 		MachineProfile machine = defaultMachineProfile();
 		bool listing = false;
+		bool stdlib = false;                                    // --stdlib
+		std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
 	};
 
 	struct DisassembleCommand
@@ -97,6 +101,8 @@ namespace ceres::driver
 		std::filesystem::path input;
 		bool debugInfo = false;
 		bool debugJson = false;
+		bool stdlib = false;                                    // --stdlib
+		std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
 	};
 
 	struct DebugCommand
@@ -106,6 +112,8 @@ namespace ceres::driver
 		bool stopOnEntry = true;
 		bool server = false;
 		bool recordHistory = true;
+		bool stdlib = false;                                    // --stdlib
+		std::vector<std::filesystem::path> importDirectories;   // -I, in command-line order
 	};
 
 	using Command = std::variant<AssembleCommand, LinkCommand, ArchiveCommand, RunCommand,
